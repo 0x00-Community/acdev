@@ -112,7 +112,7 @@ export class Sdk {
   static show(dir: string, pkg: Readonly<Record<string, unknown>>): string[] {
     const state = Sdk.state(dir, pkg)
     const project = state.spec === null ? 'none' : `${state.version ?? 'unknown version'} (${state.spec})`
-    const warning = Sdk.warning(state)
+    const warning = Sdk.warning(state, PackageManager.of(dir).name)
     return [
       `project: ${project}`,
       `this acde: ${state.paired} (${Sdk.url(state.paired)})`,

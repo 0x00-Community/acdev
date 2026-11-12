@@ -102,6 +102,20 @@ describe('acde check on a project', () => {
     expect((await cli(['check'], dir)).stderr).toBe('')
   })
 
+  test('acde sdk and acde check name the same package manager for the install', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.url() } }))
+    writeFileSync(join(dir, 'bun.lock'), '{}')
+    const installed = join(dir, 'node_modules', '@dopame', 'acde-api')
+    mkdirSync(installed, { recursive: true })
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: '0.0.1' }))
+    const said = `package.json names @dopame/acde-api ${Sdk.paired()}, but 0.0.1 is installed: run bun install`
+    expect((await cli(['check'], dir)).stderr).toContain(`warning: ${said}`)
+    expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe(said)
+  })
+
   test('.npmrc: allow-remote=root is added once, after what is there, and a choice of the user is kept', () => {
     const dir = tmp()
     expect(Sdk.allowRemote(dir)).toBe(true)
