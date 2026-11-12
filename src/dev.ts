@@ -50,6 +50,7 @@ export interface RuntimeProbe {
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
   static readonly INTERRUPT_MS = 2_000
+  static readonly SAME_INTERRUPT_MS = 500
   static readonly RECORD = /^\d+\.\d{3} ([EWIDT]) \S+ (\S+): (.*)$/
   static readonly PAGE = 'js'
   static readonly HOST = 'acde_host'
@@ -293,7 +294,11 @@ export class DevSession {
         running = false
       })
       let interrupted = 0
+      let counted = -Infinity
       signals.push(['SIGINT', () => {
+        const now = performance.now()
+        if (process.platform !== 'win32' && now - counted < DevSession.SAME_INTERRUPT_MS) return
+        counted = now
         interrupted++
         if (process.platform !== 'win32') started.kill(interrupted > 1 ? 'SIGKILL' : 'SIGTERM')
         else if (interrupted > 1) started.kill()

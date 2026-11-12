@@ -375,7 +375,12 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
 - acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGTERM / SIGHUP 转给 acdert. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdert 发 SIGTERM (只发给 acde dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acde dev 一直不退),
-  第二次 SIGINT 发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
+  第二次中断发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
+  unix 上 `DevSession.SAME_INTERRUPT_MS` (500 ms) 内的几个 SIGINT 算同一次中断 (从上一次算数的那个起算): 经 launcher 跑时 (`bun run acde`、
+  `bin/acde.mjs`、`Cli.follow` 换运行时) launcher 把 SIGINT 转给子进程, 而终端的 Ctrl+C 发给整个前台进程组, 子进程自己也收到一份, 再加上
+  转来的 (`Cli.follow` 时最多三份), 几毫秒内到齐; 人有意按第二次总在这之后. 只能靠时间分: Node 和 Bun 的信号处理拿不到发送者 (没有 siginfo),
+  launcher 也分不出 Ctrl+C 和只发给它的 `kill -INT`; 让子进程另成进程组 (只收 launcher 转的) 会把它变成后台作业, 读终端时被 SIGTTIN 停住,
+  交互的提示就坏了; 改转别的信号又改了其他命令收到的东西和退出码. Windows 上 launcher 不转 (没有发给单个进程的 SIGINT), 不合并.
 - 一个工程一个会话 (acde#91): 另一个活着的 acde dev 跑着本次的某个工程 (含 `--desktop <目录>` 那个) 时报
   `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another` 退出 1, `--force` 照样起
   (不认领、不查). 判断在 `run()` 开头、构建之前 (`DevSession.#claim`): 先认领, 再看会话文件.
@@ -694,7 +699,9 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `current\bin` (`bin` 不做成链接: `acde.cmd` 的 `%~dp0..` 按字面算), 写 `HKCU\Environment` 的 `Path` (`DoNotExpandEnvironmentNames` 读、写回
   `REG_EXPAND_SZ`, 原有的 `%…%` 不展开), 设用户级 `ACDE_INSTALL` (顺带广播 `WM_SETTINGCHANGE`), 当前会话也加上.
 - **launcher** (`launcher.mjs`, 只用 `node:` 模块, 类型手写在 `launcher.d.mts`; 源码一律 `import … from 'acde/launcher'`): `bin/acde.mjs` (检出用) →
-  `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
+  `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; unix 上 SIGINT、SIGTERM、
+  SIGHUP 都转给子进程 (只发给 launcher 的 SIGINT 也要停下 `acde dev`, acde#91; 终端 Ctrl+C 时子进程收到两份, `acde dev` 合并成一次, 见「acde dev」;
+  别的命令要么收到第一份就退, 要么第二份无害), Windows 上 SIGINT 只吞掉 (Ctrl+C 本来就到子进程), 别的不转. 全局装的
   `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 全局装时安装器放在旁边的
   `bin/acdert[.exe]` (`acdertBeside`, 同一版本目录), 最后 PATH; 检出跑的 acde 只认 `ACDERT` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).

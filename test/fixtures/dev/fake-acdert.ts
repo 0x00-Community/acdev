@@ -398,7 +398,15 @@ setTimeout(() => {
     if (process.platform !== 'win32') chmodSync(endpoint, 0o600)
   })
 }, Number(process.env['FAKE_ACDERT_LISTEN_MS'] ?? 0))
-process.on('SIGTERM', () => process.exit(0))
+const LINGER_MS = Number(process.env['FAKE_ACDERT_LINGER_MS'] ?? 0)
+if (LINGER_MS > 0) {
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      record({ signal })
+      setTimeout(() => process.exit(0), LINGER_MS)
+    })
+  }
+} else process.on('SIGTERM', () => process.exit(0))
 
 function answer(m: Record<string, unknown>, send: (message: object) => void): void {
   const ok = (result: unknown) => send({ type: 'response', id: m['id'], ok: true, result })

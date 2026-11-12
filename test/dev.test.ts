@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync,
@@ -17,6 +18,7 @@ import { slug } from '../src/paths.ts'
 import { cleanup, env, fakeAcdert, fakeBrowser, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
+const LAUNCHER = join(import.meta.dir, '../bin/acde.mjs')
 
 afterAll(cleanup)
 
@@ -786,6 +788,69 @@ describe('acde dev with a stand-in acdert', () => {
     }
     Sessions.list(join(root, 'acde-dev'))
     expect(readdirSync(join(root, 'acde-dev'))).toEqual([])
+  }, 60_000)
+
+  test.skipIf(skipping(WINDOWS, 'SIGINT to one process: Unix only'))('through the launcher (bin/acde.mjs): SIGINT to '
+    + 'the launcher alone ends acde dev; one Ctrl+C to the whole group is one interrupt; a second one later forces',
+  async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const launch = (linger: number) => {
+      const root = tmp()
+      const log = join(root, 'fake.log')
+      writeFileSync(log, '')
+      const vars = {
+        TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: fakeAcdert(root), FAKE_ACDERT_LOG: log,
+        FAKE_ACDERT_LINGER_MS: String(linger),
+      }
+      const launcher = spawn(process.execPath, [LAUNCHER, 'dev', alpha, '--headless'], {
+        cwd: base, env: env(vars), stdio: 'ignore', detached: true,
+      })
+      const exited = new Promise<number | null>((done) => launcher.once('exit', (code) => done(code)))
+      const sessions = join(root, 'acde-dev')
+      const signals = () => readFileSync(log, 'utf8').split('\n').filter(Boolean)
+        .map((l) => (JSON.parse(l) as { signal?: string }).signal).filter(Boolean)
+      const ready = () => until('a session', () => existsSync(sessions)
+        && readdirSync(sessions).find((name) => name.endsWith('.json')))
+      const within = (ms: number) => Promise.race([exited, Bun.sleep(ms).then(() => 'late' as const)])
+      const group = (signal: NodeJS.Signals) => {
+        try {
+          process.kill(-launcher.pid!, signal)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+        }
+      }
+      return { launcher, sessions, signals, ready, within, group }
+    }
+    const alone = launch(300)
+    try {
+      await alone.ready()
+      alone.launcher.kill('SIGINT')
+      expect(await alone.within(5_000)).toBe(0)
+      expect(alone.signals()).toEqual(['SIGTERM'])
+      expect(readdirSync(alone.sessions)).toEqual([])
+    } finally {
+      alone.group('SIGKILL')
+    }
+    const group = launch(1_000)
+    try {
+      await group.ready()
+      group.group('SIGINT')
+      expect(await group.within(5_000)).toBe(0)
+      expect(group.signals().sort()).toEqual(['SIGINT', 'SIGTERM'])
+    } finally {
+      group.group('SIGKILL')
+    }
+    const twice = launch(10_000)
+    try {
+      await twice.ready()
+      twice.group('SIGINT')
+      await Bun.sleep(1_000)
+      twice.group('SIGINT')
+      expect(await twice.within(5_000)).toBe(137)
+    } finally {
+      twice.group('SIGKILL')
+    }
   }, 60_000)
 
   test('act w1 close that ends a single-app session exits 0, any other lost connection 1; ' +

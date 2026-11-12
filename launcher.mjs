@@ -133,8 +133,8 @@ function checkRuntime() {
 export function run(args, exe = cliRuntime()) {
   checkRuntime()
   const child = spawn(exe, [cliFile(), ...args], { stdio: 'inherit', env: cliEnv(exe) })
-  process.on('SIGINT', () => {})
-  if (!WINDOWS) for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
+  if (WINDOWS) process.on('SIGINT', () => {})
+  else for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
   return new Promise((done) => {
     child.on('error', (error) => {
       process.stderr.write(`acde: ${exe}: ${error.message}\n`)
