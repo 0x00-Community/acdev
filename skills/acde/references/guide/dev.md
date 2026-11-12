@@ -53,6 +53,12 @@ The terminal shows builds and reloads, the pages' `console.*` output and uncaugh
 
 To watch them from another terminal, or to read them from a script, use `acde console` / `acde network` from the [debugging tools](tools.md).
 
+## DevTools
+
+Press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acde: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acde devtools [web]` does the same from another terminal (see the [CLI reference](../reference/cli.md)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
+
+DevTools open in a browser profile of acde's own, not your everyday one. Without Chrome or Edge, or with `ACDE_BROWSER=none`, the terminal prints the address to paste into one instead.
+
 ## Runtime
 
 `acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds, and `acde doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).

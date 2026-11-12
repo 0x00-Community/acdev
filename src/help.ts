@@ -253,7 +253,8 @@ export class Help {
         'Opens the DevTools of Chrome or Edge on a page of the session: web (a web name, an app id, desktop, '
           + 'a window title, or services or a service name for the services), else the focused page. Prints the '
           + 'DevTools address; without Chrome or Edge it prints only the address to paste into one. ACDE_BROWSER '
-          + 'names the browser to use; none opens nothing.',
+          + 'names the browser to use; none opens nothing. F12 in a window of acde dev does the same for the page '
+          + 'in that window (fn+F12 on a Mac keyboard), and brings its DevTools to the front when they are open.',
       ], [], ['acde devtools', 'acde devtools notes', 'acde devtools services']),
       {
         name: 'mcp',
