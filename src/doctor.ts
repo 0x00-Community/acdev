@@ -191,7 +191,7 @@ export class Doctor {
   }
 
   static contract(probe: RuntimeProbe, reinstall: Repair | null = null): Check {
-    const version = /^acdert (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
+    const version = /^(?:acde-dbg|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
     const sdk = Versions.sdk()
     const pairs = `acde ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdert ${sdk}`
     if (probe.level !== API_LEVEL) {
@@ -208,7 +208,7 @@ export class Doctor {
   static async selfCheck(acdert: string, probe: RuntimeProbe, reinstall: Repair | null = null): Promise<Check[]> {
     const help = await Runtime.capture([acdert, '--help'], { timeout: Doctor.HELP_MS })
     if (!/^\s*acdert doctor\b/m.test(help.stdout)) {
-      const version = /^acdert (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
+      const version = /^(?:acde-dbg|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
       const sdk = Versions.sdk()
       const fix = version === sdk ? 'use a newer build of acdert: this one was built before acdert doctor' : Doctor.pairFix(sdk)
       const old = Doctor.warn('runtime', 'runtime check', `acdert ${version} cannot check itself (it has no acdert doctor), so its ` +

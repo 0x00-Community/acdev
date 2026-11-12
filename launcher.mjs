@@ -42,8 +42,12 @@ export function which(name, env = process.env) {
   return null
 }
 
+export const RUNTIMES = ['acde-dbg', 'acdert']
+
 export function acdertBeside(root = ROOT) {
-  return installed(root) ? join(root, '..', '..', 'bin', `acdert${EXE}`) : null
+  if (!installed(root)) return null
+  const paths = RUNTIMES.map((name) => join(root, '..', '..', 'bin', `${name}${EXE}`))
+  return paths.find((path) => existsSync(path)) ?? paths.at(-1)
 }
 
 export function findAcdert(root = ROOT, env = process.env) {
@@ -56,14 +60,14 @@ export function findAcdert(root = ROOT, env = process.env) {
   }
   const beside = acdertBeside(root)
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
-  const found = which(`acdert${EXE}`, env)
+  const found = RUNTIMES.map((name) => which(`${name}${EXE}`, env)).find(Boolean)
   if (found) return { path: found, from: 'PATH' }
   const missing = beside ? `no ${beside}, which the acde installer puts there: run the installer again, ` : ''
   return {
     path: null,
     from: null,
     problem: `acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
-      'set ACDERT to an acdert binary, or put acdert on PATH',
+      'set ACDERT to an acde-dbg binary, or put acde-dbg on PATH',
   }
 }
 
