@@ -158,3 +158,24 @@ fn changing_a_path_inside_an_svg_redraws_it() {
     assert_eq!(left(&page), 0);
     assert!(page.count(50, 50, 100, 100).1 > 2000);
 }
+
+#[test]
+fn oklch_and_color_mix_colors_paint() {
+    for (style, attrs) in [
+        ("color: oklch(0.63 0.26 29)", vec![("fill", "none"), ("stroke", "currentColor")]),
+        ("color: color-mix(in oklab, red 90%, black)", vec![("fill", "none"), ("stroke", "currentColor")]),
+        ("", vec![("fill", "none"), ("stroke", "oklch(0.63 0.26 29)")]),
+        ("color: oklch(0.63 0.26 29)", vec![("fill", "currentColor")]),
+    ] {
+        let page = Page::new(CSS);
+        let div = page.doc.create_element("div").unwrap();
+        page.doc.set_attribute(div, "style", style).unwrap();
+        page.doc.append_child(0, div).unwrap();
+        let svg = page.svg(div, "svg", &[("viewBox", "0 0 100 100")]);
+        let mut rect = vec![("x", "10"), ("y", "10"), ("width", "80"), ("height", "80"), ("stroke-width", "6")];
+        rect.extend(attrs.iter().copied());
+        page.svg(svg, "rect", &rect);
+        let (_, red) = page.count(0, 0, 100, 100);
+        assert!(red > 300, "{style} {attrs:?}: {red} red pixels");
+    }
+}
