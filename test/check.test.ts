@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Pkgs } from '../src/pkgs.ts'
 import { Sdk } from '../src/sdk.ts'
 import { cleanup, collect, env, sdkMirror, tmp } from './helpers.ts'
 
@@ -57,14 +58,14 @@ describe('acde check on a project', () => {
       expect(checked.stderr).toContain('run acde sdk update')
     }
     const paired = Sdk.paired()
-    const older = 'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz'
+    const older = `${Pkgs.ACDERT}/0.0.7/acde-api-0.0.7.tar.gz`
     write(older)
     const old = await cli(['check'], dir)
     expect(old.code).toBe(0)
     expect(old.stderr).toContain(`@dopame/acde-api is 0.0.7 (${older}), `
       + `but this acde pairs with ${paired}: run acde sdk update`)
     expect((await cli(['sdk'], dir)).stdout).toContain(`project: 0.0.7 (`)
-    write(`https://pkgs.dopame.ai/acdert/${paired}/acde-api-${paired}.tar.gz`)
+    write(`${Pkgs.ACDERT}/${paired}/acde-api-${paired}.tar.gz`)
     expect((await cli(['check'], dir)).stderr).toBe('')
     expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe('up to date')
   })
@@ -75,7 +76,7 @@ describe('acde check on a project', () => {
       const dir = tmp()
       writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
       writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
-      const old = 'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz'
+      const old = `${Pkgs.ACDERT}/0.0.7/acde-api-0.0.7.tar.gz`
       writeFileSync(join(dir, 'package.json'), JSON.stringify({
         name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
       }, null, 2))

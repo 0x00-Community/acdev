@@ -21,7 +21,7 @@ Checks what `acde dev` and `acde test` need on this machine: acde on PATH, Bun a
 | Option | Description |
 | --- | --- |
 | `--json` | One JSON object instead of lines: `{"ok": …, "checks": [{"id", "title", "status", "summary", "fix", "repair"}]}`; with `--fix` also `"fixed"` |
-| `--online` | Also ask `pkgs.dopame.ai` (or `ACDE_DIST`) whether a newer acde is out |
+| `--online` | Also ask the acde download site (`ACDE_DIST`) whether a newer acde is out |
 | `--fix` | After the checks, fix what acde can: some fixes right away, the others after asking; then check again. See [Fix what it can](../guide/doctor.md#fix-what-it-can) |
 | `--yes` | With `--fix`: do the fixes that ask first without asking |
 
@@ -99,7 +99,7 @@ Removes a package that `acde install` put into the packages directory, found by 
 acde sdk [update] [dir]
 ```
 
-Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://pkgs.dopame.ai/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
+Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
 
 ### acde dev
 
