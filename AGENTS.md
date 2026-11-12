@@ -345,7 +345,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   一个目标: `id` 是 `broker` (Broker 的 isolate 名, 它和别的 isolate 一样在 inspector 里登记), `type` 是 `service`, `title` 是
   `services: <服务名, …>`, `url` 空, 有服务在跑时才列; 后端以后定. `DevRequests` 每 250 ms 算一次 (`publish()`), 列表变了才推给
   `DevTools.targets`, 从列表里消失的目标的 WebSocket 以 1001 关掉. `webSocketDebuggerUrl` 是 `ws://127.0.0.1:<port>/devtools/page/<id>`,
-  `devtoolsFrontendUrl` 同 Chrome 是 `devtools://devtools/bundled/inspector.html?ws=<地址>`, 但 `ws` 的值整个再百分号编码一次 (前端读它时解码一次; 目标 id 里的 `#` 在路径里本来就是 `%23`, 不再编码会被还原成 `#` 当片段丢掉), 所以 `chrome://inspect`
+  `devtoolsFrontendUrl` 是 `devtools://devtools/bundled/devtools_app.html?ws=<地址>` (不是 Chrome 给远程设备用的 `inspector.html`: 那个左边留一块投屏区, 我们不答 `Page.startScreencast`, 只剩一片空白), 但 `ws` 的值整个再百分号编码一次 (前端读它时解码一次; 目标 id 里的 `#` 在路径里本来就是 `%23`, 不再编码会被还原成 `#` 当片段丢掉), 所以 `chrome://inspect`
   里配上 `127.0.0.1:<port>` 就能发现目标并打开. 不在列表里的目标升级前回 404. WebSocket 上: `Browser.getVersion` 自己答, 别的
   方法交给 `acde_runtime::devtools::forward` 装上的 `Forward` (`attach(client)` / `message(client, text) -> bool` / `detach(client)`, 在连接
   线程上调用; `Client::target()` 是 web 名, 浏览器端点是 None; `Client::send(text)` 任意线程发一条文本帧, 连接断了回 false), 没装或它回

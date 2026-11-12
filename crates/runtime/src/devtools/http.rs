@@ -206,7 +206,7 @@ impl Endpoint {
                 let socket = self.socket(&format!("/devtools/page/{}", encode(&t.id)));
                 json!({
                     "description": "",
-                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)),
+                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/devtools_app.html?ws={}", encode(&socket)),
                     "id": t.id,
                     "title": t.title,
                     "type": t.kind,
@@ -409,7 +409,7 @@ mod tests {
         let socket = format!("127.0.0.1:{port}/devtools/page/alpha%237");
         assert_eq!(list[0]["webSocketDebuggerUrl"], format!("ws://{socket}"));
         let frontend = list[0]["devtoolsFrontendUrl"].as_str().unwrap();
-        assert_eq!(frontend, format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)));
+        assert_eq!(frontend, format!("devtools://devtools/bundled/devtools_app.html?ws={}", encode(&socket)));
         let ws = decode(frontend.split_once("?ws=").unwrap().1).unwrap();
         assert_eq!(ws, socket);
         assert!(ws.ends_with("/devtools/page/alpha%237"), "the page id stays encoded after one decoding: {ws}");
