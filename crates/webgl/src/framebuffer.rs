@@ -132,11 +132,8 @@ impl Context {
                     dimension: wgpu::TextureDimension::D2,
                     format: fmt.wgpu,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | if samples == 1 {
-                            wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING
-                        } else {
-                            wgpu::TextureUsages::empty()
-                        },
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | if samples == 1 { wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST } else { wgpu::TextureUsages::empty() },
                     view_formats: &[],
                 })
             })

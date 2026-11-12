@@ -203,3 +203,58 @@ fn robustness_and_mrt() {
     }
     assert!(signaled);
 }
+
+#[test]
+fn multisampled_depth_resolve() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let Some(gpu) = gpu() else { return };
+    let mut gl = Context::new(gpu, true, Attributes { antialias: false, ..Default::default() }, 8, 8);
+    let p = program(
+        &mut gl,
+        "#version 300 es\nin vec3 p; void main() { gl_Position = vec4(p, 1.0); }",
+        "#version 300 es\nprecision mediump float; uniform vec4 c; out vec4 o; void main() { o = c; }",
+    );
+    gl.use_program(Some(p));
+    let serial = gl.program_serial(p);
+    let c = gl.uniform_location(p, "c").unwrap();
+    let b = gl.create_buffer();
+    gl.bind_buffer(ARRAY_BUFFER, Some(b));
+    gl.buffer_data(
+        ARRAY_BUFFER,
+        Some(&floats(&[-1.0, -1.0, -0.4, 3.0, -1.0, -0.4, -1.0, 3.0, -0.4, -1.0, -1.0, 0.0, 3.0, -1.0, 0.0, -1.0, 3.0, 0.0])),
+        0,
+        STATIC_DRAW,
+    );
+    gl.vertex_attrib_pointer(0, 3, FLOAT, false, 0, 0, false);
+    gl.enable_vertex_attrib(0, true);
+    let rb = |gl: &mut Context, samples: i32, format: u32| {
+        let r = gl.create_renderbuffer();
+        gl.bind_renderbuffer(RENDERBUFFER, Some(r));
+        gl.renderbuffer_storage(RENDERBUFFER, samples, format, 8, 8);
+        r
+    };
+    let (msaa_color, msaa_depth) = (rb(&mut gl, 4, RGBA8), rb(&mut gl, 4, DEPTH24_STENCIL8));
+    let msaa = gl.create_framebuffer();
+    gl.bind_framebuffer(FRAMEBUFFER, Some(msaa));
+    gl.framebuffer_renderbuffer(FRAMEBUFFER, COLOR_ATTACHMENT0, RENDERBUFFER, Some(msaa_color));
+    gl.framebuffer_renderbuffer(FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, RENDERBUFFER, Some(msaa_depth));
+    gl.enable(DEPTH_TEST, true);
+    gl.clear(COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT);
+    gl.uniform(Some(p), c, serial, Setter::Float(4), false, &floats(&[1.0, 0.0, 0.0, 1.0]));
+    gl.draw(TRIANGLES, 0, 3, 1, None);
+    let (color, depth) = (rb(&mut gl, 0, RGBA8), rb(&mut gl, 0, DEPTH24_STENCIL8));
+    let single = gl.create_framebuffer();
+    gl.bind_framebuffer(FRAMEBUFFER, Some(single));
+    gl.framebuffer_renderbuffer(FRAMEBUFFER, COLOR_ATTACHMENT0, RENDERBUFFER, Some(color));
+    gl.framebuffer_renderbuffer(FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, RENDERBUFFER, Some(depth));
+    gl.clear_depth(1.0);
+    gl.clear(COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT);
+    gl.bind_framebuffer(READ_FRAMEBUFFER, Some(msaa));
+    gl.blit_framebuffer([0, 0, 8, 8], [0, 0, 8, 8], COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT, NEAREST);
+    assert_eq!(gl.get_error(), NO_ERROR);
+    gl.bind_framebuffer(FRAMEBUFFER, Some(single));
+    assert_eq!(pixel(&mut gl, 2, 2), [255, 0, 0, 255], "colour resolved");
+    gl.uniform(Some(p), c, serial, Setter::Float(4), false, &floats(&[0.0, 1.0, 0.0, 1.0]));
+    gl.draw(TRIANGLES, 3, 3, 1, None);
+    assert_eq!(pixel(&mut gl, 2, 2), [255, 0, 0, 255], "the resolved depth hides a farther triangle");
+}

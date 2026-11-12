@@ -103,6 +103,7 @@ pub struct Context {
     pub(crate) generation: u64,
     pub(crate) features: wgpu::Features,
     pub(crate) converted: HashMap<ConvertKey, wgpu::Buffer>,
+    pub(crate) warned_depth_blit: bool,
 }
 
 impl Context {
@@ -144,6 +145,7 @@ impl Context {
             generation: 1,
             features,
             converted: HashMap::new(),
+            warned_depth_blit: false,
         };
         context.resize(width, height);
         context
@@ -263,7 +265,7 @@ impl Context {
             let readable = attachment | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
             let color = texture("acde webgl drawing buffer", wgpu::TextureFormat::Rgba8Unorm, samples, if samples > 1 { attachment } else { readable });
             let resolve = (samples > 1).then(|| texture("acde webgl resolve", wgpu::TextureFormat::Rgba8Unorm, 1, readable));
-            let depth = depth_format.map(|f| texture("acde webgl depth", f, samples, attachment));
+            let depth = depth_format.map(|f| texture("acde webgl depth", f, samples, attachment | wgpu::TextureUsages::TEXTURE_BINDING));
             (color, resolve, depth)
         });
         let (color, resolve, depth) = match created {

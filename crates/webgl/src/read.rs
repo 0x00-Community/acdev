@@ -359,19 +359,81 @@ impl Context {
                 Some(fb) => self.framebuffer(fb).and_then(|f| f.depth.or(f.stencil)).and_then(|a| self.view_of(a)).map(|v| v.raw),
             };
             if let (Some((s, samples)), Some(d)) = (source, dest) {
-                let same = s.size() == d.size()
-                    && s.format() == d.format()
-                    && samples == d.sample_count()
-                    && src == dst
-                    && src == [0, 0, s.width() as i32, s.height() as i32];
-                if same && samples == 1 {
+                let whole = s.size() == d.size() && s.format() == d.format() && src == dst && src == [0, 0, s.width() as i32, s.height() as i32];
+                if whole && samples == d.sample_count() && samples == 1 {
                     self.flush_pass();
                     self.encoder().copy_texture_to_texture(s.as_image_copy(), d.as_image_copy(), s.size());
-                } else if !same && self.webgl2 {
-                    log::warn!("webgl: blitFramebuffer of depth/stencil only copies whole single-sampled buffers of the same size");
+                } else if whole && samples > 1 && d.sample_count() == 1 && mask & DEPTH_BUFFER_BIT != 0 {
+                    self.resolve_depth(&s, &d);
+                } else if self.webgl2 && !self.warned_depth_blit {
+                    self.warned_depth_blit = true;
+                    log::warn!("webgl: blitFramebuffer of depth/stencil only copies whole buffers of the same size (and resolves depth, not stencil)");
                 }
             }
         }
+    }
+
+    fn resolve_depth(&mut self, source: &wgpu::Texture, dest: &wgpu::Texture) {
+        let format = dest.format();
+        let name = format!("depth resolve {format:?}");
+        let pipeline = self.helper(&name, |device| {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("acde webgl depth resolve"),
+                source: wgpu::ShaderSource::Wgsl(
+                    format!(
+                        "{}@group(0) @binding(0) var source: texture_depth_multisampled_2d;\n@fragment fn fs(@builtin(position) at: vec4f) -> @builtin(frag_depth) f32 {{ return textureLoad(source, vec2i(at.xy), 0); }}\n",
+                        crate::helpers::FULLSCREEN
+                    )
+                    .into(),
+                ),
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("acde webgl depth resolve"),
+                layout: None,
+                vertex: wgpu::VertexState { module: &module, entry_point: Some("vs"), compilation_options: Default::default(), buffers: &[] },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState { module: &module, entry_point: Some("fs"), compilation_options: Default::default(), targets: &[] }),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+        let Some(pipeline) = pipeline else { return };
+        let view = source.create_view(&wgpu::TextureViewDescriptor { aspect: wgpu::TextureAspect::DepthOnly, ..Default::default() });
+        let target = dest.create_view(&wgpu::TextureViewDescriptor::default());
+        let group = self.scoped(|device| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("acde webgl depth resolve"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
+            })
+        });
+        let Ok(group) = group else { return };
+        let stencil = dest.format().has_stencil_aspect();
+        self.flush_pass();
+        let encoder = self.encoder();
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("acde webgl depth resolve"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &target,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
+                stencil_ops: stencil.then_some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     pub fn present(&mut self) -> Option<Arc<GpuImage>> {
