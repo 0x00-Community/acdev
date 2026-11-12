@@ -96,40 +96,50 @@ describe('Frame.darkPage', () => {
     assert.deepEqual(tells, [false, true])
   })
 
-  test('followScheme watches only the root, its head and the document node, not the whole tree', () => {
+  test('followScheme watches the root, the head and its scheme parts, never a subtree', () => {
+    const text = { nodeType: 3 }
+    const style = { localName: 'style', childNodes: [text] } as unknown as Element
+    const meta = { localName: 'meta', childNodes: [] } as unknown as Element
     const root = {} as Element
-    const head = {} as Element
-    const watched: [unknown, Record<string, boolean>][] = []
-    let disconnects = 0
+    const head = { children: [meta, style] } as unknown as Element
+    const watched: [unknown, MutationObserverInit][] = []
     let styled = 0
     const document = { documentElement: root, head, querySelector: () => null }
     const page = {
       document,
-      getComputedStyle: () => ((styled += 1), { getPropertyValue: () => 'normal' }),
+      getComputedStyle: () => {
+        styled += 1
+        return { getPropertyValue: () => 'normal' }
+      },
       MutationObserver: class {
-        observe(target: unknown, options: Record<string, boolean>): void {
+        observe(target: unknown, options: MutationObserverInit): void {
           watched.push([target, options])
         }
-        disconnect(): void {
-          disconnects += 1
-        }
+        disconnect(): void {}
       },
     }
     Frame.followScheme(page, { setPageDark: () => {} }, (run) => run())
+    const filter = ['name', 'content', 'rel', 'href', 'media', 'disabled']
     assert.deepEqual(watched, [
       [document, { childList: true }],
       [root, { attributes: true, childList: true }],
-      [head, { subtree: true, childList: true, attributes: true, characterData: true }],
+      [head, { childList: true }],
+      [meta, { attributes: true, attributeFilter: filter, childList: false }],
+      [style, { attributes: true, attributeFilter: filter, childList: true }],
+      [text, { characterData: true }],
     ])
+    assert.ok(watched.every(([, options]) => !options.subtree), 'a subtree observer makes every DOM change walk its ancestors')
     assert.equal(styled, 1, 'the computed style is read once, not for every change in the body')
-    assert.equal(disconnects, 2)
   })
 
   test('a color-scheme meta answers without reading the computed style', () => {
     let styled = 0
     const page = {
       document: { documentElement: {} as Element, head: null, querySelector: () => ({ getAttribute: () => 'light dark' }) as unknown as Element },
-      getComputedStyle: () => ((styled += 1), { getPropertyValue: () => '' }),
+      getComputedStyle: () => {
+        styled += 1
+        return { getPropertyValue: () => '' }
+      },
       MutationObserver: class {
         observe(): void {}
         disconnect(): void {}

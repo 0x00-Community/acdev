@@ -6,10 +6,16 @@ import { Level, Log } from './log'
 interface SchemePage {
   readonly document: { readonly documentElement: Element | null; readonly head: Element | null; querySelector(selector: string): Element | null }
   getComputedStyle(element: Element): { getPropertyValue(name: string): string }
-  readonly MutationObserver: new (callback: () => void) => { observe(target: unknown, options: Record<string, boolean>): void; disconnect(): void }
+  readonly MutationObserver: new (callback: () => void) => SchemeObserver
+}
+
+interface SchemeObserver {
+  observe(target: unknown, options: MutationObserverInit): void
+  disconnect(): void
 }
 
 const DARK = /(^|\s)dark(\s|$)/i
+const SCHEME_ATTRIBUTES = ['name', 'content', 'rel', 'href', 'media', 'disabled']
 
 export class Frame {
   static readonly HEIGHT = 32
@@ -57,31 +63,24 @@ export class Frame {
     if (!surface.setPageDark) return
     let shown: boolean | null = null
     let queued = false
-    const watched: { root: Element | null; head: Element | null } = { root: null, head: null }
+    let root: Element | null = null
     const schedule = () => {
       if (queued) return
       queued = true
       later(check)
     }
     const top = new page.MutationObserver(schedule)
-    const root = new page.MutationObserver(schedule)
+    const rootWatch = new page.MutationObserver(schedule)
     const head = new page.MutationObserver(schedule)
-    const bind = () => {
-      const { documentElement, head: current } = page.document
-      if (documentElement !== watched.root) {
-        root.disconnect()
-        watched.root = documentElement
-        if (documentElement) root.observe(documentElement, { attributes: true, childList: true })
-      }
-      if (current !== watched.head) {
-        head.disconnect()
-        watched.head = current
-        if (current) head.observe(current, { subtree: true, childList: true, attributes: true, characterData: true })
-      }
-    }
     const check = () => {
       queued = false
-      bind()
+      const current = page.document.documentElement
+      if (current !== root) {
+        rootWatch.disconnect()
+        root = current
+        if (root) rootWatch.observe(root, { attributes: true, childList: true })
+      }
+      Frame.watchHead(head, page.document.head)
       const dark = Frame.darkPage(page)
       if (dark === shown) return
       shown = dark
@@ -89,5 +88,16 @@ export class Frame {
     }
     top.observe(page.document, { childList: true })
     check()
+  }
+
+  static watchHead(observer: SchemeObserver, head: Element | null): void {
+    observer.disconnect()
+    if (!head) return
+    observer.observe(head, { childList: true })
+    for (const child of Array.from(head.children)) {
+      const style = child.localName === 'style'
+      observer.observe(child, { attributes: true, attributeFilter: SCHEME_ATTRIBUTES, childList: style })
+      if (style) for (const text of Array.from(child.childNodes)) observer.observe(text, { characterData: true })
+    }
   }
 }
