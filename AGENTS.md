@@ -142,8 +142,12 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acde <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
   给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
-- 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading`): `adopt` 最后把工程里 (跳过 `SKIPPED` 目录) 页面源码的 `and save to test HMR` / `to test HMR`
-  改成 `and save to reload the page`: acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢 (表单值、滚动、焦点、选区由运行时恢复).
+- 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading` / `readmeReloading`): `adopt` 最后遍历工程 (跳过 `SKIPPED` 目录). 页面源码里
+  `save to test HMR` / `to test HMR` 改成 `(and) save to reload the page`, `HMR` 可以包在 `<code>` 里、和前文隔着换行 (create-vite 9 的写法:
+  `and save to test <code>HMR</code>`; lit 模板拆成两行). `README.md` 里删掉标题行 (`**…**`) 提到 HMR 的整节 (svelte 的问答), 把
+  `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
+  (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
+  `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
 - `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 不发 npm, 只在 pkgs 上. 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
   `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
   取 acde 自己 `file:` 依赖的 acdert 检出里的 SDK 版本). 没有别的覆盖方式, 不回退到 npm 版本号; `ACDERT_DIST` 设了时换掉地址前缀, 只给本地镜像
