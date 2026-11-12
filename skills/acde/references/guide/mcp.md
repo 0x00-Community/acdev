@@ -37,7 +37,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
 | `pointer` | Moves the pointer to a screen point, as a real move (hover, screen edges) |
 | `clipboard` | Reads and writes the clipboard |
-| `input` | Sends raw mouse and keyboard events to a page, at page coordinates |
+| `input` | Sends raw mouse and keyboard events to a page, at page coordinates; `wait` (`ms`) holds a key or button in between |
 | `clock` | Takes over a page's time: installs a fake clock, pauses it, moves it forward |
 | `dialog` | Answers the page's next `alert` / `confirm` / `prompt` in advance, and lists the dialogs it showed |
 | `resize` | Resizes a window so that its page has the given size |

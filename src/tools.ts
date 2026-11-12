@@ -4,6 +4,7 @@ import type { InspectAction } from '@dopame/acde-api'
 import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import type { InputEvent } from './driver/input.ts'
 import { DevClient } from './ipc.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
@@ -11,7 +12,7 @@ import { Sessions } from './sessions.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set([
-    'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'console', 'network', 'screen', 'pointer', 'permissions',
+    'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'permissions',
     'allow', 'deny', 'revoke', 'stop',
   ])
   static readonly ANSWER = 'acde allow (or acde deny)'
@@ -22,6 +23,18 @@ export class Tools {
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
   static readonly NOTHING = 2
 
+  static #events(text: string): InputEvent[] {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      throw new Error(`input: the events are a JSON array (${(error as Error).message}) (acde input --help)`)
+    }
+    if (!Array.isArray(parsed) || !parsed.length || !parsed.every((e) => e && typeof e === 'object' && typeof e.type === 'string'))
+      throw new Error('input: the events are a non-empty JSON array of objects with a type (acde input --help)')
+    return parsed as InputEvent[]
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acde inspect --find TEXT gives the current refs` : null
@@ -31,6 +44,7 @@ export class Tools {
     const session = Tools.pid(flags.get('session'))
     if (command === 'act' && !ACTIONS.includes(args[1] as InspectAction))
       throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acde act --help)`)
+    const events = command === 'input' ? Tools.#events(args[1] === '-' ? await Runtime.readStdin() : args[1]!) : []
     const level = flags.get('level')
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
       throw new Error(`console: --level ${level}: one of ${[...Tools.LEVELS].join(', ')} (acde console --help)`)
@@ -100,6 +114,12 @@ export class Tools {
           })
           console.log(Format.matches(found, args[0]!))
           return found.count ? 0 : Tools.NOTHING
+        }
+        case 'input': {
+          const result = await acde.input(args[0]!, events)
+          if (result.ok) console.log(result.text)
+          else console.error(`acde: input ${args[0]}: ${result.text}`)
+          return result.ok ? 0 : 1
         }
         case 'act': {
           const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])

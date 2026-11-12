@@ -25,14 +25,15 @@ export class PageTools {
       {
         description: 'Raw mouse and keyboard input to a page, in its own CSS pixels (getBoundingClientRect '
           + 'coordinates): move, down / up (button left | right | middle), wheel (dx, dy), keydown / keyup (key like '
-          + '"Shift", "Control", "a", "ArrowDown"), text (typed through the input method). Moves are a frame apart. '
+          + '"Shift", "Control", "a", "ArrowDown"), text (typed through the input method), wait (ms, up to 10000: '
+          + 'hold a key or a button that long). Moves are a frame apart. '
           + 'For clicks on an element act is simpler; act click also takes modifiers as its arg ("shift", '
           + '"ctrl+shift").',
         inputSchema: z.object({
           events: z
             .array(
               z.object({
-                type: z.enum(['move', 'down', 'up', 'wheel', 'keydown', 'keyup', 'text']),
+                type: z.enum(['move', 'down', 'up', 'wheel', 'keydown', 'keyup', 'text', 'wait']),
                 x: z.number().optional(),
                 y: z.number().optional(),
                 button: z.enum(['left', 'right', 'middle']).optional(),
@@ -40,6 +41,7 @@ export class PageTools {
                 dy: z.number().optional(),
                 key: z.string().optional(),
                 text: z.string().optional(),
+                ms: z.number().optional(),
               }),
             )
             .min(1),

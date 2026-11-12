@@ -10,6 +10,7 @@ export type InputEvent =
   | { readonly type: 'wheel'; readonly x: number; readonly y: number; readonly dx?: number; readonly dy?: number }
   | { readonly type: 'keydown' | 'keyup'; readonly key: string }
   | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'wait'; readonly ms: number }
 
 export interface InputTarget {
   readonly acde: Acde

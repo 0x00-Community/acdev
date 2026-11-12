@@ -123,6 +123,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
+| `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
 | `acde permissions` | The camera and microphone prompts that wait and the decisions made |

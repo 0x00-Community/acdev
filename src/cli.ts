@@ -54,6 +54,7 @@ class Cli {
     inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all', 'offscreen'] },
     query: { args: [1, 1], flags: ['session', 'window', 'ref', 'limit'] },
     act: { args: [2, 3], flags: ['session'] },
+    input: { args: [2, 2], flags: ['session'] },
     console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
