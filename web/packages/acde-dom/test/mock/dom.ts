@@ -686,6 +686,11 @@ export class MockDom implements DomNative {
     if (!node.getAttribute('src')) return Float64Array.of(0, 0, 3)
     return Float64Array.from(this.images.get(id) ?? [0, 0, 0])
   }
+  readonly openStates = new Map<number, { modal: boolean; open: boolean }>()
+  setOpenState(id: number, modal: boolean, open: boolean): void {
+    this.openStates.set(id, { modal, open })
+  }
+
   takeAnimationEvents(): AnimationEvents {
     return { animating: false, events: this.animationEvents.splice(0) }
   }

@@ -137,6 +137,7 @@ export interface DomNative {
 
   setFocus(id: number, visible: boolean): void
   setActive(id: number): void
+  setOpenState(id: number, modal: boolean, open: boolean): void
   setSelection(anchorNode: number, anchorOffset: number, focusNode: number, focusOffset: number): void
 
   rect(id: number): Float64Array

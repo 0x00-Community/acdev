@@ -4,6 +4,7 @@ import { getters, host, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
 import { legacy } from './legacy'
+import { invokePopover, popoverTarget } from './popover'
 import { ACTIVATION, activation, FileList, SubmitEvent } from './events'
 import { ATTRIBUTE_CHANGED, flags, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
 import { env, resolveUrl } from './env'
@@ -505,6 +506,9 @@ export class HTMLInputElement extends HTMLElement {
     if (disabledControl(this)) return null
     const type = this.type
     if (type === 'file') return activation(() => pickFiles(this))
+    if ((type === 'button' || ((type === 'submit' || type === 'reset' || type === 'image') && !this.form)) && popoverTarget(this as never)) {
+      return activation(() => invokePopover(this as never))
+    }
     if (type === 'checkbox') {
       const was = this.checked, wasIndeterminate = this.indeterminate
       setChecked(this, !was)
@@ -828,12 +832,29 @@ export class HTMLButtonElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     if (disabledControl(this)) return null
     const type = this.type
+    if (type === 'submit' && this.form) return activation(() => submitFrom(this))
+    if (type === 'reset' && this.form) return activation(() => resetFrom(this))
+    if (popoverTarget(this as never)) return activation(() => invokePopover(this as never))
     if (type === 'submit') return activation(() => submitFrom(this))
     if (type === 'reset') return activation(() => resetFrom(this))
     return activation(() => {})
   }
 }
 for (const name of ['name', 'value', 'formAction', 'formEnctype', 'formMethod', 'formTarget', 'popoverTargetAction', 'command']) string(HTMLButtonElement.prototype, name, name.toLowerCase())
+string(HTMLInputElement.prototype, 'popoverTargetAction', 'popovertargetaction')
+for (const proto of [HTMLButtonElement.prototype, HTMLInputElement.prototype]) {
+  Object.defineProperty(proto, 'popoverTargetElement', {
+    configurable: true,
+    enumerable: true,
+    get(this: HTMLElement) {
+      return popoverTarget(this as never)
+    },
+    set(this: HTMLElement, element: Element | null) {
+      if (element === null) setAttribute(this, 'popovertarget', null)
+      else setAttribute(this, 'popovertarget', element.id)
+    },
+  })
+}
 for (const name of ['disabled', 'formNoValidate']) bool(HTMLButtonElement.prototype, name, name.toLowerCase())
 mixin(HTMLButtonElement, ConstraintValidation)
 register(HTMLButtonElement, 'button')

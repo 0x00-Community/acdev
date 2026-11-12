@@ -87,6 +87,20 @@ impl Dom {
         self.write(|e| e.maybe(id).map(|n| e.set_focus(n, visible)))
     }
 
+    pub fn set_open_state(&self, id: u32, modal: bool, open: bool) -> Result<()> {
+        self.write(|e| {
+            let node = e.n(id)?;
+            let state = if modal { ElementState::MODAL } else { ElementState::POPOVER_OPEN };
+            e.doc.snapshot_node_and(node, state, |n| {
+                if let Some(data) = n.element_data_mut() {
+                    data.element_state.set(state, open);
+                }
+                n.mark_ancestors_dirty();
+            });
+            Ok(())
+        })
+    }
+
     pub fn set_active(&self, id: u32) -> Result<()> {
         self.write(|e| e.maybe(id).map(|n| e.set_active(n)))
     }

@@ -47,6 +47,7 @@ import { Input } from './dom/input'
 import * as media from './dom/media'
 import { deliverLoads, presentVideos } from './dom/media'
 import { cssEventsWanted, deliverCssEvents, onCssEventsWanted } from './dom/cssevents'
+import { escape, lightDismiss } from './dom/popover'
 import {
   InputDeviceInfo,
   installCapture,
@@ -238,6 +239,10 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 
   let frameVersion = -1
   onCssEventsWanted(() => frames.request())
+  inner(document, 'addEventListener').call(document, 'pointerdown', (event: Event) => lightDismiss(event.target as never), true)
+  inner(document, 'addEventListener').call(document, 'keydown', (event: Event & { readonly key?: string }) => {
+    if (event.key === 'Escape' && !event.defaultPrevented) escape()
+  })
 
   const deliverScrolls = () => {
     const scrolled = dom.takeScrolled()

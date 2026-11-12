@@ -1118,3 +1118,21 @@ fn svg_children_have_client_rects() {
     assert!(t[0] > 20.0 && t[2] > 30.0 && t[3] > 10.0, "text drawn with a box: {t:?}");
     assert_eq!(dom.computed_style(by_id(&dom, "t"), "", "font-size").unwrap(), "10px", "font-size=10 is in user units");
 }
+
+#[test]
+fn popover_and_modal_states() {
+    let (_doc, dom) = page("<body><div id=p popover>pop</div><dialog id=d open>dialog</dialog><details id=s open><summary>s</summary></details></body>");
+    let (p, d) = (by_id(&dom, "p"), by_id(&dom, "d"));
+    assert_eq!(dom.computed_style(p, "", "display").unwrap(), "none");
+    dom.set_open_state(p, false, true).unwrap();
+    assert!(dom.matches(p, ":popover-open").unwrap());
+    assert_eq!(dom.computed_style(p, "", "display").unwrap(), "block");
+    assert_eq!(dom.computed_style(p, "", "position").unwrap(), "fixed");
+    dom.set_open_state(p, false, false).unwrap();
+    assert_eq!(dom.computed_style(p, "", "display").unwrap(), "none");
+    assert!(!dom.matches(d, ":modal").unwrap());
+    dom.set_open_state(d, true, true).unwrap();
+    assert!(dom.matches(d, ":modal").unwrap());
+    assert_eq!(dom.computed_style(d, "", "position").unwrap(), "fixed");
+    assert!(dom.matches(d, ":open").unwrap() && dom.matches(by_id(&dom, "s"), ":open").unwrap());
+}
