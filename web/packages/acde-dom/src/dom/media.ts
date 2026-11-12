@@ -19,7 +19,7 @@ import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
 import { dom, existing, ID, lifecycle, wrap, inner } from './realm'
 
-export const loading = new Set<number>()
+const loading = new Map<number, Element | undefined>()
 
 const enum ImageState {
   Loading = 0,
@@ -94,7 +94,7 @@ export class HTMLImageElement extends HTMLElement {
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
     if ((name === 'src' || name === 'srcset') && value) {
-      loading.add(this[ID])
+      loading.set(this[ID], this)
       frames.request()
     }
   }
@@ -117,14 +117,15 @@ export function deliverLoads(): boolean {
       deliverSheet(id)
       continue
     }
-    loading.delete(id)
+    const held = loading.get(id) ?? (existing(id) as Element | undefined)
     const state = dom.imageState(id)[2]
     if (state === ImageState.Loading) {
-      loading.add(id)
+      loading.set(id, held)
       continue
     }
+    loading.delete(id)
     if (state === ImageState.NoSource) continue
-    let target = existing(id) as Element | undefined
+    let target = held
     if (!target && flags.inlineHandlers && (dom.hasAttribute(id, 'onload') || dom.hasAttribute(id, 'onerror'))) target = wrap<Element>(id)!
     if (!target) continue
     fire(target, new Event(state === ImageState.Loaded ? 'load' : 'error'))

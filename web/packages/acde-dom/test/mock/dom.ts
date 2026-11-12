@@ -671,6 +671,7 @@ export class MockDom implements DomNative {
 
   _loadImage(id: number, src: string): void {
     this.images.set(id, [0, 0, 0])
+    if (/held/.test(src)) return
     setTimeout(() => {
       if (this.freed.has(id)) return
       this.images.set(id, /missing/.test(src) ? [0, 0, 2] : [16, 8, 1])

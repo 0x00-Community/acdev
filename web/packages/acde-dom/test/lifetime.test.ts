@@ -54,6 +54,25 @@ test('detached wrappers nobody holds are collected and their nodes freed; held o
   assert.equal(web.run('document.querySelector("section i") === held.firstChild'), true)
 })
 
+test('a detached image nobody holds lives until its load event fires', { skip: typeof globalThis.gc !== 'function' && 'needs --expose-gc' }, async () => {
+  using web = await page('<!doctype html><html><body></body></html>')
+  const id = web.internals.idOf(web.run(`globalThis.log = []
+    ;(() => {
+      const img = new Image()
+      img.addEventListener('load', () => log.push('load ' + img.naturalWidth))
+      img.src = '/held.png'
+      return img
+    })()`))
+  web.endTask()
+  await collect(web)
+  assert.equal(web.dom.freed.has(id), false)
+  web.dom._imageDone(id, [16, 8, 1])
+  web.frame()
+  assert.deepEqual(web.json('log'), ['load 16'])
+  await collect(web)
+  assert.equal(web.dom.freed.has(id), true, 'released once the load is delivered')
+})
+
 test('moving between connected and detached keeps the same wrapper', async () => {
   using web = await page('<!doctype html><html><body><div id="a"><b id="b">b</b></div></body></html>')
   const same = web.run(`(() => {
