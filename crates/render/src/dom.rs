@@ -43,6 +43,22 @@ pub enum Ns {
     Other = 3,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimationEvent {
+    pub kind: &'static str,
+    pub transition: bool,
+    pub target: u32,
+    pub name: String,
+    pub elapsed: f64,
+    pub pseudo: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimationEvents {
+    pub animating: bool,
+    pub events: Vec<AnimationEvent>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Viewport {
     pub width: f64,
@@ -850,6 +866,10 @@ impl Dom {
 
     pub fn take_loaded(&self) -> Vec<u32> {
         self.read(|e| Ok(e.take_loaded())).unwrap_or_default()
+    }
+
+    pub fn take_animation_events(&self) -> AnimationEvents {
+        self.read(|e| Ok(e.take_animation_events())).unwrap_or_default()
     }
 
     pub fn sheet_state(&self, id: u32) -> Result<u8> {
@@ -2078,6 +2098,25 @@ impl Engine {
             return (s.x, s.y);
         }
         self.doc.get_node(node).map_or((0.0, 0.0), |n| (n.scroll_offset().x, n.scroll_offset().y))
+    }
+
+    fn take_animation_events(&mut self) -> AnimationEvents {
+        self.resolved();
+        let mut events = Vec::new();
+        for event in self.doc.take_animation_events() {
+            let connected = self.doc.get_node(event.node).is_some_and(|n| n.flags.is_in_document());
+            let target = if connected { Some(self.ids.id_of(event.node)) } else { self.ids.handle(event.node) };
+            let Some(target) = target else { continue };
+            events.push(AnimationEvent {
+                kind: event.kind.name(),
+                transition: event.kind.is_transition(),
+                target,
+                name: event.name,
+                elapsed: event.elapsed,
+                pseudo: event.pseudo,
+            });
+        }
+        AnimationEvents { animating: self.doc.has_css_animations(), events }
     }
 
     fn take_scrolled(&mut self) -> Vec<u32> {

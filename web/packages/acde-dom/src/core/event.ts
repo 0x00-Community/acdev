@@ -35,6 +35,7 @@ export const hooks = {
   passiveDefault: null as null | ((target: EventTarget, type: string) => boolean),
   inline: null as null | ((target: EventTarget, type: string, set: boolean) => void),
   checkpoint: null as null | (() => void),
+  listen: null as null | ((type: string) => void),
 }
 
 let thrown = 0
@@ -290,6 +291,7 @@ function addListener(target: Targetish, type: string, listener: Listener): void 
   if (!map) map = target[LISTENERS] = new Map()
   const list = map.get(type)
   map.set(type, list ? [...list, listener] : [listener])
+  hooks.listen?.(type)
 }
 
 function flatten(options: unknown): { capture: boolean; once: boolean; passive: boolean | null; signal: unknown } {

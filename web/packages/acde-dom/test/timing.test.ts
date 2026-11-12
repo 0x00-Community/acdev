@@ -175,3 +175,30 @@ test('Web Animations lifecycle on the inline style: pause, finish, fill, commitS
   assert.deepEqual(reversed.slice(11), ['finished', '-500ms', 'forwards'])
   assert.deepEqual(cleaned, [])
 })
+
+test('CSS animation and transition events: asked for once a page listens, fired on the element, the runtime\'s own keyframes left out', async () => {
+  using web = await page('<!doctype html><html><body><div id="a"></div><p id="t"></p></body></html>')
+  const id = (sel: string) => web.internals.idOf(web.run(`document.querySelector('${sel}')`))
+  const record = (type: string, target: number, name: string, elapsedTime: number, pseudoElement = '') =>
+    ({ type, transition: type.startsWith('transition'), target, name, elapsedTime, pseudoElement })
+  web.frame()
+  const asked = web.dom.calls.get('takeAnimationEvents') ?? 0
+  assert.equal(asked, 0, 'a page without such listeners never asks')
+  const before = web.host.frameRequests
+  web.run(`
+    globalThis.log = []
+    document.body.addEventListener('animationend', (e) => log.push([e.type, e.target.id, e.animationName, e.elapsedTime, e.pseudoElement, e.bubbles, e.cancelable, e.isTrusted, e.constructor.name].join(' ')))
+    document.getElementById('t').ontransitionend = (e) => log.push([e.type, e.propertyName, e.elapsedTime, e.constructor.name].join(' '))
+  `)
+  assert.ok(web.host.frameRequests > before, 'the first listener asks for a frame')
+  web.dom.animationEvents.push(
+    record('animationend', id('#a'), 'fade', 0.15, '::before'),
+    record('animationend', id('#a'), 'acde-animation-3', 0.2),
+    record('transitionend', id('#t'), 'opacity', 0.3),
+  )
+  web.frame()
+  assert.deepEqual(web.json('log'), [
+    'animationend a fade 0.15 ::before true false true AnimationEvent',
+    'transitionend opacity 0.3 TransitionEvent',
+  ])
+})

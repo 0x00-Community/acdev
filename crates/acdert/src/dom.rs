@@ -227,6 +227,28 @@ impl<'s> IntoJs<'s> for (acde_render::NodeType, acde_render::Ns, bool, String) {
     }
 }
 
+impl<'s> IntoJs<'s> for acde_render::AnimationEvents {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        let events: Vec<v8::Local<v8::Value>> = self
+            .events
+            .into_iter()
+            .map(|e| {
+                crate::js_object!(scope, {
+                    "type" => e.kind,
+                    "transition" => e.transition,
+                    "target" => e.target,
+                    "name" => e.name,
+                    "elapsedTime" => e.elapsed,
+                    "pseudoElement" => e.pseudo,
+                })
+                .into()
+            })
+            .collect();
+        let events = v8::Array::new_with_elements(scope, &events);
+        crate::js_object!(scope, {"animating" => self.animating, "events" => events}).into()
+    }
+}
+
 struct Floats(Vec<f64>);
 
 impl<'s> IntoJs<'s> for Floats {
@@ -658,6 +680,7 @@ natives! {
     "takeScrolled" => fn take_scrolled(scope, args, dom) { Ok(Ids(dom.take_scrolled())) }
     "imageState" => fn image_state(scope, args, dom) { let id = id(scope, &args, 0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
     "takeLoaded" => fn take_loaded(scope, args, dom) { Ok(Ids(dom.take_loaded())) }
+    "takeAnimationEvents" => fn take_animation_events(scope, args, dom) { Ok(dom.take_animation_events()) }
     "sheetState" => fn sheet_state(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_state(id).map(f64::from) }
     "sheetUrl" => fn sheet_url(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_url(id) }
     "sheetOpaque" => fn sheet_opaque(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_opaque(id) }

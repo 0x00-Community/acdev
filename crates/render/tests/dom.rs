@@ -966,3 +966,70 @@ fn range_inputs_sanitize_their_value_and_paint_a_thumb() {
     let r = dom.rect(by_id(&dom, "a")).unwrap();
     assert_eq!((r[2], r[3]), (129.0, 16.0));
 }
+
+fn animation_events(dom: &Dom) -> Vec<String> {
+    dom.take_animation_events().events.into_iter().map(|e| format!("{} {} {} {}{}", e.kind, dom.id(e.target).unwrap(), e.name, e.elapsed, e.pseudo)).collect()
+}
+
+#[test]
+fn css_animation_and_transition_events() {
+    let doc = Document::new(400, 300, 1.0, &Options::default()).unwrap();
+    let dom = doc.dom();
+    let handle = doc.handle();
+    dom.parse_document(
+        "<head><style>@keyframes fade{to{opacity:0}} .out{animation:fade 100ms 2 forwards} \
+         #t{transition:left 200ms 50ms linear;position:absolute;left:0} #t.go{left:50px} \
+         #p::before{content:'';animation:fade 300ms}</style></head>\
+         <body><div id=a></div><div id=t></div><div id=p></div></body>",
+    )
+    .unwrap();
+    handle.tick(0.0);
+    assert!(dom.take_animation_events().events.is_empty());
+    let (a, t) = (by_id(&dom, "a"), by_id(&dom, "t"));
+    dom.set_attribute(a, "class", "out").unwrap();
+    dom.set_attribute(t, "class", "go").unwrap();
+    let mut seen = Vec::new();
+    for ms in (16..=400).step_by(16) {
+        handle.tick(f64::from(ms));
+        seen.extend(animation_events(&dom));
+    }
+    assert_eq!(
+        seen,
+        [
+            "animationstart p fade 0::before",
+            "transitionrun t left 0",
+            "animationstart a fade 0",
+            "transitionstart t left 0",
+            "animationiteration a fade 0.1",
+            "animationend a fade 0.2",
+            "transitionend t left 0.2",
+            "animationend p fade 0.3::before",
+        ]
+    );
+    assert!(!dom.take_animation_events().animating);
+
+    dom.set_attribute(a, "class", "").unwrap();
+    handle.tick(500.0);
+    assert!(animation_events(&dom).is_empty(), "an animation that ended is not canceled");
+
+    dom.set_attribute(a, "class", "out").unwrap();
+    handle.tick(516.0);
+    assert!(animation_events(&dom).is_empty(), "made in this style pass, started by the next");
+    handle.tick(532.0);
+    assert_eq!(animation_events(&dom), ["animationstart a fade 0"]);
+    handle.tick(566.0);
+    assert!(dom.take_animation_events().animating);
+    dom.set_attribute(a, "class", "").unwrap();
+    dom.set_attribute(t, "class", "").unwrap();
+    handle.tick(582.0);
+    let events = animation_events(&dom);
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].starts_with("animationcancel a fade 0.066"), "{events:?}");
+    assert_eq!(events[1], "transitionrun t left 0");
+
+    dom.pin(t).unwrap();
+    dom.remove(t).unwrap();
+    handle.tick(600.0);
+    let events = animation_events(&dom);
+    assert_eq!(events, ["transitioncancel t left 0"], "canceled in its delay");
+}
