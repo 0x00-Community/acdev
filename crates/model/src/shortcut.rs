@@ -26,6 +26,8 @@ impl Combo {
                 "alt" => Self::ALT,
                 "shift" => Self::SHIFT,
                 "super" | "meta" | "logo" => Self::SUPER,
+                "mod" if cfg!(target_os = "macos") => Self::SUPER,
+                "mod" => Self::CTRL,
                 other => return Err(format!("shortcut {text}: unknown modifier {other}")),
             };
         }

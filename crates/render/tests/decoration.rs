@@ -298,4 +298,6 @@ fn shortcuts_are_written_the_way_the_frame_style_writes_them() {
     assert_eq!(win.shortcut_text("ctrl+éclair"), "Ctrl+Éclair", "a key name is cut by character, not by byte");
     assert_eq!(mac.shortcut_text("ctrl+ü"), "⌃Ü");
     assert_eq!(mac.shortcut_text(""), "");
+    assert_eq!(mac.shortcut_text("shift+mod+Z"), "⇧⌘Z", "mod is command on a Mac");
+    assert_eq!(win.shortcut_text("shift+mod+Z"), "Ctrl+Shift+Z", "and control elsewhere");
 }

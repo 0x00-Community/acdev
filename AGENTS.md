@@ -124,7 +124,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   改给最上层的模态子窗口, 子窗口关掉焦点回父窗口. 指针也不发给有模态子窗口的窗口: 在它上面没有指针焦点, 按下只把焦点给模态子窗口 (不开始拖动).
 - **grab** (shell `grabs.rs`): `request_grab(kind)` 在被别人拿着或框架在移窗时拒绝; 键盘 grab 同时给焦点. 收回 (发一次 `grab_lost`): 在别的窗口
   按下 (`other_window`)、Esc (`esc`, 这次 Esc 不发)、焦点被给别人 (`focus_lost`)、客户端死掉.
-- **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合). 作用域 session /
+- **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合; `mod` 在 macOS 上是 `super` (⌘), 别处是 `ctrl`, 同 Dopame 桌面的写法). 作用域 session /
   desktop / app / menu, 先到先得, 冲突拒绝, session 级不可覆盖; 匹配顺序 session → 焦点窗口的 menu 级 → 焦点窗口的 app 级 → desktop. 命中的键 (连同松开) 不发给窗口, 发
   `shortcut {window: owner, key, title: 作用域}`, `key` 是这一条绑定注册时写的文字 (同一组合的 app 级和 menu 级各记各的). keyboard-shortcuts-inhibit 生效时只有 session 级还拦.
   menu 级是窗口菜单项的快捷键 (acde-host `broker/menukeys.ts`), 只在没有桌面、菜单画在窗框上时 (`framesMenus`): 应用 `setMenus` 时 Broker 给有 `onSelect`、没禁用、带 `shortcut` 的项注册

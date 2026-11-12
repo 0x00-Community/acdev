@@ -293,6 +293,13 @@ impl Bar {
     pub fn shortcut_text(&self, combo: &str) -> String {
         let mut parts: Vec<String> = combo.split('+').map(|p| p.trim().to_ascii_lowercase()).filter(|p| !p.is_empty()).collect();
         let Some(key) = parts.pop() else { return String::new() };
+        let command = match self.style() {
+            FrameStyle::Mac => "super",
+            FrameStyle::Windows => "ctrl",
+        };
+        for part in parts.iter_mut().filter(|p| *p == "mod") {
+            *part = command.to_owned();
+        }
         let order = ["ctrl", "control", "alt", "shift", "super", "meta", "logo"];
         parts.sort_by_key(|m| order.iter().position(|o| o == m).unwrap_or(order.len()));
         let mut chars = key.chars();

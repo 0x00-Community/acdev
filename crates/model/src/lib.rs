@@ -694,6 +694,14 @@ mod tests {
     }
 
     #[test]
+    fn mod_is_command_on_a_mac_and_control_elsewhere() {
+        let key = |_: &str| Some(31);
+        let mods = Combo::parse("shift+mod+s", key).unwrap().mods;
+        let command = if cfg!(target_os = "macos") { Combo::SUPER } else { Combo::CTRL };
+        assert_eq!(mods, Combo::SHIFT | command);
+    }
+
+    #[test]
     fn a_menu_item_shortcut_beats_the_app_one_and_keeps_its_own_name() {
         let mut s = Shortcuts::default();
         let combo = Combo { mods: Combo::CTRL, key: 49 };
