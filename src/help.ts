@@ -186,7 +186,7 @@ export class Help {
       ], [
         { flag: '--window W', about: 'that window instead of the focused one' },
         { flag: '--ref REF', about: 'only under that element' },
-        { flag: '--limit N', about: 'at most N elements (default: 3000)' },
+        { flag: '--limit N', about: 'at most N elements, 1 to 3000 (default: 600)' },
       ], ['acde query "button.primary"']),
       inspecting('act', '<ref> <action> [arg]', 'Click, type, press keys… on a ref', [
         'Performs one action on a ref from inspect or query and prints what changed.',
