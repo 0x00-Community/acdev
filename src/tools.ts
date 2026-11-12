@@ -21,6 +21,33 @@ export class Tools {
   static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
   static readonly NOTHING = 2
+  static readonly NEEDS: Readonly<Record<string, string>> = {
+    type: 'the text to type', settext: 'the text to set', key: 'the keys to press', select: 'the option to select',
+    drag: 'the ref to drop on',
+  }
+  static readonly EXAMPLE: Readonly<Record<string, string>> = {
+    type: '"hello"', settext: '"hello"', key: '"ctrl+a backspace"', select: '"high"', drag: 'w1.12',
+  }
+  static readonly NO_WINDOW = /^no window w\d+$/
+
+  static async #windowed<T>(acde: Acde, ask: () => Promise<T>): Promise<T> {
+    try {
+      return await ask()
+    } catch (error) {
+      const said = error instanceof Error ? error.message : String(error)
+      if (!Tools.NO_WINDOW.test(said)) throw error
+      throw new Error(`${said}${await Tools.#windows(acde)}`)
+    }
+  }
+
+  static async #windows(acde: Acde): Promise<string> {
+    const windows = await acde.windows().catch(() => [])
+    if (!windows.length) return '; there are no windows'
+    const name = (w: (typeof windows)[number]) =>
+      w.kind === 'desktop' ? 'desktop' : JSON.stringify(w.title ?? w.app ?? '')
+    const named = windows.map((w) => `${w.ref} ${name(w)}`)
+    return `; the windows: ${named.join(', ')} (acde inspect lists them)`
+  }
 
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
@@ -31,6 +58,10 @@ export class Tools {
     const session = Tools.pid(flags.get('session'))
     if (command === 'act' && !ACTIONS.includes(args[1] as InspectAction))
       throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acde act --help)`)
+    const needs = command === 'act' && args[2] === undefined ? Tools.NEEDS[args[1]!] : undefined
+    if (needs) {
+      throw new Error(`act: ${args[1]} needs ${needs}: acde act ${args[0]} ${args[1]} ${Tools.EXAMPLE[args[1]!]}`)
+    }
     const level = flags.get('level')
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
       throw new Error(`console: --level ${level}: one of ${[...Tools.LEVELS].join(', ')} (acde console --help)`)
@@ -72,12 +103,12 @@ export class Tools {
         }
         case 'inspect': {
           const find = flags.get('find')
-          const snapshot = await acde.snapshot({
+          const snapshot = await Tools.#windowed(acde, () => acde.snapshot({
             ...(flags.has('window') && { window: flags.get('window')! }),
             ...(find !== undefined && { find }),
             ...(flags.has('all') && { all: true }),
             ...(flags.has('offscreen') && { offscreen: true }),
-          })
+          }))
           if (find === undefined) {
             console.log(snapshot.text)
             return 0
@@ -92,19 +123,23 @@ export class Tools {
           return Tools.NOTHING
         }
         case 'query': {
-          const found = await acde.query({
+          const found = await Tools.#windowed(acde, () => acde.query({
             selector: args[0]!,
             ...(flags.has('window') && { window: flags.get('window')! }),
             ...(flags.has('ref') && { ref: flags.get('ref')! }),
             ...(limit !== undefined && { limit }),
-          })
+          }))
           console.log(Format.matches(found, args[0]!))
           return found.count ? 0 : Tools.NOTHING
         }
         case 'act': {
           const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
           if (result.ok) console.log(result.text)
-          else console.error(`acde: act ${args[0]}: ${Tools.missing(result.text) ?? result.text}`)
+          else {
+            const told = Tools.missing(result.text) ?? result.text
+            const listed = Tools.NO_WINDOW.test(told) ? await Tools.#windows(acde) : ''
+            console.error(`acde: act ${args[0]}: ${told}${listed}`)
+          }
           return result.ok ? 0 : 1
         }
         case 'console': {
@@ -145,7 +180,7 @@ export class Tools {
   }
 
   static async #stop(pid: number | undefined): Promise<number> {
-    const session = Sessions.pick(Sessions.list(), process.cwd(), pid, (line) => console.error(line))
+    const session = await Sessions.find(process.cwd(), pid, (line) => console.error(line))
     const link = await DevClient.connect(session.endpoint).catch(() => null)
     if (!link) {
       Sessions.remove(session.pid)

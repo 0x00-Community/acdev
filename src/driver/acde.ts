@@ -73,8 +73,8 @@ export class Acde {
   }
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
-    const sessions = Sessions.list(Sessions.dir({ ...process.env, ...options.env }))
-    const session = Sessions.pick(sessions, options.cwd ?? process.cwd(), options.session, options.say)
+    const dir = Sessions.dir({ ...process.env, ...options.env })
+    const session = await Sessions.find(options.cwd ?? process.cwd(), options.session, options.say, dir)
     return new Acde(session, await Acde.#connect(session), null, null, options.timeout ?? Acde.TIMEOUT_MS)
   }
 

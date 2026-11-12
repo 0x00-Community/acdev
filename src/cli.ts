@@ -215,10 +215,17 @@ class Cli {
     if (command === 'sdk') {
       const update = args[0] === 'update'
       const dir = resolve((update ? args[1] : args[0]) ?? '.')
+      if (!update && args[0] !== undefined && !existsSync(dir)) {
+        throw new Error(`sdk: ${args[0]} is not a subcommand or a directory: the only subcommand is update `
+          + '(acde sdk update [dir]); acde sdk [dir] shows the SDK of a project')
+      }
       if (update) console.log(await Sdk.update(dir))
       else {
         const file = join(dir, 'package.json')
-        if (!existsSync(file)) throw new Error(`sdk: no package.json in ${dir}`)
+        if (!existsSync(file)) {
+          throw new Error(`sdk: no package.json in ${dir}: run it in a project directory, or pass one `
+            + '(acde new <name> creates a project)')
+        }
         for (const line of Sdk.show(dir, JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>))
           console.log(line)
       }

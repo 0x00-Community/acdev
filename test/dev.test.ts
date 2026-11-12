@@ -197,7 +197,7 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(said).toHaveLength(1)
     expect(Sessions.pick([a, ab, c], join(root, 'elsewhere'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a, c], join(root, 'elsewhere')))
-      .toThrow(/several[\s\S]*--session <pid>:\n  11  app alpha/)
+      .toThrow(/^none of the 2 acde dev sessions runs .*elsewhere; pick one with --session <pid>:\n  11  app alpha/)
     expect(() => Sessions.pick([a, { ...a, pid: 14 }], join(root, 'a'))).toThrow('several acde dev sessions run')
     expect(() => Sessions.pick([], root)).toThrow('no acde dev is running')
     mkdirSync(join(root, 'other'))
@@ -388,6 +388,16 @@ describe('acde dev with a stand-in acdert', () => {
       expect([unknown.code, unknown.stdout]).toEqual([1, ''])
       expect(unknown.stderr).toBe('acde: act w1.404: there is no such element (any more); '
         + 'acde inspect --find TEXT gives the current refs\n')
+      const windows = 'the windows: w0 desktop, w1 "Alpha" (acde inspect lists them)'
+      const noWindow = await dev.tool(['inspect', '--window', 'w9'], alpha)
+      expect([noWindow.code, noWindow.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      const noQuery = await dev.tool(['query', 'h1', '--window', 'w9'], alpha)
+      expect([noQuery.code, noQuery.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      const away = await dev.tool(['act', 'w9.1', 'click'], alpha)
+      expect([away.code, away.stderr]).toEqual([1, `acde: act w9.1: no window w9; ${windows}\n`])
+      const untyped = await dev.tool(['act', 'w1.5', 'type'], alpha)
+      expect([untyped.code, untyped.stderr])
+        .toEqual([1, 'acde: act: type needs the text to type: acde act w1.5 type "hello"\n'])
       expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)
       expect((await dev.tool(['inspect', '--offscreen'], alpha)).code).toBe(0)
       const logged = await dev.tool(['console'], alpha)
@@ -732,6 +742,32 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
+  test('acde eval while acde dev rebuilds and reloads again and again finds the one session every time', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([alpha], base)
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      let changes = 0
+      const touching = setInterval(() => writeFileSync(join(alpha, 'index.html'), `<p>${changes++}</p>`), 120)
+      try {
+        for (let i = 0; i < 12; i++) {
+          for (const from of [alpha, base]) {
+            const ran = await dev.tool(['eval', 'alpha', '1'], from)
+            expect(ran.stderr).not.toContain('acde dev sessions runs')
+            expect(ran.stderr).not.toContain('no acde dev is running')
+            expect([ran.code, ran.stderr]).toEqual([0, from === base ? expect.stringContaining('the only one') : ''])
+          }
+        }
+      } finally {
+        clearInterval(touching)
+      }
+      expect(changes).toBeGreaterThan(3)
+    } finally {
+      await dev.stop()
+    }
+  }, 60_000)
+
   test('mistakes: --out with several projects, --app with several, the same app twice, two desktops', async () => {
     const base = tmp()
     const a = project(join(base, 'a'), { type: 'app', id: 'same' })
@@ -741,6 +777,9 @@ describe('acde dev with a stand-in acdert', () => {
     const cases: [string[], string][] = [
       [[a, d1, '--out', join(base, 'x')], '--out is for one project'],
       [[a, d1, '--app', 'same'], '--app picks the window of one project'],
+      [[a, '--app', 'nope'], '--app nope: not an app id of this project (its apps: same); --app takes an app id\n'],
+      [[a, '--app', a], `--app ${a}: not an app id of this project (its apps: same); --app takes an app id; `
+        + `give a directory as the first argument: acde dev ${a}`],
       [[a, b], `app same is in both ${a} and ${b}`],
       [[d1, d2], 'several desktops (d1, d2): pick one with --desktop <id>'],
       [[a, '--desktop', join(base, 'nowhere')], 'no project or package there'],

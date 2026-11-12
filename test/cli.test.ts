@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { delimiter, join, relative, sep } from 'node:path'
+import { basename, delimiter, dirname, join, relative, sep } from 'node:path'
 import { API_LEVEL, Manifest, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
@@ -386,7 +386,23 @@ describe('acde.config.jsonc', () => {
     const created = await cli(['new', '.', '--id', 'pomodoro', '--no-install'], dir)
     expect(created.code, created.stderr).toBe(0)
     writeFileSync(join(dir, 'stray'), '')
-    expect((await cli(['new', '.', '--id', 'again', '--no-install'], dir)).stderr).toContain('is not empty')
+    expect((await cli(['new', '.', '--id', 'again', '--no-install'], dir)).stderr)
+      .toContain(`is not empty: pick another name, such as ${join('..', `${basename(dir)}-2`)}`)
+    expect((await cli(['new', basename(dir), '--no-install'], dirname(dir))).stderr)
+      .toContain(`${basename(dir)} is not empty: pick another name, such as ${basename(dir)}-2`)
+  })
+
+  test('outside a project, sdk with an unknown word: say what to do next', async () => {
+    const dir = tmp()
+    const checked = await cli(['check'], dir)
+    expect(checked.code).toBe(1)
+    expect(checked.stderr).toContain(`no acde.config.jsonc or package.json in ${realpathSync(dir)}: not an acde `
+      + 'project; run this in a project directory (or pass it), or create one with acde new <name>')
+    const frob = await cli(['sdk', 'frob'], dir)
+    expect(frob.code).toBe(1)
+    expect(frob.stderr).toContain('sdk: frob is not a subcommand or a directory: the only subcommand is update '
+      + '(acde sdk update [dir]); acde sdk [dir] shows the SDK of a project')
+    expect((await cli(['sdk'], dir)).stderr).toContain(': run it in a project directory, or pass one (acde new <name> ')
   })
 
   test('new --template html --backend: the page answers from server.ts', async () => {

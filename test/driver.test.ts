@@ -5,8 +5,8 @@ import type { InspectMatch, InspectNode } from '@dopame/acde-api'
 import {
   Acde, ActError, AssertionError, Clock, expect, LaunchError, Locator, Modifiers, Png, Screenshots, type Query, type Source,
 } from '../src/driver/index.ts'
-import { Sessions } from '../src/sessions.ts'
-import { cleanup, standIn } from './helpers.ts'
+import { Sessions, type Session } from '../src/sessions.ts'
+import { cleanup, standIn, tmp } from './helpers.ts'
 
 afterAll(cleanup)
 
@@ -515,4 +515,37 @@ console.log('closed')
     check([code, out]).toEqual([0, 'closed\n'])
     check(Date.now() - started).toBeLessThan(8_000)
   }, 30_000)
+})
+
+describe('session files while acde dev rewrites them', () => {
+  const session = (over: Partial<Session>): Session =>
+    ({ pid: process.pid, endpoint: '/x.sock', dirs: [], apps: [], desktop: null, started: 1, ...over })
+
+  test('a session file being rewritten is listed every time and never deleted; find waits for a session', async () => {
+    const dir = join(tmp(), 'acde-dev')
+    const live = session({ dirs: ['/a'] })
+    Sessions.write(live, dir)
+    const writer = Bun.spawn([process.execPath, '-e', `
+      const { Sessions } = await import(${JSON.stringify(join(import.meta.dir, '../src/sessions.ts'))})
+      const session = ${JSON.stringify(live)}
+      for (const until = Date.now() + 1500; Date.now() < until;) Sessions.write(session, ${JSON.stringify(dir)})
+    `], { stdout: 'ignore', stderr: 'pipe' })
+    let reads = 0
+    while (writer.exitCode === null) {
+      check(Sessions.list(dir).map((s) => s.pid)).toEqual([process.pid])
+      reads++
+      await Bun.sleep(0)
+    }
+    check(await writer.exited, await new Response(writer.stderr).text()).toBe(0)
+    check(reads).toBeGreaterThan(10)
+    check(readdirSync(dir)).toEqual([`${process.pid}.json`])
+
+    const empty = join(tmp(), 'acde-dev')
+    setTimeout(() => Sessions.write(live, empty), 200)
+    check((await Sessions.find('/a', undefined, undefined, empty)).pid).toBe(process.pid)
+    const started = Date.now()
+    const none = Sessions.find('/a', undefined, undefined, join(tmp(), 'none'))
+    await check(none).rejects.toThrow('no acde dev is running')
+    check(Date.now() - started).toBeGreaterThanOrEqual(Sessions.SETTLE_MS - 50)
+  })
 })

@@ -401,10 +401,17 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       return void ok({ png: picture(win).toString('base64'), width: win.rect[2], height: win.rect[3] })
     }
     case 'snapshot':
-      return void ok(snapshot(m))
+    case 'query': {
+      const asked = m['window']
+      if (typeof asked === 'string' && !windows.some((w) => w.ref === asked)) return void fail(`no window ${asked}`)
+      return void ok(m['op'] === 'query' ? query(m) : snapshot(m))
+    }
     case 'act':
       if (m['action'] === process.env['FAKE_ACDERT_DIES_ON']) process.exit(1)
       if (m['action'] === process.env['FAKE_ACDERT_HANGS_ON']) return
+      if (windows.length && !windows.some((w) => w.ref === /^w\d+/.exec(String(m['ref']))?.[0])) {
+        return void ok({ ok: false, text: `no window ${/^w\d+/.exec(String(m['ref']))?.[0] ?? m['ref']}` })
+      }
       if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') {
         if (process.env['FAKE_ACDERT_CLOSE'] !== 'answers') process.exit(0)
         setTimeout(() => process.exit(0), 150)
@@ -422,8 +429,6 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     }
     case 'open':
       return void ok(open(String(m['name'])))
-    case 'query':
-      return void ok(query(m))
     case 'console':
       return void ok(page(consoleLog as never[], m, (e: { level: string }) =>
         m['level'] === undefined || (m['level'] === 'errors' ? e.level === 'error' : e.level === m['level'])))
