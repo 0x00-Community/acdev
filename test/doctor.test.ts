@@ -222,6 +222,19 @@ describe('acde doctor', () => {
     expect(Doctor.format(checks.slice(0, 2)).split('\n').at(-1)).toBe('acde doctor: no errors, 1 warning')
     expect(Doctor.failed(checks)).toBe(true)
     expect(Doctor.failed(checks.slice(0, 2))).toBe(false)
+    const long = Doctor.warn('display', 'display', 'no display: the host window cannot open, so run acde dev with '
+      + '--headless or start a desktop session first', 'set DISPLAY or WAYLAND_DISPLAY to a running display server')
+    expect(Doctor.format([long], Color.palette(false), 40).split('\n')).toEqual([
+      'warn   display: no display: the host',
+      '       window cannot open, so run acde',
+      '       dev with --headless or start a',
+      '       desktop session first',
+      '       fix: set DISPLAY or',
+      '            WAYLAND_DISPLAY to a running',
+      '            display server',
+      'acde doctor: no errors, 1 warning',
+    ])
+    expect(Doctor.format([long], Color.palette(false), null).split('\n')).toHaveLength(3)
   })
 
   test('helpers: versions compare by number; inside is about whole path segments', () => {

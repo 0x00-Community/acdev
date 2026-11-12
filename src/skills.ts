@@ -5,6 +5,7 @@ import {
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Agents, type Agent } from './agents.ts'
+import { Help } from './help.ts'
 
 interface Place {
   readonly dir: string
@@ -26,6 +27,7 @@ interface Made {
 export class Skills {
   static readonly NAME = 'acde'
   static readonly ACTIONS = ['status', 'install', 'remove', 'path'] as const
+  static readonly LABEL = 16
   static readonly SOURCE = join(import.meta.dirname, '..', 'skills', Skills.NAME)
 
   static run(args: readonly string[], flags: ReadonlyMap<string, string>): number {
@@ -135,15 +137,19 @@ export class Skills {
   }
 
   static status(source: string, places: readonly Place[]): number {
-    console.log(`skill   ${source}`)
+    const rows: [string, string][] = [['skill', source]]
     let installed = 0
     for (const place of places) {
       const { state, kind } = Skills.look(source, place)
       if (state === 'missing' && !place.found) continue
       if (state !== 'missing' && state !== 'foreign') installed++
       const what = state === 'missing' ? 'not installed' : state === 'foreign' ? 'another skill' : `${kind}, ${state}`
-      console.log(`${what.padEnd(15)} ${Skills.at(place)}${Skills.who(place)}`)
+      rows.push([what, `${Skills.at(place)}${Skills.who(place)}`])
     }
+    const pad = Math.max(Skills.LABEL, ...rows.map(([what]) => what.length + 2))
+    const width = Help.terminal()
+    const lines = rows.flatMap(([what, where]) => Help.block(where, width, ' '.repeat(pad), what.padEnd(pad)))
+    console.log(lines.join('\n'))
     if (installed === 0) console.log('acde: the skill is not installed for any agent: acde skills install')
     return 0
   }

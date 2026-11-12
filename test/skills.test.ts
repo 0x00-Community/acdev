@@ -140,8 +140,8 @@ describe('acde skills', () => {
 
     const before = await cli(['skills'], home)
     expect(before.code).toBe(0)
-    expect(before.stdout).toContain(`skill   ${realpathSync(SKILL)}`)
-    expect(before.stdout).toContain(`not installed   ${claude} (Claude Code)`)
+    expect(before.stdout).toContain(`${'skill'.padEnd(16)}${realpathSync(SKILL)}`)
+    expect(before.stdout).toContain(`${'not installed'.padEnd(16)}${claude} (Claude Code)`)
     expect(before.stdout).not.toContain('.gemini')
     expect(before.stdout).toContain('acde skills install')
 
@@ -224,13 +224,15 @@ describe('acde skills', () => {
     expect(blocked.code).toBe(1)
     expect(blocked.stderr).toContain(`${foreign}: not the acde skill`)
     expect(readFileSync(join(foreign, 'SKILL.md'), 'utf8')).toContain('name: other')
-    expect((await cli(['skills'], home)).stdout).toContain(`another skill   ${foreign}`)
+    expect((await cli(['skills'], home)).stdout).toContain(`${'another skill'.padEnd(16)}${foreign}`)
     expect((await cli(['skills', 'remove'], home)).stdout).toContain('not installed anywhere')
     expect(existsSync(join(foreign, 'SKILL.md'))).toBe(true)
 
     const said = async (...args: string[]) => (await cli(['skills', ...args], home)).stderr
     expect(await said('update')).toContain('skills update: one of status, install, remove, path')
-    expect(await said('install', '--agent', 'nobody')).toContain('--agent nobody: not an agent acde knows')
+    const nobody = await said('install', '--agent', 'nobody')
+    expect(nobody).toContain('--agent nobody: not an agent acde knows (claude-code, codex, cursor, ')
+    expect(nobody).toMatch(/ and \d+ more\); for any other/)
     expect(await said('install', '--agent', 'codex', '--dir', 'x')).toContain('--agent or --dir, not both')
     expect((await cli(['skills', 'remove', '--copy'], home)).stderr).toContain('--copy is for skills install')
   })

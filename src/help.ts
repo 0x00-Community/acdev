@@ -19,11 +19,13 @@ const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore', 'fill
 
 const SESSION: HelpOption = {
   flag: '--session PID',
-  about: 'the acde dev to use (default: the one whose projects hold this directory)',
+  about: 'The acde dev to use (default: the one whose projects hold this directory)',
 }
 
 export class Help {
   static readonly WIDTH = 80
+  static readonly MAX = 100
+  static readonly MIN = 40
   static readonly GROUPS = ['Project', 'Develop', 'Inspect a running session', 'Agents'] as const
 
   static commands(templates: readonly string[], actions: readonly string[]): readonly HelpCommand[] {
@@ -41,14 +43,14 @@ export class Help {
             + 'whatever is missing; with --yes it asks nothing.',
         ],
         options: [
-          { flag: '--template T', about: `the template: ${templates.join(', ')} (default: html)` },
-          { flag: '--id ID', about: 'the app id (default: from the directory name)' },
-          { flag: '--label NAME', about: 'the name shown on the window (default: from the id)' },
-          { flag: '--backend', about: 'add a server.ts backend (html and the Vite templates)' },
-          { flag: '--pm PM', about: 'bun, npm, pnpm or yarn (default: the one running acde)' },
-          { flag: '--no-install', about: 'do not install the dependencies' },
-          { flag: '--git', about: 'start a git repository' },
-          { flag: '--yes', about: 'ask nothing; take the defaults' },
+          { flag: '--template T', about: `The template: ${templates.join(', ')} (default: html)` },
+          { flag: '--id ID', about: 'The app id (default: from the directory name)' },
+          { flag: '--label NAME', about: 'The name shown on the window (default: from the id)' },
+          { flag: '--backend', about: 'Add a server.ts backend (html and the Vite templates)' },
+          { flag: '--pm PM', about: 'One of bun, npm, pnpm, yarn (default: the one running acde)' },
+          { flag: '--no-install', about: 'Do not install the dependencies' },
+          { flag: '--git', about: 'Start a git repository' },
+          { flag: '--yes', about: 'Ask nothing; take the defaults' },
         ],
         examples: ['acde new my-app', 'acde new shop --template react --pm pnpm --yes'],
       },
@@ -61,7 +63,7 @@ export class Help {
           'Checks acde.config.jsonc (or a package\'s manifest) and the acde: imports, and the capabilities a '
             + 'platform lacks in each way of running (required ones are errors, optional ones notes).',
         ],
-        options: [{ flag: '--platform P', about: 'windows, macos or linux (default: this one)' }],
+        options: [{ flag: '--platform P', about: 'One of windows, macos, linux (default: this one)' }],
         examples: ['acde check', 'acde check --platform linux'],
       },
       {
@@ -70,7 +72,7 @@ export class Help {
         args: '[dir]',
         summary: 'Build the project into a package',
         about: ['Builds the project into a package directory whose package.json is the manifest.'],
-        options: [{ flag: '--out DIR', about: 'where to build (default: .acde)' }],
+        options: [{ flag: '--out DIR', about: 'Where to build (default: .acde)' }],
         examples: ['acde build'],
       },
       {
@@ -82,7 +84,7 @@ export class Help {
           'Builds, then installs into $XDG_DATA_HOME/acde/packages (default ~/.local/share/acde/packages, on '
             + 'Windows %USERPROFILE%\\.local\\share\\acde\\packages); a hand-written package is linked.',
         ],
-        options: [{ flag: '--out DIR', about: 'where to build first (default: .acde)' }],
+        options: [{ flag: '--out DIR', about: 'Where to build first (default: .acde)' }],
         examples: ['acde install'],
       },
       {
@@ -95,7 +97,7 @@ export class Help {
             + 'an acde dev uses it. No argument: lists the installed packages.',
           'Exit code 1: not installed or a wrong argument; 2: an acde dev uses it; 3: not confirmed.',
         ],
-        options: [{ flag: '--yes', about: 'remove without asking' }],
+        options: [{ flag: '--yes', about: 'Remove without asking' }],
         examples: ['acde uninstall', 'acde uninstall com.example.app --yes'],
       },
       {
@@ -121,10 +123,11 @@ export class Help {
             + 'else dopame).',
         ],
         options: [
-          { flag: '--headless', about: 'no host window (machines without a display, CI)' },
-          { flag: '--app ID', about: 'with several apps in a project, the one to open' },
-          { flag: '--desktop ID|DIR', about: 'run the projects in that desktop' },
-          { flag: '--out DIR', about: 'where to build (default: .acde; one project only)' },
+          { flag: '--headless', about: 'No host window (machines without a display, CI)' },
+          { flag: '--verbose', about: 'Also the runtime\'s info log (by default only its warnings and errors)' },
+          { flag: '--app ID', about: 'With several apps in a project, the one to open' },
+          { flag: '--desktop ID|DIR', about: 'Run the projects in that desktop' },
+          { flag: '--out DIR', about: 'Where to build (default: .acde; one project only)' },
         ],
         examples: ['acde dev', 'acde dev --headless', 'acde dev ./app ./desk'],
       },
@@ -138,16 +141,16 @@ export class Help {
             + 'unless --headed. What a failing test left goes to <project>/.acde/test-results.',
         ],
         options: [
-          { flag: '-t PATTERN', about: 'only the tests whose names match' },
-          { flag: '--headed', about: 'show the windows' },
-          { flag: '--desktop ID|DIR', about: 'run the app in that desktop' },
-          { flag: '--timeout MS', about: 'per test (default: 60000)' },
-          { flag: '--bail', about: 'stop at the first failure' },
-          { flag: '--workers N', about: 'files at once (default: half the cores, at most 4; 1 headed or with --bail)' },
-          { flag: '--retries N', about: 'run a failing test again (passing later means flaky; default: 0)' },
-          { flag: '--trace', about: 'a screenshot after every step and trace.html for every test' },
-          { flag: '--video[=on]', about: 'an animated PNG of the screen of failing tests (=on: of every test)' },
-          { flag: '-u, --update-screenshots', about: 'rewrite the screenshot baselines' },
+          { flag: '-t PATTERN', about: 'Only the tests whose names match' },
+          { flag: '--headed', about: 'Show the windows (default: headless)' },
+          { flag: '--desktop ID|DIR', about: 'Run the app in that desktop' },
+          { flag: '--timeout MS', about: 'Milliseconds per test (default: 60000)' },
+          { flag: '--bail', about: 'Stop at the first failure' },
+          { flag: '--workers N', about: 'Files at once (default: half the cores, at most 4; 1 headed or with --bail)' },
+          { flag: '--retries N', about: 'Run a failing test again (passing later means flaky; default: 0)' },
+          { flag: '--trace', about: 'A screenshot after every step and trace.html for every test' },
+          { flag: '--video[=on]', about: 'An animated PNG of the screen of failing tests (=on: of every test)' },
+          { flag: '-u, --update-screenshots', about: 'Rewrite the screenshot baselines' },
         ],
         examples: ['acde test', 'acde test e2e/notes.e2e.ts -t saves --headed'],
       },
@@ -161,10 +164,10 @@ export class Help {
             + 'GPU and its files), running sessions, the project in dir and the agent skill. Exit code 1 on an error.',
         ],
         options: [
-          { flag: '--online', about: 'also check whether a newer acde is out' },
-          { flag: '--json', about: 'one JSON object' },
-          { flag: '--fix', about: 'then fix what acde may (the skill, .acde/ in .gitignore, the sessions directory)' },
-          { flag: '--yes', about: 'with --fix, also do what downloads or stops something, without asking' },
+          { flag: '--online', about: 'Also check whether a newer acde is out' },
+          { flag: '--json', about: 'Print one JSON object' },
+          { flag: '--fix', about: 'Then fix what acde may (the skill, .acde/ in .gitignore, the sessions directory)' },
+          { flag: '--yes', about: 'With --fix, also do what downloads or stops something, without asking' },
         ],
         examples: ['acde doctor', 'acde doctor --fix'],
       },
@@ -174,19 +177,19 @@ export class Help {
         'The windows, then the elements of the focused window, one per line with a ref such as w1.12 that act takes.',
         'Exit code 2: --find found nothing.',
       ], [
-        { flag: '--find TEXT', about: 'only elements whose name or value contains TEXT' },
-        { flag: '--window W', about: 'that window instead of the focused one' },
-        { flag: '--all', about: 'every window not marked [minimized], and elements hidden by opacity: 0' },
-        { flag: '--offscreen', about: 'also elements scrolled out of view' },
+        { flag: '--find TEXT', about: 'Only elements whose name or value contains TEXT' },
+        { flag: '--window W', about: 'That window instead of the focused one' },
+        { flag: '--all', about: 'Every window not marked [minimized], and elements hidden by opacity: 0' },
+        { flag: '--offscreen', about: 'Also elements scrolled out of view' },
       ], ['acde inspect', 'acde inspect --find Save']),
       inspecting('query', '<selector>', 'Find elements by CSS selector', [
         'The elements a CSS selector matches in the focused window, each with a ref act takes; also what inspect '
           + 'leaves out (not rendered ones are marked [hidden]).',
         'Exit code 2: nothing matches.',
       ], [
-        { flag: '--window W', about: 'that window instead of the focused one' },
-        { flag: '--ref REF', about: 'only under that element' },
-        { flag: '--limit N', about: 'at most N elements (default: 3000)' },
+        { flag: '--window W', about: 'That window instead of the focused one' },
+        { flag: '--ref REF', about: 'Only under that element' },
+        { flag: '--limit N', about: 'At most N elements (default: 3000)' },
       ], ['acde query "button.primary"']),
       inspecting('act', '<ref> <action> [arg]', 'Click, type, press keys… on a ref', [
         'Performs one action on a ref from inspect or query and prints what changed.',
@@ -201,25 +204,25 @@ export class Help {
           + 'from stdin.',
       ], [], ['acde eval notes "document.title"']),
       inspecting('shot', '<web>', 'Take a PNG of a window', ['A PNG of the web\'s window; prints its path.'],
-        [{ flag: '-o, --output FILE', about: 'where to write it (default: ./<web>.png)' }], ['acde shot notes']),
+        [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./<web>.png)' }], ['acde shot notes']),
       inspecting('screen', '', 'Take a PNG of the whole screen', ['A PNG of the whole screen, every window composed.'],
-        [{ flag: '-o, --output FILE', about: 'where to write it (default: ./screen.png)' }], ['acde screen']),
+        [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./screen.png)' }], ['acde screen']),
       inspecting('console', '', 'Print the pages\' console output and errors', [
         'The pages\' console.* lines and uncaught errors.',
       ], [
-        { flag: '--web W', about: 'only that page' },
-        { flag: '--level L', about: 'log, info, warn, error, debug or errors' },
-        { flag: '--since S', about: 'reload (since acde dev last reloaded) or N (from entry N on)' },
-        { flag: '--follow', about: 'keep printing new entries' },
+        { flag: '--web W', about: 'Only that page' },
+        { flag: '--level L', about: 'One of log, info, warn, error, debug, errors' },
+        { flag: '--since S', about: 'From the last reload of acde dev (reload) or from entry N on (N)' },
+        { flag: '--follow', about: 'Keep printing new entries' },
       ], ['acde console --level errors']),
       inspecting('network', '', 'Print the pages\' requests', [
         'The pages\' fetch / XHR / WebSocket / EventSource requests and the images, stylesheets and fonts they '
           + 'load, and how they ended.',
       ], [
-        { flag: '--web W', about: 'only that page' },
-        { flag: '--failed', about: 'only failed requests and status 400 or more' },
-        { flag: '--since S', about: 'reload or N, as for console' },
-        { flag: '--follow', about: 'keep printing new requests' },
+        { flag: '--web W', about: 'Only that page' },
+        { flag: '--failed', about: 'Only failed requests and status 400 or more' },
+        { flag: '--since S', about: 'As for console: reload, or N' },
+        { flag: '--follow', about: 'Keep printing new requests' },
       ], ['acde network --failed']),
       inspecting('pointer', '<x> <y>', 'Move the pointer to a screen point', [
         'Moves the pointer as a real move (hover, screen edges); in a host window the screen is its content area.',
@@ -231,10 +234,10 @@ export class Help {
       inspecting('allow', '[<prompt>|<app> <capability>]', 'Allow a waiting prompt', [
         'Allows the only waiting prompt, the one with that id (acde permissions shows it), or the one of that app '
           + 'for that capability.',
-      ], [{ flag: '--all', about: 'every waiting prompt' }], ['acde allow', 'acde allow recorder microphone']),
+      ], [{ flag: '--all', about: 'Every waiting prompt' }], ['acde allow', 'acde allow recorder microphone']),
       inspecting('deny', '[<prompt>|<app> <capability>]', 'Deny a waiting prompt', [
         'Denies the only waiting prompt, the one with that id, or the one of that app for that capability.',
-      ], [{ flag: '--all', about: 'every waiting prompt' }], ['acde deny']),
+      ], [{ flag: '--all', about: 'Every waiting prompt' }], ['acde deny']),
       inspecting('revoke', '<app> <capability>', 'Take back a decision', ['Takes back a decision, so the app is asked '
         + 'again.'], [], ['acde revoke recorder microphone']),
       inspecting('stop', '', 'End the session', [
@@ -266,13 +269,27 @@ export class Help {
             + 'here; remove takes it away; path prints its directory.',
         ],
         options: [
-          { flag: '--agent ID,...', about: 'only for those agents' },
-          { flag: '--dir DIR', about: 'into DIR' },
-          { flag: '--copy', about: 'a copy, not a link' },
+          { flag: '--agent ID,...', about: 'Only for those agents' },
+          { flag: '--dir DIR', about: 'Into DIR' },
+          { flag: '--copy', about: 'A copy, not a link' },
         ],
         examples: ['acde skills install'],
       },
     ]
+  }
+
+  static width(columns: number | undefined = process.stdout.columns): number {
+    return columns ? Math.max(Help.MIN, Math.min(Help.MAX, columns)) : Help.WIDTH
+  }
+
+  static terminal(stream: { readonly isTTY?: boolean; readonly columns?: number } = process.stdout): number | null {
+    return stream.isTTY ? Help.width(stream.columns) : null
+  }
+
+  static block(text: string, width: number | null, indent: string, first = indent): string[] {
+    if (width === null) return [first + text]
+    const [head = '', ...rest] = Help.wrap(text, width, indent)
+    return [first + head.slice(indent.length), ...rest]
   }
 
   static wrap(text: string, width: number, indent: string): string[] {
@@ -288,33 +305,41 @@ export class Help {
     return lines
   }
 
-  static overview(commands: readonly HelpCommand[], version: string, c: Palette = Color.palette()): string {
+  static overview(
+    commands: readonly HelpCommand[], version: string, c: Palette = Color.palette(), width = Help.width(),
+  ): string {
     const pad = Math.max(...commands.map((command) => command.name.length)) + 2
+    const indent = ' '.repeat(pad + 2)
     const out = [`acde ${version}: build, run and test apps for Dopame`, '']
     out.push(`${c.heading('Usage:')} acde <command> [options]`)
     for (const group of Help.GROUPS) {
       out.push('', c.heading(`${group}:`))
       for (const command of commands.filter((item) => item.group === group))
-        out.push(`  ${c.name(command.name.padEnd(pad))}${command.summary}`)
+        out.push(...Help.block(command.summary, width, indent, `  ${c.name(command.name.padEnd(pad))}`))
     }
+    const options = [
+      ['-h, --help', 'Print this help; after a command (acde new --help), print that command\'s help'],
+      ['-v, --version', 'Print the versions of acde, the SDK and the acdert it finds'],
+    ] as const
+    const flags = ' '.repeat(17)
     out.push('', c.heading('Options:'))
-    out.push(`  ${c.option('-h, --help'.padEnd(15))}this help; acde <command> --help: that command's`)
-    out.push(`  ${c.option('-v, --version'.padEnd(15))}the versions of acde, the SDK and the acdert it finds`)
-    out.push('', `Run ${c.name('acde <command> --help')} for a command's options and examples.`)
+    for (const [flag, about] of options) out.push(...Help.block(about, width, flags, `  ${c.option(flag.padEnd(15))}`))
+    const more = `Run ${c.name('acde <command> --help')} for a command's options and examples.`
+    out.push('', ...Help.wrap(more, width, ''))
     return out.join('\n')
   }
 
-  static command(command: HelpCommand, c: Palette = Color.palette()): string {
+  static command(command: HelpCommand, c: Palette = Color.palette(), width = Help.width()): string {
     const usage = ['acde', command.name, command.args, command.options.length ? '[options]' : '']
       .filter(Boolean).join(' ')
     const out = [`${c.heading('Usage:')} ${usage}`, '']
-    for (const paragraph of command.about) out.push(...Help.wrap(paragraph, Help.WIDTH, ''))
+    for (const paragraph of command.about) out.push(...Help.wrap(paragraph, width, ''))
     if (command.options.length) {
       const pad = Math.min(26, Math.max(...command.options.map((option) => option.flag.length)) + 2)
       out.push('', c.heading('Options:'))
       for (const option of command.options) {
         const first = option.flag.length + 2 > pad
-        const [head = '', ...rest] = Help.wrap(option.about, Help.WIDTH, ' '.repeat(pad + 2))
+        const [head = '', ...rest] = Help.wrap(option.about, width, ' '.repeat(pad + 2))
         if (first) out.push(`  ${c.option(option.flag)}`, head, ...rest)
         else out.push(`  ${c.option(option.flag.padEnd(pad))}${head.trimStart()}`, ...rest)
       }
