@@ -173,3 +173,24 @@ fn css_transforms_move_svg_children_about_their_user_space_origin() {
     assert_eq!(page.count(0, 0, 50, 50).1, 0);
     assert!((500..=700).contains(&page.count(50, 50, 100, 100).1), "translated by CSS after the class change");
 }
+
+#[test]
+fn oklch_and_color_mix_colors_paint() {
+    for (style, attrs) in [
+        ("color: oklch(0.63 0.26 29)", vec![("fill", "none"), ("stroke", "currentColor")]),
+        ("color: color-mix(in oklab, red 90%, black)", vec![("fill", "none"), ("stroke", "currentColor")]),
+        ("", vec![("fill", "none"), ("stroke", "oklch(0.63 0.26 29)")]),
+        ("color: oklch(0.63 0.26 29)", vec![("fill", "currentColor")]),
+    ] {
+        let page = Page::new(CSS);
+        let div = page.doc.create_element("div").unwrap();
+        page.doc.set_attribute(div, "style", style).unwrap();
+        page.doc.append_child(0, div).unwrap();
+        let svg = page.svg(div, "svg", &[("viewBox", "0 0 100 100")]);
+        let mut rect = vec![("x", "10"), ("y", "10"), ("width", "80"), ("height", "80"), ("stroke-width", "6")];
+        rect.extend(attrs.iter().copied());
+        page.svg(svg, "rect", &rect);
+        let (_, red) = page.count(0, 0, 100, 100);
+        assert!(red > 300, "{style} {attrs:?}: {red} red pixels");
+    }
+}

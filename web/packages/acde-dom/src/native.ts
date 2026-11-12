@@ -164,6 +164,7 @@ export interface DomNative {
 
   imageState(id: number): Float64Array
   takeLoaded(): Uint32Array
+  takeAnimationEvents(): AnimationEvents
   sheetState(id: number): number
   sheetUrl(id: number): string | null
   sheetOpaque(id: number): boolean
@@ -188,6 +189,20 @@ export interface DomNative {
   semantics?(root: number, limit: number, offscreen?: boolean, invisible?: boolean): string
 
   stats(reset?: boolean): DomStats
+}
+
+export interface AnimationEventRecord {
+  readonly type: string
+  readonly transition: boolean
+  readonly target: number
+  readonly name: string
+  readonly elapsedTime: number
+  readonly pseudoElement: string
+}
+
+export interface AnimationEvents {
+  readonly animating: boolean
+  readonly events: readonly AnimationEventRecord[]
 }
 
 export interface PhaseTiming {

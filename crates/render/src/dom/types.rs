@@ -20,6 +20,22 @@ pub enum Ns {
     Other = 3,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimationEvent {
+    pub kind: &'static str,
+    pub transition: bool,
+    pub target: u32,
+    pub name: String,
+    pub elapsed: f64,
+    pub pseudo: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimationEvents {
+    pub animating: bool,
+    pub events: Vec<AnimationEvent>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Viewport {
     pub width: f64,

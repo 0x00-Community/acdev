@@ -1,5 +1,5 @@
 import { PropertySymbol, Window } from 'happy-dom'
-import type { DomNative, DomStats, Metrics } from '../../src/native.ts'
+import type { AnimationEventRecord, AnimationEvents, DomNative, DomStats, Metrics } from '../../src/native.ts'
 
 type HNode = any
 
@@ -27,6 +27,7 @@ export class MockDom implements DomNative {
   readonly scroll = new Map<number, { left: number; top: number }>()
   readonly images = new Map<number, number[]>()
   #scrolled: number[] = []
+  readonly animationEvents: AnimationEventRecord[] = []
   #loaded: number[] = []
   readonly canvasCommands = new Map<number, Uint8Array[]>()
   focus = { id: NONE, visible: false }
@@ -685,6 +686,10 @@ export class MockDom implements DomNative {
     if (!node.getAttribute('src')) return Float64Array.of(0, 0, 3)
     return Float64Array.from(this.images.get(id) ?? [0, 0, 0])
   }
+  takeAnimationEvents(): AnimationEvents {
+    return { animating: false, events: this.animationEvents.splice(0) }
+  }
+
   takeLoaded(): Uint32Array {
     const out = Uint32Array.from(this.#loaded)
     this.#loaded = []

@@ -330,6 +330,25 @@ impl Engine {
         self.doc.get_node(node).map_or((0.0, 0.0), |n| (n.scroll_offset().x, n.scroll_offset().y))
     }
 
+    pub(in crate::dom) fn take_animation_events(&mut self) -> AnimationEvents {
+        self.resolved();
+        let mut events = Vec::new();
+        for event in self.doc.take_animation_events() {
+            let connected = self.doc.get_node(event.node).is_some_and(|n| n.flags.is_in_document());
+            let target = if connected { Some(self.ids.id_of(event.node)) } else { self.ids.handle(event.node) };
+            let Some(target) = target else { continue };
+            events.push(AnimationEvent {
+                kind: event.kind.name(),
+                transition: event.kind.is_transition(),
+                target,
+                name: event.name,
+                elapsed: event.elapsed,
+                pseudo: event.pseudo,
+            });
+        }
+        AnimationEvents { animating: self.doc.has_css_animations(), events }
+    }
+
     pub(in crate::dom) fn take_scrolled(&mut self) -> Vec<u32> {
         let document = self.doc.root_node().id;
         let mut changed = Vec::new();

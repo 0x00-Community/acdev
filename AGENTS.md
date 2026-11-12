@@ -1698,6 +1698,10 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
   里按 host 的时钟; 近似: easing 作用在每段关键帧上、endDelay 只算进结束时间、没有 composite.
+  CSS 动画和过渡的事件 (`dom/cssevents.ts`): 页面第一次给这 8 种事件 (或 webkit 前缀的 4 种) 加监听或 on 处理器之后, 每帧 `takeAnimationEvents`
+  (render 先把样式算到最新), 在元素上发 `AnimationEvent` / `TransitionEvent` (冒泡, 不可取消, 伪元素的发在宿主元素上带 `pseudoElement`);
+  Web Animations 自己的 `acde-animation-<n>` 关键帧不发. 还有动画在跑或刚有事件就再要一帧; 改了 DOM 的任务结束时也要一帧, 好让新开始的动画被看到.
+  还没有: 只有 webkit 前缀监听时改发旧名 (DOM 的 legacy event types), `getAnimations()` 里的 CSS 动画.
   用指针选文字 (`dom/textselect.ts`, `Input` 调): 左键按下 (pointerdown / mousedown 都没取消) 在 `caretFromPoint` 处折叠选区, 先发可取消的
   `selectstart`; 按住移动时把焦点端扩到指针处; 第二次按下 (500 ms、5 px 内) 选一个词 (`Intl.Segmenter`, 中文按词典分词), 第三次选所在
   块 (向上找到 `display` 不是行内的祖先), 拖动时按同样的粒度扩展; Shift 按下从原锚点扩展. 按在表单控件、按钮、label、可编辑区域、链接、
@@ -1767,12 +1771,14 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | 文件 | 改了什么 |
 | --- | --- |
 | `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块的强调色都从 `accent_color` 取 |
+| `mutator.rs` `set_attribute` | 不在文档里的 `<img>` 设 `src` 也取图 (HTML 的 update the image data; `new Image()` 预加载): 上游在文档外不做任何特殊处理, 图一直不来; render 的 `image_state` 也不再把文档外的图一律当作加载中, 取不到就报失败 |
+| `animation_events.rs` (新), `stylo.rs` `resolve_stylist_pass`, `document.rs` `take_animation_events` / `has_css_animations` | 推进 CSS 动画和过渡时记事件 (animationstart / iteration / end / cancel, transitionrun / start / end / cancel; elapsedTime 照 Servo 的 `script/animations.rs`, 取到微秒): 上游 Servo 在 script 里发, Blitz 没有. 第一次 `take_animation_events` 之后才记, 最多攒 4096 个; 离开文档的元素上没结束的动画和没结束的过渡记 cancel, 已结束的动画被样式去掉不记 |
 | `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |
 | `mutator.rs` `set_attribute` / `clear_attribute` / `restyle_for_attribute`, `document.rs` `snapshot_attribute` | 只影响选择器的属性只重算元素自己 (快照让后代失效; 有 `:has()` / nth-of 时重算父子树); 值没变直接返回 (`value`、`style` 和 `<img>` 的 `src` / `srcset` 除外: 同值也照常处理, `<img>` 会重新加载) |
 | `mutator.rs` `set_attribute` / `load_image` / `process_added_subtree`, `node/element.rs` `ElementData.image_tried` / `image_loads`, `document.rs` 取图失败和 `apply_loaded_image`, blitz-traits `net.rs` `NetProvider::reused` | `<img>` 不在文档里时设 `src` 也加载 (上游只在文档里加载); 插入文档时当前 `src` 已经开始取过 (成功、失败或还在取) 就不再取 (克隆体没取过, 插入时取); 取自图片缓存或并入进行中的请求时调 `reused` 让提供者照样上报; 每次取图结束 (取到、失败、取自缓存) `image_loads` 加一, render `take_loaded` 按它每次结束报一次 (页面各触发一次 load / error, 和浏览器一样), 不再只在状态变了时报 |
 | `node/simple_svg.rs`, `svg.rs`, `element.rs`, `layout/construct.rs` | 基本图形 + 纯色的 SVG 直接转 kurbo 路径, 不经 usvg (`<text>` 和嵌套 `<svg>` 走 usvg; `svg_text_only`; `ACRENDER_SVG_PATH=1` 打印) |
-| `node/serialize.rs` `svg_source`, `assets/default.css` | 序列化内联 SVG 时写进算好的样式和字体, CSS 几何算成属性; 后代的 CSS `transform` / `translate` / `rotate` / `scale` (类、动画) 按视口算成矩阵写进 `transform` 属性, 盖过原属性 (根 `<svg>` 的随它的盒子画). SVG 元素 (除最外层 `<svg>`) 的 `transform-origin` 默认 `0 0`, 同 Firefox |
+| `node/serialize.rs` `svg_source`, `assets/default.css` | 序列化内联 SVG 时写进算好的样式和字体, CSS 几何算成属性; 后代的 CSS `transform` / `translate` / `rotate` / `scale` (类、动画) 按视口算成矩阵写进 `transform` 属性, 盖过原属性 (根 `<svg>` 的随它的盒子画). SVG 元素 (除最外层 `<svg>`) 的 `transform-origin` 默认 `0 0`, 同 Firefox; `color` / `fill` / `stroke` (和替换 currentColor 的值) 写成 sRGB 的 `rgb()` / `rgba()`, 超出色域的截到边上: usvg 不认 `oklch()`、`lab()`、`color-mix()` 等 (Tailwind 4 的调色板全是 oklch, 图标原先看不见或成了黑色) |
 | `node/svg.rs` `external_uses` / `inline_external_uses`, `document.rs` `svg_with_sprites`, `net.rs` `SvgSpriteHandler` | 内联 SVG 里指向别的文件的 `<use href="icons.svg#id">` (#152; usvg 只认同一文档里的): 文件经 net provider 取一次 (按去掉片段的 URL 记, 取不到不重试), 到了把等它的 `<svg>` 重建; 序列化后把目标元素原样抄进根下的 `<defs>`, 改成 `acde-sprite-<n>-<id>`, `<use>` 指向它. 只抄目标元素本身, 它再引用文件里别的 id 不跟 |
 | `stylo.rs` `synthesize_presentational_hints_for_legacy_attributes`, `SVG_PRESENTATION` | SVG 的呈现属性 (fill / stroke / opacity / font-* 这 18 个, 和序列化写回的一样) 按 CSS 解析成 PresHints: `stroke="var(--x)"` 能解析, `getComputedStyle` 也读得到; 含 `url(` 的值不映射 (照旧原样交给 usvg) |
 | `util.rs` `parse_svg_image` / `parse_svg_with` | 按源文本缓存 usvg 解析 (512 条); 没有 `<text>` 用空字体库 |

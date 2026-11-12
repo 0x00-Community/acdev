@@ -46,6 +46,7 @@ import { createHtml, HTMLElement } from './dom/html'
 import { Input } from './dom/input'
 import * as media from './dom/media'
 import { deliverLoads, presentVideos } from './dom/media'
+import { cssEventsWanted, deliverCssEvents, onCssEventsWanted } from './dom/cssevents'
 import {
   InputDeviceInfo,
   installCapture,
@@ -236,6 +237,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   }
 
   let frameVersion = -1
+  onCssEventsWanted(() => frames.request())
 
   const deliverScrolls = () => {
     const scrolled = dom.takeScrolled()
@@ -268,11 +270,13 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     loadPage,
     frame(time) {
       frames.wanted = false
+      let animating = false
       moved()
       try {
         deliverScrolls()
         if (!gpuContexts.behind()) runAnimationFrames(isClockInstalled() ? clockNow() : time, report)
         deliverObservations()
+        animating = deliverCssEvents()
       } catch (error) {
         report(error)
       }
@@ -282,14 +286,14 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       gpuContexts.present()
       frameVersion = version
       dom.commit()
-      if (framesPending() || loading || playing) frames.request()
+      if (framesPending() || loading || playing || animating) frames.request()
     },
     endTask() {
       idbTaskEnded()
       moved()
       canvases.flush()
       gpuContexts.present()
-      if (version !== frameVersion && watching()) frames.request()
+      if (version !== frameVersion && (watching() || cssEventsWanted())) frames.request()
       dom.commit()
     },
     resize() {

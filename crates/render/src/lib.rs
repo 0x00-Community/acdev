@@ -25,7 +25,7 @@ pub use canvas::encode_png;
 pub use capture::Capture;
 pub use commands::Commands;
 pub use decoration::{Bar, ButtonSide, Decoration, FrameButton, FrameColors, FrameStyle, FrameTheme, Rgba, TitleAlign};
-pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
+pub use dom::{AnimationEvent, AnimationEvents, Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;
 pub use layers::{Backdrop, Drawing, Layer, LayerFilter};

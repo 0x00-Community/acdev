@@ -219,6 +219,10 @@ impl Dom {
         self.read(|e| Ok(e.take_loaded())).unwrap_or_default()
     }
 
+    pub fn take_animation_events(&self) -> AnimationEvents {
+        self.read(|e| Ok(e.take_animation_events())).unwrap_or_default()
+    }
+
     pub fn sheet_state(&self, id: u32) -> Result<u8> {
         self.on(id, |e, node| {
             e.doc.handle_messages();
