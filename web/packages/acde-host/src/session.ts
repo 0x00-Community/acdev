@@ -7,7 +7,7 @@ import type { SessionLanguage } from './language'
 
 type SessionEnd = 'logout' | 'reboot' | 'poweroff' | 'handoff'
 
-export type RunEnd = 'close' | 'exit' | 'signal'
+export type RunEnd = 'close' | 'exit' | 'signal' | 'quit'
 
 export class DesktopSession {
   own = false

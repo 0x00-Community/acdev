@@ -614,6 +614,7 @@ export class Broker {
       }
       case 'close':
       case 'exit':
+      case 'quit':
         this.#stopped = true
         this.#ended = this.#signal?.aborted ? 'signal' : event.type
         return

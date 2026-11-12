@@ -39,7 +39,7 @@ const QUIT_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
 
 fn quit(proxy: &Proxy) {
     let Some(server) = server() else { return proxy.send(Cmd::Exit(0)) };
-    server.broker.push(Event { kind: "exit".into(), ..Default::default() });
+    server.broker.push(Event { kind: "quit".into(), ..Default::default() });
     let later = proxy.clone();
     let spawned = std::thread::Builder::new().name("acde-dev-quit".into()).spawn(move || {
         std::thread::sleep(QUIT_WAIT);
