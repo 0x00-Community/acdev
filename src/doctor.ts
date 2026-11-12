@@ -281,10 +281,10 @@ export class Doctor {
         : Doctor.skip('project', 'project', `${summary}: run acde doctor in a project, or pass its directory, to check it too`)]
     }
     const pkg = new AppPackage(dir)
-    const checks = [Doctor.findings(pkg)]
+    const deps = Doctor.dependencies(dir, available)
+    const checks = [Doctor.findings(pkg, deps?.fix === Doctor.SDK_FIX)]
     const platform = Doctor.PLATFORMS[process.platform]
     if (platform) checks.push(Doctor.platform(pkg, platform))
-    const deps = Doctor.dependencies(dir, available)
     if (deps) checks.push(deps)
     const ignored = Doctor.ignored(dir)
     if (ignored) checks.push(ignored)
@@ -297,7 +297,7 @@ export class Doctor {
     return manifest !== null && typeof manifest['acde'] === 'object' && manifest['acde'] !== null
   }
 
-  static findings(pkg: AppPackage): Check {
+  static findings(pkg: AppPackage, sdkElsewhere = false): Check {
     let errors: readonly string[]
     let warnings: readonly string[]
     try {
@@ -306,6 +306,10 @@ export class Doctor {
       errors = [error instanceof Error ? error.message : String(error)]
       warnings = []
     }
+    const sdk = pkg.sdkWarning()
+    if (sdk !== null && sdkElsewhere) warnings = warnings.filter((warning) => warning !== sdk)
+    else if (sdk !== null && errors.length === 0 && warnings.length === 1 && warnings[0] === sdk)
+      return Doctor.warn('project', 'project', `${pkg.name}: ${sdk}`, Doctor.SDK_FIX)
     const more = (list: readonly string[]) => (list.length > 1 ? ` (and ${list.length - 1} more)` : '')
     if (errors.length > 0) return Doctor.error('project', 'project', `${pkg.name}: ${errors[0]}${more(errors)}`, 'acde check lists them')
     if (warnings.length > 0) return Doctor.warn('project', 'project', `${pkg.name}: ${warnings[0]}${more(warnings)}`, 'acde check lists them')
@@ -338,22 +342,36 @@ export class Doctor {
         `PATH: acde builds it on ${Runtime.bun ? 'Bun' : 'Node.js'} instead`,
         pm.runtime === 'bun' ? 'install Bun (https://bun.sh)' : 'install Node.js (https://nodejs.org)')
     }
+    const sdkCheck = Doctor.#sdk(dir, manifest)
+    if (sdkCheck) return sdkCheck
     const missing = Object.keys(declared).filter((name) => Doctor.installedPackage(dir, name) === null)
     if (missing.length > 0) {
       const named = missing.length > 3 ? `${missing.slice(0, 3).join(', ')} and ${missing.length - 3} more` : missing.join(', ')
       return Doctor.mend(Doctor.warn('dependencies', 'dependencies', `not installed: ${named}`, `${pm.name} install`),
         { action: 'dependencies', target: dir, ask: true, does: `install the project's dependencies (${pm.name} install in ${dir})` })
     }
-    const sdk = Versions.sdk()
     const apiAt = Doctor.installedPackage(dir, '@dopame/acde-api')
     const api = apiAt === null ? null : Doctor.#json(apiAt)
     const theirs = typeof api?.['version'] === 'string' ? api['version'] : null
-    if (theirs !== null && sdk !== 'unknown' && theirs !== sdk) {
-      return Doctor.warn('dependencies', 'dependencies', `the project has @dopame/acde-api ${theirs}, this acde is built with ${sdk}`,
-        `run acde sdk update (it sets @dopame/acde-api to ${Sdk.url()} and runs ${pm.name} install)`)
-    }
     const sdkText = theirs ? `, @dopame/acde-api ${theirs}` : ''
     return Doctor.ok('dependencies', 'dependencies', `installed with ${pm.name} (runs on ${runtime})${sdkText}`)
+  }
+
+  static #sdk(dir: string, manifest: Readonly<Record<string, unknown>>): Check | null {
+    const sdk = Versions.sdk()
+    if (sdk === 'unknown') return null
+    const state = Sdk.state(dir, manifest)
+    if (state.spec === null) return null
+    const apiAt = Doctor.installedPackage(dir, Sdk.NAME)
+    const api = apiAt === null ? null : Doctor.#json(apiAt)
+    const installed = typeof api?.['version'] === 'string' ? api['version'] : null
+    const named = state.version
+    if ((named === null || named === sdk) && (installed === null || installed === sdk)) return null
+    const has = named !== null && installed !== null && named !== installed
+      ? `package.json names ${named}, ${installed} is installed`
+      : `the project has ${installed ?? named ?? state.spec}`
+    return Doctor.warn('dependencies', 'dependencies', `${Sdk.NAME}: ${has}; this acde pairs with ${sdk} `
+      + `(acde sdk update sets it to ${Sdk.url()} and reinstalls)`, Doctor.SDK_FIX)
   }
 
   static installedPackage(dir: string, name: string): string | null {
@@ -602,6 +620,8 @@ export class Doctor {
   static ok(id: string, title: string, summary: string): Check {
     return { id, title, status: 'ok', summary }
   }
+
+  static readonly SDK_FIX = 'run acde sdk update'
 
   static warn(id: string, title: string, summary: string, fix?: string): Check {
     return { id, title, status: 'warn', summary, ...(fix && { fix }) }

@@ -154,6 +154,29 @@ describe('acde doctor', () => {
     expect(line(hoisted.stdout, 'dependencies')).toMatch(/^ok     dependencies: installed with bun \(runs on Bun /)
   }, 60_000)
 
+  test('an older SDK: one line, under dependencies, with acde sdk update as the fix', async () => {
+    const s = standIn()
+    const old = 'https://pkgs.example.test/acdert/0.0.1/acde-api-0.0.1.tar.gz'
+    const sdkLines = (out: string) => out.split('\n').filter((text) => text.includes('@dopame/acde-api'))
+    const said = `warn   dependencies: @dopame/acde-api: the project has 0.0.1; this acde pairs with ${Versions.sdk()} `
+    writeFileSync(join(s.project, 'package.json'), JSON.stringify({
+      name: 'alpha', packageManager: 'bun@1.4.4', devDependencies: { '@dopame/acde-api': old },
+    }))
+    const missing = await doctor([], s.project, s.env)
+    expect(sdkLines(missing.stdout)).toHaveLength(1)
+    expect(sdkLines(missing.stdout)[0]).toStartWith(said)
+    expect(fixAfter(missing.stdout, 'dependencies')).toBe('run acde sdk update')
+    expect(line(missing.stdout, 'project')).toMatch(/^ok     project: /)
+    const installed = join(dirname(s.project), 'node_modules', '@dopame', 'acde-api')
+    mkdirSync(installed, { recursive: true })
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: '0.0.1' }))
+    const stale = await doctor([], s.project, s.env)
+    expect(sdkLines(stale.stdout)).toHaveLength(1)
+    expect(line(stale.stdout, 'dependencies')).toStartWith(said)
+    expect(fixAfter(stale.stdout, 'dependencies')).toBe('run acde sdk update')
+    expect(stale.stdout).not.toContain('acde check lists them')
+  }, 60_000)
+
   test('an app that waits for approval in a running acde dev: a warning that names it', async () => {
     const s = standIn()
     const dev = Bun.spawn([process.execPath, CLI, 'dev'], {
