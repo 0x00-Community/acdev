@@ -42,6 +42,7 @@ test('looks for what is not there', async ({ app }) => {
 
 test('fine', async ({ acde }) => {
   expect(acde).toBeInstanceOf(Acde)
+  expect(acde.session.test).toBe(true)
   expect((await acde.webs()).length).toBe(2)
 })
 `
@@ -94,7 +95,7 @@ describe('acde test', () => {
       expect(started.headless).toBe('1')
       expect(started.env).toMatchObject({
         ACDE_STORAGE: '', ACDE_SIZE: E2e.SIZE, ACDE_COLOR_SCHEME: 'light', ACDE_REDUCED_MOTION: '1',
-        ACDE_AUTOSTART: '0',
+        ACDE_AUTOSTART: '0', ACDE_TEST_SESSION: null,
       })
       expect(started.env!['XDG_CONFIG_HOME']).toMatch(/acde-test-[^/\\]+[/\\]config$/)
       expect(started.env!['HOME']).toMatch(/acde-test-[^/\\]+[/\\]home$/)

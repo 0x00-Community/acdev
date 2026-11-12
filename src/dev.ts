@@ -28,6 +28,7 @@ export interface DevOptions {
   readonly headless?: boolean
   readonly verbose?: boolean
   readonly force?: boolean
+  readonly test?: boolean
   readonly acdert: string
 }
 
@@ -76,6 +77,7 @@ export class DevSession {
   readonly #headless: boolean
   readonly #verbose: boolean
   readonly #force: boolean
+  readonly #test: boolean
   readonly #endpoint = DevClient.endpoint()
   #link: DevClient | null = null
   readonly #dirty = new Set<Unit>()
@@ -105,6 +107,7 @@ export class DevSession {
     this.#headless = options.headless === true
     this.#verbose = options.verbose === true
     this.#force = options.force === true
+    this.#test = options.test === true
   }
 
   get multiple(): boolean {
@@ -253,13 +256,14 @@ export class DevSession {
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
       const headless = this.#headless ? ' (headless)' : ''
       console.log(`acde: dev ${target.kind} ${target.id}${headless}: ${what}; rebuilding and reloading on change`)
-      const env = {
+      const env: NodeJS.ProcessEnv = {
         ...process.env,
         ACDE_DEV: this.#endpoint,
         ACDE_PATH: paths,
         ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node',
         ...(this.#headless && { ACDE_HEADLESS: '1' }),
       }
+      delete env[Sessions.TEST_ENV]
       const stdio: StdioOptions = this.#verbose ? 'inherit' : ['inherit', 'inherit', 'pipe']
       const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio })
       if (!this.#verbose) DevSession.quiet(started.process.stderr!, process.stderr)
@@ -329,6 +333,7 @@ export class DevSession {
         apps: [...new Set(this.#units.flatMap((u) => u.built?.apps ?? []))],
         desktop: this.#shown,
         headless: this.#headless,
+        ...(this.#test && { test: true }),
         started: this.#started,
         ...(this.#reloaded && { reloaded: this.#reloaded }),
       })

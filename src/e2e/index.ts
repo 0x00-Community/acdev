@@ -11,6 +11,7 @@ import { Locator } from '../driver/locator.ts'
 import { Logs } from '../driver/logs.ts'
 import { Poll } from '../driver/poll.ts'
 import { Screenshots } from '../driver/screenshot.ts'
+import { Sessions } from '../sessions.ts'
 import { Video } from '../driver/video.ts'
 import { AppWindow } from '../driver/window.ts'
 import { E2e, type E2eSettings } from './settings.ts'
@@ -72,6 +73,7 @@ export class E2eRun {
       ACDE_COLOR_SCHEME: 'light',
       ACDE_REDUCED_MOTION: '1',
       ACDE_AUTOSTART: '0',
+      [Sessions.TEST_ENV]: '1',
     }
   }
 

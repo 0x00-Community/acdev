@@ -14,6 +14,7 @@ export interface Session {
   readonly apps: readonly string[]
   readonly desktop: string | null
   readonly headless?: boolean
+  readonly test?: boolean
   readonly started: number
   readonly reloaded?: Reloaded
 }
@@ -26,6 +27,7 @@ export interface Reloaded {
 export class Sessions {
   static readonly SETTLE_MS = 1_000
   static readonly RETRY_MS = 50
+  static readonly TEST_ENV = 'ACDE_TEST_SESSION'
 
   static dir(env: NodeJS.ProcessEnv = process.env): string {
     const runtime = env['XDG_RUNTIME_DIR']
@@ -105,7 +107,7 @@ export class Sessions {
   }
 
   static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session | null {
-    return sessions.find((session) => session.pid !== self
+    return sessions.find((session) => session.pid !== self && !session.test
       && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine)))) ?? null
   }
 
@@ -141,12 +143,17 @@ export class Sessions {
   }
 
   static pick(
-    sessions: readonly Session[], cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir(),
+    listed: readonly Session[], cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir(),
   ): Session {
     if (pid !== undefined) {
-      const chosen = sessions.find((s) => s.pid === pid)
+      const chosen = listed.find((s) => s.pid === pid)
       if (chosen) return chosen
-      throw new Error(`no acde dev with pid ${pid}${Sessions.#listing(sessions)}`)
+      throw new Error(`no acde dev with pid ${pid}${Sessions.#listing(listed)}`)
+    }
+    const sessions = listed.filter((s) => !s.test)
+    if (sessions.length === 0 && listed.length > 0) {
+      throw new Error('no acde dev is running, only sessions of acde test, which are reached only with --session <pid>'
+        + Sessions.#listing(listed))
     }
     if (sessions.length === 0)
       throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${dir})`)
@@ -169,13 +176,13 @@ export class Sessions {
     const why = matching.length > 1
       ? `several acde dev sessions run ${here}`
       : `none of the ${sessions.length} acde dev sessions runs ${here}`
-    const listed = Sessions.#listing(matching.length > 1 ? matching : sessions)
-    throw new Error(`${why}; pick one with --session <pid>${listed}`)
+    throw new Error(`${why}; pick one with --session <pid>${Sessions.#listing(matching.length > 1 ? matching : sessions)}`)
   }
 
   static what(session: Session): string {
     const kind = session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`
-    return `${kind}${session.headless ? ' (headless)' : ''}`
+    const notes = [session.headless && 'headless', session.test && 'acde test'].filter(Boolean)
+    return `${kind}${notes.length ? ` (${notes.join(', ')})` : ''}`
   }
 
   static describe(session: Session): string {
@@ -203,6 +210,7 @@ export class Sessions {
         apps: Array.isArray(json.apps) ? json.apps : [],
         desktop: typeof json.desktop === 'string' ? json.desktop : null,
         headless: json.headless === true,
+        ...(json.test === true && { test: true }),
         started: Number(json.started) || 0,
         ...reloaded,
       }

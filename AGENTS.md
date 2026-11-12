@@ -379,11 +379,15 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 一个工程一个会话 (acde#91, `Sessions.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
   (Windows 不分大小写) 就报 `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another`
   退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写). `acde test` 的会话 (`Acde.launch({force: true})`) 用
-  自己的输出目录, 带 `--force`, 不受影响. MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话: 有就钉住并连上它,
+  自己的输出目录, 带 `--force`, 不受影响; 它们还是**测试会话**: `E2eRun.env` 设 `ACDE_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它
+  给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdert 的环境去掉这个变量. 一个工程一个会话的判断 (`Sessions.running`)、按目录挑会话
+  (`Sessions.pick` 没给 pid 的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acde dev`, `acde eval` 等
+  也不会挑中这个转瞬即逝的会话); 只有 `--session <pid>` (MCP 的 `sessions {use}`) 到得了它. 只剩测试会话时报 `no acde dev is running, only
+  sessions of acde test, which are reached only with --session <pid>` 并列出; `Sessions.what` 在它后面标 `acde test`. MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话: 有就钉住并连上它,
   回 `attached to acde dev <pid>, which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true}
   starts another)` 加 webs 表 (agent 常忘了后台开着的会话, 不让它卡在报错上); `force: true` 才另起 (带 `--force`).
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
-  不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, started}`: 起来后写、重建后重写、
+  不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过
   (gitea acde#87: 重载时改写会话文件, 旧版把读到一半的文件当坏文件删掉、或在两种错误里同时报“没有”和“好几个”). Windows 上 rename 碰上正在读的文件可能 EPERM / EBUSY,
   写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时 1 s 内每 50 ms 重列重挑, 到时才报最后一次的错;
@@ -399,7 +403,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 ## 开发工具、driver、MCP、e2e
 
-都用 `DevClient` 直连会话的 `endpoint`. 挑会话 (`Sessions.pick`): `--session`; 否则 `dirs` 包含当前目录的 (取最深的); 否则当前目录不在任何工程里、只有一个会话时用它, 并在 stderr 说用的是哪个 (`say`, 命令行传入; driver 和 MCP 不传); 否则报错并列出.
+都用 `DevClient` 直连会话的 `endpoint`. 挑会话 (`Sessions.pick`): `--session`; 否则 (不算测试会话) `dirs` 包含当前目录的 (取最深的); 否则当前目录不在任何工程里、只有一个会话时用它, 并在 stderr 说用的是哪个 (`say`, 命令行传入; driver 和 MCP 不传); 否则报错并列出.
 连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acde dev <pid> is gone`.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`

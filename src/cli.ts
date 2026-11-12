@@ -18,6 +18,7 @@ import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
 import { Sdk, SdkInterrupted } from './sdk.ts'
+import { Sessions } from './sessions.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
 import { Uninstall } from './uninstall.ts'
@@ -211,6 +212,7 @@ class Cli {
         ...(flags.has('headless') && { headless: true }),
         ...(flags.has('verbose') && { verbose: true }),
         ...(flags.has('force') && { force: true }),
+        ...(process.env[Sessions.TEST_ENV] === '1' && { test: true }),
         acdert: await requireAcdert(),
       })
       return await session.run()

@@ -211,6 +211,28 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(() => Sessions.pick([a], root, 99)).toThrow('no acde dev with pid 99:\n  11')
   })
 
+  test('sessions of acde test: pick and running pass them by; --session still reaches them', () => {
+    const root = realpathSync(tmp())
+    const a = session({ pid: 11, dirs: [join(root, 'a')], apps: ['alpha'] })
+    const tested = session({ pid: 12, dirs: [join(root, 'a')], apps: ['alpha'], headless: true, test: true })
+    const elsewhere = session({ pid: 13, dirs: [join(root, 'b')], apps: ['beta'], test: true })
+    mkdirSync(join(root, 'a', 'src'), { recursive: true })
+    mkdirSync(join(root, 'elsewhere'))
+    expect(Sessions.pick([tested, a], join(root, 'a', 'src')).pid).toBe(11)
+    expect(Sessions.pick([tested, a], join(root, 'a'), 12).pid).toBe(12)
+    const said: string[] = []
+    expect(Sessions.pick([elsewhere, a], join(root, 'elsewhere'), undefined, (line) => said.push(line)).pid).toBe(11)
+    expect(said).toEqual([expect.stringMatching(/^acde: using acde dev 11 \(app alpha\), the only one running$/)])
+    expect(() => Sessions.pick([tested], join(root, 'a')))
+      .toThrow(/^no acde dev is running, only sessions of acde test, which are reached only with --session <pid>:\n {2}12 {2}app alpha \(headless, acde test\)/)
+    expect(Sessions.running([tested, elsewhere], [join(root, 'a'), join(root, 'b')])).toBeNull()
+    expect(Sessions.running([tested, a], [join(root, 'a')])?.pid).toBe(11)
+    const dir = join(tmp(), 'acde-dev')
+    Sessions.write({ ...tested, pid: process.pid, started: 1 }, dir)
+    Sessions.write({ ...a, pid: process.ppid, started: 2 }, dir)
+    expect(Sessions.list(dir).map((s) => [s.pid, s.test === true])).toEqual([[process.pid, true], [process.ppid, false]])
+  })
+
   test('tools: the webs table and the default PNG name', () => {
     expect(Format.webs([
       { name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Dopame' },
@@ -269,9 +291,8 @@ describe('acde dev with a stand-in acdert', () => {
     return realpathSync(dir)
   }
 
-  function start(args: string[], cwd: string, extra: Record<string, string> = {}) {
-    const root = tmp()
-    const log = join(root, 'fake.log')
+  function start(args: string[], cwd: string, extra: Record<string, string> = {}, root = tmp()) {
+    const log = join(root, existsSync(join(root, 'fake.log')) ? `fake-${randomUUID()}.log` : 'fake.log')
     const acdert = fakeAcdert(root)
     writeFileSync(log, '')
     const vars = {
@@ -628,6 +649,37 @@ describe('acde dev with a stand-in acdert', () => {
       }
     } finally {
       if (!stopped) await dev.stop()
+    }
+  }, 30_000)
+
+  test('a session of acde test says so in its file, keeps the marker from acdert, and is passed by: ' +
+    'a plain acde dev starts beside it and the tools in the project pick the plain one', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const tested = start([alpha, '--headless', '--force'], base, { ACDE_TEST_SESSION: '1' })
+    try {
+      await until('the session file of the test', () => existsSync(tested.file))
+      const marked = JSON.parse(readFileSync(tested.file, 'utf8')) as Session
+      expect(marked.test).toBe(true)
+      const started = tested.entries().find((e) => e.argv) as { env?: Record<string, string | null> }
+      expect(started.env!['ACDE_TEST_SESSION']).toBeNull()
+      const only = await tested.tool(['webs'], alpha)
+      expect(only.code).toBe(1)
+      expect(only.stderr).toContain('no acde dev is running, only sessions of acde test')
+      const reached = await tested.tool(['webs', '--session', String(tested.child.pid)], alpha)
+      expect(reached.code).toBe(0)
+      expect(reached.stdout).toContain('alpha#7')
+      const plain = start([alpha, '--headless'], base, {}, tested.root)
+      try {
+        await until('the session file of the plain acde dev', () => existsSync(plain.file))
+        expect((JSON.parse(readFileSync(plain.file, 'utf8')) as Session).test).toBeUndefined()
+        const listed = await tested.tool(['webs'], alpha)
+        expect(listed.code).toBe(0)
+      } finally {
+        await plain.stop()
+      }
+    } finally {
+      await tested.stop()
     }
   }, 30_000)
 

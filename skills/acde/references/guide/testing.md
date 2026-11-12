@@ -48,6 +48,8 @@ Each test gets:
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 
+A test's session does not count as the project's `acde dev`: an `acde dev` you run on the same project while tests run starts and keeps running, and commands such as `acde eval` and the MCP tools use yours, never a test's (only `--session <pid>` reaches a test's session).
+
 ## Locators
 
 The same locators as Playwright, matched against the **semantic tree** (the accessibility tree):
