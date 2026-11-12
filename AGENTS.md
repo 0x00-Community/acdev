@@ -583,9 +583,12 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   今天的样子. 只管合成里的窗口; 会话里还没有 (只记 debug 日志). 谁有它同 `setDoubleClick`.
   **页面不支持深色时用 `light`** (#114): 主题带了 `light` 的配色时, 页面没声明支持深色的窗口改画 `light` 那套 (缺的项用运行时默认, 不借深色主题的);
   声明了的照旧用 `active` / `inactive`. 规则同浏览器: 根元素计算后的 `color-scheme` 含 `dark`, 或 `<meta name="color-scheme">` 的内容含 `dark`.
-  web (acde-host `frame.ts` `Frame.followScheme`, 只给有窗框的应用窗口) 在页面载入后判断一次, 之后 DOM 有变化 (子节点、属性、文字, 50 ms 合并一次)
-  再判断, 结果变了才经 surface 的 `setPageDark(dark)` 交给 hostwin (`Entry.dark_page`, `Msg::PageDark`, 画在 `Bar.dark_page`). 只经 CSSOM
-  (`insertRule`) 改的 `color-scheme` 不触发重新判断. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
+  web (acde-host `frame.ts` `Frame.followScheme`, 只给有窗框的应用窗口) 在页面载入后判断一次, 之后只在影响配色的地方变了时 (50 ms 合并一次)
+  再判断: 文档节点的子节点、根元素的属性和子节点、`<head>` 整棵子树 (样式表和 meta); 根元素或 `<head>` 换了就改观察新的. 不观察 `<body>`,
+  否则每次 DOM 操作都产生变动记录, 大量增删节点会慢一截 (#206). 先看 meta, meta 没说 dark 才读根元素的计算样式. 结果变了才经 surface 的
+  `setPageDark(dark)` 交给 hostwin (`Entry.dark_page`, `Msg::PageDark`, 画在 `Bar.dark_page`). 只经 CSSOM (`insertRule`) 改的
+  `color-scheme`, 以及 `<body>` 里的 `<style>` 不触发重新判断. 回归基准 `bash scripts/dom-perf/bench.sh` (无头, 有窗框的应用里 1 万个
+  节点的创建和改样式, 每边多轮中位数); 设 `BASE_ACDERT` / `BASE_APP` 时与基准版本交替跑, 任一项比值超过 `DOM_PERF_LIMIT` (默认 1.3) 退出码非零. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
   `acde.desktop.on('edge', fn)` (SDK `ScreenEdgeEvent` `{type: 'screenedge', edge: 'top' | 'right' | 'bottom' | 'left', entered, output}`, #113):
   指针进入、离开屏幕的一条边时各发一次 (角上是两条边各一次), 给桌面藏起菜单栏和 Dock 时用; 只发事件, 不动焦点和输入. 边的判断在 acde-model
   `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (crates/shell `input.rs`

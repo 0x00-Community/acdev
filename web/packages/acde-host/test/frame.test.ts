@@ -54,11 +54,13 @@ describe('Frame.darkPage', () => {
   const page = (computed: string, meta: string | null) => ({
     document: {
       documentElement: {} as Element,
+      head: null as Element | null,
       querySelector: () => (meta === null ? null : ({ getAttribute: () => meta } as unknown as Element)),
     },
     getComputedStyle: () => ({ getPropertyValue: () => computed }),
     MutationObserver: class {
       observe(): void {}
+      disconnect(): void {}
     },
   })
 
@@ -83,6 +85,7 @@ describe('Frame.darkPage', () => {
           changed = callback
         }
         observe(): void {}
+        disconnect(): void {}
       },
     }
     Frame.followScheme(watched, { setPageDark: (dark) => void tells.push(dark) }, (run) => run())
@@ -91,5 +94,48 @@ describe('Frame.darkPage', () => {
     changed()
     changed()
     assert.deepEqual(tells, [false, true])
+  })
+
+  test('followScheme watches only the root, its head and the document node, not the whole tree', () => {
+    const root = {} as Element
+    const head = {} as Element
+    const watched: [unknown, Record<string, boolean>][] = []
+    let disconnects = 0
+    let styled = 0
+    const document = { documentElement: root, head, querySelector: () => null }
+    const page = {
+      document,
+      getComputedStyle: () => ((styled += 1), { getPropertyValue: () => 'normal' }),
+      MutationObserver: class {
+        observe(target: unknown, options: Record<string, boolean>): void {
+          watched.push([target, options])
+        }
+        disconnect(): void {
+          disconnects += 1
+        }
+      },
+    }
+    Frame.followScheme(page, { setPageDark: () => {} }, (run) => run())
+    assert.deepEqual(watched, [
+      [document, { childList: true }],
+      [root, { attributes: true, childList: true }],
+      [head, { subtree: true, childList: true, attributes: true, characterData: true }],
+    ])
+    assert.equal(styled, 1, 'the computed style is read once, not for every change in the body')
+    assert.equal(disconnects, 2)
+  })
+
+  test('a color-scheme meta answers without reading the computed style', () => {
+    let styled = 0
+    const page = {
+      document: { documentElement: {} as Element, head: null, querySelector: () => ({ getAttribute: () => 'light dark' }) as unknown as Element },
+      getComputedStyle: () => ((styled += 1), { getPropertyValue: () => '' }),
+      MutationObserver: class {
+        observe(): void {}
+        disconnect(): void {}
+      },
+    }
+    assert.equal(Frame.darkPage(page), true)
+    assert.equal(styled, 0)
   })
 })

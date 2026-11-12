@@ -4,10 +4,12 @@ import type { NativeSurface } from './native'
 import { Level, Log } from './log'
 
 interface SchemePage {
-  readonly document: { readonly documentElement: Element | null; querySelector(selector: string): Element | null }
+  readonly document: { readonly documentElement: Element | null; readonly head: Element | null; querySelector(selector: string): Element | null }
   getComputedStyle(element: Element): { getPropertyValue(name: string): string }
-  readonly MutationObserver: new (callback: () => void) => { observe(target: unknown, options: Record<string, boolean>): void }
+  readonly MutationObserver: new (callback: () => void) => { observe(target: unknown, options: Record<string, boolean>): void; disconnect(): void }
 }
+
+const DARK = /(^|\s)dark(\s|$)/i
 
 export class Frame {
   static readonly HEIGHT = 32
@@ -45,29 +47,47 @@ export class Frame {
   }
 
   static darkPage(page: SchemePage): boolean {
-    const root = page.document.documentElement
-    const computed = root ? page.getComputedStyle(root).getPropertyValue('color-scheme') : ''
     const meta = page.document.querySelector('meta[name="color-scheme" i]')?.getAttribute('content') ?? ''
-    return /(^|\s)dark(\s|$)/i.test(computed.trim()) || /(^|\s)dark(\s|$)/i.test(meta.trim())
+    if (DARK.test(meta.trim())) return true
+    const root = page.document.documentElement
+    return !!root && DARK.test(page.getComputedStyle(root).getPropertyValue('color-scheme').trim())
   }
 
   static followScheme(page: SchemePage, surface: Pick<NativeSurface, 'setPageDark'>, later: (run: () => void) => void): void {
     if (!surface.setPageDark) return
     let shown: boolean | null = null
     let queued = false
+    const watched: { root: Element | null; head: Element | null } = { root: null, head: null }
+    const schedule = () => {
+      if (queued) return
+      queued = true
+      later(check)
+    }
+    const top = new page.MutationObserver(schedule)
+    const root = new page.MutationObserver(schedule)
+    const head = new page.MutationObserver(schedule)
+    const bind = () => {
+      const { documentElement, head: current } = page.document
+      if (documentElement !== watched.root) {
+        root.disconnect()
+        watched.root = documentElement
+        if (documentElement) root.observe(documentElement, { attributes: true, childList: true })
+      }
+      if (current !== watched.head) {
+        head.disconnect()
+        watched.head = current
+        if (current) head.observe(current, { subtree: true, childList: true, attributes: true, characterData: true })
+      }
+    }
     const check = () => {
       queued = false
+      bind()
       const dark = Frame.darkPage(page)
       if (dark === shown) return
       shown = dark
       surface.setPageDark?.(dark)
     }
-    const observer = new page.MutationObserver(() => {
-      if (queued) return
-      queued = true
-      later(check)
-    })
-    observer.observe(page.document, { subtree: true, childList: true, attributes: true, characterData: true })
+    top.observe(page.document, { childList: true })
     check()
   }
 }
