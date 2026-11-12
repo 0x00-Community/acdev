@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { Project } from '../src/app.ts'
+import { Color } from '../src/color.ts'
 import { ACTIONS } from '../src/driver/acde.ts'
+import { Help } from '../src/help.ts'
 import { Tools } from '../src/tools.ts'
 import { cleanup, collect, env, standIn, tmp } from './helpers.ts'
 
@@ -153,16 +155,37 @@ describe('mistakes', () => {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
       expect(help.stdout).toStartWith('Usage: acde new [dir] [options]')
-      expect(help.stdout).toContain('  --template T  the template: html')
+      expect(help.stdout).toContain('  --template T  The template: html')
       expect(help.stdout).toContain('Examples:\n  $ acde new my-app')
       expect(help.stdout).not.toContain('acde build')
     }
-    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  the acde dev to use')
+    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  The acde dev to use')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1' })).stdout).toContain('\x1b[1;32mUsage:\x1b[22;39m')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1', NO_COLOR: '1' })).stdout).not.toContain('\x1b[')
     expect((await cli(['help', 'nope'], APP)).stderr.trim()).toBe(
       'acde: help: unknown command "nope" (acde --help lists the commands)',
     )
+  })
+
+  test('help fits the terminal: its width up to 100 columns, 80 when it is not one; indents kept', () => {
+    expect([Help.width(undefined), Help.width(60), Help.width(80), Help.width(200), Help.width(20)])
+      .toEqual([80, 60, 80, 100, 40])
+    expect(Help.terminal({ isTTY: false, columns: 60 })).toBeNull()
+    expect(Help.terminal({ isTTY: true, columns: 60 })).toBe(60)
+    const commands = Help.commands(['html', 'react'], ACTIONS)
+    const plain = Color.palette(false)
+    for (const width of [60, 80, 100]) {
+      const pages = [
+        Help.overview(commands, '0.0.0', plain, width), ...commands.map((c) => Help.command(c, plain, width)),
+      ]
+      for (const line of pages.flatMap((page) => page.split('\n'))) {
+        if (!line.trimStart().startsWith('$ ')) expect(line.length, line).toBeLessThanOrEqual(width)
+      }
+    }
+    const narrow = Help.overview(commands, '0.0.0', plain, 60).split('\n')
+    const at = narrow.findIndex((line) => line.startsWith('  -h, --help'))
+    expect(narrow[at + 1]).toMatch(/^ {17}\S/)
+    expect(Help.command(commands.find((c) => c.name === 'dev')!, plain)).toContain('--verbose')
   })
 
   test('ids from package names', () => {

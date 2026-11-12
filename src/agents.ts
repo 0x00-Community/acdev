@@ -115,12 +115,20 @@ export class Agents {
     return agent.id === Agents.SHARED || agent.marks.some((mark) => existsSync(mark))
   }
 
+  static readonly COMMON = ['claude-code', 'codex', 'cursor', 'gemini-cli', 'github-copilot']
+
   static named(ids: readonly string[], all: readonly Agent[]): Agent[] {
     return ids.map((id) => {
       const agent = all.find((known) => known.id === id)
-      if (!agent) throw new Error(`--agent ${id}: not an agent acde knows (${all.map((known) => known.id).join(', ')}); ` +
+      if (!agent) throw new Error(`--agent ${id}: not an agent acde knows (${Agents.some(all)}); ` +
         'for any other, pass its skills directory with --dir')
       return agent
     })
+  }
+
+  static some(all: readonly Agent[]): string {
+    const shown = Agents.COMMON.filter((id) => all.some((agent) => agent.id === id))
+    const more = all.length - shown.length
+    return more > 0 ? `${shown.join(', ')} and ${more} more` : shown.join(', ')
   }
 }

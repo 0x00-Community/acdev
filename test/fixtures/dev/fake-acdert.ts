@@ -351,6 +351,11 @@ record({
   env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])),
 })
 console.error('[alpha#7] js: fake acdert is up')
+if (process.env['FAKE_ACDERT_LOGS']) {
+  console.error('14.382 I main acde_hostwin::output::gpu: fake adapter')
+  console.error('14.383 W main acde_hostwin: fake warning')
+  console.error('14.384 E acde acde_host: fake error')
+}
 const endpoint = process.env['ACDE_DEV']!
 const server = net.createServer((socket) => {
   const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)

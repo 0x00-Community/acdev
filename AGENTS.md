@@ -20,7 +20,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde uninstall [id\|目录] [--yes]` | `src/uninstall.ts`: 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 没装、2 在用、3 没确认 |
-| `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
+| `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose]` | 构建、起 acdert、改了就重新构建并 `reload` |
 | `acde doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修; `--fix` 修 acde 能修的 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
 | `acde permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见「开发工具」的「批准」) |
@@ -33,7 +33,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 (`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdert does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
 版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 `acde --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
-和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`), 80 列内换行.
+和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acde doctor` 的输出 (`Doctor.format`, 续行缩进到检查名或 `fix:` 之后)、`acde new` 的 then 提示和 `acde skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读. `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
 颜色 (`src/color.ts`): stdout 是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色, `TERM=dumb` 不上色;
 写 stderr 的看 stderr 是不是终端. 上色的只有帮助、快速上手、`acde check` 的 `ok:`/`warning:`/`error:`/`note:` 前缀和 `acde doctor` 的状态词
 (ok 绿、warn 黄、error 红、skip 暗).
@@ -77,7 +77,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 
 开发流程（acde#3）：`acde new` 建工程 → `acde dev` 预览和调试（跑着时可用 `acde inspect` / `eval` / `console` / `network` / `shot`，
 或 driver、MCP）→ `acde test` 端到端测试（每个测试自己起一个隔离的 acdert）→ `acde build` 构建，`acde install` 构建并装进本机桌面。
-`acde new` 打完下一步提示后再打一行（交互时是 `Then` 一栏）列出后三步（`Creator.LATER`）。
+`acde new` 打完下一步提示后再打 `acde: then:` 和后三步，一步一行（交互时是 `Then` 一栏，`Creator.LATER`）；每步不超过 70 字符，这样 clack 的框不超过 80 列，终端更窄时按宽度折行（`Help.block`）。
 
 不新增 `prod` / `start` / `preview` 命令或脚本：`acde dev` 和 `acde build` 用同一种构建（都压缩、`NODE_ENV` 是 `"production"`），
 dev 只多了改动后自动重建刷新和调试接口；“装好后的样子”就是 `acde install` 之后从桌面打开。部署和发布不算启动。
@@ -317,6 +317,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 契约级别: 构建后、起 acdert 之前跑 `acdert --version`, 从 `(contract level N)` 取运行时级别 (没有这段的旧 acdert 算第 0 级;
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdert; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
+- acdert 的 stderr: 默认经管道逐行转出, 丢掉运行时 info 及以下的日志行 (`DevSession.INFO`: `<秒>.<毫秒> I|D|T <线程> <目标>: `), 警告、错误和其他行 (页面的 `[<app>#<window>]`、panic) 照转; `--verbose` 时 stderr 直接继承, 什么都不丢. driver (`Acde.launch`, MCP 的 `start`、`acde test`) 总带 `--verbose`, 日志照旧完整.
 - 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdert 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
 - 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acde dev` 和 `acde test --headed`
   在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdert 只报

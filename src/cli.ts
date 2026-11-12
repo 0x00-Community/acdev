@@ -46,7 +46,7 @@ class Cli {
     install: { args: [0, 1], flags: ['out'] },
     uninstall: { args: [0, 1], switches: ['yes'] },
     sdk: { args: [0, 2] },
-    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
+    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
@@ -207,6 +207,7 @@ class Cli {
         ...(flags.has('app') && { app: flags.get('app')! }),
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
         ...(flags.has('headless') && { headless: true }),
+        ...(flags.has('verbose') && { verbose: true }),
         acdert: await requireAcdert(),
       })
       return await session.run()
@@ -311,7 +312,8 @@ class Cli {
       Cli.report(created.pkg)
       const made = `${created.starter.label} in ${Cli.shown(created.pkg.dir)} (${Cli.took(started)})`
       console.log(`acde: ${made}. next: ${Creator.next(created).join(' && ')}`)
-      console.log(`acde: then: ${Creator.LATER.join('; ')}`)
+      const width = Help.terminal()
+      console.log(['acde: then:', ...Creator.LATER.flatMap((step) => Help.block(step, width, '    ', '  '))].join('\n'))
       return 0
     }
     const options = await Creator.ask(given)

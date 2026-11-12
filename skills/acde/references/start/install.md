@@ -59,6 +59,8 @@ irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 
 
 This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
 
+In the classic Windows console (powershell.exe or cmd.exe started on their own), the boxes and frames that `acde new` and other prompts draw use ASCII characters (`+`, `-`, `|`); Windows Terminal and the VS Code terminal show line-drawing ones. Both work the same; Windows Terminal is recommended.
+
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
 ```powershell

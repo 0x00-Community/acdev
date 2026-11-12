@@ -305,9 +305,9 @@ export class Creator {
   }
 
   static readonly LATER: readonly string[] = [
-    'while acde dev runs, acde inspect / eval / console / network / shot look into its pages',
-    'acde test runs *.e2e.ts end to end, each test on its own acdert',
-    'acde install builds it and puts it on the desktop of this machine (acde build only builds)',
+    'acde inspect, eval, console, shot: look into a running acde dev',
+    'acde test: run *.e2e.ts end to end, each test on its own acdert',
+    'acde install: build it and add it to this machine\'s desktop',
   ]
 
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {

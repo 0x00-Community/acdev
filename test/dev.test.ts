@@ -476,6 +476,21 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions)).toEqual([])
   }, 30_000)
 
+  test('the runtime\'s info log shows only with --verbose; its warnings and errors always do', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    for (const verbose of [false, true]) {
+      const dev = start(verbose ? [alpha, '--verbose'] : [alpha], base, { FAKE_ACDERT_LOGS: '1' })
+      await until('the session file', () => existsSync(dev.file))
+      await dev.stop()
+      const said = await dev.output
+      expect(said).toContain('[alpha#7] js: fake acdert is up\n')
+      expect(said).toContain('14.383 W main acde_hostwin: fake warning\n')
+      expect(said).toContain('14.384 E acde acde_host: fake error\n')
+      expect(said.includes('fake adapter')).toBe(verbose)
+    }
+  }, 30_000)
+
   test('acde dev killed from outside: acdert follows; the next tool drops the session file it left', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })

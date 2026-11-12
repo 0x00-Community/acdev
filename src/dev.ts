@@ -1,5 +1,8 @@
 import { existsSync, rmSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
+import type { StdioOptions } from 'node:child_process'
+import { createInterface } from 'node:readline'
+import type { Readable, Writable } from 'node:stream'
 import { DevClient } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
@@ -22,6 +25,7 @@ export interface DevOptions {
   readonly app?: string
   readonly desktop?: string
   readonly headless?: boolean
+  readonly verbose?: boolean
   readonly acdert: string
 }
 
@@ -42,12 +46,20 @@ export interface RuntimeProbe {
 
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
+  static readonly INFO = /^\d+\.\d{3} [IDT] \S+ \S+: /
+
+  static quiet(from: Readable, to: Writable): void {
+    createInterface({ input: from, crlfDelay: Infinity }).on('line', (line) => {
+      if (!DevSession.INFO.test(line)) to.write(`${line}\n`)
+    })
+  }
 
   readonly #units: Unit[]
   readonly #desktop: Unit | string | null
   readonly #app: string | undefined
   readonly #acdert: string
   readonly #headless: boolean
+  readonly #verbose: boolean
   readonly #endpoint = DevClient.endpoint()
   #link: DevClient | null = null
   readonly #dirty = new Set<Unit>()
@@ -75,6 +87,7 @@ export class DevSession {
     this.#app = options.app
     this.#acdert = options.acdert
     this.#headless = options.headless === true
+    this.#verbose = options.verbose === true
   }
 
   get multiple(): boolean {
@@ -205,7 +218,9 @@ export class DevSession {
         ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node',
         ...(this.#headless && { ACDE_HEADLESS: '1' }),
       }
-      const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
+      const stdio: StdioOptions = this.#verbose ? 'inherit' : ['inherit', 'inherit', 'pipe']
+      const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio })
+      if (!this.#verbose) DevSession.quiet(started.process.stderr!, process.stderr)
       child = started
       running = true
       void started.exited.finally(() => {
