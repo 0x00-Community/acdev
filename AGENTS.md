@@ -127,10 +127,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合). 作用域 session /
   desktop / app / menu, 先到先得, 冲突拒绝, session 级不可覆盖; 匹配顺序 session → 焦点窗口的 menu 级 → 焦点窗口的 app 级 → desktop. 命中的键 (连同松开) 不发给窗口, 发
   `shortcut {window: owner, key, title: 作用域}`, `key` 是这一条绑定注册时写的文字 (同一组合的 app 级和 menu 级各记各的). keyboard-shortcuts-inhibit 生效时只有 session 级还拦.
-  menu 级是窗口菜单项的快捷键 (acde-host `broker/menukeys.ts`): 应用 `setMenus` 时 Broker 给有 `onSelect`、没禁用、带 `shortcut` 的项注册
+  menu 级是窗口菜单项的快捷键 (acde-host `broker/menukeys.ts`), 只在没有桌面、菜单画在窗框上时 (`framesMenus`): 应用 `setMenus` 时 Broker 给有 `onSelect`、没禁用、带 `shortcut` 的项注册
   (同一文字只给第一项; 被占的记一行 warn 跳过), 再 `setMenus` 时按差异增删, 窗口关掉时随 app 级一起忘掉. 按下时 Broker 不转发事件, 直接
-  调应用窗口的 `menu` (同桌面的 `invokeMenu`), 所以应用另用 `self.shortcut()` 注册了同一组合也只跑一次 (菜单项赢). 有没有桌面都这样:
-  桌面只显示菜单和快捷键文字, 不用自己绑.
+  调应用窗口的 `menu` (同桌面的 `invokeMenu`), 所以应用另用 `self.shortcut()` 注册了同一组合也只跑一次 (菜单项赢). 有桌面时不绑:
+  菜单归桌面管 (Dopame 的编辑器给「编辑」菜单配了 `mod+C` / `mod+V` 等, 页面自己也处理这些键, 运行时抢走它们会改变编辑器的行为).
 
 ### 协议 `acde_window` (客户端 ↔ 框架, `crates/model/protocol/acde-window.xml`)
 
@@ -223,7 +223,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /
   四角 10 px 改大小, 由 `Entry::grab_hints(&State.theme)` 和页面的 hint (下移窗框高度) 合成, 窗框的优先. `contentOffset` 是 `[0, H]`, 输入法候选框也加 `H`.
-  **窗框上的菜单** (单应用会话, 没有桌面显示菜单时; Broker 的 `framesMenus` 是 `options.standalone`): 应用 `setMenus` 时 Broker 把整份菜单
+  **窗框上的菜单** (单应用会话, 没有桌面显示菜单时; Broker 的 `framesMenus` 是 `options.standalone`): 应用 `setMenus` 时 Broker 绑定菜单项的快捷键 (menu 级, 见「全局快捷键」), 并把整份菜单
   (JSON) 交给 `Shell::set_menus` (`shell/menu.rs` 解析; 没有 `onSelect` 的项当禁用), 存在 `Entry.menus`. `Bar.menus` 是各菜单名, 画在按钮后面
   (`Bar::menus_start`: Mac 样式在三个圆点后, Windows 样式在左边), 标题让到菜单右边 (居中的标题放不下时往右挪, 再不行截断). 出帧线程画标题栏时
   算出各菜单名的矩形写回 `Entry.menu_labels` (需要字体排版, 只有出帧线程有 `Decoration`); 标题栏的移动 hint 从最后一个菜单名右边开始, 按在菜单名上

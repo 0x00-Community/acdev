@@ -91,11 +91,11 @@ test('an app window tells the desktop what it does with typed window events', ()
   ] satisfies WindowsEvent[])
 })
 
-test('menus bind their shortcuts, and go to the window frame only when no desktop shows them', () => {
+test('without a desktop the menus go to the window frame and their shortcuts are bound; a desktop does both itself', () => {
   const menus: WindowMenu[] = [{ id: 'file', label: 'File', items: [{ id: 'save', label: 'Save', shortcut: 'ctrl+s', action: true }] }]
   const desktop = windowEvents(false)
   desktop.calls.self(desktop.web, 'setMenus', [menus])
-  assert.deepEqual(desktop.shellCalls, ['shortcut ctrl+s menu 9'])
+  assert.deepEqual(desktop.shellCalls, [])
   const alone = windowEvents(true)
   alone.calls.self(alone.web, 'setMenus', [menus])
   assert.deepEqual(alone.shellCalls, ['shortcut ctrl+s menu 9', `setMenus 9 ${JSON.stringify(menus)}`])

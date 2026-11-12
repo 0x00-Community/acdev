@@ -147,8 +147,10 @@ export class WindowCalls {
         return this.#host.toDesktop({ type: 'windowtitle', window: record.id, appId: record.app!.id, title: record.title } satisfies WindowTitleEvent)
       case 'setMenus':
         record.menus = (args[0] as WireMenu[]) ?? []
-        MenuKeys.bind(this.#host.shell, record, record.menus)
-        if (this.#host.framesMenus()) this.#host.shell.setMenus?.(record.id, JSON.stringify(record.menus))
+        if (this.#host.framesMenus()) {
+          MenuKeys.bind(this.#host.shell, record, record.menus)
+          this.#host.shell.setMenus?.(record.id, JSON.stringify(record.menus))
+        }
         return this.#host.toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
       case 'close':
         return this.#host.closeWeb(record.id, true)
