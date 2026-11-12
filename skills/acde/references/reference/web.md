@@ -61,7 +61,7 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 Styles are computed by Stylo, the style engine of Firefox; layout and painting are acdert's own. What does not work yet:
 
-- Canvas 2D: `ctx.filter` is accepted but not applied. `drawImage()` draws only an `<img>` or a `<canvas>`; any other source (a `<video>`, an `ImageBitmap`) draws nothing and throws nothing. `createConicGradient()` does not draw a conic gradient.
+- Canvas 2D: `drawImage()` draws only an `<img>` or a `<canvas>`; any other source (a `<video>`, an `ImageBitmap`) draws nothing and throws nothing. `createConicGradient()` does not draw a conic gradient. In 0.0.9, `ctx.filter` is accepted but not applied, and `drawImage()` of an `<img>` showing an SVG draws nothing; after 0.0.9, `ctx.filter` applies `blur()`, `brightness()`, `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and `drop-shadow()` (not `url()`), and SVG images are drawn.
 - SVG geometry: `getTotalLength()` and `getPointAtLength()` are estimates from the element's box, not its path; `isPointInFill()` and `isPointInStroke()` are always `false`.
 - In 0.0.9, elements inside an inline `<svg>` have empty boxes: `getBBox()` and `getBoundingClientRect()` give zeros. After 0.0.9, shapes, text and groups have their boxes, and `getComputedTextLength()` measures text.
 - In 0.0.9, `<use href="#id">` and `url(#id)` that point into another `<svg>` of the page (a sprite sheet, a shared gradient) draw nothing. After 0.0.9 they work.
@@ -74,6 +74,7 @@ Added after 0.0.9:
 - A `<textarea>`'s `scrollHeight` covers its text, and `field-sizing: content` grows the box with it.
 - `new Image()` with a `src` loads (and fires `load` / `error`) without being in the document.
 - Inline SVG colors given as `oklch()`, `lab()` or `color-mix()` (Tailwind 4's palette) are painted.
+- In SVG images and inline SVG, a `<mask>` made of one filled path clips to it (other masks clip to their region), and a group `filter` made of blurs, drop shadows and color matrices is applied (the glow of icons exported from Figma).
 - An element with an `id` is reachable as a global (`window.wave`).
 - `<input>` and `<textarea>` have undo and redo: `Ctrl+Z`, and `Ctrl+Shift+Z` or `Ctrl+Y`.
 
