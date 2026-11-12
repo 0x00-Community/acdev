@@ -197,7 +197,7 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(said).toHaveLength(1)
     expect(Sessions.pick([a, ab, c], join(root, 'elsewhere'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a, c], join(root, 'elsewhere')))
-      .toThrow(/several[\s\S]*--session <pid>:\n  11  app alpha/)
+      .toThrow(/^none of the 2 acde dev sessions runs .*elsewhere; pick one with --session <pid>:\n  11  app alpha/)
     expect(() => Sessions.pick([a, { ...a, pid: 14 }], join(root, 'a'))).toThrow('several acde dev sessions run')
     expect(() => Sessions.pick([], root)).toThrow('no acde dev is running')
     mkdirSync(join(root, 'other'))
@@ -726,6 +726,32 @@ describe('acde dev with a stand-in acdert', () => {
       expect(dev.entries().filter((e) => e.argv)).toEqual([])
     }
   }, 30_000)
+
+  test('acde eval while acde dev rebuilds and reloads again and again finds the one session every time', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([alpha], base)
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      let changes = 0
+      const touching = setInterval(() => writeFileSync(join(alpha, 'index.html'), `<p>${changes++}</p>`), 120)
+      try {
+        for (let i = 0; i < 12; i++) {
+          for (const from of [alpha, base]) {
+            const ran = await dev.tool(['eval', 'alpha', '1'], from)
+            expect(ran.stderr).not.toContain('acde dev sessions runs')
+            expect(ran.stderr).not.toContain('no acde dev is running')
+            expect([ran.code, ran.stderr]).toEqual([0, from === base ? expect.stringContaining('the only one') : ''])
+          }
+        }
+      } finally {
+        clearInterval(touching)
+      }
+      expect(changes).toBeGreaterThan(3)
+    } finally {
+      await dev.stop()
+    }
+  }, 60_000)
 
   test('mistakes: --out with several projects, --app with several, the same app twice, two desktops', async () => {
     const base = tmp()

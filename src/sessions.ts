@@ -24,6 +24,9 @@ export interface Reloaded {
 }
 
 export class Sessions {
+  static readonly SETTLE_MS = 1_000
+  static readonly RETRY_MS = 50
+
   static dir(env: NodeJS.ProcessEnv = process.env): string {
     const runtime = env['XDG_RUNTIME_DIR']
     if (runtime && isAbsolute(runtime)) return join(runtime, 'acde-dev')
@@ -63,8 +66,19 @@ export class Sessions {
     const file = Sessions.file(session.pid, dir)
     const scratch = `${file}.${process.pid}.tmp`
     writeFileSync(scratch, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 })
-    renameSync(scratch, file)
-    return file
+    for (let tries = 1; ; tries++) {
+      try {
+        renameSync(scratch, file)
+        return file
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (tries >= 20 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) {
+          rmSync(scratch, { force: true })
+          throw error
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+      }
+    }
   }
 
   static remove(pid: number, dir = Sessions.dir()): void {
@@ -93,21 +107,36 @@ export class Sessions {
       if (!/^\d+\.json$/.test(name)) continue
       const file = join(dir, name)
       if (!Sessions.#plain(file, 'file')) continue
-      const session = Sessions.#read(file)
-      if (session && Sessions.alive(session.pid)) found.push(session)
-      else rmSync(file, { force: true })
+      const pid = Number(name.slice(0, -'.json'.length))
+      const session = Sessions.#read(file) ?? Sessions.#read(file)
+      if (session && session.pid === pid && Sessions.alive(pid)) found.push(session)
+      else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
     }
     return found.sort((a, b) => a.started - b.started)
   }
 
-  static pick(sessions: readonly Session[], cwd: string, pid?: number, say?: (line: string) => void): Session {
+  static async find(cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir()): Promise<Session> {
+    const until = Date.now() + Sessions.SETTLE_MS
+    for (;;) {
+      try {
+        return Sessions.pick(Sessions.list(dir), cwd, pid, say, dir)
+      } catch (error) {
+        if (Date.now() >= until) throw error
+      }
+      await new Promise((done) => setTimeout(done, Sessions.RETRY_MS))
+    }
+  }
+
+  static pick(
+    sessions: readonly Session[], cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir(),
+  ): Session {
     if (pid !== undefined) {
       const chosen = sessions.find((s) => s.pid === pid)
       if (chosen) return chosen
       throw new Error(`no acde dev with pid ${pid}${Sessions.#listing(sessions)}`)
     }
     if (sessions.length === 0)
-      throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${Sessions.dir()})`)
+      throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${dir})`)
     const here = Sessions.#real(cwd)
     const depth = (session: Session) =>
       Math.max(-1, ...session.dirs.filter((dir) => contains(dir, here)).map((dir) => dir.length))
@@ -126,7 +155,7 @@ export class Sessions {
     }
     const why = matching.length > 1
       ? `several acde dev sessions run ${here}`
-      : `no acde dev runs ${here}, and there are several`
+      : `none of the ${sessions.length} acde dev sessions runs ${here}`
     const listed = Sessions.#listing(matching.length > 1 ? matching : sessions)
     throw new Error(`${why}; pick one with --session <pid>${listed}`)
   }
@@ -183,7 +212,8 @@ export class Sessions {
 
   static #plain(path: string, kind: 'file' | 'directory'): boolean {
     if (process.platform === 'win32') return true
-    const info = lstatSync(path)
-    return !info.isSymbolicLink() && (kind === 'file' ? info.isFile() : info.isDirectory()) && Sessions.#owned(info)
+    const info = lstatSync(path, { throwIfNoEntry: false })
+    if (info === undefined || info.isSymbolicLink()) return false
+    return (kind === 'file' ? info.isFile() : info.isDirectory()) && Sessions.#owned(info)
   }
 }

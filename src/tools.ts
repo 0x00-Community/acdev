@@ -180,7 +180,7 @@ export class Tools {
   }
 
   static async #stop(pid: number | undefined): Promise<number> {
-    const session = Sessions.pick(Sessions.list(), process.cwd(), pid, (line) => console.error(line))
+    const session = await Sessions.find(process.cwd(), pid, (line) => console.error(line))
     const link = await DevClient.connect(session.endpoint).catch(() => null)
     if (!link) {
       Sessions.remove(session.pid)
