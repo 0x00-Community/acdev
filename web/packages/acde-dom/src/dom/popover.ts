@@ -24,8 +24,15 @@ function contains(outer: Popover, inner: Popover): boolean {
 
 function check(el: Popover, method: string, opening: boolean): Kind {
   const k = kind(el)
-  if (!k) throw new DOMException(`Failed to execute '${method}' on 'HTMLElement': Not supported on elements that do not have a valid value for the 'popover' attribute.`, 'NotSupportedError')
-  if (opening && !el.isConnected) throw new DOMException(`Failed to execute '${method}' on 'HTMLElement': Invalid on disconnected popover elements.`, 'InvalidStateError')
+  if (!k) {
+    throw new DOMException(
+      `Failed to execute '${method}' on 'HTMLElement': Not supported on elements that do not have a valid value for the 'popover' attribute.`,
+      'NotSupportedError',
+    )
+  }
+  if (opening && !el.isConnected) {
+    throw new DOMException(`Failed to execute '${method}' on 'HTMLElement': Invalid on disconnected popover elements.`, 'InvalidStateError')
+  }
   if (opening && dom.localName(el[ID]) === 'dialog' && dom.hasAttribute(el[ID], 'open')) {
     throw new DOMException(`Failed to execute '${method}' on 'HTMLElement': The dialog is already open as a dialog.`, 'InvalidStateError')
   }

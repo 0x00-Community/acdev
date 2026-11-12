@@ -342,7 +342,11 @@ test('popover: show / hide / toggle with beforetoggle and toggle, auto popovers 
   const states = (id: string) => web.dom.openStates.get(web.internals.idOf(web.run(`document.getElementById('${id}')`)))?.open
   assert.equal(web.json<{ threw: string }>('after').threw, 'NotSupportedError')
   assert.deepEqual(['a', 'b', 'c', 'm'].map(states), [false, false, true, true], 'c closes a and b (not its ancestors); manual m stays')
-  assert.deepEqual(web.json<string[]>('log').slice(0, 6), ['a before open', 'b before open', 'm before open', 'c before open', 'b before closed', 'a before closed'], 'the opening one first, as HTML orders it')
+  assert.deepEqual(
+    web.json<string[]>('log').slice(0, 6),
+    ['a before open', 'b before open', 'm before open', 'c before open', 'b before closed', 'a before closed'],
+    'the opening one first, as HTML orders it',
+  )
   web.run(`document.getElementById('t').click()`)
   assert.equal(states('c'), false, 'popovertarget toggles c closed')
   web.run(`document.getElementById('c').addEventListener('beforetoggle', (e) => e.preventDefault(), { once: true })`)
@@ -640,7 +644,10 @@ test('document.fonts lists the faces of @font-face rules and the ones added', as
 test('document.fonts also lists the @font-face rules of a cross-origin stylesheet, whose cssRules the page cannot read', async () => {
   using web = await page('<!doctype html><html><head><link rel="stylesheet" href="https://fonts.example/css"></head><body></body></html>')
   const link = web.internals.idOf(web.run(`document.querySelector('link')`))
-  web.dom._sheet(link, 1, true, 'https://fonts.example/css', ['@font-face { font-family: "Lobster"; src: url(https://fonts.example/l.woff2) }', 'p { color: red }'])
+  web.dom._sheet(link, 1, true, 'https://fonts.example/css', [
+    '@font-face { font-family: "Lobster"; src: url(https://fonts.example/l.woff2) }',
+    'p { color: red }',
+  ])
   web.frame()
   const out = web.run(`let read = 'readable'
     try { document.styleSheets[0].cssRules } catch (e) { read = e.name }
