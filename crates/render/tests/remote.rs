@@ -341,3 +341,19 @@ fn a_new_image_out_of_the_document_loads_through_the_loader() {
     assert_eq!(dom.take_loaded(), vec![img]);
     assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0]);
 }
+
+#[test]
+fn an_image_that_failed_out_of_the_document_is_not_loaded_again_when_inserted() {
+    let (_doc, dom, loads) = page("<body id=body></body>");
+    let img = dom.create_element(Ns::Html, "img").unwrap();
+    dom.set_attribute(img, "src", "https://img.example.com/gone.png").unwrap();
+    drop(take(&loads, "https://img.example.com/gone.png"));
+    assert_eq!(dom.take_loaded(), vec![img], "the error is reported");
+    assert_eq!(dom.image_state(img).unwrap(), [0.0, 0.0, 2.0]);
+    dom.insert_before(by_id(&dom, "body"), img, NONE).unwrap();
+    assert!(dom.take_loaded().is_empty(), "no second error");
+    assert!(loads.lock().unwrap().is_empty(), "no second request");
+    assert_eq!(dom.image_state(img).unwrap(), [0.0, 0.0, 2.0]);
+    dom.set_attribute(img, "src", "https://img.example.com/other.png").unwrap();
+    drop(take(&loads, "https://img.example.com/other.png"));
+}
