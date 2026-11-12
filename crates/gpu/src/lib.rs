@@ -13,7 +13,7 @@ pub use compose::{Backdrop, Composer, Effect, Op, Px, Shadow, reach};
 #[cfg(target_os = "linux")]
 pub use device::{Device, Dmabuf, Fence};
 pub use filter::*;
-pub use gpu::{ErrorSink, Gpu, adapters, set_error_sink, texture, webgpu_features};
+pub use gpu::{DeviceRequest, ErrorSink, Gpu, adapters, set_error_sink, texture, webgpu_features};
 pub use offscreen::{GpuImage, ImageSet, Offscreen, Overrides};
 #[cfg(target_os = "linux")]
 pub use raster::{Content, Part, Pass, Raster, Submitted};

@@ -177,7 +177,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   合成线程每收到一批消息就合成一次, 早交出去会贴上一张空纹理 (面板只剩 backdrop 模糊, 一帧).
 - **GPU**: `gpu.rs` 只开 `acde_gpu::BACKEND` 一个后端 (Windows DX12、macOS Metal、Linux Vulkan), 不要 CPU 设备; `WGPU_VALIDATION` /
   `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
-  设备请求适配器支持的全部 WebGPU 可选特性 (`acde_gpu::webgpu_features`, 与 Linux 会话 `Device::open` 同一套, #213).
+  设备请求适配器支持的全部 WebGPU 可选特性 (`acde_gpu::webgpu_features`, #213); 打不开时按 `DeviceRequest::tiers` 依次退到不带可选特性、
+  再退到 downlevel 默认限制 (保留适配器的纹理尺寸), 每档失败记 warn, 打开时 info 记是哪一档. Linux 会话 `Device::open` 用同一套档位.
   不重建设备: 设备丢失 (`gpu.rs` 的 `on_lost`) 或合成 / 出帧线程 panic (`guarded`) 时记一条 `host window: … exiting` 的 error, 经 `Cmd::Exit`
   照常退出 (丢失退 1, panic 退 101), 5 秒内没退完直接 `process::exit`. 取 surface 纹理时 Outdated / Lost 重新 configure 后当场再取一次,
   还不行或 Timeout / Occluded 时 50 ms 后再合成一次, 静止的页面不用等下一次输入. `ACDE_HOST_FAULT=outdated|lost|panic` (调试用) 让合成线程

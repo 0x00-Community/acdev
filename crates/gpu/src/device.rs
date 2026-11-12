@@ -51,21 +51,30 @@ impl Device {
     }
 
     fn open_adapter(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), String> {
-        let limits = adapter.limits();
-        let features = crate::gpu::webgpu_features(adapter);
+        let hal_adapter = unsafe { adapter.as_hal::<Vk>() }.ok_or("not a Vulkan adapter")?;
+        let caps = hal_adapter.physical_device_capabilities();
+        let missing: Vec<_> = EXTENSIONS.iter().filter(|e| !caps.supports_extension(e)).map(|e| e.to_string_lossy()).collect();
+        if !missing.is_empty() {
+            return Err(format!("missing Vulkan extensions {}", missing.join(", ")));
+        }
+        drop(hal_adapter);
+        let tiers = crate::DeviceRequest::tiers(crate::gpu::webgpu_features(adapter), adapter.limits());
+        crate::DeviceRequest::open("acde", &tiers, |request| Self::open_tier(adapter, request)).map(|(device, _)| device)
+    }
+
+    fn open_tier(adapter: &wgpu::Adapter, request: &crate::DeviceRequest) -> Result<(wgpu::Device, wgpu::Queue), String> {
         let hal = unsafe {
             let hal_adapter = adapter.as_hal::<Vk>().ok_or("not a Vulkan adapter")?;
-            let caps = hal_adapter.physical_device_capabilities();
-            let missing: Vec<_> = EXTENSIONS.iter().filter(|e| !caps.supports_extension(e)).map(|e| e.to_string_lossy()).collect();
-            if !missing.is_empty() {
-                return Err(format!("missing Vulkan extensions {}", missing.join(", ")));
-            }
             hal_adapter
-                .open_with_callback(features, &limits, &wgpu::MemoryHints::MemoryUsage, Some(Box::new(|args| args.extensions.extend(EXTENSIONS))))
+                .open_with_callback(
+                    request.features,
+                    &request.limits,
+                    &wgpu::MemoryHints::MemoryUsage,
+                    Some(Box::new(|args| args.extensions.extend(EXTENSIONS))),
+                )
                 .map_err(|e| format!("opening the Vulkan device: {e}"))?
         };
-        let desc = wgpu::DeviceDescriptor { label: Some("acde"), required_features: features, required_limits: limits, ..Default::default() };
-        unsafe { adapter.create_device_from_hal::<Vk>(hal, &desc) }.map_err(|e| format!("wgpu device: {e}"))
+        unsafe { adapter.create_device_from_hal::<Vk>(hal, &request.descriptor("acde")) }.map_err(|e| format!("wgpu device: {e}"))
     }
 
     fn create_semaphores(&self) -> Vec<vk::Semaphore> {
