@@ -439,10 +439,18 @@ impl Inner {
     }
 
     /// acrender: the family the system draws `text` in, for characters no family in the stack or the script's fallback
-    /// has (CoreText, fontconfig or DirectWrite asked with the characters themselves); remembered per text
+    /// has (CoreText, fontconfig or DirectWrite asked with the characters themselves); remembered per text, a bounded
+    /// number of them
     pub fn text_fallback(&mut self, text: &str) -> Option<FamilyId> {
+        // a page decides the texts: ask with at most 32 characters, and keep at most 4096 answers
+        const CHARS: usize = 32;
+        const ANSWERS: usize = 4096;
+        let text = text.char_indices().nth(CHARS).map_or(text, |(end, _)| &text[..end]);
         if let Some(found) = self.text_fallbacks.get(text) {
             return *found;
+        }
+        if self.text_fallbacks.len() >= ANSWERS {
+            self.text_fallbacks.clear();
         }
         #[cfg(feature = "system")]
         let found = self.system.as_ref().and_then(|system| system.fonts.lock().unwrap().fallback_for_text(text, None));
