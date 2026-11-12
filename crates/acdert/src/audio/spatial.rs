@@ -254,21 +254,19 @@ impl HrtfModel {
     pub fn new(rate: f64) -> HrtfModel {
         let k = rate * HEAD_RADIUS / SOUND_SPEED;
         let a1 = (1.0 - k) / (1.0 + k);
+        let n = 512;
+        let grid: Vec<(f64, f64, f64)> = (0..n)
+            .map(|j| {
+                let w = PI * (j as f64 + 0.5) / n as f64;
+                let (c, s) = (w.cos(), w.sin());
+                (c, s, (1.0 + a1 * c).powi(2) + (a1 * s).powi(2))
+            })
+            .collect();
         let rms = (0..=ALPHA_STEPS)
             .map(|i| {
                 let alpha = i as f64 * ALPHA_STEP;
                 let (b0, b1) = ((1.0 + alpha * k) / (1.0 + k), (1.0 - alpha * k) / (1.0 + k));
-                let n = 512;
-                let power: f64 = (0..n)
-                    .map(|j| {
-                        let w = PI * (j as f64 + 0.5) / n as f64;
-                        let (c, s) = (w.cos(), w.sin());
-                        let num = (b0 + b1 * c).powi(2) + (b1 * s).powi(2);
-                        let den = (1.0 + a1 * c).powi(2) + (a1 * s).powi(2);
-                        num / den
-                    })
-                    .sum::<f64>()
-                    / n as f64;
+                let power: f64 = grid.iter().map(|&(c, s, den)| ((b0 + b1 * c).powi(2) + (b1 * s).powi(2)) / den).sum::<f64>() / n as f64;
                 power.sqrt()
             })
             .collect();
@@ -416,6 +414,13 @@ mod tests {
             let measured = lag(&l, &r);
             assert!((measured - itd).abs() <= 3, "{azimuth}: itd {measured}");
         }
+    }
+
+    #[test]
+    fn building_the_model_is_cheap_enough_for_the_render_thread() {
+        let start = std::time::Instant::now();
+        let _ = HrtfModel::new(48000.0);
+        assert!(start.elapsed() < std::time::Duration::from_millis(3), "{:?}", start.elapsed());
     }
 
     #[test]
