@@ -496,7 +496,7 @@ impl Frontend {
                             (false, Some(given)) => given,
                             (false, None) => *next,
                         };
-                        *next = (*next).max(location + slots);
+                        *next = (*next).max(location.saturating_add(slots));
                         location
                     }
                     None => location,
@@ -820,6 +820,9 @@ impl Frontend {
 }
 
 // acde: WebGL dialect
+const MAX_SAMPLER_ARRAY: u32 = 32;
+
+// acde: WebGL dialect
 fn interface_slots(types: &crate::UniqueArena<Type>, ty: Handle<Type>) -> u32 {
     match types[ty].inner {
         TypeInner::Matrix { columns, .. } => columns as u32,
@@ -827,10 +830,10 @@ fn interface_slots(types: &crate::UniqueArena<Type>, ty: Handle<Type>) -> u32 {
             base,
             size: crate::ArraySize::Constant(size),
             ..
-        } => size.get() * interface_slots(types, base),
-        TypeInner::Struct { ref members, .. } => {
-            members.iter().map(|m| interface_slots(types, m.ty)).sum()
-        }
+        } => size.get().saturating_mul(interface_slots(types, base)),
+        TypeInner::Struct { ref members, .. } => members
+            .iter()
+            .fold(0u32, |n, m| n.saturating_add(interface_slots(types, m.ty))),
         _ => 1,
     }
 }
@@ -866,6 +869,15 @@ impl Frontend {
             }
             _ => (ty, None),
         };
+        // acde: a sampler array has a pair of globals per element; WebGL has at most 32 texture units
+        if array.is_some_and(|n| n > MAX_SAMPLER_ARRAY) {
+            return Err(Error {
+                kind: ErrorKind::SemanticError(
+                    format!("sampler array '{name}' is longer than {MAX_SAMPLER_ARRAY}").into(),
+                ),
+                meta,
+            });
+        }
         if let TypeInner::Image { class, .. } = ctx.module.types[base].inner {
             let comparison = matches!(class, crate::ImageClass::Depth { .. });
             let sampler_ty = ctx.module.types.insert(
