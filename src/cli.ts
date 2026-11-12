@@ -262,8 +262,14 @@ class Cli {
   static async follow(command: string, dir: string, argv: readonly string[]): Promise<number | null> {
     const bundled = import.meta.url.endsWith('.js')
     if (!['dev', 'build', 'install'].includes(command) || !bundled || process.env['ACDE_FOLLOWED']) return null
-    const wanted = PackageManager.of(resolve(dir)).runtime
     const current = Runtime.bun ? 'bun' : 'node'
+    let wanted: 'bun' | 'node'
+    try {
+      wanted = PackageManager.of(resolve(dir)).runtime
+    } catch (error) {
+      console.error(`acde: ${Output.message(error)}: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
+      return null
+    }
     if (wanted === current) return null
     const exe = runtimes()[wanted]
     if (exe) {

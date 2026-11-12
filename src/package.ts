@@ -141,7 +141,7 @@ export class AppPackage {
 
   sdkWarning(): string | null {
     if (!this.project) return null
-    const pm = PackageManager.of(this.dir).name
+    const pm = () => PackageManager.of(this.dir).name
     return AppPackage.localSdk(this.project.pkg) ?? Sdk.warning(Sdk.state(this.dir, this.project.pkg), pm)
   }
 

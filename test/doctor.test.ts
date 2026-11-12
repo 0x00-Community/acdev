@@ -193,11 +193,14 @@ describe('acde doctor', () => {
     const ran = await doctor([], s.project, s.env)
     expect(ran.code).toBe(1)
     expect(ran.stderr).not.toMatch(/^acde: /m)
-    const broken = /^error  (project: alpha|dependencies): \S+package\.json is not valid JSON \(.+\): acde reads it to tell which package manager the project uses$/
-    expect(line(ran.stdout, 'project')).toMatch(broken)
-    expect(line(ran.stdout, 'dependencies')).toMatch(broken)
+    expect(line(ran.stdout, 'project')).toMatch(/^ok     project: alpha/)
+    expect(line(ran.stdout, 'dependencies')).toMatch(/^error  dependencies: \S+package\.json is not valid JSON \(.+\): acde reads it to tell which package manager the project uses$/)
     expect(fixAfter(ran.stdout, 'dependencies')).toBe('make that package.json valid JSON')
     expect(ran.stdout).toContain('acde doctor: ')
+    const checked = await collect([process.execPath, CLI, 'check'], { cwd: s.project, env: env(s.env) })
+    expect(checked.code).toBe(0)
+    const sdk = await collect([process.execPath, CLI, 'sdk'], { cwd: s.project, env: env(s.env) })
+    expect([sdk.code, sdk.stdout.trim().split('\n').at(-1)]).toEqual([0, 'run acde sdk update to add it'])
   }, 60_000)
 
   test('an app that waits for approval in a running acde dev: a warning that names it', async () => {

@@ -99,20 +99,20 @@ export class Sdk {
     return typeof version === 'string' ? version : null
   }
 
-  static warning(state: SdkState, pm = 'npm'): string | null {
+  static warning(state: SdkState, pm: () => string): string | null {
     if (state.spec === null) return null
     if (state.version !== state.paired) {
       const has = state.version === null ? state.spec : `${state.version} (${state.spec})`
       return `package.json: ${Sdk.NAME} is ${has}, but this acde pairs with ${state.paired}: run acde sdk update`
     }
     if (state.installed === null || state.installed === state.version) return null
-    return `package.json names ${Sdk.NAME} ${state.version}, but ${state.installed} is installed: run ${pm} install`
+    return `package.json names ${Sdk.NAME} ${state.version}, but ${state.installed} is installed: run ${pm()} install`
   }
 
   static show(dir: string, pkg: Readonly<Record<string, unknown>>): string[] {
     const state = Sdk.state(dir, pkg)
     const project = state.spec === null ? 'none' : `${state.version ?? 'unknown version'} (${state.spec})`
-    const warning = Sdk.warning(state, PackageManager.of(dir).name)
+    const warning = Sdk.warning(state, () => PackageManager.of(dir).name)
     return [
       `project: ${project}`,
       `this acde: ${state.paired} (${Sdk.url(state.paired)})`,
