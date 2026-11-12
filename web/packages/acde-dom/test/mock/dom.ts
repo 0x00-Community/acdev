@@ -676,6 +676,10 @@ export class MockDom implements DomNative {
       this.#loaded.push(id)
     }, 1)
   }
+  _imageDone(id: number, state: number[]): void {
+    this.images.set(id, state)
+    this.#loaded.push(id)
+  }
   imageState(id: number): Float64Array {
     const node = this._node(id)
     if (!node.getAttribute('src')) return Float64Array.of(0, 0, 3)

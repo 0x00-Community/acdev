@@ -153,3 +153,21 @@ test('FontFace.load fetches its url sources as fonts in order and reports the ou
   const fonts = web.json<string[][]>('seen.requests').filter(([kind]) => kind === 'font').map(([, url]) => url)
   assert.deepEqual(fonts, ['https://fonts.example.com/closed.woff2', 'https://fonts.example.com/closed.woff2', 'https://fonts.example.com/open.woff2'])
 })
+
+test('images: a clone of a loaded image fires load once when it is inserted, even when no frame follows', async () => {
+  using web = await page('<!doctype html><html><body><img id=a src="/a.png"></body></html>')
+  await web.wait(5)
+  web.run(`globalThis.log = []
+    const a = document.getElementById('a')
+    a.onload = () => log.push('original')
+    globalThis.copy = a.cloneNode()
+    copy.onload = () => log.push('load')
+    copy.onerror = () => log.push('error')
+    document.body.append(copy)`)
+  web.dom._imageDone(web.internals.idOf(web.run('copy')), [16, 8, 1])
+  web.endTask()
+  await web.wait(5)
+  assert.deepEqual(web.json('log'), ['load'])
+  await web.wait(5)
+  assert.deepEqual(web.json('log'), ['load'], 'and only once')
+})

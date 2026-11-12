@@ -628,7 +628,7 @@ export function deliverSheet(id: number): void {
 }
 
 lifecycle.connected.push((node) => {
-  if (node instanceof HTMLLinkElement) loads.expect()
+  if (node instanceof HTMLLinkElement || (node instanceof HTMLElement && node[LOCAL] === 'img')) loads.expect()
 })
 url(HTMLLinkElement.prototype, 'href')
 string(HTMLLinkElement.prototype, 'rel')

@@ -721,6 +721,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     一个没取到派 `error` (已取到的规则照样生效, 和 Chrome 一样). `href` 又变了或 link 离开了文档, 先前那次的答复丢掉, 不派事件; 换 `href` 时旧表留到新的
     答复来. 页面这边由 `deliverLoads` (`dom/media.ts`) 派: 每帧一次, 另外 link 接进文档、这三个属性变了、解析的 HTML 里有 `<link`、远程样式表答了
     之后各排一个 0 ms 定时器 (`dom/env.ts` `loads.expect`), 不等帧 (没人看的窗口不出帧). 没有包装对象的 link 只在有 `onload` / `onerror` 属性时才建.
+    `<img>` 接进文档时同样排一次 (#204): 克隆体插入时取图 (常是命中缓存, 插入当时就结束), 任务结束只提交不出帧, 不排就等不到它的 `load`.
   - `link.sheet` / `document.styleSheets`: 取完才有 `CSSStyleSheet` (`ownerNode`、`href`、`media.mediaText`), 每次取完是新对象; 在取和失败时
     `sheet` 是 null. 响应对页面不透明的表, `cssRules` / `rules` / `insertRule` / `deleteRule` 抛 `SecurityError`. 透不透明由取这张表的那次
     请求定, 不看 link 现在的属性 (改了 `crossorigin` / `href`, 新表到之前手上还是旧表, 旧表的结论不变): `loadResource` 在响应头到的时候判,
