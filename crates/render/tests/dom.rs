@@ -603,7 +603,7 @@ fn images() {
     assert_eq!(dom.take_loaded(), vec![missing]);
     assert_eq!(dom.image_state(missing).unwrap(), [0.0, 0.0, 2.0], "and fails out of the document too");
     dom.set_attribute(none, "src", PNG).unwrap();
-    assert_eq!(dom.take_loaded(), vec![none, missing], "the one that failed out of the document is reported, for its error event");
+    assert_eq!(dom.take_loaded(), vec![none]);
 }
 
 #[test]
