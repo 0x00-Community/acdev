@@ -11,10 +11,10 @@ import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { DevSession } from '../src/dev.ts'
 import { Devtools } from '../src/devtools.ts'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'
-import { Sessions, type Session } from '../src/sessions.ts'
+import { Claims, Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
-import { cleanup, env, fakeAcdert, fakeBrowser, skipping, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, env, fakeAcdert, fakeBrowser, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -210,6 +210,45 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(Sessions.pick([c], join(root, 'other'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a], root, 99)).toThrow('no acde dev with pid 99:\n  11')
   })
+
+  test('claims: one holder per project, even one whose event loop is blocked; a dead or reused holder is taken '
+    + 'over; a refused claim keeps nothing; release removes only its own', async () => {
+    const dir = join(tmp(), 'acde-dev')
+    const project = realpathSync(tmp())
+    const other = realpathSync(tmp())
+    const script = join(tmp(), 'hold.ts')
+    writeFileSync(script, `import { Claims } from ${JSON.stringify(join(import.meta.dir, '../src/sessions.ts'))}
+const held = await Claims.take([process.argv[2]], Date.now(), process.argv[3])
+console.log(held instanceof Claims ? 'held' : 'refused')
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000)
+`)
+    const holder = Bun.spawn([process.execPath, script, project, dir], { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+    try {
+      expect(await line(holder, 'held')).toBe('held')
+      expect(await Claims.take([other, project], Date.now(), dir)).toEqual({ pid: holder.pid, dir: project })
+      expect(existsSync(Claims.file(other, dir))).toBe(false)
+      expect(readdirSync(dir).filter((name) => name.startsWith(`${process.pid}.`))).toEqual([])
+    } finally {
+      holder.kill('SIGKILL')
+      await holder.exited
+    }
+    const mine = await Claims.take([project, other, project], Date.now(), dir)
+    expect(mine).toBeInstanceOf(Claims)
+    const claim = JSON.parse(readFileSync(Claims.file(project, dir), 'utf8')) as { pid: number; dir: string }
+    expect([claim.pid, claim.dir]).toEqual([process.pid, project])
+    expect(await Claims.take([project], Date.now(), dir)).toEqual({ pid: process.pid, dir: project })
+    writeFileSync(Claims.file(other, dir), 'someone else\n')
+    ;(mine as Claims).release()
+    expect(readFileSync(Claims.file(other, dir), 'utf8')).toBe('someone else\n')
+    expect(existsSync(Claims.file(project, dir))).toBe(false)
+    const reused = { pid: process.ppid, dir: project, beacon: testEndpoint() }
+    writeFileSync(Claims.file(project, dir), JSON.stringify(reused))
+    const again = await Claims.take([project, other], Date.now(), dir)
+    expect(again).toBeInstanceOf(Claims)
+    ;(again as Claims).release()
+    Sessions.list(dir)
+    expect(readdirSync(dir)).toEqual([])
+  }, 30_000)
 
   test('live: a session whose endpoint nobody answers is dropped, though its pid lives (reused)', async () => {
     const dir = join(tmp(), 'acde-dev')
@@ -665,12 +704,6 @@ describe('acde dev with a stand-in acdert', () => {
       expect(second.code).toBe(1)
       expect(second.stderr).toBe(`acde: acde dev ${pid} already runs ${realpathSync(alpha)}; `
         + `stop it first (acde stop --session ${pid}), or pass --force to start another\n`)
-      const reused = { ...JSON.parse(readFileSync(dev.file, 'utf8')) as Session, pid: process.pid, started: 1 }
-      reused.endpoint = testEndpoint()
-      Sessions.write(reused, dev.sessions)
-      const third = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
-      expect(third.stderr).toContain(`acde: acde dev ${pid} already runs`)
-      expect(existsSync(Sessions.file(process.pid, dev.sessions))).toBe(false)
       if (!WINDOWS) {
         dev.child.kill('SIGINT')
         const ended = await Promise.race([dev.child.exited.then(() => 'ended'), Bun.sleep(3_000).then(() => 'late')])
@@ -713,6 +746,47 @@ describe('acde dev with a stand-in acdert', () => {
       await tested.stop()
     }
   }, 30_000)
+
+  test('two acde dev started at the same moment on one project: one runs, the other is refused; the claim of a '
+    + 'killed acde dev holds nothing; a running acde dev --force still refuses a plain one', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const root = tmp()
+    const both = [start([alpha, '--headless'], base, {}, root), start([alpha, '--headless'], base, {}, root)]
+    try {
+      const first = both.map((dev) => dev.child.exited.then((c) => [dev, c] as const))
+      const late = Bun.sleep(15_000).then(() => [null, null] as const)
+      const [loser, code] = await Promise.race([...first, late])
+      if (loser === null) throw new Error('both acde dev still run after 15 s: neither was refused')
+      const winner = both.find((dev) => dev !== loser)!
+      expect(code).toBe(1)
+      expect(await loser.output).toBe(`acde: acde dev ${winner.child.pid} already runs ${alpha}; `
+        + `stop it first (acde stop --session ${winner.child.pid}), or pass --force to start another\n`)
+      await until('the session file of the one that runs', () => existsSync(winner.file))
+      winner.child.kill('SIGKILL')
+      await winner.child.exited
+      expect(readdirSync(winner.sessions).filter((name) => name.endsWith('.claim'))).toHaveLength(1)
+    } finally {
+      for (const dev of both) dev.child.kill('SIGKILL')
+    }
+    const next = start([alpha, '--headless'], base, {}, root)
+    let forced: ReturnType<typeof start> | null = null
+    try {
+      await until('the session file after the killed one', () => existsSync(next.file))
+      forced = start([alpha, '--headless', '--force', '--out', join(base, 'forced')], base, {}, root)
+      const file = forced.file
+      await until('the session file of the forced one', () => existsSync(file))
+      expect(await next.stop()).toBe(0)
+      const plain = await next.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: fakeAcdert(root) })
+      expect(plain.code).toBe(1)
+      expect(plain.stderr).toContain(`acde: acde dev ${forced.child.pid} already runs ${alpha}`)
+    } finally {
+      await forced?.stop()
+      if (next.child.exitCode === null) await next.stop()
+    }
+    Sessions.list(join(root, 'acde-dev'))
+    expect(readdirSync(join(root, 'acde-dev'))).toEqual([])
+  }, 60_000)
 
   test('act w1 close that ends a single-app session exits 0, any other lost connection 1; ' +
     'acde stop ends a session in the background', async () => {

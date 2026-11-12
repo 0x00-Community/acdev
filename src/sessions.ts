@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
+  chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
   writeFileSync, type Stats,
 } from 'node:fs'
 import net from 'node:net'
@@ -148,8 +149,9 @@ export class Sessions {
       else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
     }
     for (const name of readdirSync(dir)) {
-      const left = /^(\d+)\.(?:sock|json\.(\d+)\.tmp)$/.exec(name)
-      if (left && !Sessions.alive(Number(left[2] ?? left[1]))) rmSync(join(dir, name), { force: true })
+      const left = /^(?:(\d+)\.(?:[0-9a-z]+\.)?sock|\d+\.json\.(\d+)\.tmp|[0-9a-f]+\.claim\.(\d+)\.(?:tmp|aside))$/.exec(name)
+      if (left && !Sessions.alive(Number(left[1] ?? left[2] ?? left[3]))) rmSync(join(dir, name), { force: true })
+      else if (Claims.NAME.test(name)) Claims.sweep(join(dir, name))
     }
     return found.sort((a, b) => a.started - b.started)
   }
@@ -260,5 +262,151 @@ export class Sessions {
     const info = lstatSync(path, { throwIfNoEntry: false })
     if (info === undefined || info.isSymbolicLink()) return false
     return (kind === 'file' ? info.isFile() : info.isDirectory()) && Sessions.#owned(info)
+  }
+}
+
+export interface Holder {
+  readonly pid: number
+  readonly dir: string
+}
+
+interface Claim {
+  readonly pid: number
+  readonly dir: string
+  readonly beacon: string
+}
+
+export class Claims {
+  static readonly NAME = /^[0-9a-f]{16}\.claim$/
+  static readonly TRIES = 20
+
+  static file(project: string, dir = Sessions.dir()): string {
+    const key = process.platform === 'win32' ? project.toLowerCase() : project
+    return join(dir, `${createHash('sha256').update(key).digest('hex').slice(0, 16)}.claim`)
+  }
+
+  static beacon(pid: number, started: number, dir = Sessions.dir()): string {
+    const id = `${pid}.${started.toString(36)}`
+    return process.platform === 'win32' ? `\\\\.\\pipe\\acde-dev-${id}` : join(dir, `${id}.sock`)
+  }
+
+  static async take(
+    projects: readonly string[], started: number, dir = Sessions.dir(),
+  ): Promise<Claims | Holder> {
+    Sessions.prepare(dir)
+    const beacon = Claims.beacon(process.pid, started, dir)
+    const claims = new Claims(await Claims.#listen(beacon), beacon)
+    const wanted = new Map(projects.map((project) => [Claims.file(project, dir), project]))
+    try {
+      for (const file of [...wanted.keys()].sort()) {
+        const holder = await claims.#take(file, wanted.get(file)!)
+        if (holder) {
+          claims.release()
+          return holder
+        }
+      }
+    } catch (error) {
+      claims.release()
+      throw error
+    }
+    return claims
+  }
+
+  static sweep(file: string): void {
+    const seen = Claims.#read(file)
+    if (seen === null) return
+    const claim = Claims.#parse(seen)
+    if (!claim || !Sessions.alive(claim.pid)) Claims.#setAside(file, seen)
+  }
+
+  readonly #server: net.Server
+  readonly #beacon: string
+  readonly #held: [file: string, text: string][] = []
+
+  private constructor(server: net.Server, beacon: string) {
+    this.#server = server
+    this.#beacon = beacon
+  }
+
+  release(): void {
+    for (const [file, text] of this.#held.splice(0)) if (Claims.#read(file) === text) rmSync(file, { force: true })
+    this.#server.close()
+    if (process.platform !== 'win32') rmSync(this.#beacon, { force: true })
+  }
+
+  async #take(file: string, project: string): Promise<Holder | null> {
+    const text = `${JSON.stringify({ pid: process.pid, dir: project, beacon: this.#beacon })}\n`
+    const scratch = `${file}.${process.pid}.tmp`
+    writeFileSync(scratch, text, { mode: 0o600 })
+    try {
+      for (let tries = 0; tries < Claims.TRIES; tries++) {
+        try {
+          linkSync(scratch, file)
+          this.#held.push([file, text])
+          return null
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        }
+        const seen = Claims.#read(file)
+        if (seen === null) continue
+        const claim = Claims.#parse(seen)
+        if (claim && Sessions.alive(claim.pid) && (await Sessions.answers(claim.beacon)))
+          return { pid: claim.pid, dir: claim.dir }
+        Claims.#setAside(file, seen)
+      }
+    } finally {
+      rmSync(scratch, { force: true })
+    }
+    throw new Error(`${project}: could not claim it for this acde dev in ${Claims.TRIES} tries (${file} keeps changing); `
+      + 'run it again, or pass --force')
+  }
+
+  static #listen(path: string): Promise<net.Server> {
+    if (process.platform !== 'win32') rmSync(path, { force: true })
+    return new Promise((resolve, reject) => {
+      const server = net.createServer((socket) => socket.destroy())
+      server.once('error', reject)
+      server.listen(path, () => {
+        server.off('error', reject)
+        server.unref()
+        resolve(server)
+      })
+    })
+  }
+
+  static #setAside(file: string, seen: string): void {
+    const aside = `${file}.${process.pid}.aside`
+    try {
+      renameSync(file, aside)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    try {
+      if (Claims.#read(aside) !== seen) linkSync(aside, file)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    } finally {
+      rmSync(aside, { force: true })
+    }
+  }
+
+  static #read(file: string): string | null {
+    try {
+      return readFileSync(file, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  static #parse(text: string): Claim | null {
+    try {
+      const json = JSON.parse(text) as Partial<Claim>
+      if (typeof json.pid !== 'number' || typeof json.dir !== 'string' || typeof json.beacon !== 'string') return null
+      return { pid: json.pid, dir: json.dir, beacon: json.beacon }
+    } catch {
+      return null
+    }
   }
 }

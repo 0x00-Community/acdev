@@ -8,7 +8,7 @@ import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
 import { Runtime, type Child } from './runtime.ts'
-import { Sessions, type Reloaded } from './sessions.ts'
+import { Claims, Sessions, type Reloaded } from './sessions.ts'
 import { TreeWatch, type Watching } from './watch.ts'
 
 const SETTLE_MS = 150
@@ -223,20 +223,39 @@ export class DevSession {
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
-  async #refuseSecond(): Promise<void> {
-    if (this.#force) return
-    const dirs = this.#units.map((u) => u.pkg.dir)
-    const [other] = await Sessions.live(Sessions.running(Sessions.list(), dirs))
-    if (!other) return
-    const dir = other.dirs.find((d) => dirs.some((mine) => Sessions.sameDir(d, mine)))!
-    throw new Error(`acde dev ${other.pid} already runs ${dir}; stop it first (acde stop --session ${other.pid}), `
+  static #refusal(pid: number, dir: string): Error {
+    return new Error(`acde dev ${pid} already runs ${dir}; stop it first (acde stop --session ${pid}), `
       + 'or pass --force to start another')
+  }
+
+  async #claim(): Promise<Claims | null> {
+    if (this.#force) return null
+    const dirs = this.#units.map((u) => u.pkg.dir)
+    const claims = this.#test ? null : await Claims.take(dirs, this.#started)
+    if (claims !== null && !(claims instanceof Claims)) throw DevSession.#refusal(claims.pid, claims.dir)
+    try {
+      const [other] = await Sessions.live(Sessions.running(Sessions.list(), dirs))
+      if (!other) return claims
+      const dir = other.dirs.find((d) => dirs.some((mine) => Sessions.sameDir(d, mine)))!
+      throw DevSession.#refusal(other.pid, dir)
+    } catch (error) {
+      claims?.release()
+      throw error
+    }
   }
 
   async run(): Promise<number> {
     const display = this.#headless ? null : Runtime.noDisplay()
     if (display) throw new Error(`${display}: run acde dev --headless`)
-    await this.#refuseSecond()
+    const claims = await this.#claim()
+    try {
+      return await this.#run()
+    } finally {
+      claims?.release()
+    }
+  }
+
+  async #run(): Promise<number> {
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)

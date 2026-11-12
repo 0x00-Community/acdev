@@ -376,19 +376,34 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGTERM / SIGHUP 转给 acdert. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdert 发 SIGTERM (只发给 acde dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acde dev 一直不退),
   第二次 SIGINT 发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
-- 一个工程一个会话 (acde#91, `Sessions.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
-  (Windows 不分大小写) 就报 `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another`
-  退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写, 返回所有跑着这些工程的会话). 报之前先确认它真活着
-  (`Sessions.live`): `Sessions.list` 只看 pid (`kill(pid, 0)`), pid 被别的进程复用时会话文件留着; 所以连一下各自的 `endpoint`
-  (`Sessions.answers`, 最多 `PROBE_MS` 1 s; 只连上就断开, 不发东西), `ECONNREFUSED` / `ENOENT` 算死, 用 `removeIfCurrent` 删掉它的会话文件再往下看,
-  连上、超时或别的错算活 (拿不准不删). 会话文件是连上 acdert 之后才写的, 活着的会话总连得上. MCP 的 `start` 挑要接的会话也这样确认. `acde test` 的会话 (`Acde.launch({force: true})`) 用
-  自己的输出目录, 带 `--force`, 不受影响; 它们还是**测试会话**: `E2eRun.env` 设 `ACDE_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它
-  给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdert 的环境去掉这个变量. 一个工程一个会话的判断 (`Sessions.running`)、按目录挑会话
-  (`Sessions.pick` 没给 pid 的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acde dev`, `acde eval` 等
-  也不会挑中这个转瞬即逝的会话); 只有 `--session <pid>` (MCP 的 `sessions {use}`) 到得了它. 只剩测试会话时报 `no acde dev is running, only
-  sessions of acde test, which are reached only with --session <pid>` 并列出; `Sessions.what` 在它后面标 `acde test`. MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话: 有就钉住并连上它,
-  回 `attached to acde dev <pid>, which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true}
-  starts another)` 加 webs 表 (agent 常忘了后台开着的会话, 不让它卡在报错上); `force: true` 才另起 (带 `--force`).
+- 一个工程一个会话 (acde#91): 另一个活着的 acde dev 跑着本次的某个工程 (含 `--desktop <目录>` 那个) 时报
+  `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another` 退出 1, `--force` 照样起
+  (不认领、不查). 判断在 `run()` 开头、构建之前 (`DevSession.#claim`): 先认领, 再看会话文件.
+  - **认领** (`Claims`, `src/sessions.ts`): 以前只在开头列会话, 而会话文件要等构建、起 acdert、连上之后才写, 同时起的两个都看不见对方, 都跑了.
+    现在每个工程 (真实路径, Windows 小写) 在会话目录里有一个认领文件 `<sha256 前 16 位>.claim` `{pid, dir, beacon}`: 先写
+    `<名>.claim.<pid>.tmp` 再 `link` 过去 (已存在就 `EEXIST`, 原子的排他创建, 内容一出现就是完整的), 几个工程按文件名排序逐个认领 (同时起的两个
+    不会各占一半), 有一个被占就放掉已认领的并报占着它的 pid 和目录. 退出时 (`run()` 的 `finally`, 包住构建) 只删内容还是自己那份的.
+  - **谁还活着**: 认领者先在 `beacon` 上听 (`Claims.beacon`: unix 上 `<会话目录>/<pid>.<开始时间 36 进制>.sock`, Windows 上
+    `\\.\pipe\acde-dev-<pid>.<开始时间>`; `unref`, 来连接就关掉). 判断占着的人: pid 死了, 或连 beacon `ECONNREFUSED` / `ENOENT`
+    (`Sessions.answers`) 都算死; 名字里有 pid 和开始时间, pid 被复用也连不上; 只要内核接受连接就算活, 不用对方的事件循环回答, 所以正在同步构建、
+    事件循环卡住的认领者也算活. 连上、超时、别的错都算活 (拿不准不抢).
+  - **抢死了的认领**: 不直接删 (两个进程都判它死了时, 后删的会删掉先到者刚建的新认领), 而是 `rename` 到 `<名>.claim.<pid>.aside`
+    (只有一个进程挪得走这一份), 再看挪走的是不是自己判过的那份内容: 是就删掉再去 `link`; 不是 (别人已经抢过、建了新的) 就 `link` 回原处. 剩下的
+    竞争只在三个进程同时抢同一个死认领、且第三个恰好在挪走与放回之间建了认领时: 被挪走的那个认领者以为自己还占着, 一个工程跑两个; 不阻塞, 接受.
+    抢 `Claims.TRIES` (20) 次都没定下来报错 (`… keeps changing; run it again, or pass --force`).
+  - **再看会话文件**: 认领之后照旧找跑着这些工程的活会话 (`Sessions.running`, `sameDir` 在 Windows 不分大小写, 返回所有这样的会话), 有就放掉认领并报它:
+    `--force` 起的和旧版 acde 起的会话不认领, 只能这样看到. 报之前先确认它真活着 (`Sessions.live`): `Sessions.list` 只看 pid (`kill(pid, 0)`), pid
+    被别的进程复用时会话文件留着; 所以连一下各自的 `endpoint` (`Sessions.answers`, 最多 `PROBE_MS` 1 s; 只连上就断开, 不发东西), `ECONNREFUSED` /
+    `ENOENT` 算死, 用 `removeIfCurrent` 删掉它的会话文件, 连上、超时或别的错算活 (拿不准不删). 会话文件是连上 acdert 之后才写的, 活着的会话总连得上.
+  - `acde test` 的会话 (`Acde.launch({force: true})`) 用自己的输出目录, 带 `--force`, 不认领 (`--workers` 时同一工程同时有几个); 它们还是**测试会话**:
+    `E2eRun.env` 设 `ACDE_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdert 的环境去掉
+    这个变量; 测试会话不带 `--force` 时也不认领, 但照样查会话文件. 一个工程一个会话的判断 (`Sessions.running`)、按目录挑会话 (`Sessions.pick` 没给 pid
+    的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acde dev`, `acde eval` 等也不会挑中这个转瞬即逝的
+    会话); 只有 `--session <pid>` (MCP 的 `sessions {use}`) 到得了它. 只剩测试会话时报 `no acde dev is running, only sessions of acde test, which
+    are reached only with --session <pid>` 并列出; `Sessions.what` 在它后面标 `acde test`.
+  - MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话 (同样经 `Sessions.live` 确认): 有就钉住并连上它,
+    回 `attached to acde dev <pid>, which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true}
+    starts another)` 加 webs 表 (agent 常忘了后台开着的会话, 不让它卡在报错上); `force: true` 才另起 (带 `--force`).
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
   不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过
@@ -396,7 +411,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时 1 s 内每 50 ms 重列重挑, 到时才报最后一次的错;
   不在任何会话的目录里又有几个会话时报 `none of the N acde dev sessions runs <目录>; pick one with --session <pid>`. acde dev 被外部结束 (Windows 的 `taskkill /F`、
   任务管理器, 别处的 SIGKILL) 时来不及删, acdert 因连接断开跟着退出, 文件留到下一个工具或下一个 acde dev 列会话时删; pid 已被复用时连不上,
-  报 `is gone` 并删. 列会话时也删 pid 死了的 `<pid>.sock` 和写一半的 `<pid>.json.<写者 pid>.tmp` (acde#91).
+  报 `is gone` 并删. 列会话时也删 pid 死了的 `<pid>.sock`、beacon `<pid>.<id>.sock`、写一半的 `<pid>.json.<写者 pid>.tmp` 和
+  `<名>.claim.<pid>.tmp` / `.aside` (acde#91), 以及认领者 pid 死了 (或内容读不懂) 的认领 (`Claims.sweep`, 同样挪开再删); pid 活着但 beacon 连不上的
+  认领留给下一个认领这个工程的 acde dev 去抢 (`list` 是同步的, 不连).
 - dev IPC: **acdert 听, acde 不转发.** 地址 `DevClient.endpoint()`: unix 上 `<会话目录>/<pid>.sock` (acde 先 `prepare` 目录、删掉旧 socket;
   acdert 设 0600: 它能在页面里求值), Windows 上 `\\.\pipe\acde-dev-<pid>`. acde dev 起了 acdert 后每 50 ms 重试连接 (`DevClient.reach`; 10 s 还连不上
   就提示 acdert 太旧), 连上发 `{type: 'hello', role: 'dev'}` 再写会话文件, `reload` 走这条连接. 一行一个 JSON; 工具和 driver 各自直连 acdert 发
