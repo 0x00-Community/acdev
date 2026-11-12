@@ -5,8 +5,9 @@ name: release
 # ticked and github.event.inputs.publish as a boolean, where GitHub gives the string 'true'; as text in an environment
 # variable both are true. Later jobs read needs.plan.outputs. Artifacts go through christopherhx/gitea-upload-artifact and
 # gitea-download-artifact (pinned; the official v4+ actions refuse every server but github.com). Tags are pushed with git.
-# The version directory and latest.json go to Tencent Cloud COS (bucket calbin-1318886512, ap-beijing, under pkgs/; secrets
-# COS_SECRET_ID / COS_SECRET_KEY, given only to the steps that run it) on both servers, through scripts/release/cos.sh. The GitHub release runs only on github.com;
+# The version directory and latest.json go to the S3 bucket dopame-pkgs (pkgs.dopame.ai, CloudFront E3ET3L14ALFOXX) on both
+# servers, through scripts/release/s3.sh, as the role dopame-acdert-release: GitHub assumes it with OIDC, Gitea with the key of
+# the IAM user gitea-acdert-release (secrets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY). The GitHub release runs only on github.com;
 # on Gitea, tag-gitea and latest-gitea take the place of tag and latest.
 on:
   workflow_dispatch:
@@ -29,10 +30,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
-  COS_BUCKET: calbin-1318886512
-  COS_REGION: ap-beijing
-  COS_PREFIX: pkgs
-  PKGS_URL: https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs
+  S3_BUCKET: dopame-pkgs
+  CF_DISTRIBUTION: E3ET3L14ALFOXX
+  AWS_ROLE: arn:aws:iam::312030312811:role/dopame-acdert-release
+  PKGS_URL: https://pkgs.dopame.ai
 
 jobs:
   plan:
@@ -390,6 +391,9 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
@@ -404,16 +408,17 @@ jobs:
           path: pkgs
       - name: check the version directory before upload
         run: scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"
-      - name: upload the version directory to COS (same content is skipped, different content is refused)
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-        run: scripts/release/cos.sh put "pkgs/$VERSION" "acdert/$VERSION"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-1
+      - name: upload the version directory to S3 (same content is skipped, different content is refused)
+        run: scripts/release/s3.sh put "pkgs/$VERSION" "acdert/$VERSION"
       - name: verify every object of the version directory before the tag
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-        run: scripts/release/cos.sh verify "pkgs/$VERSION" "acdert/$VERSION"
+        run: scripts/release/s3.sh verify "pkgs/$VERSION" "acdert/$VERSION"
 
   latest:
     needs: [plan, upload, release]
@@ -423,6 +428,9 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
     steps:
@@ -434,11 +442,15 @@ jobs:
         with:
           name: pkgs
           path: pkgs
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-1
       - name: 'latest.json (last: the version directory is verified and the GitHub release exists)'
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-        run: scripts/release/cos.sh latest pkgs/latest.json acdert/latest.json
+        run: scripts/release/s3.sh latest pkgs/latest.json acdert/latest.json "acdert/$VERSION"
       - run: echo "$PKGS_URL/acdert/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
 
   latest-gitea:
@@ -449,6 +461,9 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
     steps:
@@ -460,9 +475,13 @@ jobs:
         with:
           name: pkgs
           path: pkgs
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE }}
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-1
       - name: 'latest.json (last: the version directory is verified and tagged)'
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
-        run: scripts/release/cos.sh latest pkgs/latest.json acdert/latest.json
+        run: scripts/release/s3.sh latest pkgs/latest.json acdert/latest.json "acdert/$VERSION"
       - run: echo "$PKGS_URL/acdert/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
