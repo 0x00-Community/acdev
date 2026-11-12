@@ -424,9 +424,12 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
     只有认领、还没写会话文件的 acde dev (正在构建) 看不到, 这时起的 acde dev 被拒绝, 报的是 `LaunchError` 里它的那行.
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
   不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, options: {desktop, app}, started}`: 起来后写、重建后重写、
-  退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过
+  退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过;
+  目录读 `Sessions.PASSES` (3) 遍取并集, 见到活着的写入者留下的 `<pid>.json.<写入者>.tmp` 也补上 `<pid>.json` (gitea acde#97: Linux 的 tmpfs 上
+  rename 覆盖时把目录项挪到链表头, 正在 readdir 的一方会漏掉这个文件, 负载高时 `list()` 返回空)
   (gitea acde#87: 重载时改写会话文件, 旧版把读到一半的文件当坏文件删掉、或在两种错误里同时报“没有”和“好几个”). Windows 上 rename 碰上正在读的文件可能 EPERM / EBUSY,
-  写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时 1 s 内每 50 ms 重列重挑, 到时才报最后一次的错;
+  写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时, 只在有会话文件正被改写 (`Sessions.scan` 的 `busy`: 有活着的写入者留下的临时文件, 或 pid 活着的会话文件读不出来) 时
+  1 s 内每 50 ms 重列重挑, 到时才报最后一次的错; 根本没有会话文件时立即报错 (gitea acde#96: 以前没有会话时每个工具和 MCP 启动都白等 1 s);
   不在任何会话的目录里又有几个会话时报 `none of the N acde dev sessions runs <目录>; pick one with --session <pid>`. acde dev 被外部结束 (Windows 的 `taskkill /F`、
   任务管理器, 别处的 SIGKILL) 时来不及删, acdert 因连接断开跟着退出, 文件留到下一个工具或下一个 acde dev 列会话时删; pid 已被复用时连不上,
   报 `is gone` 并删. 列会话时也删 pid 死了的 `<pid>.sock`、beacon `<pid>.<id>.sock`、写一半的 `<pid>.json.<写者 pid>.tmp` 和

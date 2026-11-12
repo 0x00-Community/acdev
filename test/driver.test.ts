@@ -1,5 +1,5 @@
 import { afterAll, describe, expect as check, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InspectMatch, InspectNode } from '@dopame/acde-api'
 import {
@@ -540,12 +540,21 @@ describe('session files while acde dev rewrites them', () => {
     check(reads).toBeGreaterThan(10)
     check(readdirSync(dir)).toEqual([`${process.pid}.json`])
 
-    const empty = join(tmp(), 'acde-dev')
-    setTimeout(() => Sessions.write(live, empty), 200)
-    check((await Sessions.find('/a', undefined, undefined, empty)).pid).toBe(process.pid)
     const started = Date.now()
     const none = Sessions.find('/a', undefined, undefined, join(tmp(), 'none'))
     await check(none).rejects.toThrow('no acde dev is running')
-    check(Date.now() - started).toBeGreaterThanOrEqual(Sessions.SETTLE_MS - 50)
+    check(Date.now() - started, 'nothing is being written, so nothing to wait for').toBeLessThan(300)
+    check(Sessions.scan(join(tmp(), 'none')).busy).toBe(false)
+
+    const pending = join(tmp(), 'acde-dev')
+    Sessions.prepare(pending)
+    const scratch = join(pending, `${process.pid}.json.${process.pid}.tmp`)
+    writeFileSync(scratch, '')
+    check(Sessions.scan(pending)).toEqual({ sessions: [], busy: true })
+    setTimeout(() => {
+      Sessions.write(live, pending)
+      rmSync(scratch, { force: true })
+    }, 200)
+    check((await Sessions.find('/a', undefined, undefined, pending)).pid).toBe(process.pid)
   })
 })

@@ -47,6 +47,7 @@ export interface Reloaded {
 export class Sessions {
   static readonly SETTLE_MS = 1_000
   static readonly RETRY_MS = 50
+  static readonly PASSES = 3
   static readonly PROBE_MS = 1_000
   static readonly TEST_ENV = 'ACDE_TEST_SESSION'
 
@@ -190,9 +191,25 @@ export class Sessions {
   }
 
   static list(dir = Sessions.dir()): Session[] {
-    if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return []
+    return Sessions.scan(dir).sessions
+  }
+
+  static scan(dir = Sessions.dir()): { sessions: Session[]; busy: boolean } {
+    if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return { sessions: [], busy: false }
+    const names = new Set<string>()
+    let busy = false
+    for (let pass = 0; pass < Sessions.PASSES; pass++) {
+      for (const name of readdirSync(dir)) {
+        names.add(name)
+        const scratch = /^(\d+)\.json\.(\d+)\.tmp$/.exec(name)
+        if (scratch && Sessions.alive(Number(scratch[2]))) {
+          busy = true
+          names.add(`${scratch[1]}.json`)
+        }
+      }
+    }
     const found: Session[] = []
-    for (const name of readdirSync(dir)) {
+    for (const name of names) {
       if (!/^\d+\.json$/.test(name)) continue
       const file = join(dir, name)
       if (!Sessions.#plain(file, 'file')) continue
@@ -200,22 +217,28 @@ export class Sessions {
       const session = Sessions.#read(file) ?? Sessions.#read(file)
       if (session && session.pid === pid && Sessions.alive(pid)) found.push(session)
       else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
+      else busy = true
     }
+    Sessions.#sweep(dir)
+    return { sessions: found.sort((a, b) => a.started - b.started), busy }
+  }
+
+  static #sweep(dir: string): void {
     for (const name of readdirSync(dir)) {
       const left = /^(?:(\d+)\.(?:[0-9a-z]+\.)?sock|\d+\.json\.(\d+)\.tmp|[0-9a-f]+\.claim\.(\d+)\.(?:tmp|aside))$/.exec(name)
       if (left && !Sessions.alive(Number(left[1] ?? left[2] ?? left[3]))) rmSync(join(dir, name), { force: true })
       else if (Claims.NAME.test(name)) Claims.sweep(join(dir, name))
     }
-    return found.sort((a, b) => a.started - b.started)
   }
 
   static async find(cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir()): Promise<Session> {
     const until = Date.now() + Sessions.SETTLE_MS
     for (;;) {
+      const { sessions, busy } = Sessions.scan(dir)
       try {
-        return Sessions.pick(Sessions.list(dir), cwd, pid, say, dir)
+        return Sessions.pick(sessions, cwd, pid, say, dir)
       } catch (error) {
-        if (Date.now() >= until) throw error
+        if (!busy || Date.now() >= until) throw error
       }
       await new Promise((done) => setTimeout(done, Sessions.RETRY_MS))
     }
