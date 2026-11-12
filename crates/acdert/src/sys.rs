@@ -176,6 +176,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
     crate::methods!(scope, obj,
         "openOffice" => crate::web::open_office,
         "restoreBluetooth" => crate::web::restore_bluetooth,
+        "startDevices" => crate::web::start_devices,
         "closeOffice" => crate::web::close_office,
     );
     #[cfg(unix)]

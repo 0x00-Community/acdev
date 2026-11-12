@@ -775,6 +775,82 @@ export interface AcdeAudio {
   on(type: 'changed', handler: (state: AudioState) => void): () => boolean
 }
 
+export interface Drive {
+  readonly id: string
+  readonly device: string
+  readonly label: string
+  readonly kind: 'usb' | 'card' | 'disc' | 'phone' | 'disk'
+  readonly size: number
+  readonly free: number | null
+  readonly mounted: boolean
+  readonly path: string | null
+  readonly ejectable: boolean
+}
+
+export interface Printer {
+  readonly id: string
+  readonly name: string
+  readonly state: 'idle' | 'printing' | 'stopped' | 'offline'
+  readonly isDefault: boolean
+  readonly jobs: number
+  readonly model: string
+  readonly location: string
+  readonly message: string
+  readonly reasons: readonly string[]
+  readonly accepting: boolean
+  readonly shared: boolean
+}
+
+export interface PrintJob {
+  readonly id: number
+  readonly name: string
+  readonly user: string
+  readonly state: 'pending' | 'held' | 'processing' | 'stopped' | 'canceled' | 'aborted' | 'completed'
+  readonly size: number
+  readonly created: number
+  readonly message: string
+}
+
+export interface AutomountDevice {
+  readonly id: string
+  readonly name: string
+  readonly attached: boolean
+  readonly login: boolean
+  readonly attach: boolean
+  readonly everMounted: boolean
+}
+
+export interface Automount {
+  readonly onLogin: boolean
+  readonly onAttach: boolean
+  readonly unknown: boolean
+  readonly devices: readonly AutomountDevice[]
+}
+
+export interface DevicesState {
+  readonly drives: readonly Drive[]
+  readonly printers: readonly Printer[]
+  readonly printing: boolean
+  readonly automount: Automount
+}
+
+export interface AcdeDevices {
+  state(): Promise<DevicesState>
+  mount(id: string): Promise<string>
+  unmount(id: string): Promise<void>
+  eject(id: string): Promise<void>
+  setAutomount(patch: Partial<Pick<Automount, 'onLogin' | 'onAttach' | 'unknown'>>): Promise<void>
+  setDeviceAutomount(id: string, patch: Partial<Pick<AutomountDevice, 'login' | 'attach'>>): Promise<void>
+  forgetDevice(id: string): Promise<void>
+  setDefaultPrinter(id: string): Promise<void>
+  pausePrinter(id: string): Promise<void>
+  resumePrinter(id: string): Promise<void>
+  jobs(printer: string): Promise<PrintJob[]>
+  cancelJob(printer: string, job: number): Promise<void>
+  on(type: 'changed', handler: (state: DevicesState) => void): () => boolean
+  on(type: 'added', handler: (drive: Drive) => void): () => boolean
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice
@@ -783,6 +859,7 @@ export interface AcdePage {
   readonly system?: AcdeSystem
   readonly bluetooth?: AcdeBluetooth
   readonly audio?: AcdeAudio
+  readonly devices?: AcdeDevices
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch

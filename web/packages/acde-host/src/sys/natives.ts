@@ -68,6 +68,7 @@ interface SysNative {
   ): WebThreadHandle
   openOffice?(): string | null
   restoreBluetooth?(): void
+  startDevices?(): void
   closeOffice?(): void
   contentType?(extension: string): string | null
 }
@@ -80,6 +81,7 @@ export interface WebGrants {
   readonly system: boolean
   readonly bluetooth: boolean
   readonly audio: boolean
+  readonly devices: boolean
   readonly office: boolean
   readonly camera: boolean
   readonly microphone: boolean

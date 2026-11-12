@@ -2,6 +2,7 @@ import { install, installBackendTransport, observe } from '@dopame/acde-dom'
 import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative, WebglNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { BluetoothModule, type BluetoothNatives } from './bluetooth'
+import { DevicesModule, type DevicesNatives } from './devices'
 import { Frame } from './frame'
 import { Watched, type WatchNatives } from './watched'
 import { FsModule } from './fsmodule'
@@ -67,6 +68,7 @@ interface WebNatives extends Natives {
   readonly system?: object
   readonly bluetooth?: BluetoothNatives
   readonly sound?: WatchNatives
+  readonly devices?: DevicesNatives
   readonly office?: object
   readonly picker?: FolderPicker
 }
@@ -269,6 +271,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.system) bridge.value['system'] = natives.system
   if (natives.bluetooth) bridge.value['bluetooth'] = BluetoothModule.wrap(natives.bluetooth)
   if (natives.sound) bridge.value['audio'] = Watched.module('audio', natives.sound)
+  if (natives.devices) bridge.value['devices'] = DevicesModule.wrap(natives.devices)
   if (natives.office) {
     const editorPage = async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme)
     const office = natives.office as { state(...args: unknown[]): Promise<unknown>; open(path: string, writable: boolean): Promise<unknown> }

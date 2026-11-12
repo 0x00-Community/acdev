@@ -8,6 +8,8 @@ mod bluetooth;
 mod caches;
 mod capture;
 mod child;
+#[cfg(target_os = "linux")]
+mod devices;
 mod dom;
 mod encoding;
 mod engine;

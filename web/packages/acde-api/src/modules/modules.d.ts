@@ -10,6 +10,11 @@ declare module 'acde:terminal' {
   const terminal: import('@dopame/acde-api').AcdeModules['terminal']
   export { terminal, terminal as default }
 }
+declare module 'acde:devices' {
+  const devices: import('@dopame/acde-api').AcdeModules['devices']
+  export { devices, devices as default }
+}
+
 declare module 'acde:audio' {
   const audio: import('@dopame/acde-api').AcdeModules['audio']
   export { audio, audio as default }

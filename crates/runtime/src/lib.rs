@@ -7,6 +7,8 @@ mod bus;
 pub mod channel;
 #[cfg(windows)]
 mod conpty;
+#[cfg(target_os = "linux")]
+mod devices;
 pub mod devtools;
 mod failure;
 mod fetch;
@@ -41,6 +43,8 @@ pub use atspi::Accessibility;
 pub use bluetooth::{Bluetooths, BtCall};
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
+#[cfg(target_os = "linux")]
+pub use devices::{DevCall, Devices, Topic};
 pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
 pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, MAX_CHUNK, Opened, PickedFolders, Range, Workspace};
 #[cfg(target_os = "linux")]
