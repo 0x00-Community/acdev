@@ -95,10 +95,15 @@ export class Help {
         about: [
           'Removes what acde install put there (a link: only the link). Says what first and asks; stops when '
             + 'an acde dev uses it. No argument: lists the installed packages.',
+          'The apps\' data (their storage and backend data) stays unless --data is given; in a terminal it asks.',
           'Exit code 1: an acde dev uses it, or a wrong argument; 2: not installed; 3: not confirmed.',
         ],
-        options: [{ flag: '--yes', about: 'Remove without asking' }],
-        examples: ['acde uninstall', 'acde uninstall com.example.app --yes'],
+        options: [
+          { flag: '--yes', about: 'Remove without asking (the data stays unless --data)' },
+          { flag: '--data', about: 'Also remove the apps\' data' },
+          { flag: '--keep-data', about: 'Keep the apps\' data without asking' },
+        ],
+        examples: ['acde uninstall', 'acde uninstall com.example.app --yes --data'],
       },
       {
         name: 'sdk',

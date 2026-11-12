@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { Exit } from './output.ts'
@@ -20,6 +21,8 @@ export interface UninstallOptions {
   readonly say: (line: string) => void
   readonly dir?: string
   readonly sessions?: readonly Session[]
+  readonly data?: boolean
+  readonly env?: NodeJS.ProcessEnv
 }
 
 export class Uninstall {
@@ -92,9 +95,41 @@ export class Uninstall {
         return Uninstall.DECLINED
       }
     }
+    const data = Uninstall.data(entry, options.env)
+    let drop = options.data
+    if (drop === undefined && data.length > 0 && !options.yes && options.confirm)
+      drop = await options.confirm(`Also remove the data of ${entry.id} (${data.join(', ')})?`)
     Uninstall.remove(entry)
     options.say(`acde: uninstalled ${entry.id} from ${entry.path}`)
+    if (drop === true) {
+      for (const path of data) rmSync(path, { recursive: true, force: true })
+      for (const path of data) options.say(`acde: removed its data ${path}`)
+    } else if (data.length > 0) {
+      options.say(`acde: kept its data (delete it by hand; --data removes it while uninstalling): ${data.join(', ')}`)
+    }
     return 0
+  }
+
+  static data(entry: Installed, env: NodeJS.ProcessEnv = process.env): string[] {
+    const home = (kind: 'DATA' | 'CONFIG', fallback: string) => {
+      const set = env[`XDG_${kind}_HOME`]
+      return set && isAbsolute(set) ? set : join(env['HOME'] || homedir(), fallback)
+    }
+    const data = join(home('DATA', join('.local', 'share')), 'acde')
+    const config = join(home('CONFIG', '.config'), 'acde', 'storage')
+    const set = env['ACDE_STORAGE']
+    const storage = set === undefined ? join(data, 'storage') : set || null
+    const legacy = set === undefined ? config : null
+    const paths = [
+      ...entry.apps.flatMap((id) => [
+        ...(storage ? [join(storage, `app-${id}`)] : []), join(data, 'apps', id),
+        ...(legacy ? [join(legacy, `app-${id}.json`)] : []),
+      ]),
+      ...entry.desktops.flatMap((id) => [
+        ...(storage ? [join(storage, `desktop-${id}`)] : []), ...(legacy ? [join(legacy, `${id}.json`)] : []),
+      ]),
+    ]
+    return paths.filter((path) => existsSync(path))
   }
 
   static remove(entry: Installed): void {

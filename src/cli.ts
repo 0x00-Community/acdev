@@ -46,7 +46,7 @@ class Cli {
     check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
-    uninstall: { args: [0, 1], switches: ['yes'] },
+    uninstall: { args: [0, 1], switches: ['yes', 'data', 'keep-data'] },
     sdk: { args: [0, 2] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose', 'force'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
@@ -197,7 +197,11 @@ class Cli {
     if (command === 'uninstall') {
       const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
       const confirm = interactive ? Uninstall.ask : null
-      return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say: (line) => console.log(line) })
+      if (flags.has('data') && flags.has('keep-data'))
+        throw new Error('uninstall: --data or --keep-data, not both (acde uninstall --help)')
+      const data = flags.has('data') ? true : flags.has('keep-data') ? false : undefined
+      const say = (line: string) => console.log(line)
+      return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say, ...(data !== undefined && { data }) })
     }
     if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')

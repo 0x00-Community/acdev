@@ -19,7 +19,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 | `acde check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架) 再用 `Manifest.check` 判一遍; 都查 `acde:` 导入; `--platform` 见下 |
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
-| `acde uninstall [id\|目录] [--yes]` | `src/uninstall.ts`: 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
+| `acde uninstall [id\|目录] [--yes] [--data\|--keep-data]` | `src/uninstall.ts` (acde#93: 应用数据 `Uninstall.data`: 包里每个应用的 `<数据>/acde/storage/app-<id>`、`<数据>/acde/apps/<id>`、旧的 `<配置>/acde/storage/app-<id>.json`, 桌面的 `storage/desktop-<id>` 和 `<配置>/acde/storage/<id>.json`; `ACDE_STORAGE` 换存储根, 空串时没有存储也没有旧文件. `--data` 删、`--keep-data` 留, 都不给时终端里问、`--yes` 留并打出路径; 两个都给是参数错, 退出码 1): 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose] [--force]` | 构建、起 acdert、改了就重新构建并 `reload`; 一个工程只许一个, `--force` 照样再起 (见「acde dev」) |
 | `acde doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修; `--fix` 修 acde 能修的 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
@@ -691,7 +691,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `--connect-timeout 20 --retry 2 --speed-limit 1024 --speed-time 30` (30 s 不到 1 KB/s 算卡住, 重试两次后失败), wget `-T 30`, GNU wget 再加
   `--tries=3`; BusyBox wget 不认 `--tries` / `--show-progress`, 只用 `-q -T 30 -O`. 进度测试用 `Bun.spawn` 的 `terminal` 开伪终端), shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
   拼好 (`bin/acdert`、`bin/app/`) 才动安装目录, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
-  `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
+  `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). 换完后清旧版本 (acde#93): 只留这次装的和 `current` 原先指的那个, 其余 `versions/*` 删掉; 还有程序在用的 (Linux 看 `/proc/*/exe`, 再看 `ps -axo command=` 里有没有那个目录) 留着, 说一声下次再删. `install.ps1` 同理: 先把旧版本改名成 `<版本>.old-<guid>` (里面有文件被占用时改名失败, 就留着), 改名成功再删. PATH 上没有且没给 `--no-modify-path` 时按
   `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. sh 一族的那行是
   `case ":$PATH:" in *":$HOME/.acde/bin:"*) ;; *) export PATH=… ;; esac`: 同时读 `.zprofile` 和 `.zshrc` (登录的交互 zsh) 或 `.profile` 和 `.bashrc`
   的 shell 里也只加一次; 以前装的不带判断的整行原地换成这行 (`awk` 改写, 写回原文件). 这个终端的 PATH 上没有时, 输出的最后单独一行是

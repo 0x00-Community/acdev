@@ -345,6 +345,11 @@ function Install-Acde {
 
         $current = Join-Path -Path $install -ChildPath 'current'
         $next = Join-Path -Path $install -ChildPath 'current.next'
+        $previous = $null
+        if (Test-Path -LiteralPath $current) {
+            $pointed = @((Get-Item -LiteralPath $current -Force).Target)[0]
+            if ($pointed) { $previous = Split-Path -Path ([string]$pointed) -Leaf }
+        }
         if (Test-Path -LiteralPath $next) {
             [System.IO.Directory]::Delete($next)
         }
@@ -353,6 +358,20 @@ function Install-Acde {
             [System.IO.Directory]::Delete($current)
         }
         Rename-Item -LiteralPath $next -NewName 'current'
+
+        foreach ($old in @(Get-ChildItem -LiteralPath $versions -Directory)) {
+            if ($old.Name -eq $Version -or $old.Name -eq $previous -or $old.Name -like '*.old-*') { continue }
+            $gone = "$($old.Name).old-" + [guid]::NewGuid().ToString('N')
+            try {
+                Rename-Item -LiteralPath $old.FullName -NewName $gone -ErrorAction Stop
+            } catch {
+                Write-Host ("acde: kept acde $($old.Name) ($($old.FullName)): a program in it is still running; " +
+                    'the next install removes it')
+                continue
+            }
+            Remove-Item -LiteralPath (Join-Path -Path $versions -ChildPath $gone) -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "acde: removed acde $($old.Name) ($($old.FullName))"
+        }
     } finally {
         $http.Dispose()
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync,
-  writeFileSync,
+  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync,
+  rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -196,6 +196,33 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       expect(login.stdout.trim(), 'a login bash finds acde').toBe(join(home, '.acde', 'bin', 'acde'))
     }
   }, 60_000)
+
+  test('install.sh keeps the new and the previous version, and an older one only while a program in it runs',
+    async () => {
+      const home = tmp()
+      const versions = join(home, '.acde', 'versions')
+      for (const old of ['0.0.0', '0.0.0-busy']) mkdirSync(join(versions, old, 'bin'), { recursive: true })
+      const sleep = which('sleep')!
+      const busy = join(versions, '0.0.0-busy', 'bin', 'sleep')
+      copyFileSync(sleep, busy)
+      chmodSync(busy, 0o755)
+      const running = Bun.spawn([busy, '30'], { stdout: 'ignore', stderr: 'ignore' })
+      try {
+        expect((await install(home, ['--version', '0.0.1'])).code).toBe(0)
+        const second = await install(home)
+        expect(second.code, second.out).toBe(0)
+        expect(readdirSync(versions).filter((name) => !name.startsWith('.')).sort())
+          .toEqual(['0.0.0-busy', '0.0.1', '0.0.2'])
+        expect(second.out).toContain(`removed acde 0.0.0 (${join(versions, '0.0.0')})`)
+        expect(second.out).toContain(`kept acde 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
+      } finally {
+        running.kill()
+        await running.exited
+      }
+      const third = await install(home, ['--version', '0.0.1'])
+      expect(third.code, third.out).toBe(0)
+      expect(readdirSync(versions).filter((name) => !name.startsWith('.')).sort()).toEqual(['0.0.1', '0.0.2'])
+    }, 120_000)
 
   test('install.sh: the unguarded PATH line of an earlier install becomes the guarded one, in place', async () => {
     const home = tmp()
@@ -456,6 +483,24 @@ describe('the release archive and the installed CLI', () => {
     const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
     expect(api).toBe(`${Pkgs.ACDERT}/${SDK}/acde-api-${SDK}.tar.gz`)
     expect(api).not.toContain(home)
+  }, 300_000)
+
+  test('Windows x64: install.ps1 keeps the new and the previous version and removes older ones', async () => {
+    expect(built).toBe(true)
+    if (process.platform !== 'win32' || process.arch !== 'x64') return
+    const home = join(root, 'pruned installation')
+    mkdirSync(join(home, 'versions', '0.0.0', 'bin'), { recursive: true })
+    const server = serve(out)
+    const dist = { ACDE_DIST: server.url.origin }
+    try {
+      expect((await installPs1(home, 'runtime', { ...dist, ACDE_VERSION: '0.0.1' })).code).toBe(0)
+      const second = await installPs1(home, 'runtime', dist)
+      expect(second.code, second.out).toBe(0)
+      expect(second.out).toContain(`removed acde 0.0.0 (${join(home, 'versions', '0.0.0')})`)
+      expect(readdirSync(join(home, 'versions')).sort()).toEqual(['0.0.1', '0.0.2'])
+    } finally {
+      server.stop(true)
+    }
   }, 300_000)
 
   test('Windows x64: a bad or missing acdert file, or no build for Windows, keeps the previous install', async () => {
