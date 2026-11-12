@@ -40,7 +40,12 @@ export class TextMetrics {
 }
 tag(TextMetrics)
 
-export const canvasSources = { present(_canvas: Element): void {} }
+export const canvasSources = {
+  present(_canvas: Element): void {},
+  resolve(image: unknown): unknown {
+    return image
+  },
+}
 
 export class ImageData {
   readonly width: number
@@ -629,8 +634,9 @@ export class CanvasContext2d {
   measureText(text: string): TextMetrics {
     return new TextMetrics(dom.measureText(this.canvas[ID], this.#state.font, String(text)))
   }
-  drawImage(image: Element, ...a: number[]): void {
+  drawImage(source: Element, ...a: number[]): void {
     this.#check()
+    const image = canvasSources.resolve(source) as Element
     const tag = (image as Element | null)?.localName
     if (tag !== 'img' && tag !== 'canvas') return
     const id = image[ID]

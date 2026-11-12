@@ -14,6 +14,7 @@ import { env, frames, resolveUrl } from './env'
 import type { Storage } from '../storage/webstorage'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
+import { createImageBitmap } from './bitmap'
 import { rootScroll } from './layout'
 import { cssString } from './node'
 import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
@@ -678,7 +679,7 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     close: () => env.close(),
     captureEvents: () => {},
     releaseEvents: () => {},
-    createImageBitmap: () => Promise.reject(new DOMException('createImageBitmap is not supported', 'NotSupportedError')),
+    createImageBitmap,
   })
   defineHandlers(global, [...HANDLER_TYPES, ...WINDOW_HANDLERS])
   entries.push({ url: env.url, state: null })
