@@ -222,9 +222,10 @@ acde and the runtime keep data outside the install directory. Delete these too t
 
 | Directory | What is in it |
 | --- | --- |
-| `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' backend data (`apps/<id>/`) and storage (`storage/app-<id>/`, `storage/desktop-<id>/`), the skill install record (`skills.json`) |
-| `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions, the last desktop, and other session state |
+| `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' backend data (`apps/<id>/`), storage (`storage/app-<id>/`, `storage/desktop-<id>/`) and private files (`files/<id>/`), the skill install record (`skills.json`) |
+| `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions, folder grants (`grants/<id>.json`), the last desktop, and other session state |
 | `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Approval decisions (`permissions.json`) |
+| `$XDG_CONFIG_HOME/acde-mimeapps.list` and `$XDG_CONFIG_HOME/acde-extensions.list` (`~/.config/…`) | The default app chosen for a file type or extension |
 | `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches (only when `XDG_RUNTIME_DIR` is not set) |
 | `acde/devtools` under `~/Library/Caches` (macOS), `%LOCALAPPDATA%` (Windows) or `$XDG_CACHE_HOME` (`~/.cache`, Linux) | The browser profile that `acde devtools` and F12 open DevTools in (after 0.0.9) |
 
