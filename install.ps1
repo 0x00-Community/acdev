@@ -246,7 +246,7 @@ function Install-Acde {
                 Write-Host "acde: acde $Version names no acdert of its own; latest.json pairs it with acdert $runtime"
             } else {
                 throw ("acde: acde $Version does not name the acdert it runs with, so it cannot be installed " +
-                    '(the oldest version that can is 0.0.8): leave out -Version and ACDE_VERSION for the latest')
+                    '(acde names it from 0.0.8 on): leave out -Version and ACDE_VERSION for the latest')
             }
         }
         if ($runtime -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
