@@ -51,8 +51,8 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
 (`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
 不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acde: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdert 转来的错误
-带着它); 调用栈只在 `ACDE_DEBUG` 非空且不是 `0` 时接着打. acdert 自己启动失败时打的 broker 调用栈 (acdert `web/packages/acde-host/src/main.ts`
-写的 `acde: ` 加 `error.stack`) 经继承的 stderr 直接出去, 要在 acdert 那边改.
+带着它); 调用栈只在 `ACDE_DEBUG` 非空且不是 `0` 时接着打. acdert 自己启动失败时 (acdert `web/packages/acde-host/src/main.ts`, acdert#207) 按同一条规则只打一行 `acde: <message>`,
+`ACDE_DEBUG` 非空且不是 `0` 时才打整个调用栈; 这行经继承的 stderr 直接出去.
 `acde build`、`acde install`、非交互 `acde new` 的最后一行带耗时 (`(840 ms)`, 1 s 起 `(1.2 s)`; 交互式 `acde new` 从答完问题算起, 写在结尾一行);
 落在当前目录里的路径打相对路径 (`Cli.shown`, 先取真实路径再比, macOS 的 `/var` → `/private/var` 不算在外面), 外面的打绝对路径.
 不带命令打三行快速上手 (版本、`acde new my-app` → `cd my-app` → `acde dev`、指向 `acde --help`), 退出码 0; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.
