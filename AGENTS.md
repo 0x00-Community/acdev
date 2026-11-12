@@ -431,8 +431,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
   不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, options: {desktop, app}, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过;
-  目录读 `Sessions.PASSES` (3) 遍取并集, 见到活着的写入者留下的 `<pid>.json.<写入者>.tmp` 也补上 `<pid>.json` (gitea acde#97: Linux 的 tmpfs 上
-  rename 覆盖时把目录项挪到链表头, 正在 readdir 的一方会漏掉这个文件, 负载高时 `list()` 返回空)
+  见到活着的写入者留下的 `<pid>.json.<写入者>.tmp` 也补上 `<pid>.json`. 已有的会话文件原地改写 (`Sessions.#rewrite`: `r+` 打开, 从头写,
+  比原来短时用空格补齐, 不截断; JSON.parse 不在乎尾部空白), 只有第一次写才经临时文件 rename. gitea acde#97: btrfs 打开目录时记下当时最大的
+  目录项序号, rename 覆盖给文件名一个新序号, 打开目录之后才改写的会话文件这次 readdir 就看不到 (110 上实测单遍约 1.5% 漏掉, 读三遍取并集仍会漏;
+  tmpfs 不漏), 所以改写不能换目录项. 读不出来的文件最多读 `Sessions.READS` (3) 次, 每次隔 2 ms
   (gitea acde#87: 重载时改写会话文件, 旧版把读到一半的文件当坏文件删掉、或在两种错误里同时报“没有”和“好几个”). Windows 上 rename 碰上正在读的文件可能 EPERM / EBUSY,
   写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时, 只在有会话文件正被改写 (`Sessions.scan` 的 `busy`: 有活着的写入者留下的临时文件, 或 pid 活着的会话文件读不出来) 时
   1 s 内每 50 ms 重列重挑, 到时才报最后一次的错; 根本没有会话文件时立即报错 (gitea acde#96: 以前没有会话时每个工具和 MCP 启动都白等 1 s);
