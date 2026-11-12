@@ -638,4 +638,59 @@ mod tests {
         assert_eq!(value.as_deref(), Some("went on"));
         stop();
     }
+    #[test]
+    fn debugger_pause_interrupts_a_busy_loop() {
+        let mut runtime = rt::Runtime::new(None, "spinning");
+        runtime.task(|scope| attach(scope, "spinning"));
+        let remote = remote().expect("an inspector");
+        let (session, rx) = client(&remote);
+        remote.send(session, r#"{"id":1,"method":"Debugger.enable","params":{}}"#.into());
+        runtime.task(|scope| dispatch_posted(scope));
+        let driving = remote.clone();
+        let driver = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            driving.send(session, r#"{"id":2,"method":"Debugger.pause","params":{}}"#.into());
+            let paused = next(&rx, |m| m["method"] == "Debugger.paused");
+            let frame = paused["params"]["callFrames"][0]["callFrameId"].as_str().expect("a frame").to_owned();
+            let stop = serde_json::json!({"id": 3, "method": "Debugger.evaluateOnCallFrame", "params": {"callFrameId": frame, "expression": "spin = false"}});
+            driving.send(session, stop.to_string());
+            next(&rx, |m| m["id"] == 3);
+            driving.send(session, r#"{"id":4,"method":"Debugger.resume","params":{}}"#.into());
+        });
+        let value = runtime.task(|scope| run(scope, "var spin = true; let turns = 0; while (spin) turns++; 'stopped'"));
+        driver.join().expect("driver");
+        assert_eq!(value.as_deref(), Some("stopped"), "the loop was paused, changed and resumed");
+        remote.disconnect(session);
+        runtime.task(|scope| dispatch_posted(scope));
+        stop();
+    }
+
+    #[test]
+    fn a_console_evaluation_that_hits_debugger_pauses_and_a_disconnect_ends_it() {
+        let mut runtime = rt::Runtime::new(None, "console");
+        runtime.task(|scope| attach(scope, "console"));
+        let remote = remote().expect("an inspector");
+        let (session, rx) = client(&remote);
+        remote.send(session, r#"{"id":1,"method":"Debugger.enable","params":{}}"#.into());
+        remote.send(session, r#"{"id":2,"method":"Runtime.evaluate","params":{"expression":"debugger; 1"}}"#.into());
+        let (other, other_rx) = client(&remote);
+        remote.send(other, r#"{"id":1,"method":"Runtime.enable","params":{}}"#.into());
+        let leaving = remote.clone();
+        let leaver = std::thread::spawn(move || {
+            next(&rx, |m| m["method"] == "Debugger.paused");
+            leaving.send(other, r#"{"id":2,"method":"Runtime.evaluate","params":{"expression":"'answered while paused'"}}"#.into());
+            let answered = next(&other_rx, |m| m["id"] == 2)["result"]["result"]["value"].clone();
+            leaving.disconnect(session);
+            leaving.disconnect(other);
+            answered
+        });
+        let started = Instant::now();
+        runtime.task(|scope| dispatch_posted(scope));
+        let answered = leaver.join().expect("leaver");
+        assert_eq!(answered, "answered while paused");
+        assert!(started.elapsed() < Duration::from_secs(5), "the pause ended when its client left");
+        runtime.task(|scope| dispatch_posted(scope));
+        assert!(STATE.with(|s| s.borrow().as_ref().is_some_and(|s| s.extra.borrow().is_empty())), "both sessions are gone");
+        stop();
+    }
 }
