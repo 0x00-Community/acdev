@@ -461,10 +461,12 @@ impl<'a> Walk<'a> {
                 return text;
             }
         }
+        if matches!(tag, "input" | "select" | "textarea" | "button" | "meter" | "output" | "progress")
+            && let Some(label) = self.label_of(n, attr)
+        {
+            return label;
+        }
         if matches!(tag, "input" | "select" | "textarea") {
-            if let Some(label) = self.label_of(n, attr) {
-                return label;
-            }
             if let Some(p) = attr("placeholder").filter(|p| !p.trim().is_empty()) {
                 return collapse(&p, NAME_MAX);
             }
