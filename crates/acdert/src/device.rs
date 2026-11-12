@@ -6,6 +6,8 @@ use crate::{bind, offload};
 #[derive(Default)]
 struct State {
     battery: Option<v8::Global<v8::Function>>,
+    #[cfg(target_os = "linux")]
+    locks: bind::Slab<acde_runtime::WakeLock>,
 }
 
 thread_local! {
@@ -17,6 +19,11 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
     crate::methods!(scope, device,
         "battery" => battery,
         "watchBattery" => watch_battery,
+    );
+    #[cfg(target_os = "linux")]
+    crate::methods!(scope, device,
+        "wakeLock" => wake_lock,
+        "releaseWakeLock" => release_wake_lock,
     );
     bind::set(scope, natives, "device", device.into());
 }
@@ -69,4 +76,31 @@ fn deliver(scope: &mut v8::PinScope, status: &serde_json::Value) {
     let Some(callback) = STATE.with(|s| s.borrow().battery.clone()) else { return };
     let value = offload::json(scope, status);
     bind::call(scope, &callback, &[value]);
+}
+
+#[cfg(target_os = "linux")]
+fn wake_lock(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let why = bind::arg_string(scope, &args, 0);
+    offload::run(scope, &mut rv, "acde-wake-lock", move || acde_runtime::WakeLock::acquire(&why), settle_lock);
+}
+
+#[cfg(target_os = "linux")]
+fn settle_lock(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, lock: Result<acde_runtime::WakeLock, String>) {
+    match lock {
+        Ok(lock) => {
+            let id = STATE.with(|s| s.borrow_mut().locks.add(lock));
+            let id = v8::Integer::new_from_unsigned(scope, id).into();
+            resolver.resolve(scope, id);
+        }
+        Err(message) => {
+            let thrown = offload::failure(scope, &message, None, "NotAllowedError");
+            resolver.reject(scope, thrown);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn release_wake_lock(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let id = bind::arg_u32(scope, &args, 0);
+    STATE.with(|s| s.borrow_mut().locks.remove(&id));
 }

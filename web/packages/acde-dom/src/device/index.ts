@@ -1,8 +1,10 @@
 import { globals } from '../core/host'
 import { Navigator } from '../dom/window'
+import { KEY } from '../core/host'
 import { Battery, BatteryManager, type BatteryNative } from './battery'
+import { WakeLock, WakeLockSentinel, type WakeLockNative } from './wakelock'
 
-export type DeviceNative = BatteryNative
+export type DeviceNative = BatteryNative & WakeLockNative
 
 export function installDevice(global: object, native: DeviceNative | undefined): void {
   if (!native) return
@@ -15,4 +17,14 @@ export function installDevice(global: object, native: DeviceNative | undefined):
     configurable: true,
   })
   globals(global, { BatteryManager })
+  if (!native.wakeLock) return
+  const wakeLock = new WakeLock(KEY, native, () => (global as { document?: never }).document)
+  Object.defineProperty(Navigator.prototype, 'wakeLock', {
+    get: function wakeLock_(this: Navigator) {
+      return wakeLock
+    },
+    enumerable: true,
+    configurable: true,
+  })
+  globals(global, { WakeLock, WakeLockSentinel })
 }

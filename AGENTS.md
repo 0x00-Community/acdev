@@ -818,6 +818,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (runtime `battery.rs`), 属性变了经 PropertiesChanged 推给同一个 `BatteryManager` 并发 `chargingchange` / `levelchange` / `chargingtimechange` /
   `dischargingtimechange`; 没有电池、没有 UPower 或别的平台按规范给接着电源的默认值 (charging true, level 1, chargingTime 0, dischargingTime Infinity).
   每个 navigator 只有一个 BatteryManager, `getBattery()` 回同一个 promise.
+  `navigator.wakeLock.request('screen')` (Screen Wake Lock, 只在 Linux; 别处没有 `navigator.wakeLock`): runtime `wakelock.rs` 拿 logind 的
+  `idle` inhibitor (acde-system 的电源策略认它) 外加会话总线上 `org.freedesktop.ScreenSaver.Inhibit` (GNOME / KDE 宿主桌面认它), 两个都拿不到就
+  NotAllowedError; 页面不可见时请求被拒, 变成不可见时放掉所有锁并发 `release`.
 - **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/acdert `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
     `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、
