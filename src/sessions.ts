@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
-  chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
-  statSync, writeFileSync, type Stats,
+  chmodSync, closeSync, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
+  realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats,
 } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -47,7 +47,7 @@ export interface Reloaded {
 export class Sessions {
   static readonly SETTLE_MS = 1_000
   static readonly RETRY_MS = 50
-  static readonly PASSES = 3
+  static readonly READS = 3
   static readonly PROBE_MS = 1_000
   static readonly TEST_ENV = 'ACDE_TEST_SESSION'
 
@@ -88,8 +88,10 @@ export class Sessions {
   static write(session: Session, dir = Sessions.dir()): string {
     Sessions.prepare(dir)
     const file = Sessions.file(session.pid, dir)
+    const text = `${JSON.stringify(session, null, 2)}\n`
+    if (Sessions.#rewrite(file, text)) return file
     const scratch = `${file}.${process.pid}.tmp`
-    writeFileSync(scratch, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 })
+    writeFileSync(scratch, text, { mode: 0o600 })
     for (let tries = 1; ; tries++) {
       try {
         renameSync(scratch, file)
@@ -102,6 +104,24 @@ export class Sessions {
         }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
       }
+    }
+  }
+
+  static #rewrite(file: string, text: string): boolean {
+    if (!existsSync(file) || !Sessions.#plain(file, 'file')) return false
+    let fd: number
+    try {
+      fd = openSync(file, 'r+')
+    } catch {
+      return false
+    }
+    try {
+      const pad = Math.max(0, fstatSync(fd).size - Buffer.byteLength(text))
+      const bytes = Buffer.from(`${text.slice(0, -1)}${' '.repeat(pad)}\n`)
+      writeSync(fd, bytes, 0, bytes.length, 0)
+      return true
+    } finally {
+      closeSync(fd)
     }
   }
 
@@ -196,32 +216,44 @@ export class Sessions {
 
   static scan(dir = Sessions.dir()): { sessions: Session[]; busy: boolean } {
     if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return { sessions: [], busy: false }
-    const names = new Set<string>()
-    let busy = false
-    for (let pass = 0; pass < Sessions.PASSES; pass++) {
-      for (const name of readdirSync(dir)) {
-        names.add(name)
-        const scratch = /^(\d+)\.json\.(\d+)\.tmp$/.exec(name)
-        if (scratch && Sessions.alive(Number(scratch[2]))) {
-          busy = true
-          names.add(`${scratch[1]}.json`)
-        }
-      }
-    }
+    const { names, writing } = Sessions.#names(dir)
+    let busy = writing
     const found: Session[] = []
     for (const name of names) {
-      if (!/^\d+\.json$/.test(name)) continue
-      const file = join(dir, name)
-      if (!Sessions.#plain(file, 'file')) continue
-      const pid = Number(name.slice(0, -'.json'.length))
-      const session = Sessions.#read(file) ?? Sessions.#read(file)
-      if (session && session.pid === pid && Sessions.alive(pid)) found.push(session)
-      else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
-      else busy = true
+      const state = Sessions.#entry(dir, name)
+      if (state === 'busy') busy = true
+      else if (state) found.push(state)
     }
     Sessions.#sweep(dir)
     return { sessions: found.sort((a, b) => a.started - b.started), busy }
   }
+
+  static #names(dir: string): { names: Set<string>; writing: boolean } {
+    const names = new Set<string>()
+    let writing = false
+    for (const name of readdirSync(dir)) {
+      names.add(name)
+      const scratch = /^(\d+)\.json\.(\d+)\.tmp$/.exec(name)
+      if (!scratch || !Sessions.alive(Number(scratch[2]))) continue
+      writing = true
+      names.add(`${scratch[1]}.json`)
+    }
+    return { names, writing }
+  }
+
+  static #entry(dir: string, name: string): Session | 'busy' | null {
+    if (!/^\d+\.json$/.test(name)) return null
+    const file = join(dir, name)
+    if (!Sessions.#plain(file, 'file')) return null
+    const pid = Number(name.slice(0, -'.json'.length))
+    const session = Sessions.#settled(file)
+    const alive = Sessions.alive(pid)
+    if (session && session.pid === pid && alive) return session
+    if (alive && session === null) return 'busy'
+    rmSync(file, { force: true })
+    return null
+  }
+
 
   static #sweep(dir: string): void {
     for (const name of readdirSync(dir)) {
@@ -295,6 +327,14 @@ export class Sessions {
 
   static #listing(sessions: readonly Session[]): string {
     return sessions.length ? `:\n${sessions.map((s) => `  ${Sessions.describe(s)}`).join('\n')}` : ''
+  }
+
+  static #settled(file: string): Session | null {
+    for (let tries = 1; ; tries++) {
+      const session = Sessions.#read(file)
+      if (session || tries >= Sessions.READS) return session
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2)
+    }
   }
 
   static #read(file: string): Session | null {
