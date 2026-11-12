@@ -1373,7 +1373,7 @@ impl<'a> TElement for BlitzNode<'a> {
     where
         F: FnMut(&AtomIdent),
     {
-        todo!()
+        // acrender: no custom states (has_custom_state is false); :has() invalidation walks them
     }
 
     fn has_selector_flags(&self, flags: ElementSelectorFlags) -> bool {

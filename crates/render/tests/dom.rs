@@ -1064,3 +1064,40 @@ fn textarea_scroll_height_and_field_sizing() {
     let wide = dom.metrics(c).unwrap().unwrap().offset_width;
     assert!(narrow < 60.0 && wide > narrow * 4.0, "{narrow} -> {wide}");
 }
+
+#[test]
+fn has_selector_follows_state_attributes_and_tree() {
+    let (_doc, dom) = page(
+        "<head><style>.card:has(input:checked) { color: rgb(0, 128, 0) } main:has(.deep) { color: rgb(0, 0, 255) } \
+         .y:has(+ .z) { color: rgb(255, 0, 0) }</style></head>\
+         <body><label class=card id=card><input type=checkbox id=cb></label>\
+         <main id=main><div><div><b id=b>x</b></div></div></main><p class=y id=y></p></body>",
+    );
+    let color = |id: &str| dom.computed_style(by_id(&dom, id), "", "color").unwrap();
+    let black = "rgb(0, 0, 0)";
+    assert!(dom.matches(by_id(&dom, "card"), ":has(input)").unwrap());
+    assert_eq!(color("card"), black);
+    dom.set_checked(by_id(&dom, "cb"), true).unwrap();
+    assert_eq!(color("card"), "rgb(0, 128, 0)", "a descendant's state");
+    dom.set_checked(by_id(&dom, "cb"), false).unwrap();
+    assert_eq!(color("card"), black);
+
+    dom.set_attribute(by_id(&dom, "b"), "class", "deep").unwrap();
+    assert_eq!(color("main"), "rgb(0, 0, 255)", "a class three levels down");
+    dom.remove_attribute(by_id(&dom, "b"), "class").unwrap();
+    assert_eq!(color("main"), black);
+    let deep = dom.create_element(Ns::Html, "i").unwrap();
+    dom.set_attribute(deep, "class", "deep").unwrap();
+    let inner = dom.first_child(dom.first_child(by_id(&dom, "main")).unwrap()).unwrap();
+    dom.insert_before(inner, deep, NONE).unwrap();
+    assert_eq!(color("main"), "rgb(0, 0, 255)", "an insertion");
+    dom.remove(deep).unwrap();
+    assert_eq!(color("main"), black, "a removal");
+
+    let z = dom.create_element(Ns::Html, "p").unwrap();
+    dom.set_attribute(z, "class", "z").unwrap();
+    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), z, NONE).unwrap();
+    assert_eq!(color("y"), "rgb(255, 0, 0)", "a next sibling");
+    dom.remove(z).unwrap();
+    assert_eq!(color("y"), black);
+}

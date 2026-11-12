@@ -472,6 +472,8 @@ impl BaseDocument {
         style_config::set_pref!("layout.unimplemented", true);
         // acrender: container-type and @container (sizes from the last layout, see resolve_containers)
         style_config::set_pref!("layout.container-queries.enabled", true);
+        // acrender: :has() (Tailwind's has-* variants, parent styling by state)
+        style_config::set_pref!("layout.css.has-selector.enabled", true);
         style_config::set_pref!("layout.columns.enabled", true);
         style_config::set_pref!("layout.css.basic-shape-shape.enabled", true);
         style_config::set_pref!("layout.css.tree-counting-functions.enabled", true);
@@ -2226,6 +2228,7 @@ impl BaseDocument {
         if self.style_depends_on_state(state) {
             self.snapshot_node_state_only(node_id);
         }
+        self.invalidate_has_for_state(node_id, state); // acrender
         cb(&mut self.nodes[node_id]);
     }
 
