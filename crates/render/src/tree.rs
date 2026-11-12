@@ -259,7 +259,12 @@ impl Tree<'_> {
                         sampler: peniko::ImageSampler::default(),
                     }))
                 }
-                _ => ids.canvases.get(&source).map(Canvas::source),
+                _ => ids.canvases.get(&source).map(Canvas::source).or_else(|| {
+                    let node = ids.node(source).ok()?;
+                    let picture = doc.canvas_picture(node)?.clone();
+                    let (w, h) = Canvas::size_of(doc, node);
+                    Some(Source::Picture(picture, (w, h)))
+                }),
             }
         };
         self.m.doc.set_canvas_picture(node, None);

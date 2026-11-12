@@ -23,6 +23,10 @@ impl ImageSet {
         lock(&self.0).get(&id)?.upgrade()
     }
 
+    pub fn lookup(&self, image: &peniko::ImageData) -> Option<Arc<GpuImage>> {
+        self.find(image.data.id())
+    }
+
     fn is_empty(&self) -> bool {
         lock(&self.0).is_empty()
     }

@@ -122,6 +122,36 @@ impl Engine {
         }
     }
 
+    pub(crate) fn image_pixels(&self, id: u32, node: NodeId) -> Option<crate::Pixels> {
+        let element = self.doc.get_node(node)?.element_data()?;
+        match &*element.name.local {
+            "img" => {
+                if let Some(blitz_dom::node::ImageData::Svg(svg)) = element.image_data() {
+                    let size = svg.tree.size();
+                    let (w, h) = (size.width().ceil() as u32, size.height().ceil() as u32);
+                    let picture = blitz_paint::svg_picture(svg, w as f32, h as f32);
+                    return crate::gpu::draw(picture, (w, h), kurbo::Affine::IDENTITY).map(crate::Pixels::Gpu);
+                }
+                let image = element.raster_image_data()?;
+                Some(crate::Pixels::Cpu { width: image.width, height: image.height, rgba: image.data.data().to_vec() })
+            }
+            "canvas" if self.ids.canvases.contains_key(&id) => self.ids.canvases.get(&id)?.bitmap().map(crate::Pixels::Gpu),
+            _ => {
+                let picture = self.doc.canvas_picture(node)?;
+                picture.commands.iter().find_map(|c| match c {
+                    acde_gpu::RenderCommand::Fill(f) => match &f.brush {
+                        acde_gpu::Paint::Image(brush) => match acde_gpu::Gpu::shared().and_then(|g| g.images.lookup(&brush.image)) {
+                            Some(image) => Some(crate::Pixels::Gpu(image)),
+                            None => Some(crate::Pixels::Cpu { width: brush.image.width, height: brush.image.height, rgba: brush.image.data.data().to_vec() }),
+                        },
+                        _ => None,
+                    },
+                    _ => None,
+                })
+            }
+        }
+    }
+
     pub(crate) fn with_canvas<T>(&self, id: u32, node: NodeId, f: impl FnOnce(&Canvas) -> T) -> T {
         match self.ids.canvases.get(&id) {
             Some(c) => f(c),

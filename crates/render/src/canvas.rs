@@ -314,7 +314,7 @@ impl Canvas {
         gpu::draw(Arc::unwrap_or_clone(self.picture()), (w, h), Affine::IDENTITY)
     }
 
-    fn bitmap(&self) -> Option<Arc<GpuImage>> {
+    pub(crate) fn bitmap(&self) -> Option<Arc<GpuImage>> {
         self.bitmap.get_or_init(|| self.render()).clone()
     }
 

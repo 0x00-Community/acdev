@@ -288,6 +288,10 @@ impl Dom {
         })
     }
 
+    pub fn image_pixels(&self, id: u32) -> Result<Option<crate::Pixels>> {
+        self.on(id, |e, node| e.image_pixels(id, node))
+    }
+
     pub fn measure_text(&self, id: u32, font: &str, text: &str) -> Result<TextMetrics> {
         self.on(id, |e, _| Canvas::measure(&mut e.doc, font, text))
     }

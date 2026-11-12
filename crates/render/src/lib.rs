@@ -535,3 +535,8 @@ impl Engine {
         }
     }
 }
+
+pub enum Pixels {
+    Cpu { width: u32, height: u32, rgba: Vec<u8> },
+    Gpu(std::sync::Arc<acde_gpu::GpuImage>),
+}
