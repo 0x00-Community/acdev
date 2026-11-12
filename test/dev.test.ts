@@ -936,7 +936,7 @@ describe('acde dev with a stand-in acdert', () => {
   }, 60_000)
 
   test('acde devtools starts the browser on its own profile, opens the front end with Target.createTarget, '
-    + 'then reuses that browser', async () => {
+    + 'then reuses that browser and brings an open front end to the front', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([], alpha)
@@ -948,7 +948,7 @@ describe('acde dev with a stand-in acdert', () => {
       ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base,
       USERPROFILE: base,
     }
-    type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string } }
+    type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string; targetId?: string } }
     const said = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Said)
     try {
       await until('the session file', () => existsSync(dev.file))
@@ -970,7 +970,13 @@ describe('acde dev with a stand-in acdert', () => {
         .toEqual([url])
       const again = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
       expect(again.code, again.stderr).toBe(0)
+      expect(again.stderr).toContain(`acde: brought DevTools for Alpha to the front in ${browser}`)
       expect(said().filter((entry) => entry.started)).toHaveLength(1)
+      expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(1)
+      expect(said().filter((entry) => entry.method === 'Target.activateTarget').map((entry) => entry.params))
+        .toEqual([{ targetId: 'fake-target-1' }])
+      const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, vars)
+      expect(desk.stderr).toContain(`acde: opened DevTools for Desk in ${browser}`)
       expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(2)
       const nowhere = { ...vars, ACDE_BROWSER: join(base, 'nope') }
       const missing = await dev.tool(['devtools', 'alpha'], alpha, undefined, nowhere)
@@ -986,6 +992,74 @@ describe('acde dev with a stand-in acdert', () => {
       }
       await dev.stop()
     }
+  }, 60_000)
+
+  test('F12 in a host window: acde dev opens DevTools on the page acdert names, prints the address when no browser '
+    + 'opens it, once per press, and a page with no target only prints why', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([], alpha, { ACDE_BROWSER: 'none' })
+    let link: DevClient | null = null
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const session = JSON.parse(readFileSync(dev.file, 'utf8')) as Session
+      link = await DevClient.connect(session.endpoint)
+      expect(await link.request('press-f12', { web: 'alpha#7' })).toEqual({ told: 1 })
+      await link.request('press-f12', { web: 'alpha#7' })
+      await link.request('press-f12', { web: 'gone#3' })
+      await until('three DevTools listings', () =>
+        dev.entries().filter((e) => (e as { devtools?: string }).devtools?.startsWith('/json/list')).length >= 3)
+      link.close()
+      link = null
+      await Bun.sleep(300)
+    } finally {
+      link?.close()
+      await dev.stop()
+    }
+    const output = await dev.output
+    const address = /devtools:\/\/devtools\/bundled\/devtools_app\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7%3Ftoken%3Dfake-token\n/g
+    expect(output.match(address)).toHaveLength(2)
+    expect(output.split('acde: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste').length - 1).toBe(2)
+    expect(output).toContain('acde: F12: no DevTools target for gone#3; the targets are:')
+  }, 60_000)
+
+  test('F12 with a browser: the first press opens DevTools, the next brings it to the front', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const cache = join(base, 'cache')
+    const log = join(base, 'browser.log')
+    writeFileSync(log, '')
+    const browser = fakeBrowser(base)
+    const dev = start([], alpha, {
+      ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base, USERPROFILE: base,
+    })
+    type Said = { pid?: number; method?: string; params?: { url?: string } }
+    const said = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Said)
+    let link: DevClient | null = null
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const session = JSON.parse(readFileSync(dev.file, 'utf8')) as Session
+      link = await DevClient.connect(session.endpoint)
+      await link.request('press-f12', { web: 'alpha#7' })
+      await until('the front end', () => said().find((e) => e.method === 'Target.createTarget'))
+      await link.request('press-f12', { web: 'alpha#7' })
+      await until('the front end brought forward', () => said().find((e) => e.method === 'Target.activateTarget'))
+      expect(said().filter((e) => e.method === 'Target.createTarget')).toHaveLength(1)
+      link.close()
+      link = null
+    } finally {
+      link?.close()
+      for (const entry of said()) {
+        try {
+          if (entry.pid) process.kill(entry.pid)
+        } catch {}
+      }
+      await dev.stop()
+    }
+    const output = await dev.output
+    expect(output).toContain(`acde: opened DevTools for Alpha in ${browser}`)
+    expect(output).toContain(`acde: brought DevTools for Alpha to the front in ${browser}`)
+    expect(output).not.toContain('devtools://')
   }, 60_000)
 
   test('approval prompts from the command line: permissions, allow, deny, revoke; ' +

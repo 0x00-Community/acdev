@@ -133,7 +133,7 @@ self.on('request', (request) => {
 | `alert()` | Drawn inside the window; `confirm()` / `prompt()` return `false` / `null` |
 | External links | Handed to the browser app |
 | Downloads | Saved to the Downloads folder |
-| `Notification` | Shown by the desktop (a system notification when there is no desktop) |
+| `Notification` | Shown by the desktop (a system notification when there is no desktop, except on Windows, where a single app shows none; `acde:capabilities` reports `notifications` `unsupported` there) |
 | `visibilitychange` | The window is hidden / shown |
 | `screen.*` | The screen's logical size |
 

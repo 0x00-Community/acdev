@@ -55,7 +55,7 @@ A desktop project produces `desktop/` (served at `/desktop/<id>/`), `services/<n
 
 ## JavaScript runtime and package manager
 
-Whether a project runs on Bun or Node.js is decided by its package manager: `bun` → Bun; `npm` / `pnpm` / `yarn` → Node.js. For an existing project, acde looks at the lockfile, then at the `packageManager` field in `package.json`. `acde new` writes `packageManager` for you.
+Whether a project runs on Bun or Node.js is decided by its package manager: `bun` → Bun; `npm` / `pnpm` / `yarn` → Node.js. For an existing project, acde looks at the lockfile, then at the `packageManager` field in `package.json`; with neither, the project runs on the runtime acde itself runs on. `acde new` writes `packageManager` for you.
 
 On Node.js, acde bundles with the project's own Vite (which is why the built-in templates add `vite` as a dev dependency under npm / pnpm / yarn); on Bun it uses `Bun.build`. The bundling rules are the same on both.
 

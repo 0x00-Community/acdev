@@ -39,6 +39,12 @@ export interface DevtoolsOptions {
   readonly launch?: (browser: Browser, url: string) => unknown
 }
 
+export interface PresentOptions {
+  readonly address: 'always' | 'fallback'
+  readonly lookup?: Lookup
+  readonly launch?: (browser: Browser, url: string) => unknown
+}
+
 export class Devtools {
   static readonly FRONTEND = 'devtools://devtools/bundled/devtools_app.html'
   static readonly NONE = 'none'
@@ -143,28 +149,44 @@ export class Devtools {
       await acde.close()
     }
     const target = Devtools.pick(await Devtools.targets(endpoint), wanted, options.window ?? null)
+    await Devtools.present(target, endpoint, {
+      address: 'always',
+      ...(options.lookup !== undefined && { lookup: options.lookup }),
+      ...(options.launch !== undefined && { launch: options.launch }),
+    })
+    return 0
+  }
+
+  /**
+   * Opens DevTools on a target in Chrome or Edge, or prints the address to paste. With `address: 'always'` the address
+   * goes to stdout every time (acde devtools); with `'fallback'` only when no browser opened it (F12 in acde dev).
+   */
+  static async present(target: Target, endpoint: Endpoint, options: PresentOptions): Promise<void> {
     const url = Devtools.url(target, endpoint)
     const lookup = options.lookup ?? Devtools.lookup()
     const browser = Devtools.browser(lookup)
     const title = target.title || target.url || target.id
     const paste = 'paste the address above into the address bar of Chrome or Edge on this machine'
-    console.log(url)
+    if (options.address === 'always') console.log(url)
+    const fallback = (why: string) => {
+      if (options.address === 'fallback') console.log(url)
+      console.error(`acde: DevTools for ${title}: ${why}; ${paste}`)
+    }
     if (!browser) {
       const off = lookup.env['ACDE_BROWSER'] === Devtools.NONE
-      const why = off ? 'ACDE_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDE_BROWSER names one)'
-      console.error(`acde: DevTools for ${title}: ${why}; ${paste}`)
-      return 0
+      return fallback(off ? 'ACDE_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDE_BROWSER names one)')
     }
+    let how: unknown
     try {
-      await (options.launch ?? ((chosen: Browser, address: string) => DevtoolsBrowser.open(chosen, address, lookup)))(
+      how = await (options.launch ?? ((chosen: Browser, address: string) => DevtoolsBrowser.open(chosen, address, lookup)))(
         browser, url)
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
-      console.error(`acde: DevTools for ${title}: could not open it in ${browser.name} (${why}); ${paste}`)
-      return 0
+      return fallback(`could not open it in ${browser.name} (${why})`)
     }
-    console.error(`acde: opened DevTools for ${title} in ${browser.name}`)
-    return 0
+    console.error(how === 'focused'
+      ? `acde: brought DevTools for ${title} to the front in ${browser.name}`
+      : `acde: opened DevTools for ${title} in ${browser.name}`)
   }
 
   static async #wanted(acde: Acde, named: string | null): Promise<string[]> {

@@ -53,7 +53,7 @@ console.log(await clock.now())
 
 A service an app lists is required, and cannot be made optional: where the service is not running the app does not start (`Notes needs "clock" (service not running)`). That includes `acde dev` of the app project alone, which runs no desktop; run the app in the desktop that has the service: `acde dev ./my-app --desktop ./my-desktop`. Listing a service under `capabilities` instead is an error in `acde check` (`capability "clock" is not a system capability; list desktop services under services`).
 
-Each key of `api` is a module name (a namespace), and its value is a set of methods. All calls are asynchronous, and arguments and return values must be structured-cloneable; callback functions can be passed across.
+Each key of `api` is a module name (a namespace), and its value is a set of methods. All calls are asynchronous (except the methods a service lists in `sync`, see [Service API](../reference/service.md)), and arguments and return values must be structured-cloneable; callback functions can be passed across.
 
 Names:
 
@@ -75,7 +75,7 @@ The `ctx` passed to the factory function:
 | --- | --- |
 | `name` | The service name |
 | `package` | The desktop package's directory |
-| `state` | This service's own state directory (`$XDG_STATE_HOME/acde/<package>/<service>`), already created |
+| `state` | This service's own state directory (`$XDG_STATE_HOME/acde/<package name>/<service>`, the desktop package's `name` without `@` and with `/` as `-`), already created |
 | `env` | Environment variables |
 | `log(line)` | Writes a log line, prefixed with `[<service name>]` |
 | `spawn(argv, options?)` | Starts a child process |

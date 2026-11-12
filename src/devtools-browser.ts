@@ -5,6 +5,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { Browser, Lookup } from './devtools.ts'
 import { slug } from './paths.ts'
 
+interface TargetInfo {
+  readonly targetId: string
+  readonly type: string
+  readonly url: string
+}
+
 export interface ActivePort {
   readonly port: number
   readonly path: string
@@ -59,10 +65,20 @@ export class DevtoolsBrowser {
     }
   }
 
-  static async open(browser: Browser, url: string, lookup: Lookup): Promise<'reused' | 'started'> {
+  /**
+   * Shows DevTools at `url` in the browser on its own profile: brings an open DevTools window for the same address to the
+   * front, else opens a new one, starting the browser first when it is not running.
+   */
+  static async open(browser: Browser, url: string, lookup: Lookup): Promise<'focused' | 'reused' | 'started'> {
     const profile = DevtoolsBrowser.profile(lookup, browser)
     const running = DevtoolsBrowser.activePort(profile)
     if (running && (await DevtoolsBrowser.alive(running))) {
+      const { targetInfos } = (await DevtoolsBrowser.call(running, 'Target.getTargets')) as { targetInfos?: TargetInfo[] }
+      const open = (targetInfos ?? []).find((info) => info.type === 'page' && info.url === url)
+      if (open) {
+        await DevtoolsBrowser.call(running, 'Target.activateTarget', { targetId: open.targetId })
+        return 'focused'
+      }
       await DevtoolsBrowser.createTarget(running, url)
       return 'reused'
     }
@@ -98,32 +114,37 @@ export class DevtoolsBrowser {
     throw new Error(`${browser.name} wrote no ${DevtoolsBrowser.FILE} in ${profile} within ${waited} s`)
   }
 
-  static createTarget(active: ActivePort, url: string): Promise<void> {
+  static async createTarget(active: ActivePort, url: string): Promise<void> {
+    await DevtoolsBrowser.call(active, 'Target.createTarget', { url, newWindow: true })
+  }
+
+  /** One CDP call on the browser's own endpoint. */
+  static call(active: ActivePort, method: string, params: object = {}): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(`ws://127.0.0.1:${active.port}${active.path}`)
-      const done = (error?: Error) => {
+      const done = (error: Error | null, result?: unknown) => {
         clearTimeout(timer)
         socket.close()
         if (error) reject(error)
-        else resolve()
+        else resolve(result)
       }
-      const timer = setTimeout(() => done(new Error('the browser did not answer Target.createTarget')),
-        DevtoolsBrowser.CALL_MS)
+      const timer = setTimeout(() => done(new Error(`the browser did not answer ${method}`)), DevtoolsBrowser.CALL_MS)
       socket.addEventListener('open', () => {
-        socket.send(JSON.stringify({ id: 1, method: 'Target.createTarget', params: { url, newWindow: true } }))
+        socket.send(JSON.stringify({ id: 1, method, params }))
       })
       socket.addEventListener('message', (event) => {
-        let message: { id?: unknown; error?: { message?: unknown } }
+        let message: { id?: unknown; result?: unknown; error?: { message?: unknown } }
         try {
           message = JSON.parse(String(event.data)) as typeof message
         } catch {
-          done(new Error('the browser answered Target.createTarget with something that is not JSON'))
+          done(new Error(`the browser answered ${method} with something that is not JSON`))
           return
         }
         if (message?.id !== 1) return
         const said = message.error?.message
         const why = typeof said === 'string' ? said : 'failed'
-        done(message.error ? new Error(`Target.createTarget: ${why}`) : undefined)
+        if (message.error) done(new Error(`${method}: ${why}`))
+        else done(null, message.result ?? {})
       })
       socket.addEventListener('error', () => done(new Error(`could not connect to the browser on port ${active.port}`)))
     })

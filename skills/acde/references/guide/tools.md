@@ -1,6 +1,6 @@
 # Debugging
 
-acdert has no browser developer tools. Instead, a set of commands connects to a running `acde dev` session and lets you look at pages, run code, take screenshots, and click buttons. Run them in another terminal:
+A set of commands connects to a running `acde dev` session and lets you look at pages, run code, take screenshots, and click buttons. After 0.0.9, `acde devtools` also opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools). Run them in another terminal:
 
 ```sh
 acde webs
@@ -34,6 +34,7 @@ These commands find an `acde dev` session in this order: `--session <pid>`; othe
 | `acde allow` / `acde deny` `[<prompt id> \| <app> <capability>] [--all]` | Answers a waiting camera or microphone prompt |
 | `acde revoke <app> <capability>` | Takes back a decision |
 | `acde stop` | Ends the session; see [Stopping](dev.md#stopping) |
+| `acde devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) (after 0.0.9) |
 
 A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acde webs` (`notes#1048576`), an app id (that app's first window), or `desktop`.
 
@@ -113,9 +114,9 @@ Without `--find`, the text is always in this English format: one line per window
 
 `act` prints what it did on the first line (`clicked 55,202` is the point it clicked, in window coordinates), waits for the page to settle, and then prints the windows and the content of the window again. Where it has listed that window before, it prints only what changed since: `~` for a changed line, `+` for a new one, `-` for one that is gone; `(windows unchanged)` stands for an unchanged window list. So the output of `act` is usually all you need to read before the next step. An element that is scrolled out of view is scrolled into view first, so a ref from `inspect --offscreen` or `query` works wherever the element is on the page.
 
-`act` exits with code 0 when the action was done. When it was not, the reason is the only line and the exit code is 1: `the element is not displayed` (it is `display: none` or hidden by `visibility`), `covered by another element: <div> (27)`, `cannot type into this element`, `element 23 is gone` (see below), `w1 is minimized; act restore on it first` (a click or another pointer action on a minimized window or on an element in it).
+`act` exits with code 0 when the action was done. When it was not, it prints one line on stderr, `acde: act <ref>: <reason>`, and exits with code 1. The reasons: `the element is not displayed` (it is `display: none` or hidden by `visibility`), `covered by another element: <div> (27)`, `cannot type into this element`, `there is no such element (any more); acde inspect --find TEXT gives the current refs` (the element is gone, see below), `w1 is minimized; act restore on it first` (a click or another pointer action on a minimized window or on an element in it).
 
-A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails with `element N is gone`; take a new `inspect` then.
+A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails (`acde: act w1.23: there is no such element (any more); …`); take a new `inspect` then.
 
 By default the tree leaves out elements that can't be seen: `display: none`, `aria-hidden`, `inert`, `opacity: 0` and hidden `visibility`. `--all` lists every window that is not marked `[minimized]` in the window list and also keeps the elements hidden by `opacity: 0` (marked `transparent`; they can still be clicked) or by `visibility` (marked `invisible`; they can't); `display: none`, `aria-hidden` and `inert` are always left out.
 
@@ -131,7 +132,7 @@ w1 is minimized (the windows changed)
     - button "Tools" [w0.10]
 
 $ acde act w1.10 click
-w1 is minimized; act restore on it first
+acde: act w1.10: w1 is minimized; act restore on it first
 
 $ acde act w1 restore
 w1 is in front (the windows changed)
@@ -154,7 +155,7 @@ w1 notes "Notes":
 - list "Saved notes" [w1.7]
 ```
 
-When nothing matches it says so on stderr and exits with code 1. Elements scrolled out of view are found only with `--offscreen`; without it, a note under the tree says how many were left out (`(1 more outside the visible area; scroll, or add offscreen)`).
+When nothing matches it says so on stderr (`acde: no element's name or value contains "milk"; elements scrolled out of view need --offscreen`) and exits with code 2. Elements scrolled out of view are found only with `--offscreen`; without it, a note under the tree says how many were left out (`(1 more outside the visible area; scroll, or add offscreen)`).
 
 Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore` `fill` `fullscreen`. `fill` fills the desktop's work area with the window and `fullscreen` covers the whole host window with it; `restore` sets either back to normal. Both refuse the desktop (`the desktop cannot be made filled`, `... fullscreen`) and a window that already fills the host window (`w1 already fills the host window`), and need an acdert from 0.0.9 on. `minimize` on a window that cannot be minimized changes nothing, says why and exits with code 1; in a session that runs a single app, on macOS and headless, that is the app's own window: `w1 cannot be minimized: it fills the host window, which only the host window's own controls minimize here`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. When closing a window ends acdert (the app's window when `acde dev` runs one app), `acde dev` ends with it; `act w1 close` then says so and exits with code 0.
 
@@ -199,11 +200,11 @@ nothing in w1 matches "nav"
 
 Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent, or its window is minimized. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
-The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). Finding nothing is not an error: the exit code is 0 either way.
+The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches (`nothing in w1 matches "nav"`), the exit code is 2; otherwise it is 0.
 
 ### Styles and layout
 
-There are no developer tools to look at styles and boxes; ask the page with `eval` instead. `getComputedStyle` gives the values the page uses after the CSS cascade, and `getBoundingClientRect` gives an element's box in CSS pixels of the page:
+To look at styles and boxes, ask the page with `eval` (after 0.0.9, also the Elements panel of [DevTools](#devtools)). `getComputedStyle` gives the values the page uses after the CSS cascade, and `getBoundingClientRect` gives an element's box in CSS pixels of the page:
 
 ```sh
 acde eval notes "getComputedStyle(document.querySelector('h1')).color"
@@ -237,6 +238,22 @@ acde console --level errors --since reload
 
 The most recent 5000 entries of each kind are kept.
 
+## DevTools
+
+After 0.0.9, `acde devtools [web]` opens the DevTools of Chrome or Edge (or Chromium on Linux) on a page of the session: Elements, Console, Network, and Sources with breakpoints.
+
+```sh
+acde devtools            # the focused page
+acde devtools notes      # a web name, an app id, desktop, or a window title
+acde devtools services   # the desktop's services (or one service, by its name)
+```
+
+It prints the DevTools address on stdout, and on stderr `acde: opened DevTools for <page> in <browser>`. Asked again for a page whose DevTools are open, it brings them to the front instead (`acde: brought DevTools for <page> to the front in <browser>`). F12 in the host window of `acde dev` does the same for the page in that window; see [acde dev](dev.md#devtools).
+
+The browser runs with a profile of acde's own, not your everyday one. `ACDE_BROWSER` names another browser (a path to it). Without Chrome or Edge, or with `ACDE_BROWSER=none`, nothing opens: paste the printed address into the address bar of Chrome or Edge on this machine.
+
+Elements shows the element tree, the computed styles and the box model, read only. It does not list the CSS rules that matched an element (only its inline style); change styles from the page code or the Console.
+
 ## Without a display
 
 On a machine without a display, such as a server over ssh, start the session with `acde dev --headless`. On Linux, `acde dev` without it stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set and says to add `--headless`; see [acde dev](dev.md). Every command on this page works the same in a headless session:
@@ -252,7 +269,7 @@ A headless session has no picker dialogs: a folder, file or save picker the page
 
 ## Camera and microphone
 
-A capability an app declares is granted without asking, except the camera and the microphone: the first time a page asks for one (`getUserMedia`), the user is asked, and the call waits for the answer. On Windows the host window asks in a dialog; on macOS, on Linux and in a headless session there is no dialog, so answer from the command line:
+A capability an app declares is granted without asking, except the camera and the microphone. In 0.0.9, an app that declares one is asked when it starts, and its window opens once the prompt is answered; after 0.0.9, the user is asked the first time a page asks for one (`getUserMedia`), and the call waits for the answer. In a session that runs a single app, the host window asks in a dialog on Windows, and after 0.0.9 also on macOS (a sheet with `Don't Allow` and `Allow`) and on Linux (a notification with the same two buttons, where the desktop's notification service shows buttons). Elsewhere, and in a headless session, there is no dialog, so answer from the command line:
 
 ```sh
 $ acde permissions
@@ -270,4 +287,4 @@ Decisions persist per app (in `$XDG_CONFIG_HOME/acde/permissions.json`), so the 
 
 ## Errors
 
-When a command fails, it prints `acde: <reason>` and exits with code 1. If the session has already exited, it says `acde dev <pid> is gone`.
+When a command fails, it prints `acde: <reason>` and exits with code 1. If the session has already exited, it says `acde dev <pid> is gone`. `inspect --find` and `query` that find nothing are not failures; they exit with code 2.

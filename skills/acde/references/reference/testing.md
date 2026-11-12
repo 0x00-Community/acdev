@@ -125,7 +125,7 @@ interface ActResult {
 - `addInitScript` registers code that runs before a page's own scripts on every load (`once`: on the next load only); `web` is a page name or an app id, and without it every page runs the code. It returns an id for `removeInitScript`, which removes every script when no id is given.
 - `answerDialog` answers the page's next `alert` / `confirm` / `prompt` in advance: `accept: false` cancels, `text` is what a `prompt` answers. Without an answer `confirm` gives false and `prompt` null. `Dialog` is `{ type, message, defaultValue, answered, accept, text }`.
 - `input` sends raw events at page coordinates: `{ type: 'move' | 'down' | 'up' | 'wheel', x, y, button?, dx?, dy? }`, `{ type: 'keydown' | 'keyup', key }` and `{ type: 'text', text }`. `app.mouse` and `app.keyboard` are built on it.
-- Camera and microphone prompts (`PermissionPrompt` is `{ id, app, label, capability, reason }`, `PermissionDecision` is `{ app, label, capability, decision: 'granted' | 'denied' }`): `allow` and `deny` wait for a prompt that matches (any prompt when nothing is given), answer it and return it; `waitForPrompt` only waits; `answer` answers a prompt you already have. Nothing answers a prompt by itself: `getUserMedia()` waits until the test answers. `revoke` takes a decision back and returns whether there was one. See [Approvals in tests](../guide/testing.md#approvals).
+- Camera and microphone prompts (`PermissionPrompt` is `{ id, app, label, capability, reason }`, `PermissionDecision` is `{ app, label, capability, decision: 'granted' | 'denied' }`): `allow` and `deny` wait for a prompt that matches (any prompt when nothing is given), answer it and return it; `waitForPrompt` only waits; `answer` answers a prompt you already have. Nothing answers a prompt by itself: after 0.0.9, `getUserMedia()` waits until the test answers; in 0.0.9, the prompt comes when an app that declares the capability starts, and its window waits. `revoke` takes a decision back and returns whether there was one. See [Approvals in tests](../guide/testing.md#approvals).
 - `drop` drops files from the system onto a page (default: the middle of the desktop page; `web` picks a page, `x` and `y` a point in it). The page gets a standard `drop` event a moment after the call returns, so wait for what the page does with it.
 
 ### route
@@ -171,7 +171,7 @@ class AppWindow {
   dialogs(): Promise<Dialog[]>
   waitForDialog(options?: { type?: 'alert' | 'confirm' | 'prompt'; timeout?: number }): Promise<Dialog>
 
-  route / waitForRequest / waitForConsole / console / network  // as on Acde, scoped to this window
+  route / waitForRequest / waitForConsole / console / network / drop  // as on Acde, scoped to this window
 }
 
 interface RoleOptions {

@@ -69,22 +69,22 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 
 ## Capabilities
 
-| Key | Value | Grants | Needs the user's approval |
+| Key | Value | Grants | Asks the user |
 | --- | --- | --- | --- |
-| `fs` | `true` \| `{roots: string[]}` | `acde:fs`: the private folder and picked folders; `roots` names shared places (`desktop`, `documents`, `downloads`, `music`, `pictures`, `videos`) | Each place in `roots` |
-| `terminal` | `true` | `acde:terminal` | Yes |
-| `network` | `true` | `acde:network` | Yes |
+| `fs` | `true` \| `{roots: string[]}` | `acde:fs`: the private folder and picked folders; `roots` names shared places (`desktop`, `documents`, `downloads`, `music`, `pictures`, `videos`) | |
+| `terminal` | `true` | `acde:terminal` | |
+| `network` | `true` | `acde:network` | |
 | `office` | `true` | `acde:office` | |
-| `launch` | `true` | `start` in `acde:launch` | Yes |
-| `slots` | `true` | `embed` in `acde:launch`: native programs embedded in the app's window | Yes |
+| `launch` | `true` | `start` in `acde:launch` | |
+| `slots` | `true` | `embed` in `acde:launch`: native programs embedded in the app's window | |
 | `open` | `true` \| `string[]` | Opening (these) apps with `acde:open` | |
 | `openFiles` | `true` | `acde:openPath`, `acde:handlers`, and `open(request)` without a target app | |
-| `camera` / `microphone` | `true` | `getUserMedia()` video / audio | Yes |
+| `camera` / `microphone` | `true` | `getUserMedia()` video / audio | Yes. In 0.0.9, a required one when the app starts, an optional one on first use; after 0.0.9, both on first use |
 | `windows` `packages` `session` `desktops` `inspect` `desktop` `setDefault` `permissions` | `true` | The shell module of that name. System apps only: an error in any other package | |
 
 Any other key is an error: desktop services go in `services`. System apps are never asked for approval.
 
-Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, service not running) is left out of the app list and refuses to start, for example with `Notes needs "network" (unsupported on this platform)`. Declaring a capability grants it; only the camera and the microphone ask the user (see [Capabilities](../guide/capabilities.md#camera-and-microphone)).
+Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, service not running) is left out of the app list and refuses to start: `Notes needs "network" (not available on macOS host windows); list it in "optional" to run without it` (404 `unsupported_app`; the place is `Windows host windows`, `Linux host windows` or `Linux sessions`), or `Notes needs "clock" (service not running)` (503 `service_not_running`). Declaring a capability grants it; only the camera and the microphone ask the user (see [Capabilities](../guide/capabilities.md#camera-and-microphone)).
 
 ## URLs
 

@@ -7,11 +7,11 @@ description: Build, run, debug, and test apps and desktops for Dopame OS with th
 
 A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acde` is the developer CLI (create, check, build, run, inspect, test). `acdert` is the runtime that draws the desktop and the apps; `acde dev` starts it. The relation is wrangler to workerd.
 
-This skill ships inside acde and describes the version it came with. When it and the CLI disagree, the CLI is right: `acde` with no arguments prints the usage of every command.
+This skill ships inside acde and describes the version it came with. When it and the CLI disagree, the CLI is right: `acde --help` prints every command, and `acde <command> --help` that command's options.
 
 ## Check the environment first
 
-Run `acde doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acde dev`, `acde test` or the MCP `start` does not come up, before guessing. `acde doctor --fix` then fixes what acde may (the skill, `.acde/` in `.gitignore`) and asks before what downloads, installs or stops something; without a terminal it skips those unless given `--yes`, which you pass only when the user agreed. Approvals, GPU drivers and the project's code it leaves to you and the user. See [Check the setup](references/guide/doctor.md).
+Run `acde doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acde dev`, `acde test` or the MCP `start` does not come up, before guessing. `acde doctor --fix` then fixes what acde may (the skill, `.acde/` in `.gitignore`, the sessions directory) and asks before what downloads, installs or stops something; without a terminal it skips those unless given `--yes`, which you pass only when the user agreed. Approvals, GPU drivers and the project's code it leaves to you and the user. See [Check the setup](references/guide/doctor.md).
 
 1. `acde` must be on PATH. If it is not, follow [Install](references/start/install.md).
 2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). If `acde doctor` finds none, or one that does not run, run the acde installer again (`acde doctor --fix --yes` does that for an installed acde); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
@@ -25,7 +25,7 @@ acdert has its own renderer and is not Chromium. Standard APIs follow the spec, 
 - **Missing APIs**: Web Workers, Service Workers, `crypto.subtle`, WebGL, OffscreenCanvas, fullscreen, pointer lock. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
 - **System access goes through `acde:` modules only** (`import { fs } from 'acde:fs'`), and only for capabilities the config requests. There is no global object. Importing a module that was not requested fails. See [Capabilities](references/guide/capabilities.md).
 - **The backend has no TCP port.** A backend's `listen(port)` becomes a unix socket, and the page reaches it with a same-origin `fetch('/api/…')`. Do not `curl localhost`. See [Backend](references/guide/backend.md).
-- **No developer tools.** Use the commands below to look at pages.
+- **Developer tools.** In 0.0.9 there are none: use the commands below to look at pages; after 0.0.9, F12 in an `acde dev` window or `acde devtools` opens the DevTools of Chrome or Edge on the page, over the Chrome DevTools Protocol. See [acde dev](references/guide/dev.md#devtools).
 - **Platforms differ.** An app that requires a capability the platform lacks does not start there; one that lists it as optional gets `null` from `load()`. See [Platform support](references/reference/platforms.md).
 
 ## The working loop
@@ -95,7 +95,7 @@ Guides:
 - [Services](references/guide/services.md): desktop services and the capabilities they provide
 - [acde dev](references/guide/dev.md): what runs, reloading, several projects, `--desktop`
 - [Check the setup](references/guide/doctor.md): `acde doctor`, what it checks, what to do about each finding, and what `--fix` repairs
-- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`
+- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`, and `devtools` (after 0.0.9)
 - [Coding agents](references/guide/agents.md): this skill, `acde skills`, where it is installed
 - [MCP](references/guide/mcp.md): `acde mcp` and its tools
 - [Testing](references/guide/testing.md): `acde test`, locators, assertions, screenshots, traces

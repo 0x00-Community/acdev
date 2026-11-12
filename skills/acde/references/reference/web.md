@@ -50,12 +50,33 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 `navigator.mediaDevices.getUserMedia()` needs the `camera` / `microphone` capability in the config and the user's answer the first time (see [Capabilities](../guide/capabilities.md#camera-and-microphone)). Not available on Windows.
 
-- A required capability is approved before the app starts. An [optional](../guide/capabilities.md#optional-capabilities) one that was not asked for yet is asked for by `getUserMedia()` itself, with the prompt `request('camera')` raises; a call that wants both asks for the microphone first, then the camera. The call resolves once the user allows and rejects with `NotAllowedError` (`Permission denied`) when the user denies; later calls do not ask again.
+- In 0.0.9, a required capability is asked for when the app starts, and a denial keeps the app from starting; after 0.0.9, a required one is asked for on first use too, and a denial only fails the calls. An [optional](../guide/capabilities.md#optional-capabilities) one that was not asked for yet is asked for by `getUserMedia()` itself, with the prompt `request('camera')` raises; a call that wants both asks for the microphone first, then the camera. The call resolves once the user allows and rejects with `NotAllowedError` (`Permission denied`) when the user denies; later calls do not ask again.
 - `navigator.permissions.query({ name: 'camera' })` (or `'microphone'`) answers `prompt` until the user has answered and `denied` after a denial or after the approval was taken back; its `change` event fires on the answer. Once the user has allowed it, the answer is the host system's own permission for the device (`granted` when the system allows it too).
 - In an app that does not declare the capability, the query answers `denied` and `getUserMedia()` rejects with `NotAllowedError`, without a prompt.
 - Constraints are judged first: a request that no device can meet rejects with `OverconstrainedError` and asks nobody.
 - `enumerateDevices()` lists one entry without a label for a kind that is not allowed yet.
 - To try a page without a real camera or microphone, start the session with `ACDE_CAPTURE=fake`: the devices are then `Fake camera` and `Fake microphone`.
+
+## Rendering and canvas
+
+Styles are computed by Stylo, the style engine of Firefox; layout and painting are acdert's own. What does not work yet:
+
+- Canvas 2D: `drawImage()` draws only an `<img>` or a `<canvas>`; any other source (a `<video>`, an `ImageBitmap`) draws nothing and throws nothing. `createConicGradient()` does not draw a conic gradient. In 0.0.9, `ctx.filter` is accepted but not applied, and `drawImage()` of an `<img>` showing an SVG draws nothing; after 0.0.9, `ctx.filter` applies `blur()`, `brightness()`, `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and `drop-shadow()` (not `url()`), and SVG images are drawn.
+- SVG geometry: `getTotalLength()` and `getPointAtLength()` are estimates from the element's box, not its path; `isPointInFill()` and `isPointInStroke()` are always `false`.
+- In 0.0.9, elements inside an inline `<svg>` have empty boxes: `getBBox()` and `getBoundingClientRect()` give zeros. After 0.0.9, shapes, text and groups have their boxes, and `getComputedTextLength()` measures text.
+- In 0.0.9, `<use href="#id">` and `url(#id)` that point into another `<svg>` of the page (a sprite sheet, a shared gradient) draw nothing. After 0.0.9 they work.
+- In 0.0.9 on macOS, `font-family: monospace` is Courier; after 0.0.9 it is Menlo, as in Safari and Chrome. In 0.0.9, symbols that no font in the stack has (`✕` `✔` `❤`) draw as a box, and `font-weight: 700` of a font with only a regular face draws regular; after 0.0.9, the system supplies a font for such symbols, and the bold is synthesized.
+
+Added after 0.0.9:
+
+- `:has()` selectors (Tailwind's `has-*` variants).
+- `animationstart`, `animationiteration`, `animationend`, `animationcancel`, `transitionrun`, `transitionstart`, `transitionend` and `transitioncancel` (dialogs and menus that wait for `animationend` before they unmount).
+- A `<textarea>`'s `scrollHeight` covers its text, and `field-sizing: content` grows the box with it.
+- `new Image()` with a `src` loads (and fires `load` / `error`) without being in the document.
+- Inline SVG colors given as `oklch()`, `lab()` or `color-mix()` (Tailwind 4's palette) are painted.
+- In SVG images and inline SVG, a `<mask>` made of one filled path clips to it (other masks clip to their region), and a group `filter` made of blurs, drop shadows and color matrices is applied (the glow of icons exported from Figma).
+- An element with an `id` is reachable as a global (`window.wave`).
+- `<input>` and `<textarea>` have undo and redo: `Ctrl+Z`, and `Ctrl+Shift+Z` or `Ctrl+Y`.
 
 ## Not yet supported
 
@@ -65,5 +86,5 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 - `alert()` is drawn inside the window; `confirm()` returns `false` and `prompt()` returns `null`.
 - `navigator.userAgent` and `navigator.platform` say Linux on every system (`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acdert/<version>` and `Linux x86_64`), and editing shortcuts use Ctrl everywhere, so an app behaves the same on every host. To know the real system, read `platform` from [`acde:capabilities`](../guide/capabilities.md#acdecapabilities).
-- There are no developer tools: use the [debugging tools](../guide/tools.md) and [MCP](../guide/mcp.md).
+- In 0.0.9 there are no developer tools: use the [debugging tools](../guide/tools.md) and [MCP](../guide/mcp.md). After 0.0.9, `acde dev` opens the DevTools of Chrome or Edge on a page (F12 in the window, or `acde devtools`); see [acde dev](../guide/dev.md#devtools).
 - Pages have no security sandbox (there is no syscall-level isolation yet): don't run code you don't trust.
