@@ -379,7 +379,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   - 怎么打开 (`src/devtools-browser.ts` `DevtoolsBrowser`, acde#80): Chrome 158、Edge 157 不认命令行上的 `devtools://` 地址 (只开新标签页),
     所以经浏览器自己的 CDP 用 `Target.createTarget` (`newWindow: true`) 打开. 浏览器用 acde 专用的配置目录
     `<用户缓存目录>/acde/devtools/<浏览器名的 slug>` (Windows `%LOCALAPPDATA%`, macOS `~/Library/Caches`, 其他 `$XDG_CACHE_HOME` 或
-    `~/.cache`) 起, 带 `--user-data-dir=<它> --remote-debugging-port=0 --no-first-run --no-default-browser-check`, 不碰用户日常的配置
+    `~/.cache`) 起, 带 `--user-data-dir=<它> --remote-debugging-port=0 --no-first-run --no-default-browser-check
+    --no-startup-window` (不先开一个空白新标签页的窗口, 屏幕上只有 `createTarget` 开的 DevTools 窗口; 没有窗口时浏览器照样写端口文件、
+    应答 CDP, 某个浏览器或平台不吃这个参数时走下面的退回路径), 不碰用户日常的配置
     (Chrome 136 起默认配置目录不许开远程调试), 长期复用. 端口从配置目录的 `DevToolsActivePort` 读 (第一行端口, 第二行浏览器端点路径);
     文件在且 `/json/version` 答得上就复用那个浏览器, 不再起第二个进程; 否则删掉旧文件再起, 最多等 20 s. 起不来、连不上或
     `createTarget` 报错时打印地址和原因, 退出 0. `ACDE_BROWSER=none` 只打印地址.
