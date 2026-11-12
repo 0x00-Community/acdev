@@ -4195,7 +4195,8 @@ keyword = { values = ["auto", "none"] }
 
 [field-sizing]
 struct = "ui"
-engine = "gecko"
+# acrender: enabled in servo (text inputs and textareas sized to their text)
+servo_restyle_damage = "rebuild_box"
 spec = "https://drafts.csswg.org/css-ui/#field-sizing"
 animation_type = "discrete"
 affects = "layout"

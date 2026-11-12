@@ -86,3 +86,16 @@ fn output_is_a_status() {
     let doc = page("<form><input id=a value=2><output for=a>4</output></form>");
     assert!(nodes(&doc, false).iter().any(|n| n["role"] == "status"), "{:?}", nodes(&doc, false));
 }
+
+#[test]
+fn a_label_names_a_button_and_the_other_labelable_elements() {
+    let doc = page(
+        "<button role=checkbox id=agree aria-checked=false><svg width=10 height=10></svg></button><label for=agree>I agree</label>\
+         <label>Volume <progress value=3 max=10></progress></label>\
+         <label for=save>Keep it</label><button id=save>Save</button>",
+    );
+    let role = |role: &str| nodes(&doc, false).into_iter().find(|n| n["role"] == role).map(|n| n["name"].clone());
+    assert_eq!(role("checkbox").unwrap(), "I agree", "Radix's checkbox button, named by <label for>");
+    assert_eq!(role("progressbar").unwrap(), "Volume", "a wrapping label");
+    assert_eq!(role("button").unwrap(), "Keep it", "a label names a button before its text");
+}

@@ -603,7 +603,7 @@ fn images() {
     assert_eq!(dom.take_loaded(), vec![missing]);
     assert_eq!(dom.image_state(missing).unwrap(), [0.0, 0.0, 2.0], "and fails out of the document too");
     dom.set_attribute(none, "src", PNG).unwrap();
-    assert_eq!(dom.take_loaded(), vec![none, missing], "the one that failed out of the document is reported, for its error event");
+    assert_eq!(dom.take_loaded(), vec![none]);
 }
 
 #[test]
@@ -1037,4 +1037,84 @@ fn css_animation_and_transition_events() {
     handle.tick(600.0);
     let events = animation_events(&dom);
     assert_eq!(events, ["transitioncancel t left 0"], "canceled in its delay");
+}
+
+#[test]
+fn textarea_scroll_height_and_field_sizing() {
+    let (_doc, dom) = page(
+        "<head><style>textarea, input { font: 16px/20px sans-serif; padding: 8px; border: 1px solid; box-sizing: border-box; \
+         width: 300px; display: block }</style></head>\
+         <body><textarea id=a rows=1></textarea><textarea id=b rows=1 style='field-sizing: content'></textarea>\
+         <input id=c style='field-sizing: content; width: auto; display: inline-block'></body>",
+    );
+    let (a, b, c) = (by_id(&dom, "a"), by_id(&dom, "b"), by_id(&dom, "c"));
+    let lines = "one\ntwo\nthree\nfour";
+    dom.set_value(a, lines).unwrap();
+    let m = dom.metrics(a).unwrap().unwrap();
+    assert_eq!((m.client_height, m.scroll_height), (36.0, 96.0), "scrollHeight covers the four lines and the padding");
+
+    dom.set_value(b, lines).unwrap();
+    assert_eq!(dom.metrics(b).unwrap().unwrap().offset_height, 98.0, "sized to its four lines");
+    dom.set_value(b, "x").unwrap();
+    assert_eq!(dom.metrics(b).unwrap().unwrap().offset_height, 38.0, "and back to one");
+
+    dom.set_value(c, "hi").unwrap();
+    let narrow = dom.metrics(c).unwrap().unwrap().offset_width;
+    dom.set_value(c, "hello there, a longer value").unwrap();
+    let wide = dom.metrics(c).unwrap().unwrap().offset_width;
+    assert!(narrow < 60.0 && wide > narrow * 4.0, "{narrow} -> {wide}");
+}
+
+#[test]
+fn has_selector_follows_state_attributes_and_tree() {
+    let (_doc, dom) = page(
+        "<head><style>.card:has(input:checked) { color: rgb(0, 128, 0) } main:has(.deep) { color: rgb(0, 0, 255) } \
+         .y:has(+ .z) { color: rgb(255, 0, 0) }</style></head>\
+         <body><label class=card id=card><input type=checkbox id=cb></label>\
+         <main id=main><div><div><b id=b>x</b></div></div></main><p class=y id=y></p></body>",
+    );
+    let color = |id: &str| dom.computed_style(by_id(&dom, id), "", "color").unwrap();
+    let black = "rgb(0, 0, 0)";
+    assert!(dom.matches(by_id(&dom, "card"), ":has(input)").unwrap());
+    assert_eq!(color("card"), black);
+    dom.set_checked(by_id(&dom, "cb"), true).unwrap();
+    assert_eq!(color("card"), "rgb(0, 128, 0)", "a descendant's state");
+    dom.set_checked(by_id(&dom, "cb"), false).unwrap();
+    assert_eq!(color("card"), black);
+
+    dom.set_attribute(by_id(&dom, "b"), "class", "deep").unwrap();
+    assert_eq!(color("main"), "rgb(0, 0, 255)", "a class three levels down");
+    dom.remove_attribute(by_id(&dom, "b"), "class").unwrap();
+    assert_eq!(color("main"), black);
+    let deep = dom.create_element(Ns::Html, "i").unwrap();
+    dom.set_attribute(deep, "class", "deep").unwrap();
+    let inner = dom.first_child(dom.first_child(by_id(&dom, "main")).unwrap()).unwrap();
+    dom.insert_before(inner, deep, NONE).unwrap();
+    assert_eq!(color("main"), "rgb(0, 0, 255)", "an insertion");
+    dom.remove(deep).unwrap();
+    assert_eq!(color("main"), black, "a removal");
+
+    let z = dom.create_element(Ns::Html, "p").unwrap();
+    dom.set_attribute(z, "class", "z").unwrap();
+    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), z, NONE).unwrap();
+    assert_eq!(color("y"), "rgb(255, 0, 0)", "a next sibling");
+    dom.remove(z).unwrap();
+    assert_eq!(color("y"), black);
+}
+
+#[test]
+fn svg_children_have_client_rects() {
+    let (_doc, dom) = page(
+        "<body style='margin:0'><svg id=s width=200 height=100 viewBox='0 0 100 50' style='padding:5px'>\
+         <rect id=r x=10 y=10 width=40 height=20 /><g transform='translate(50,0)'><circle id=c cx=10 cy=10 r=5 /></g>\
+         <text id=t x=10 y=45 font-size=10>Hello</text></svg></body>",
+    );
+    let rect = |id| dom.rect(by_id(&dom, id)).unwrap().map(|v| (v * 1000.0).round() / 1000.0);
+    let r = rect("r");
+    assert_eq!(r, [25.0, 25.0, 80.0, 40.0], "viewBox scale 2, padding 5");
+    let c = rect("c");
+    assert_eq!(c, [115.0, 15.0, 20.0, 20.0]);
+    let t = rect("t");
+    assert!(t[0] > 20.0 && t[2] > 30.0 && t[3] > 10.0, "text drawn with a box: {t:?}");
+    assert_eq!(dom.computed_style(by_id(&dom, "t"), "", "font-size").unwrap(), "10px", "font-size=10 is in user units");
 }

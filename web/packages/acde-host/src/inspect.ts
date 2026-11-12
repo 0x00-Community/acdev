@@ -100,6 +100,7 @@ export type InspectInput =
   | { readonly type: 'wheel'; readonly x: number; readonly y: number; readonly dx?: number; readonly dy?: number }
   | { readonly type: 'keydown' | 'keyup'; readonly key: string }
   | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'wait'; readonly ms: number }
 
 type Point = { readonly x: number; readonly y: number } | { readonly error: string }
 
@@ -112,6 +113,7 @@ export class Inspect {
   static readonly FIND_LIMIT = 3000
   static readonly DRAG_STEPS = 10
   static readonly DRAG_STEP_MS = 16
+  static readonly INPUT_WAIT_MS = 10_000
   static readonly GENERIC = new Set([
     ...['generic', 'filler', 'panel', 'section', 'unknown', 'redundant-object', 'split-pane', 'layered-pane'],
     ...['scroll-pane', 'viewport', 'internal-frame', 'root-pane', 'glass-pane', 'option-pane', 'window'],
@@ -645,8 +647,14 @@ export class Inspect {
         case 'text':
           await rpc.call('inspect', 'text', [String(event.text ?? '')])
           break
+        case 'wait': {
+          const ms = Number(event.ms)
+          if (!(ms >= 0 && ms <= Inspect.INPUT_WAIT_MS)) throw new Error(`input: wait takes ms from 0 to ${Inspect.INPUT_WAIT_MS}, not ${JSON.stringify(event.ms)}`)
+          await Inspect.#sleep(ms)
+          break
+        }
         default:
-          throw new Error(`input: an event's type is move, down, up, wheel, keydown, keyup or text, not ${JSON.stringify((event as { type?: unknown })?.type)}`)
+          throw new Error(`input: an event's type is move, down, up, wheel, keydown, keyup, text or wait, not ${JSON.stringify((event as { type?: unknown })?.type)}`)
       }
     }
     await this.#settle(window)

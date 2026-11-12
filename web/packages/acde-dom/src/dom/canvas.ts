@@ -67,6 +67,83 @@ type Rgba = [number, number, number, number]
 
 const colors = new Map<string, Rgba | null>()
 
+const FILTERS: Record<string, number> = {
+  blur: 0, brightness: 1, contrast: 2, grayscale: 3, 'hue-rotate': 4, invert: 5, opacity: 6, saturate: 7, sepia: 8, 'drop-shadow': 9,
+}
+
+function parseFilter(text: string): number[][] | null {
+  let rest = text.trim()
+  if (rest.toLowerCase() === 'none') return []
+  const out: number[][] = []
+  while (rest) {
+    const open = /^([a-z-]+)\(/i.exec(rest)
+    if (!open) return null
+    const kind = FILTERS[open[1]!.toLowerCase()]
+    if (kind === undefined) return null
+    let depth = 0
+    let end = -1
+    for (let i = open[0].length - 1; i < rest.length && end < 0; i++) {
+      if (rest[i] === '(') depth++
+      else if (rest[i] === ')' && --depth === 0) end = i
+    }
+    if (end < 0) return null
+    const op = filterOp(kind, rest.slice(open[0].length, end).trim())
+    if (!op) return null
+    out.push(op)
+    rest = rest.slice(end + 1).trim()
+  }
+  return out.length ? out : null
+}
+
+function filterLength(text: string): number | null {
+  const m = /^(-?[\d.]+(?:e-?\d+)?)(px)?$/i.exec(text)
+  if (!m || (!m[2] && Number(m[1]) !== 0)) return null
+  const v = Number(m[1])
+  return Number.isFinite(v) ? v : null
+}
+
+function filterOp(kind: number, args: string): number[] | null {
+  if (kind === 9) {
+    const tokens = args.match(/[^\s(]+(?:\([^)]*\))?|\([^)]*\)/g) ?? []
+    const lengths: number[] = []
+    let rgba: Rgba | null = null
+    let closed = false
+    for (const token of tokens) {
+      const length = filterLength(token)
+      if (length === null) {
+        if (rgba) return null
+        rgba = parseColor(token)
+        if (!rgba) return null
+        closed = lengths.length > 0
+      } else {
+        if (closed) return null
+        lengths.push(length)
+      }
+    }
+    if (lengths.length < 2 || lengths.length > 3 || (lengths[2] ?? 0) < 0) return null
+    return [9, lengths[0]!, lengths[1]!, lengths[2] ?? 0, ...(rgba ?? [0, 0, 0, 1])]
+  }
+  if (kind === 0) {
+    const sigma = args ? filterLength(args) : 0
+    return sigma === null || sigma < 0 ? null : [0, sigma]
+  }
+  if (kind === 4) {
+    if (!args) return [4, 0]
+    const m = /^(-?[\d.]+)(deg|grad|rad|turn)?$/i.exec(args)
+    if (!m || (!m[2] && Number(m[1]) !== 0)) return null
+    const turns = { deg: 1 / 360, grad: 1 / 400, rad: 1 / (2 * Math.PI), turn: 1 }[(m[2] ?? 'deg').toLowerCase() as 'deg']
+    return [4, Number(m[1]) * turns * 2 * Math.PI]
+  }
+  let amount = 1
+  if (args) {
+    const m = /^([\d.]+(?:e-?\d+)?)(%)?$/.exec(args)
+    if (!m || !Number.isFinite(Number(m[1]))) return null
+    amount = Number(m[1]) / (m[2] ? 100 : 1)
+  }
+  if (kind === 3 || kind === 5 || kind === 6 || kind === 8) amount = Math.min(amount, 1)
+  return [kind, amount]
+}
+
 function parseColor(text: string): Rgba | null {
   let rgba = colors.get(text)
   if (rgba === undefined) {
@@ -207,14 +284,16 @@ interface State {
   baseline: string
   direction: string
   shadow: { color: string; rgba: Rgba; blur: number; x: number; y: number }
+  filter: string
+  filters: number[][]
 }
 
-const M = 1, FILL = 2, STROKE = 4, LINE_WIDTH = 8, LINE = 16, DASH = 32, ALPHA = 64, GCO = 128, FONT = 256, TEXT = 512, SHADOW = 1024
-const ALL = 2047
+const M = 1, FILL = 2, STROKE = 4, LINE_WIDTH = 8, LINE = 16, DASH = 32, ALPHA = 64, GCO = 128, FONT = 256, TEXT = 512, SHADOW = 1024, FILTER = 2048
+const ALL = 4095
 const LINES = LINE_WIDTH | LINE | DASH
-const NEEDS_FILL = M | FILL | ALPHA | GCO | SHADOW
-const NEEDS_STROKE = M | STROKE | LINES | ALPHA | GCO | SHADOW
-const NEEDS_IMAGE = M | ALPHA | GCO | SHADOW
+const NEEDS_FILL = M | FILL | ALPHA | GCO | SHADOW | FILTER
+const NEEDS_STROKE = M | STROKE | LINES | ALPHA | GCO | SHADOW | FILTER
+const NEEDS_IMAGE = M | ALPHA | GCO | SHADOW | FILTER
 
 interface Sent {
   dirty: number
@@ -227,7 +306,7 @@ function styleVersion(style: Style): number {
 }
 
 const Sub = {
-  Save: 1, Restore: 2, SetTransform: 3, FillStyle: 4, StrokeStyle: 5, LineWidth: 6, Line: 7, Dash: 8, Alpha: 9, Composite: 10, Font: 11, Text: 12, Shadow: 13,
+  Save: 1, Restore: 2, SetTransform: 3, FillStyle: 4, StrokeStyle: 5, LineWidth: 6, Line: 7, Dash: 8, Alpha: 9, Composite: 10, Font: 11, Text: 12, Shadow: 13, Filter: 14,
   BeginPath: 20, MoveTo: 21, LineTo: 22, Quadratic: 23, Bezier: 24, Arc: 25, ArcTo: 26, Ellipse: 27, Rect: 28, RoundRect: 29, ClosePath: 30, SvgPath: 31,
   Fill: 40, Stroke: 41, Clip: 42, Rects: 43, DrawText: 44, DrawImage: 45, PutImageData: 46,
 } as const
@@ -251,7 +330,6 @@ export class CanvasContext2d {
   #size: [number, number]
   imageSmoothingEnabled = true
   imageSmoothingQuality = 'low'
-  filter = 'none'
 
   constructor(readonly canvas: CanvasElement) {
     this.#size = [canvas.width, canvas.height]
@@ -263,7 +341,7 @@ export class CanvasContext2d {
   }
 
   static #initial(): State {
-    return { m: [1, 0, 0, 1, 0, 0], fill: '#000000', stroke: '#000000', lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], dashOffset: 0, alpha: 1, gco: 'source-over', font: '10px sans-serif', align: 'start', baseline: 'alphabetic', direction: 'inherit', shadow: { color: 'rgba(0, 0, 0, 0)', rgba: [0, 0, 0, 0], blur: 0, x: 0, y: 0 } }
+    return { m: [1, 0, 0, 1, 0, 0], fill: '#000000', stroke: '#000000', lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], dashOffset: 0, alpha: 1, gco: 'source-over', font: '10px sans-serif', align: 'start', baseline: 'alphabetic', direction: 'inherit', shadow: { color: 'rgba(0, 0, 0, 0)', rgba: [0, 0, 0, 0], blur: 0, x: 0, y: 0 }, filter: 'none', filters: [] }
   }
 
   #changed(bits: number): void {
@@ -280,6 +358,18 @@ export class CanvasContext2d {
       this.#state[key] = v
       this.#changed(bits)
     }
+  }
+
+  get filter(): string {
+    return this.#state.filter
+  }
+  set filter(v: string) {
+    const text = String(v)
+    const filters = parseFilter(text)
+    if (!filters || text === this.#state.filter) return
+    this.#state.filter = text
+    this.#state.filters = filters
+    this.#changed(FILTER)
   }
 
   get shadowColor(): string {
@@ -682,6 +772,10 @@ export class CanvasContext2d {
     if (send & SHADOW) {
       const sh = s.shadow
       out.u8(Sub.Shadow).f32(...sh.rgba, sh.blur, sh.x, sh.y)
+    }
+    if (send & FILTER) {
+      out.u8(Sub.Filter).u32(s.filters.length)
+      for (const [kind, ...values] of s.filters) out.u8(kind!).f32(...values)
     }
     if (send & TEXT) out.u8(Sub.Text).u8(ALIGNS.indexOf(s.align)).u8(BASELINES.indexOf(s.baseline)).u8(DIRECTIONS.indexOf(s.direction))
   }

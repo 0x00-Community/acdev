@@ -315,7 +315,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
     有窗口是系统剪贴板); 会话没有, 回错.
   - `input {web, events}` → act 的回答: 按页面的 CSS 坐标注入一串原始输入 (`Inspect.input`, 加窗口原点和 `contentOffset` 后 `Shell.inject`):
     `{type: move | down | up | wheel, x, y, button?: left | right | middle, dx?, dy?}`、`{type: keydown | keyup, key}` (键名同 act 的 key)、
-    `{type: text, text}` (走输入法提交那条路, 给焦点元素). 先给窗口焦点; 连着的 move 之间隔 16 ms (页面的 pointermove 按帧合并), 最后等页面安静.
+    `{type: text, text}` (走输入法提交那条路, 给焦点元素)、`{type: wait, ms}` (停 0–10000 ms, 中间按住的键和按钮不放: 游戏里按住方向键). 先给窗口焦点; 连着的 move 之间隔 16 ms (页面的 pointermove 按帧合并), 最后等页面安静.
     act 的 click / double / right / hover 的 arg 是要按住的修饰键 (`shift`、`ctrl+shift`, 还认 `option` / `cmd`).
   - `clock {web, action, time?, ms?}` → `{installed, paused, now, performanceNow, fixed, timers}`: 接管这个页面的时间 (rpc `dev.clock`, acde-dom
     `core/clock.ts`, 和 Playwright 的 clock 一样): `install {time?}` 之后 `Date` (换成同原型的包装, `Date()` / `Date.now()` / 无参 `new Date()`
@@ -1297,7 +1297,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id, 所以 ref 跟着 DOM 节点走: 节点活着 (连在文档上, 或断开了但页面还拿着) 就不变, 移动、改文字、改属性、列表重排都不变,
   不按遍历顺序编号; 重绘时换成了新节点 (`innerHTML`、不带 key 的列表重建) 才是新 ref (节点 id 不复用), 旧 ref 回 `element N is gone`.
-  测试 `crates/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签 (HTML-AAM: 有名字的 `<section>` 是 `region`, `<output>` 是 `status`), 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
+  测试 `crates/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签 (HTML-AAM: 有名字的 `<section>` 是 `region`, `<output>` 是 `status`), 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label (可被 label 的元素: input、select、textarea、button、meter、output、progress, `<label for>` 或外面套的 `<label>`, 先于子元素文字) / alt / 文字, 最多
   120 字; 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
   没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `semantics(root, limit, offscreen, invisible)`: `invisible`
   时留下透明和 `visibility: hidden` 的元素, 自己或祖先 `opacity: 0` 的标 `transparent`, `visibility` 不可见的标 `invisible` (透明的照样能点,
@@ -1376,7 +1376,11 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - `Dom::capture(id, scale)`: 单独录一个元素 (拖动图标), 单边超过 2048 缩小; JS 拿 `picture` 编号 (`dom.rs`, 每个 web 留最后一个).
 - canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
-  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`.
+  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`. `drawImage` 一张 SVG 的 `<img>` 时按它的自然尺寸画成场景
+  (blitz-paint `svg_picture`, 和 `<img>` 同一画法). `ctx.filter`: acde-dom 解析 `<filter-value-list>` (无效的值不改, 长度只认 px),
+  命令 14 送效果 (blur、brightness、contrast、grayscale、hue-rotate、invert、opacity、saturate、sepia、drop-shadow; url() 不支持);
+  有滤镜时每次绘制先把它的范围 (加上效果外扩, 裁到画布) 画进一张图, acde-gpu `Offscreen::filtered` 依次做 (`blur.wgsl` 的
+  `blur_rgba` 全通道模糊、`matrix.wgsl` 颜色矩阵、drop-shadow 是 alpha 模糊再垫在下面), 再画回去; 阴影还按没滤过的形状算.
 - 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
   viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen, invisible)`: offscreen 时不按可见范围剪, invisible 见「看和操作桌面」. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
@@ -1708,6 +1712,9 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
   里按 host 的时钟; 近似: easing 作用在每段关键帧上、endDelay 只算进结束时间、没有 composite.
+  SVG 几何 (`dom/svg.ts`, `dom/svgbox.ts`): `getBBox` 的基本图形和容器按属性在 JS 里算, 文字、图片、use 这类没有几何的子元素取 render
+  画出来的框 (`rect` 经 `svg_box`) 换回元素的用户坐标; `SVGTextContentElement` 的 `getComputedTextLength` / `getSubStringLength` /
+  `getNumberOfChars` 按 xml:space 默认规则整理文字, 用计算出的字体 `measureText` 量前进宽度, 加上 letter-spacing.
   CSS 动画和过渡的事件 (`dom/cssevents.ts`): 页面第一次给这 8 种事件 (或 webkit 前缀的 4 种) 加监听或 on 处理器之后, 每帧 `takeAnimationEvents`
   (render 先把样式算到最新), 在元素上发 `AnimationEvent` / `TransitionEvent` (冒泡, 不可取消, 伪元素的发在宿主元素上带 `pseudoElement`);
   Web Animations 自己的 `acde-animation-<n>` 关键帧不发. 还有动画在跑或刚有事件就再要一帧; 改了 DOM 的任务结束时也要一帧, 好让新开始的动画被看到.
@@ -1757,6 +1764,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | --- | --- |
 | `cache.rs` (新), `render.rs` `record` / `ensure` / `flatten`, `lib.rs` `paint_scene_cached` / `paint_scene_reference` | 增量录制: 按绘制边界 (根、stacking context、裁剪 / 滚动容器、图片、SVG、canvas、大列表的块级子元素) 缓存片段, `Dep::holds` 核对后复用, 帧按引用展开成 `Piece`; 表单控件和 iframe 每帧重录; LRU; 整页录制给 verify |
 | `render.rs` `render_element_part` `border_box` | 边框盒在元素自己的坐标里 (否则挪过的片段不能复用) |
+| `text.rs` `embolden` | 合成粗体: 字体没有要求的那么粗的字面 (fontique 的 synthesis `embolden`) 时照 Skia (Chrome) 加粗轮廓: 9 px 以下是字号的 1/24, 36 px 以上 1/32, 中间线性, 每边一半; 上游只有 `font-embolden` 那种给所有字都加的苹果式描粗 |
 | `layers.rs`, `render.rs`, `render/background.rs`, `render/box_shadow.rs` | `push_layer` / `maybe_with_layer` 代替 `LayerManager` (上游超过 1024 层丢裁剪), 不建多余的裁剪路径 |
 | `debug_overlay.rs` (删) | 去掉 devtools 叠加层和 euclid |
 | `lib.rs` `paint_element` | 只画一个元素和子树, 不带祖先的变换 / 透明 / 裁剪 (拖动图标) |
@@ -1771,6 +1779,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
 | `render/border.rs` `draw_outline` | outline 沿中线、`outline-offset`、dashed / dotted、圆角、在内容之后、乘 opacity |
 | `render.rs` `draw_svg` / `draw_simple_svg` / `draw_svg_tree` | 画 simple SVG 的命令; usvg 树相对元素画再放置 |
+| `svg.rs` `mask_clips` / `filter` / `layered`, blitz-dom `serialize.rs` 写 `mask-type` (呈现属性也收) | 遮罩: 只有一条纯色无描边路径时按它裁剪, 不透明度是 alpha 遮罩的填充不透明度 / 亮度遮罩的颜色亮度乘它; 别的遮罩只裁到遮罩区域 (vello 没有遮罩层). 滤镜: 从 SourceGraphic 接起来的高斯模糊、drop shadow、颜色矩阵 (Figma 导出的透明 feFlood + feBlend 前缀放过) 变成合成器的滤镜层, 在组的用户坐标里; 别的原语整组不滤. 已知: 合成器里滤镜层外面的非矩形裁剪 (遮罩路径) 只按包围矩形裁 (同 #46 一类), Vite logo 的模糊光晕会溢出闪电形状, 在遮罩矩形内; canvas / 离屏里滤镜层不做 (vello 忽略) |
 | `text.rs` `stroke_text` / `Ellipsis` / `draw_ellipsis_marker`, `render.rs` `ellipsis` | `text-overflow: ellipsis` 和 line-clamp 的 "…" (`Ellipsis.end` 是 frame 的内容盒宽, 已经是设备像素, 不再乘 scale) |
 | `render/gradient.rs` | 色标位置按规范; 超出渐变线的色标: 线性拉长, 径向 / 锥形夹回 |
 | `render.rs` `fieldset_frame` / `element_cx`, `render/border.rs` `draw_border`, `cache.rs` `visit` | fieldset 的框从 legend 中线开始, 边框在 legend 后留空; legend 算进片段依赖 |
@@ -1782,6 +1791,10 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | --- | --- |
 | `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块的强调色都从 `accent_color` 取 |
 | `mutator.rs` `set_attribute` | 不在文档里的 `<img>` 设 `src` 也取图 (HTML 的 update the image data; `new Image()` 预加载): 上游在文档外不做任何特殊处理, 图一直不来; render 的 `image_state` 也不再把文档外的图一律当作加载中, 取不到就报失败 |
+| `layout/mod.rs` textarea / 文本类 `<input>` 的叶子布局, `field_sized` / `text_field_wrap` / `measure_text_field`, `document.rs` `with_text_input` | textarea 排完版把文字的高度 (加上下内边距) 算进 `scrollable_overflow_rect`, `scrollHeight` 是整段文字 (聊天输入框按它长高; 上游只有 rows 那么高); `field-sizing: content`: textarea 按给的宽度 (或 `width`、可用宽度) 折行后的文字定高, 至少一行, 不看 rows / cols; 文本类 input 按不折行的文字宽度加 1 px 光标; 值是空的时按 placeholder; 文字变了 (`with_text_input`) 清掉布局缓存重排 |
+| `document.rs` `svg_with_document_refs`, `node/svg.rs` `missing_local_refs`, `node/serialize.rs` `write_svg_raw` | usvg 只在它解析的那份 SVG 里找 `<use href="#id">` / `url(#id)`; 页面常把 `<symbol>`、渐变放在另一个 `<svg>` (藏起来的雪碧图): 这份里没定义的 id 按文档找到 SVG 元素, 抄进 `<defs>`, 再找它引用的; 没算过样式的 (在 `display: none` 的 `<svg>` 里) 按原属性写 |
+| `document.rs` `svg_box`, `node/serialize.rs` `write_svg_marked` / `SVG_BOX_ID`, `stylo.rs` SVG 呈现属性 | 内联 SVG 里的元素没有布局盒: `svg_box` 把所在的最外层 `<svg>` 再序列化一次, 目标元素包进 `<g id="__acrender_box">`, 交 usvg 解析 (文字排成路径), 取这个组在画布上的包围盒, 换成 `<svg>` 尺寸的比例; render 的 `rect` / `clientRects` 按 `<svg>` 的内容框换成页面坐标 (getBoundingClientRect, 和 acde-dom 里 getBBox 的文字、图片、use 部分). `font-size="20"` 这样不带单位的呈现属性按用户单位补 `px` (CSS 的 font-size 不收纯数字, 原先这一条被丢掉, 计算样式回到页面字号) |
+| `has.rs` (新), `document.rs` 打开 `layout.css.has-selector.enabled` / `snapshot_node_and`, `mutator.rs` `set_attribute` / `clear_attribute` / `remove_node` / `remove_and_drop_all_children` / `add_children_to_parent`, `stylo.rs` `each_custom_state` | `:has()` (上游在 servo 里关着, 选择器不解析). 快照失效只看元素自己和右边的选择器, `:has()` 的锚在左边 (祖先、前面的兄弟), 所以状态变化、属性变化 (class / id / 其他属性名, 新旧值都算)、插入和移除前各调一次 Stylo 的 `RelativeSelectorInvalidator` (照 Gecko glue 的 `MaybeInvalidateRelativeSelector*`): 改之前调, 不带快照, 找到的锚记 restyle 并把祖先标脏; 样式里没有 `:has()` 时属性那条直接返回. `each_custom_state` 原是 `todo!()` (失效时会走到), 没有自定义状态, 什么也不做 |
 | `animation_events.rs` (新), `stylo.rs` `resolve_stylist_pass`, `document.rs` `take_animation_events` / `has_css_animations` | 推进 CSS 动画和过渡时记事件 (animationstart / iteration / end / cancel, transitionrun / start / end / cancel; elapsedTime 照 Servo 的 `script/animations.rs`, 取到微秒): 上游 Servo 在 script 里发, Blitz 没有. 第一次 `take_animation_events` 之后才记, 最多攒 4096 个; 离开文档的元素上没结束的动画和没结束的过渡记 cancel, 已结束的动画被样式去掉不记 |
 | `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |
@@ -1836,12 +1849,14 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | fontique `backend/fontconfig.rs` `SystemFonts::members` / `family_uncached` | 按第一个族名建表, 不再每族一次 `FcFontSort` |
 | fontique `collection/mod.rs` `System::shared` | 系统字体只扫一次, 所有 `Collection` 共用 |
 | fontique `font.rs` `mod tests` | 关掉 |
-| parley `shape/mod.rs` `FontSelector::select_font` | CJK 标点只有带汉字的字体才算覆盖; Common / Inherited 的 cluster 先试前一个的字体 |
+| fontique `backend/*.rs` `fallback_for_text`, `collection` `text_fallback` (`Collection` / `Query`) | 按文字本身向系统要字族: CoreText `CTFontCreateForString` (不要 LastResort, 它对任何码位都给一个条纹框), fontconfig 按这些字符的 charset 匹配, DirectWrite 的 fallback 映射; Android 没有. 每段文字只问一次 (最多 32 个字符, 最多记 4096 条, 满了清掉: 文字由页面决定) |
+| parley `shape/mod.rs` `FontSelector::select_font` | CJK 标点只有带汉字的字体才算覆盖; Common / Inherited 的 cluster 先试前一个的字体; 字族栈和脚本的回退都盖不全一个 cluster 时 (✕ ✔ ❤ 是 Common 脚本, 它的回退里没有符号字体), 拿这几个字符问系统 (`text_fallback`), 那个字族盖全了就用它, 像浏览器按字符回退 |
 | parley `shape/mod.rs` `CjkVariant` / `shape_text` | 按 locale 换成本地区的 CJK 字族, 缓存键加地区 |
 | parley `shape/mod.rs` `begin_segment` | (script, locale) 没被跟踪时按没有 locale 查 |
 | stylo `stylesheets/rule_parser.rs` | `@container` 去掉 gecko 限定 (pref `layout.container-queries.enabled`) |
 | stylo `servo/media_features.rs`, `device/servo.rs` | `prefers-reduced-motion` |
 | stylo `properties/longhands.toml` `accent-color` | 去掉 gecko 限定 (servo 也解析、计算, 改了只重画) |
+| stylo `properties/longhands.toml` `field-sizing` | 去掉 gecko 限定 (servo 也解析、计算, 改了重建盒子); acrender 按它给文本框定尺寸 |
 | stylo `servo/animation.rs` `maybe_start_animations` | 已在跑的动画名 `continue` 而不是 `return` |
 | stylo `servo/selector_parser.rs` `ServoElementSnapshot::get_attr` | 没存属性的快照 (只为状态变化拍的: hover / focus / active) 回 None 而不是 unwrap: 加样式表时 `invalidation/stylesheets.rs` 不看 `has_attrs()` 就问每个快照的旧 class 和 id, 元素正悬停 / 按着时加 `<style>` 会 panic. 测试 `crates/render/tests/dom.rs` `a_stylesheet_added_while_an_element_is_active_restyles` |
 | stylo_atoms `static_atoms.txt` | 加 `prefers-reduced-motion` |

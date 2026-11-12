@@ -241,7 +241,13 @@ impl Tree<'_> {
         let source = |doc: &blitz_dom::BaseDocument, kind: u8, source: u32| -> Option<Source> {
             match kind {
                 0 => {
-                    let image = doc.get_node(ids.node(source).ok()?)?.element_data()?.raster_image_data()?;
+                    let element = doc.get_node(ids.node(source).ok()?)?.element_data()?;
+                    if let Some(blitz_dom::node::ImageData::Svg(svg)) = element.image_data() {
+                        let size = svg.tree.size();
+                        let picture = blitz_paint::svg_picture(svg, size.width(), size.height());
+                        return Some(Source::Picture(std::sync::Arc::new(picture), (f64::from(size.width()), f64::from(size.height()))));
+                    }
+                    let image = element.raster_image_data()?;
                     Some(Source::Raster(peniko::ImageBrush {
                         image: peniko::ImageData {
                             data: image.data.clone(),

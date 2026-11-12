@@ -800,6 +800,29 @@ impl SystemFonts {
         let family_name = font.get_string(FC_FAMILY, 0).ok()?;
         self.name_map.get(&family_name).map(FamilyName::id)
     }
+
+    /// acrender: the family fontconfig matches for the characters of `text`, for characters no family in the stack or
+    /// the script's fallback has
+    pub(crate) fn fallback_for_text(&mut self, text: &str, locale: Option<&str>) -> Option<FamilyId> {
+        let config = self.config.as_ref()?;
+        let mut pattern = Pattern::new()?;
+        let mut chars = CharSet::new()?;
+        for c in text.chars() {
+            chars.add(c);
+        }
+        pattern.add_charset(FC_CHARSET, &chars);
+        if let Some(lang_set) = locale.and_then(|locale| {
+            let mut lang_set = LangSet::new()?;
+            lang_set.add(CString::new(locale).ok()?.as_c_str());
+            Some(lang_set)
+        }) {
+            pattern.add_langset(FC_LANG, &lang_set);
+        }
+        config.substitute(&mut pattern, FcMatchPattern);
+        let font = config.font_match(&pattern).ok()?;
+        let family_name = font.get_string(FC_FAMILY, 0).ok()?;
+        self.name_map.get(&family_name).map(FamilyName::id)
+    }
 }
 
 impl SystemFonts {

@@ -323,6 +323,20 @@ test('navigator languages follow the session: languagechange on window', async (
   assert.deepEqual(web.json(`seen`), [['languagechange', false, 'zh-CN', 'zh-CN,zh']])
 })
 
+test('canvas: filter keeps the last valid <filter-value-list>, and save / restore it', async () => {
+  using web = await page()
+  web.run(`const ctx = document.createElement('canvas').getContext('2d')
+    const seen = [ctx.filter]
+    for (const v of ['blur(4px)', 'bogus(1)', 'blur(4)', 'grayscale(50%) hue-rotate(90deg)', 'drop-shadow(2px 3px red)',
+      'drop-shadow(red 2px 3px 4px)', 'drop-shadow(2px red 3px)', 'contrast(-1)', 'none']) { ctx.filter = v; seen.push(ctx.filter) }
+    ctx.filter = 'blur(2px)'; ctx.save(); ctx.filter = 'invert()'; ctx.restore(); seen.push(ctx.filter)
+    globalThis.out = seen`)
+  assert.deepEqual(web.json('out'), [
+    'none', 'blur(4px)', 'blur(4px)', 'blur(4px)', 'grayscale(50%) hue-rotate(90deg)', 'drop-shadow(2px 3px red)',
+    'drop-shadow(red 2px 3px 4px)', 'drop-shadow(red 2px 3px 4px)', 'drop-shadow(red 2px 3px 4px)', 'none', 'blur(2px)',
+  ])
+})
+
 test('canvas: setting width or height resets the 2d state right away, not at the next draw', async () => {
   using web = await page()
   web.run(`const c = document.createElement('canvas'); const ctx = c.getContext('2d')

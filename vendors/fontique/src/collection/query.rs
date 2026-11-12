@@ -41,6 +41,11 @@ pub struct Query<'a> {
 }
 
 impl<'a> Query<'a> {
+    /// acrender: the family the system draws `text` in (see `Collection::text_fallback`)
+    pub fn text_fallback(&mut self, text: &str) -> Option<FamilyId> {
+        self.collection.text_fallback(text)
+    }
+
     pub(super) fn new(collection: &'a mut Collection, source_cache: &'a mut SourceCache) -> Self {
         collection.query_state.clear();
         Self {

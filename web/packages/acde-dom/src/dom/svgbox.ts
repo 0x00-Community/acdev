@@ -283,7 +283,7 @@ function pointsBox(text: string): Box | null {
   return bounds.empty ? null : bounds.box
 }
 
-export function shapeBox(id: number, transformOf: (id: number) => Affine): Box | null {
+export function shapeBox(id: number, transformOf: (id: number) => Affine, measure?: (id: number) => Box | null): Box | null {
   switch (dom.localName(id)) {
     case 'path':
       return pathBox(dom.getAttribute(id, 'd') ?? '')
@@ -313,7 +313,7 @@ export function shapeBox(id: number, transformOf: (id: number) => Affine): Box |
   const bounds = new Bounds()
   for (const child of dom.children(id)) {
     if (dom.nodeType(child) !== NodeType.Element || computedStyleOf(child, '', 'display') === 'none') continue
-    const box = shapeBox(child, transformOf)
+    const box = shapeBox(child, transformOf, measure) ?? measure?.(child) ?? null
     if (!box) continue
     const own = transformOf(child)
     const m = dom.localName(child) === 'svg' ? times(own, nestedSvg(child)) : own

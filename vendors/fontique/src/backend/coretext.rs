@@ -26,7 +26,8 @@ use std::path::{Path, PathBuf};
 const DEFAULT_GENERIC_FAMILIES: &[(GenericFamily, &[&str])] = &[
     (GenericFamily::Serif, &["Times", "Times New Roman"]),
     (GenericFamily::SansSerif, &["Helvetica"]),
-    (GenericFamily::Monospace, &["Courier", "Courier New"]),
+    // acrender: Menlo first, as Chrome and Safari draw `monospace` on macOS (Courier is a typewriter serif)
+    (GenericFamily::Monospace, &["Menlo", "Courier", "Courier New"]),
     (GenericFamily::Cursive, &["Apple Chancery"]),
     (GenericFamily::Fantasy, &["Papyrus"]),
     (GenericFamily::SystemUi, &["System Font", ".SF NS"]),
@@ -84,6 +85,19 @@ impl SystemFonts {
             _ => return None,
         };
         self.name_map.get(name).map(|family| family.id())
+    }
+}
+
+impl SystemFonts {
+    /// acrender: the family CoreText would draw `text` in (CTFontCreateForString), for characters no family in the
+    /// stack or the script's fallback has; never LastResort, whose boxes stand for any code point
+    pub(crate) fn fallback_for_text(&mut self, text: &str, locale: Option<&str>) -> Option<FamilyId> {
+        let font = create_fallback_font_for_text(text, locale, false)?;
+        let name = unsafe { font.family_name() }.to_string();
+        if name.contains("LastResort") {
+            return None;
+        }
+        self.name_map.get(&name).map(|family| family.id())
     }
 }
 
