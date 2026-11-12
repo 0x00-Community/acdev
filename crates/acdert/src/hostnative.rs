@@ -64,6 +64,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "quit" => quit,
         "capture" => capture,
         "devRespond" => dev_respond,
+        "devEvent" => dev_event,
         "answerFolder" => answer_folder,
         "answerOpen" => answer_open,
         "answerSave" => answer_save,
@@ -403,6 +404,15 @@ fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     let result = if ok { Ok(payload.as_str()) } else { Err(payload.as_str()) };
     if let Some(Err(e)) = with(scope, |_| acde_hostwin::dev_respond(id as i64, result)) {
         bind::throw_error(scope, &e);
+    }
+}
+
+fn dev_event(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let message = bind::arg_string(scope, &args, 0);
+    match with(scope, |_| acde_hostwin::dev_event(&message)) {
+        Some(Ok(reached)) => rv.set(num(scope, reached as f64)),
+        Some(Err(e)) => bind::throw_error(scope, &e),
+        None => {}
     }
 }
 

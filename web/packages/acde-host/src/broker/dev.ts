@@ -91,6 +91,20 @@ export class DevRequests {
     this.#devtools.targets(targets)
   }
 
+  /** F12 in a dev host window: tells acde dev which page to open DevTools on (the id is its /json/list target id). */
+  devtools(web: Web | null): void {
+    if (!web) return Log.write(Level.Warn, 'acde_host', 'acde dev: F12: no page has the focus')
+    const event = { type: 'event', event: 'devtools', web: web.name, app: web.app?.id ?? null, window: web.window }
+    let reached = 0
+    try {
+      reached = this.#host.shell.devEvent?.(JSON.stringify(event)) ?? 0
+    } catch (error) {
+      return Log.write(Level.Warn, 'acde_host', `acde dev: F12: ${(error as Error).message}`)
+    }
+    if (!reached) Log.write(Level.Warn, 'acde_host', `acde dev: F12 on ${web.name}: no acde dev is connected to open DevTools`)
+    else Log.write(Level.Info, 'acde_host', `acde dev: F12 on ${web.name}: asked acde dev to open DevTools`)
+  }
+
   infos(): WebInfo[] {
     return this.#host.webs().map((web) => ({
       name: web.name,
