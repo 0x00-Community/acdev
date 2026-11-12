@@ -388,6 +388,16 @@ describe('acde dev with a stand-in acdert', () => {
       expect([unknown.code, unknown.stdout]).toEqual([1, ''])
       expect(unknown.stderr).toBe('acde: act w1.404: there is no such element (any more); '
         + 'acde inspect --find TEXT gives the current refs\n')
+      const windows = 'the windows: w0 desktop, w1 "Alpha" (acde inspect lists them)'
+      const noWindow = await dev.tool(['inspect', '--window', 'w9'], alpha)
+      expect([noWindow.code, noWindow.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      const noQuery = await dev.tool(['query', 'h1', '--window', 'w9'], alpha)
+      expect([noQuery.code, noQuery.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      const away = await dev.tool(['act', 'w9.1', 'click'], alpha)
+      expect([away.code, away.stderr]).toEqual([1, `acde: act w9.1: no window w9; ${windows}\n`])
+      const untyped = await dev.tool(['act', 'w1.5', 'type'], alpha)
+      expect([untyped.code, untyped.stderr])
+        .toEqual([1, 'acde: act: type needs the text to type: acde act w1.5 type "hello"\n'])
       expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)
       expect((await dev.tool(['inspect', '--offscreen'], alpha)).code).toBe(0)
       const logged = await dev.tool(['console'], alpha)
@@ -726,6 +736,9 @@ describe('acde dev with a stand-in acdert', () => {
     const cases: [string[], string][] = [
       [[a, d1, '--out', join(base, 'x')], '--out is for one project'],
       [[a, d1, '--app', 'same'], '--app picks the window of one project'],
+      [[a, '--app', 'nope'], '--app nope: not an app id of this project (its apps: same); --app takes an app id\n'],
+      [[a, '--app', a], `--app ${a}: not an app id of this project (its apps: same); --app takes an app id; `
+        + `give a directory as the first argument: acde dev ${a}`],
       [[a, b], `app same is in both ${a} and ${b}`],
       [[d1, d2], 'several desktops (d1, d2): pick one with --desktop <id>'],
       [[a, '--desktop', join(base, 'nowhere')], 'no project or package there'],

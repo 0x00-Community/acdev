@@ -148,9 +148,18 @@ export class Creator {
     return Project.idOf(basename(resolve(dir))) ?? ''
   }
 
+  static #free(dir: string): string {
+    const full = resolve(dir)
+    for (let n = 2; ; n++) {
+      const next = join(dirname(full), `${basename(full)}-${n}`)
+      if (!existsSync(next)) return relative(process.cwd(), next) || next
+    }
+  }
+
   static vacant(dir: string): string | undefined {
     if (!dir.trim()) return 'a directory, please'
-    if (existsSync(dir) && readdirSync(dir).some((name) => name !== '.git')) return `${dir} is not empty`
+    if (existsSync(dir) && readdirSync(dir).some((name) => name !== '.git'))
+      return `${dir} is not empty: pick another name, such as ${Creator.#free(dir)}`
     const id = Creator.idOf(dir)
     if (!Project.ID.test(id)) return `${JSON.stringify(id)} is no id: lowercase letters, digits and -`
     return undefined

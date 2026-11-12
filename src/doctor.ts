@@ -268,6 +268,10 @@ export class Doctor {
   }
 
   static project(dir: string, named: boolean, available: Available): Check[] {
+    if (named && !existsSync(dir)) {
+      return [Doctor.error('project', 'project', `${dir} does not exist: pass the directory of an acde project, `
+        + 'or leave it out to check this machine only')]
+    }
     if (!Doctor.isProject(dir)) {
       const summary = `no acde project in ${dir} (no ${Project.CONFIGS[0]}, no acde field in package.json)`
       return [named ? Doctor.error('project', 'project', summary)

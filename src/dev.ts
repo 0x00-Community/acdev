@@ -83,7 +83,7 @@ export class DevSession {
 
   static target(built: Built, app: string | undefined): Target {
     if (app !== undefined) {
-      if (!built.apps.includes(app)) throw new Error(`no app ${JSON.stringify(app)} here (${built.apps.join(', ')})`)
+      if (!built.apps.includes(app)) throw new Error(DevSession.#notApp(app, built.apps))
       return { kind: 'app', id: app }
     }
     const desktop = built.desktops[0]
@@ -91,6 +91,21 @@ export class DevSession {
     const first = built.apps[0]
     if (first === undefined) throw new Error('nothing to run: no desktop and no app')
     return { kind: 'app', id: first }
+  }
+
+  static #notApp(app: string, apps: readonly string[]): string {
+    const listed = apps.length ? `its apps: ${apps.join(', ')}` : 'it has no apps'
+    const pathy = /[\\/]/.test(app) || app === '.' || app === '..' || DevSession.#isDirectory(resolve(app))
+    const hint = pathy ? `; give a directory as the first argument: acde dev ${app}` : ''
+    return `--app ${app}: not an app id of this project (${listed}); --app takes an app id${hint}`
+  }
+
+  static #isDirectory(path: string): boolean {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
   }
 
   #desktopOf(value: string): Unit | string {

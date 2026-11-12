@@ -129,6 +129,11 @@ describe('acde doctor', () => {
     const named = await doctor([tmp()], s.project, s.env)
     expect(named.code).toBe(1)
     expect(line(named.stdout, 'project')).toMatch(/^error  project: no acde project in .* \(no acde\.config\.jsonc, no acde field in package\.json\)$/)
+    const nowhere = join(tmp(), 'nowhere')
+    const absent = await doctor([nowhere], s.project, s.env)
+    expect(absent.code).toBe(1)
+    expect(line(absent.stdout, 'project')).toBe(`error  project: ${nowhere} does not exist: pass the directory of an `
+      + 'acde project, or leave it out to check this machine only')
     const here = await doctor([], tmp(), s.env)
     expect(line(here.stdout, 'project')).toMatch(/^skip   project: no acde project in .*: run acde doctor in a project, or pass its directory, to check it too$/)
     const bad = join(tmp(), 'bad')

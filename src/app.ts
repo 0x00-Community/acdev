@@ -77,7 +77,10 @@ export class Project {
       : {}
     this.pkg = pkg
     const found = Project.CONFIGS.map((name) => join(this.dir, name)).find((path) => existsSync(path))
-    if (!found && !existsSync(file)) throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}`)
+    if (!found && !existsSync(file)) {
+      throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}: not an acde project; `
+        + 'run this in a project directory (or pass it), or create one with acde new <name>')
+    }
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
     if (found) {
       const config = Jsonc.parse(readFileSync(found, 'utf8'), basename(found)) as AcdeConfig
