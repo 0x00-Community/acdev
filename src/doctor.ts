@@ -279,8 +279,9 @@ export class Doctor {
         : Doctor.skip('project', 'project', `${summary}: run acde doctor in a project, or pass its directory, to check it too`)]
     }
     const pkg = new AppPackage(dir)
-    const deps = Doctor.dependencies(dir, available)
-    const checks = [Doctor.findings(pkg, deps?.fix === Doctor.SDK_FIX)]
+    const fix = Doctor.sdkFix(dir, named)
+    const deps = Doctor.dependencies(dir, available, fix)
+    const checks = [Doctor.findings(pkg, deps?.fix === fix, fix)]
     const platform = Doctor.PLATFORMS[process.platform]
     if (platform) checks.push(Doctor.platform(pkg, platform))
     if (deps) checks.push(deps)
@@ -295,7 +296,7 @@ export class Doctor {
     return manifest !== null && typeof manifest['acde'] === 'object' && manifest['acde'] !== null
   }
 
-  static findings(pkg: AppPackage, sdkElsewhere = false): Check {
+  static findings(pkg: AppPackage, sdkElsewhere = false, sdkFix = Doctor.SDK_FIX): Check {
     let errors: readonly string[]
     let warnings: readonly string[]
     let sdk: string | null = null
@@ -308,7 +309,7 @@ export class Doctor {
     }
     if (sdk !== null && sdkElsewhere) warnings = warnings.filter((warning) => warning !== sdk)
     else if (sdk !== null && errors.length === 0 && warnings.length === 1 && warnings[0] === sdk)
-      return Doctor.warn('project', 'project', `${pkg.name}: ${sdk}`, Doctor.SDK_FIX)
+      return Doctor.warn('project', 'project', `${pkg.name}: ${sdk}`, sdkFix)
     const more = (list: readonly string[]) => (list.length > 1 ? ` (and ${list.length - 1} more)` : '')
     if (errors.length > 0) return Doctor.error('project', 'project', `${pkg.name}: ${errors[0]}${more(errors)}`, 'acde check lists them')
     if (warnings.length > 0) return Doctor.warn('project', 'project', `${pkg.name}: ${warnings[0]}${more(warnings)}`, 'acde check lists them')
@@ -330,7 +331,7 @@ export class Doctor {
     return Doctor.ok('platform', 'platform', `${platform} (${report.modes.join(', ')}) has every required capability${notes}`)
   }
 
-  static dependencies(dir: string, available: Available): Check | null {
+  static dependencies(dir: string, available: Available, sdkFix = Doctor.SDK_FIX): Check | null {
     const manifest = Doctor.#json(join(dir, 'package.json'))
     if (!manifest) return null
     let pm: PackageManager
@@ -347,7 +348,7 @@ export class Doctor {
         `PATH: acde builds it on ${Runtime.bun ? 'Bun' : 'Node.js'} instead`,
         pm.runtime === 'bun' ? 'install Bun (https://bun.sh)' : 'install Node.js (https://nodejs.org)')
     }
-    const sdkCheck = Doctor.#sdk(dir, manifest)
+    const sdkCheck = Doctor.#sdk(dir, manifest, sdkFix)
     if (sdkCheck) return sdkCheck
     const missing = Object.keys(declared).filter((name) => Doctor.installedPackage(dir, name) === null)
     if (missing.length > 0) {
@@ -362,7 +363,7 @@ export class Doctor {
     return Doctor.ok('dependencies', 'dependencies', `installed with ${pm.name} (runs on ${runtime})${sdkText}`)
   }
 
-  static #sdk(dir: string, manifest: Readonly<Record<string, unknown>>): Check | null {
+  static #sdk(dir: string, manifest: Readonly<Record<string, unknown>>, fix: string): Check | null {
     const sdk = Versions.sdk()
     if (sdk === 'unknown') return null
     const state = Sdk.state(dir, manifest)
@@ -376,7 +377,7 @@ export class Doctor {
       ? `package.json names ${named}, ${installed} is installed`
       : `the project has ${installed ?? named ?? state.spec}`
     return Doctor.warn('dependencies', 'dependencies', `${Sdk.NAME}: ${has}; this acde pairs with ${sdk} `
-      + `(acde sdk update sets it to ${Sdk.url()} and reinstalls)`, Doctor.SDK_FIX)
+      + `(acde sdk update sets it to ${Sdk.url()} and reinstalls)`, fix)
   }
 
   static installedPackage(dir: string, name: string): string | null {
@@ -627,6 +628,13 @@ export class Doctor {
   }
 
   static readonly SDK_FIX = 'run acde sdk update'
+
+  static sdkFix(dir: string, named: boolean, cwd = process.cwd()): string {
+    const [at, here] = [Doctor.real(dir), Doctor.real(cwd)]
+    if (!named || at === here) return Doctor.SDK_FIX
+    const shown = Doctor.inside(at, here) ? relative(here, at) : at
+    return `${Doctor.SDK_FIX} ${/\s/.test(shown) ? `"${shown}"` : shown}`
+  }
 
   static warn(id: string, title: string, summary: string, fix?: string): Check {
     return { id, title, status: 'warn', summary, ...(fix && { fix }) }

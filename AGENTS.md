@@ -306,7 +306,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   给了目录参数就是错误. `project` (`acde check` 的第一个错误或警告加剩几条, fix `acde check lists them`)、`platform` (缺必需能力是错误, 可选的写进内容)、
   `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
   里提升到上层的也算装了; SDK 版本只报一次 (gitea acde#92): package.json 写的 (`Sdk.state`) 或装的 `@dopame/acde-api` 和这个 acde 构建所用的版本不同时,
-  `dependencies` 报这一行 (排在依赖没装之前), fix 一律是 `Doctor.SDK_FIX` (`run acde sdk update`), 这时 `project` 去掉 `acde check` 里同一条 SDK 警告;
+  `dependencies` 报这一行 (排在依赖没装之前), fix 是 `Doctor.sdkFix` (`run acde sdk update`; `acde doctor <目录>` 给的不是当前目录时
+  后面跟上它, 当前目录里的写相对路径、外面的写绝对路径, 含空白加双引号, 不然照抄去跑会改当前目录), 这时 `project` 去掉 `acde check` 里同一条 SDK 警告;
   运行时不在 PATH 上而轮不到这一行时, SDK 警告是 `project` 唯一一条就用同一个 fix; `PackageManager.of` 往上读到不是 JSON 的 package.json 时
   报 `<文件> is not valid JSON (…): acde reads it to tell which package manager the project uses`, `dependencies` 和 `project` 都是这条错误,
   不崩. `acde check` / `dev` / `build` 遇到它也是这一行报错退出 1, 不再是不带文件名的 `JSON Parse error`)、`gitignore` (在 git 仓库里

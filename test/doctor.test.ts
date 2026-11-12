@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
@@ -175,6 +175,15 @@ describe('acde doctor', () => {
     expect(line(stale.stdout, 'dependencies')).toStartWith(said)
     expect(fixAfter(stale.stdout, 'dependencies')).toBe('run acde sdk update')
     expect(stale.stdout).not.toContain('acde check lists them')
+    const elsewhere = await doctor([s.project], tmp(), s.env)
+    expect(sdkLines(elsewhere.stdout)).toHaveLength(1)
+    expect(fixAfter(elsewhere.stdout, 'dependencies')).toBe(`run acde sdk update ${realpathSync(s.project)}`)
+    const below = await doctor(['alpha'], dirname(s.project), s.env)
+    expect(sdkLines(below.stdout)).toHaveLength(1)
+    expect(fixAfter(below.stdout, 'dependencies')).toBe('run acde sdk update alpha')
+    expect(fixAfter((await doctor(['.'], s.project, s.env)).stdout, 'dependencies')).toBe('run acde sdk update')
+    mkdirSync(join(s.root, 'my app'))
+    expect(Doctor.sdkFix(join(s.root, 'my app'), true, s.root)).toBe('run acde sdk update "my app"')
   }, 60_000)
 
   test('a package.json above the project that is not JSON: findings that name it, not a crash', async () => {
