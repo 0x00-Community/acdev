@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
 import type { InspectAction } from '@dopame/acde-api'
-import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
@@ -185,8 +184,9 @@ export class Mcp {
       {
         description: 'Run acde dev (build, start acdert, rebuild and reload on change) and use that session. Without '
           + 'dirs it runs the project in the working directory. Its output is kept for logs. Stops when this server '
-          + 'stops. When an acde dev already runs these projects, start uses that session instead (it says so; '
-          + 'logs and stop are only for one start ran); force: true starts another.',
+          + 'stops. When an acde dev already runs exactly this (the same projects, desktop, app and headless), start '
+          + 'uses that session instead (it says so; logs and stop are only for one start ran); when one runs these '
+          + 'projects otherwise, start fails and names it; force: true starts another.',
         inputSchema: z.object({
           dirs: z.array(z.string()).optional().describe('project directories, relative to the working directory '
             + '(default: the working directory)'),
@@ -784,14 +784,25 @@ export class Mcp {
   }): Promise<Result> {
     if (this.#launched && !this.#launched.closed)
       throw new Error(`acde dev ${this.#launched.session.pid} started here is running; stop it first`)
-    const dirs = (args.dirs?.length ? args.dirs : ['.']).map((dir) => Mcp.#real(resolve(this.#cwd, dir)))
-    const [running] = args.force ? [] : await Sessions.live(Sessions.running(Sessions.list(), dirs))
-    if (running) {
-      this.#pinned = running.pid
-      const acde = await this.#acde()
-      const webs = await Mcp.#webs(acde)
-      return Mcp.#text(`attached to acde dev ${running.pid}, which already runs ${running.dirs.join(', ')}; it was `
-        + `started elsewhere, so logs and stop do not reach it (start {force: true} starts another)\n\n${webs}`)
+    if (!args.force) {
+      const wanted = Sessions.wanted(this.#cwd, args)
+      const running = await Sessions.live(Sessions.running(Sessions.list(), wanted.dirs))
+      const same = running.find((session) => Sessions.runs(session, wanted))
+      if (same) {
+        const acde = await Acde.attach({ cwd: this.#cwd, session: same.pid })
+        await this.#attached?.close()
+        this.#attached = acde
+        this.#pinned = same.pid
+        const webs = await Mcp.#webs(acde)
+        return Mcp.#text(`attached to acde dev ${same.pid}, which already runs ${same.dirs.join(', ')}; it was `
+          + `started elsewhere, so logs and stop do not reach it (start {force: true} starts another)\n\n${webs}`)
+      }
+      const other = running[0]
+      if (other) {
+        throw new Error(`acde dev ${other.pid} already runs ${other.dirs.join(', ')} (${Sessions.what(other)}), which is `
+          + `not what start asked for; to use it, sessions {use: ${other.pid}}; to start another beside it, start {force: `
+          + `true}; or stop it first (acde stop --session ${other.pid})`)
+      }
     }
     const acde = await Acde.launch({
       ...(args.force === true && { force: true }),
@@ -807,14 +818,6 @@ export class Mcp {
     const what = `${runs}${args.headless ? ' without a window (headless)' : ''}`
     const webs = await Mcp.#webs(acde)
     return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${webs}`)
-  }
-
-  static #real(path: string): string {
-    try {
-      return realpathSync(path)
-    } catch {
-      return path
-    }
   }
 
   async #stop(): Promise<Result> {

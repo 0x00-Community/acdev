@@ -1,11 +1,14 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import net from 'node:net'
 import { join } from 'node:path'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Acde } from '../src/driver/index.ts'
-import { cleanup, standIn } from './helpers.ts'
+import { Sessions } from '../src/sessions.ts'
+import { cleanup, standIn, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -150,7 +153,13 @@ describe('acde mcp', () => {
       await client.close()
       const here = await connect(s.project, s.env)
       try {
-        const reused = await here.call('start', { headless: true })
+        const other = await here.call('start', { headless: true })
+        expect(other.error).toBe(true)
+        expect(other.text).toBe(`acde dev ${outside.session.pid} already runs ${outside.session.dirs.join(', ')} `
+          + `(app alpha), which is not what start asked for; to use it, sessions {use: ${outside.session.pid}}; to start `
+          + `another beside it, start {force: true}; or stop it first (acde stop --session ${outside.session.pid})`)
+        expect((await here.call('start', { app: 'beta' })).text).toContain('which is not what start asked for')
+        const reused = await here.call('start')
         expect(reused.error).toBe(false)
         expect(reused.text).toStartWith(`attached to acde dev ${outside.session.pid}, which already runs `
           + `${outside.session.dirs.join(', ')}; it was started elsewhere`)
@@ -177,6 +186,32 @@ describe('acde mcp', () => {
     for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)
     expect(existsSync(join(sessions, `${pid}.json`))).toBe(false)
   }, 60_000)
+
+  test('start pins the session it attaches to only once the attach worked', async () => {
+    const s = standIn()
+    const endpoint = WINDOWS ? `\\\\.\\pipe\\acde-test-${randomUUID()}` : join(s.root, 'once.sock')
+    const once = net.createServer((socket) => {
+      socket.destroy()
+      once.close()
+    })
+    await new Promise<void>((done) => once.listen(endpoint, () => done()))
+    Sessions.write({
+      pid: process.pid, endpoint, dirs: [s.project], apps: ['alpha'], desktop: null, headless: false, started: 1,
+      options: { desktop: null, app: null },
+    }, join(s.root, 'acde-dev'))
+    const { client, call } = await connect(s.project, s.env)
+    try {
+      const started = await call('start')
+      expect(started.error).toBe(true)
+      expect(started.text).toContain(`acde dev ${process.pid} is gone`)
+      const webs = await call('webs')
+      expect(webs.error).toBe(true)
+      expect(webs.text).toContain('no acde dev is running')
+    } finally {
+      await client.close()
+      once.close()
+    }
+  }, 30_000)
 
   test('act close on the only window of a single-app session succeeds and says the session ended; ' +
     'the next call says it stopped; another action that loses the connection is an error', async () => {

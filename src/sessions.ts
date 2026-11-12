@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
-  writeFileSync, type Stats,
+  statSync, writeFileSync, type Stats,
 } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -17,8 +17,26 @@ export interface Session {
   readonly desktop: string | null
   readonly headless?: boolean
   readonly test?: boolean
+  readonly options?: Options
   readonly started: number
   readonly reloaded?: Reloaded
+}
+
+export interface Options {
+  readonly desktop: string | null
+  readonly app: string | null
+}
+
+export interface Wanted extends Options {
+  readonly dirs: readonly string[]
+  readonly headless: boolean
+}
+
+export interface Asked {
+  readonly dirs?: readonly string[] | undefined
+  readonly desktop?: string | undefined
+  readonly app?: string | undefined
+  readonly headless?: boolean | undefined
 }
 
 export interface Reloaded {
@@ -112,6 +130,41 @@ export class Sessions {
   static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session[] {
     return sessions.filter((session) => session.pid !== self && !session.test
       && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine))))
+  }
+
+  static pathy(value: string): boolean {
+    return /[\\/]/.test(value) || value === '.' || value === '..'
+  }
+
+  static desktopProject(value: string, cwd = process.cwd()): string | null {
+    const dir = resolve(cwd, value)
+    const project = statSync(dir, { throwIfNoEntry: false })?.isDirectory() === true
+      && ['package.json', ...CONFIGS].some((name) => existsSync(join(dir, name)))
+    return project ? Sessions.#real(dir) : null
+  }
+
+  static desktopDir(value: string, cwd = process.cwd()): string | null {
+    return Sessions.desktopProject(value, cwd) ?? (Sessions.pathy(value) ? Sessions.#real(resolve(cwd, value)) : null)
+  }
+
+  static wanted(cwd: string, asked: Asked): Wanted {
+    const dirs = (asked.dirs?.length ? asked.dirs : ['.']).map((dir) => Sessions.#real(resolve(cwd, dir)))
+    const desktopDir = asked.desktop === undefined ? null : Sessions.desktopDir(asked.desktop, cwd)
+    return {
+      dirs: desktopDir === null || dirs.some((dir) => Sessions.sameDir(dir, desktopDir)) ? dirs : [...dirs, desktopDir],
+      desktop: desktopDir ?? asked.desktop ?? null,
+      app: asked.app ?? null,
+      headless: asked.headless === true,
+    }
+  }
+
+  static runs(session: Session, wanted: Wanted): boolean {
+    const options = session.options
+    if (!options || options.app !== wanted.app || (session.headless === true) !== wanted.headless) return false
+    const desktop = options.desktop === wanted.desktop
+      || (options.desktop !== null && wanted.desktop !== null && Sessions.sameDir(options.desktop, wanted.desktop))
+    const has = (dirs: readonly string[], dir: string) => dirs.some((other) => Sessions.sameDir(other, dir))
+    return desktop && wanted.dirs.every((dir) => has(session.dirs, dir)) && session.dirs.every((dir) => has(wanted.dirs, dir))
   }
 
   static answers(endpoint: string, timeoutMs = Sessions.PROBE_MS): Promise<boolean> {
@@ -237,12 +290,20 @@ export class Sessions {
         desktop: typeof json.desktop === 'string' ? json.desktop : null,
         headless: json.headless === true,
         ...(json.test === true && { test: true }),
+        ...Sessions.#options(json.options),
         started: Number(json.started) || 0,
         ...reloaded,
       }
     } catch {
       return null
     }
+  }
+
+  static #options(value: unknown): { options?: Options } {
+    if (typeof value !== 'object' || value === null) return {}
+    const { desktop, app } = value as Record<string, unknown>
+    const fits = (field: unknown) => field === null || typeof field === 'string'
+    return fits(desktop) && fits(app) ? { options: { desktop: desktop as string | null, app: app as string | null } } : {}
   }
 
   static #real(path: string): string {

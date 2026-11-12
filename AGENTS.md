@@ -406,11 +406,18 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
     的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acde dev`, `acde eval` 等也不会挑中这个转瞬即逝的
     会话); 只有 `--session <pid>` (MCP 的 `sessions {use}`) 到得了它. 只剩测试会话时报 `no acde dev is running, only sessions of acde test, which
     are reached only with --session <pid>` 并列出; `Sessions.what` 在它后面标 `acde test`.
-  - MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话 (同样经 `Sessions.live` 确认): 有就钉住并连上它,
-    回 `attached to acde dev <pid>, which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true}
-    starts another)` 加 webs 表 (agent 常忘了后台开着的会话, 不让它卡在报错上); `force: true` 才另起 (带 `--force`).
+  - MCP 的 `start` 先看有没有活着的 (同样经 `Sessions.live` 确认) 会话**正好**跑着它要的 (`Sessions.wanted` 按 `acde dev` 的规则把参数归一:
+    `dirs` 默认工作目录、取真实路径, `--desktop` 是工程目录时取真实路径并算进 `dirs`, 否则是 id; 是不是工程目录由
+    `Sessions.desktopProject` / `Sessions.pathy` 判, `DevSession.#desktopOf` 用的是同一条规则; `Sessions.runs` 比: `dirs` 作为集合相同、
+    会话文件的 `options` (`acde dev` 写的 `{desktop, app}`, 即它收到的 `--desktop` 归一后的值和 `--app`, 没给是 `null`) 相同、`headless` 相同;
+    没有 `options` 的旧会话文件算不同): 有就先 `Acde.attach({session: pid})` 连上, 成功后才换掉原来接的、钉住它, 回 `attached to acde dev <pid>,
+    which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true} starts another)` 加 webs 表
+    (agent 常忘了后台开着的会话, 不让它卡在报错上). 只是工程有重叠 (另一组工程、别的桌面或应用、有无 headless 不同) 时不接、不起, 报
+    `acde dev <pid> already runs <目录> (<Sessions.what>), which is not what start asked for; to use it, sessions {use: <pid>}; to start another
+    beside it, start {force: true}; or stop it first (acde stop --session <pid>)` (起了也只会被 acde dev 拒绝); `force: true` 才另起 (带 `--force`).
+    只有认领、还没写会话文件的 acde dev (正在构建) 看不到, 这时起的 acde dev 被拒绝, 报的是 `LaunchError` 里它的那行.
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
-  不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, started}`: 起来后写、重建后重写、
+  不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, test?, options: {desktop, app}, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过
   (gitea acde#87: 重载时改写会话文件, 旧版把读到一半的文件当坏文件删掉、或在两种错误里同时报“没有”和“好几个”). Windows 上 rename 碰上正在读的文件可能 EPERM / EBUSY,
   写会话文件时重试 (最多 20 次, 每次 5 ms). 工具和 driver 用 `Sessions.find` 挑会话: 挑不到时 1 s 内每 50 ms 重列重挑, 到时才报最后一次的错;

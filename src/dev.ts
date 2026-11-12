@@ -1,4 +1,4 @@
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { rmSync, statSync } from 'node:fs'
 import { basename, delimiter, resolve } from 'node:path'
 import type { StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -143,15 +143,10 @@ export class DevSession {
   }
 
   #desktopOf(value: string): Unit | string {
-    const dir = resolve(value)
-    const pathy = /[\\/]/.test(value) || value === '.' || value === '..'
-    const project =
-      existsSync(dir) &&
-      statSync(dir).isDirectory() &&
-      ['package.json', ...Project.CONFIGS].some((name) => existsSync(resolve(dir, name)))
-    if (pathy && !project)
+    const dir = Sessions.desktopProject(value)
+    if (dir === null && Sessions.pathy(value))
       throw new Error(`--desktop ${value}: no project or package there (no package.json or ${Project.CONFIGS[0]})`)
-    if (!project) {
+    if (dir === null) {
       if (!/^[\w-]+$/.test(value)) throw new Error(`--desktop ${value}: not a desktop id or a directory`)
       return value
     }
@@ -359,6 +354,10 @@ export class DevSession {
         desktop: this.#shown,
         headless: this.#headless,
         ...(this.#test && { test: true }),
+        options: {
+          desktop: this.#desktop === null || typeof this.#desktop === 'string' ? this.#desktop : this.#desktop.pkg.dir,
+          app: this.#app ?? null,
+        },
         started: this.#started,
         ...(this.#reloaded && { reloaded: this.#reloaded }),
       })
