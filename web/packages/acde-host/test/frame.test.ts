@@ -166,20 +166,10 @@ describe('Frame.darkPage', () => {
     assert.equal(styled, 1, 'the computed style is read once, not for every change in the body')
   })
 
-  test('a color-scheme meta answers without reading the computed style', () => {
-    let styled = 0
-    const page = {
-      document: { documentElement: {} as Element, head: null, querySelector: () => ({ getAttribute: () => 'light dark' }) as unknown as Element },
-      getComputedStyle: () => {
-        styled += 1
-        return { getPropertyValue: () => '' }
-      },
-      MutationObserver: class {
-        observe(): void {}
-        disconnect(): void {}
-      },
-    }
-    assert.equal(Frame.darkPage(page), true)
-    assert.equal(styled, 0)
+  test("the root's color-scheme wins over the meta, as in browsers", () => {
+    assert.equal(Frame.darkFrame(page('dark', 'light dark'), false), true, 'an app that switched itself to dark')
+    assert.equal(Frame.darkFrame(page('light', 'light dark'), true), false, 'an app that switched itself to light')
+    assert.equal(Frame.darkFrame(page('normal', 'dark'), false), true, 'the meta when the root says nothing')
+    assert.equal(Frame.darkFrame(page('', 'light dark'), true), true)
   })
 })

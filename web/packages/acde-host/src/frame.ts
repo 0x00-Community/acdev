@@ -60,10 +60,10 @@ export class Frame {
   }
 
   static scheme(page: SchemePage): string {
-    const meta = (page.document.querySelector('meta[name="color-scheme" i]')?.getAttribute('content') ?? '').trim()
-    if (DARK.test(meta)) return meta
     const root = page.document.documentElement
-    return root ? page.getComputedStyle(root).getPropertyValue('color-scheme').trim() : ''
+    const own = root ? page.getComputedStyle(root).getPropertyValue('color-scheme').trim() : ''
+    if (own && own !== 'normal') return own
+    return (page.document.querySelector('meta[name="color-scheme" i]')?.getAttribute('content') ?? '').trim()
   }
 
   static darkPage(page: SchemePage): boolean {
