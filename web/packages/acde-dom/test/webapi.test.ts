@@ -727,3 +727,31 @@ test('network: app files the renderer serves itself are reported with their type
   assert.deepEqual(calls, [])
   web.run('__acdeDom.observe(null)')
 })
+
+test('network: an image the renderer takes from its cache is still reported, also from another host', async () => {
+  using web = await page()
+  web.host.assets.set('/pic.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>')
+  const calls: unknown[][] = []
+  const network: NetworkObserver = {
+    recording: () => true,
+    start: (id, kind, method, url) => void calls.push(['start', kind, url]),
+    response: (id, status) => void calls.push(['response', status]),
+    data: (id, chunk) => void calls.push(['data', chunk.length]),
+    end: (id, bytes) => void calls.push(['end', bytes]),
+    error: (id, message) => void calls.push(['error', message]),
+  }
+  web.context['__network'] = network
+  web.run('__acdeDom.observe({ network: globalThis.__network })')
+  web.dom.loader!(-1, 'http://acde.local/pic.svg', 'image', '', true)
+  web.dom.loader!(-1, 'https://elsewhere.example/favicon.ico', 'image', '', true)
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['start', 'image', 'http://acde.local/pic.svg'],
+    ['response', 200],
+    ['data', 41],
+    ['end', 41],
+    ['start', 'image', 'https://elsewhere.example/favicon.ico'],
+    ['response', 200],
+    ['end', 0],
+  ])
+  web.run('__acdeDom.observe(null)')
+})

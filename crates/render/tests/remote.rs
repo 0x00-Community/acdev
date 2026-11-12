@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use acde_render::{Document, Dom, Load, Loader, NONE, Options};
+use acde_render::{Document, Dom, Load, Loader, NONE, Ns, Options};
 
 const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGP4z8DwH4QZMBgAoXkL9U3EmgcAAAAASUVORK5CYII=";
 
@@ -248,4 +248,31 @@ fn a_sheet_is_closed_to_the_page_by_the_response_it_was_made_from() {
     assert_eq!(dom.take_loaded(), vec![link]);
     assert_eq!((dom.sheet_url(link).unwrap(), dom.sheet_opaque(link).unwrap()), (None, false), "a failed fetch leaves no sheet");
     assert_eq!(dom.sheet_serial(link).unwrap(), None);
+}
+
+#[test]
+fn an_image_taken_from_the_cache_is_still_reported_to_the_loader() {
+    let (_doc, dom, loads) = page("<body id=body><img id=a src='https://img.example.com/a.png'></body>");
+    take(&loads, "https://img.example.com/a.png").finish(Some(png()));
+    dom.take_loaded();
+    let b = dom.create_element(Ns::Html, "img").unwrap();
+    dom.set_attribute(b, "src", "https://img.example.com/a.png").unwrap();
+    dom.insert_before(by_id(&dom, "body"), b, NONE).unwrap();
+    dom.take_loaded();
+    let again = take(&loads, "https://img.example.com/a.png");
+    assert!(again.served, "taken from the cache, so only reported");
+    assert_eq!(again.destination, "image");
+}
+
+#[test]
+fn a_new_image_out_of_the_document_loads_through_the_loader() {
+    let (_doc, dom, loads) = page("<body></body>");
+    let img = dom.create_element(Ns::Html, "img").unwrap();
+    dom.set_attribute(img, "src", "https://img.example.com/new.png").unwrap();
+    let load = take(&loads, "https://img.example.com/new.png");
+    assert!(!load.served);
+    assert_eq!(load.destination, "image");
+    load.finish(Some(png()));
+    assert_eq!(dom.take_loaded(), vec![img]);
+    assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0]);
 }

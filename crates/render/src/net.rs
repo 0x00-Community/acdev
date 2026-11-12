@@ -87,6 +87,14 @@ impl LocalNet {
 }
 
 impl NetProvider for LocalNet {
+    fn reused(&self, url: &Url, destination: &'static str) {
+        if let Some(loader) = &self.loader
+            && matches!(url.scheme(), "http" | "https" | "blob")
+        {
+            (loader.0)(Load { url: url.to_string(), destination, cors: "", served: true, done: None });
+        }
+    }
+
     fn fetch(&self, _doc_id: usize, request: Request, handler: Box<dyn NetHandler>) {
         let url = request.url;
         let bytes = match url.scheme() {

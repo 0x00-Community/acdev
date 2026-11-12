@@ -593,10 +593,15 @@ fn images() {
 
     let img = dom.create_element(Ns::Html, "img").unwrap();
     dom.set_attribute(img, "src", PNG).unwrap();
-    assert_eq!(dom.image_state(img).unwrap()[2], 0.0);
-    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), img, NONE).unwrap();
-    assert_eq!(dom.take_loaded(), vec![img]);
+    assert_eq!(dom.take_loaded(), vec![img], "an image out of the document loads too, as new Image() does");
     assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0]);
+    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), img, NONE).unwrap();
+    assert!(dom.take_loaded().is_empty(), "inserting it does not load it again");
+    assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0]);
+    let missing = dom.create_element(Ns::Html, "img").unwrap();
+    dom.set_attribute(missing, "src", "/nothing-here.png").unwrap();
+    assert_eq!(dom.take_loaded(), vec![missing]);
+    assert_eq!(dom.image_state(missing).unwrap(), [0.0, 0.0, 2.0], "and fails out of the document too");
     dom.set_attribute(none, "src", PNG).unwrap();
     assert_eq!(dom.take_loaded(), vec![none]);
 }

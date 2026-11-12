@@ -402,7 +402,9 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   响应体不留), 页面加载的图片、样式表、字体 (类型 `Image` / `Stylesheet` / `Font`; 应用包里的文件经 `Tracked.network` 只报给 DevTools,
   dev 日志不变; 渲染器自己从应用包读的 (`<img>`、`<link rel=stylesheet>`、CSS 里的字体: render `net.rs` `LocalNet` 直接读文件, 不经 JS 加载器)
   在 dev 模式下也给加载器发一个 `served: true` 的 `Load` (没有 `done`), crates/acdert `dom.rs` 以 `(-1, url, destination, cors, true)` 调页面的
-  加载回调, acde-dom `reportServed` 在有客户端录制时按路径读出文件补报; 非 dev 模式不发). 因页面没有 network 能力被拒的 (`NO_NETWORK`) 在 `loadingFailed` 带 `blockedReason: "other"`.
+  加载回调, acde-dom `reportServed` 在有客户端录制时按路径读出文件补报; 非 dev 模式不发). 图片取自文档的图片缓存或并入进行中的请求时不再取,
+  acrender 经 `NetProvider::reused` 同样报成 served (别的主机的只有状态, 没有响应体). 不在文档里的 `<img>` (`new Image()`) 设了 `src` 也加载
+  并发 load / error (acrender `mutator.rs` `set_attribute`; render `Engine::image` 只在请求进行中时算加载中), 和浏览器一样. 因页面没有 network 能力被拒的 (`NO_NETWORK`) 在 `loadingFailed` 带 `blockedReason: "other"`.
   `Tracked` 的 `frame(sent, data)` / `message(event, data, lastId)` 交给 `NetworkObserver` 的可选同名方法; `exchange` 可以接收调用方建好的 `Tracked`.
   `CSS` (#191, `devtools/css.ts`) 和 `DOM.getBoxModel`: 取数和 `getComputedStyle` / `getBoundingClientRect` 是同一个原生接口 (`dom.computedStyleAll`,
   `dom.rect`, 经 `pagedom.ts`). `getComputedStyleForNode` 是 stylo 算出的全部值; `getBoxModel` 的 border 是 `rect` (变换后的包围盒),
