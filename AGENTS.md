@@ -129,7 +129,11 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   说明别处装不上, 让人跑 `acde sdk update`. 版本配对 (`src/sdk.ts`): `Sdk.state` 从 tarball 地址取版本 (别的写法读 `node_modules` 里装的),
   与 `Sdk.paired()` 不同时 `acde check` 打警告、`acde dev` 开始时打一行 (`AppPackage.sdkWarning`). `acde sdk [dir]` 显示两边版本;
   `acde sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进 devDependencies) 改成配对版本的 tarball 地址, 按 `PackageManager.of`
-  (锁文件或 `packageManager`) 重装.
+  (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找) 装的是别的版本时, 警告改成 `package.json names … but X is
+  installed: run <pm> install` (`SdkState.installed`). npm 12 默认拒绝网址依赖 (`EALLOWREMOTE`, gitea acde#89): npm 工程的 `.npmrc` 写
+  `allow-remote=root` (`Sdk.allowRemote`: 已有任何 `allow-remote` 行就不动; `acde new --pm npm` 和 npm 工程的 `sdk update` 都加),
+  npm 11 以前对这行只是忽略或提示未知配置. `sdk update` 先记下 package.json、各锁文件和 `.npmrc`, 安装失败时原样写回 (新加的删掉) 并报
+  `… was undone: package.json and <锁文件> are as before`; `node_modules` 不回滚, 提示重跑安装.
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到

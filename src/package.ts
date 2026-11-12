@@ -12,6 +12,7 @@ import { Project, type BuildOptions } from './app.ts'
 import { Imports, type ImportFindings, type ImportOwner } from './imports.ts'
 import { Jsonc } from './runtime.ts'
 import { Sdk } from './sdk.ts'
+import { PackageManager } from './pm.ts'
 
 export interface PlatformReport {
   readonly modes: readonly RunningMode[]
@@ -133,7 +134,8 @@ export class AppPackage {
 
   sdkWarning(): string | null {
     if (!this.project) return null
-    return AppPackage.localSdk(this.project.pkg) ?? Sdk.warning(Sdk.state(this.dir, this.project.pkg))
+    const pm = PackageManager.of(this.dir).name
+    return AppPackage.localSdk(this.project.pkg) ?? Sdk.warning(Sdk.state(this.dir, this.project.pkg), pm)
   }
 
   static localSdk(pkg: Readonly<Record<string, unknown>>): string | null {

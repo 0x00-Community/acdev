@@ -258,6 +258,7 @@ export class Creator {
       }
       if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
         writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+      if (pm.name === 'npm') Sdk.allowRemote(dir)
       Creator.#pin(dir, pm)
     } catch (error) {
       Creator.#undo(dir, existed)
