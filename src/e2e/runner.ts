@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
-import { Color } from '../color.ts'
+import { Color, type Palette } from '../color.ts'
 import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { cpus } from 'node:os'
@@ -36,8 +36,18 @@ export interface Tally {
   readonly skipped: number
 }
 
+export interface Summary {
+  readonly tallies: readonly Tally[]
+  readonly uncounted: readonly string[]
+  readonly failed: readonly string[]
+  readonly files: number
+  readonly filtered: number
+  readonly unrun: number
+}
+
 export class TestRunner {
   static readonly PATTERN = '**/*.e2e.{ts,tsx,js,mjs,mts}'
+  static readonly UNCOUNTED = 'bun test left no report: the file did not load, or its run was killed'
 
   static suites(targets: readonly string[], cwd: string): Suite[] {
     const suites: Suite[] = []
@@ -82,15 +92,23 @@ export class TestRunner {
     return { ran: tests - skipped, passed: tests - skipped - failed, failed, skipped }
   }
 
-  static counted(tallies: readonly Tally[], uncounted: readonly string[]): string {
+  static summary(run: Summary, c: Palette = Color.palette(false)): string {
+    const { tallies, uncounted, failed } = run
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
     const sum = (pick: (tally: Tally) => number) => tallies.reduce((total, tally) => total + pick(tally), 0)
-    const ran = sum((t) => t.ran)
     const skipped = sum((t) => t.skipped)
     const left = skipped ? `, ${skipped} not run (skipped, todo, or not matched by -t)` : ''
-    const said = `${ran} test${ran === 1 ? '' : 's'} ran: ${sum((t) => t.passed)} passed, ${sum((t) => t.failed)} failed${left}`
-    const why = 'bun test left no report: the file did not load, or its run was killed'
-    const missing = uncounted.length ? `not counted: ${uncounted.join(', ')} (${why})` : ''
-    return `acde test: ${[...(tallies.length ? [said] : []), ...(missing ? [missing] : [])].join('; ')}`
+    const counted = `${plural(sum((t) => t.ran), 'test')} in ${plural(tallies.length, 'file')}`
+    const parts = [
+      tallies.length
+        ? `${counted}: ${sum((t) => t.passed)} passed, ${sum((t) => t.failed)} failed${left}`
+        : `${plural(run.files, 'file')} ran`,
+      ...(failed.length ? [`failed: ${failed.join(', ')}`] : []),
+      ...(uncounted.length ? [`not counted: ${uncounted.join(', ')} (${TestRunner.UNCOUNTED})`] : []),
+      ...(run.filtered ? [`${plural(run.filtered, 'file')} skipped (no test matches -t)`] : []),
+      ...(run.unrun ? [`${plural(run.unrun, 'file')} not run (--bail)`] : []),
+    ]
+    return `${(failed.length ? c.error : c.ok)('acde test:')} ${parts.join('; ')}`
   }
 
   static async run(options: RunnerOptions): Promise<number> {
@@ -212,15 +230,9 @@ export class TestRunner {
       return 1
     }
     const unrun = suites.length - ran - filtered.length
-    const files = `${ran} file${ran === 1 ? '' : 's'}`
-    const skipped = filtered.length ? `, ${filtered.length} skipped (no test matches -t)` : ''
-    const notRun = unrun ? `, ${unrun} not run (--bail)` : ''
-    const c = Color.palette()
-    const label = (failed.length ? c.error : c.ok)('acde test:')
-    const summary = `${label} ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
+    const summary = { tallies, uncounted, failed, files: ran, filtered: filtered.length, unrun }
     const left = kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''
-    if (ran) console.log(TestRunner.counted(tallies, uncounted))
-    console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
+    console.log(`${TestRunner.summary(summary, Color.palette())}${left}`)
     return failed.length ? 1 : 0
   }
 

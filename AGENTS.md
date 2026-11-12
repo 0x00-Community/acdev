@@ -19,7 +19,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 | `acde check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架) 再用 `Manifest.check` 判一遍; 都查 `acde:` 导入; `--platform` 见下 |
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
-| `acde uninstall [id\|目录] [--yes]` | `src/uninstall.ts`: 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 没装、2 在用、3 没确认 |
+| `acde uninstall [id\|目录] [--yes]` | `src/uninstall.ts`: 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose]` | 构建、起 acdert、改了就重新构建并 `reload` |
 | `acde doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修; `--fix` 修 acde 能修的 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
@@ -38,6 +38,10 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 `TERM=dumb` 不上色. 上色的只有帮助、快速上手、标签 (`ok:` 绿、`warning:` 黄、`error:` 红、`note:`/`hint:` 暗)、`acde doctor` 的状态词
 (ok 绿、warn 黄、error 红、skip 暗), 以及结果行的前缀: `build`/`install` 成功的 `acde:` 绿, `acde doctor:` 和 `acde test:` 汇总按结果
 绿/黄/红.
+退出码与报错形状 (`src/output.ts` `Exit` / `Output.option`, acde#85): 0 做完 (空列表也算), 1 出错 (含包正被使用), 2 没做成但不算错
+(`query` / `inspect --find` 没找到、`uninstall` 没装), 3 取消或没确认 (交互 `new` 按 Ctrl+C、`uninstall` 拒绝或非终端没 `--yes`). 选项值错一律
+`acde: <命令>: --<选项> <值>: <要什么> (acde <命令> --help)`. "没找到" 和说明写 stderr, 带 `acde:`; `console` / `network` 没内容时 stderr 打
+`acde: no console entries` / `acde: no requests` (给了 `--since` 加 ` in that range`, `--follow` 加 ` yet; waiting for new ones`), 退出 0.
 stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
 (`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
 不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acde: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdert 转来的错误
@@ -496,8 +500,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `<results>/<文件>/<测试>/` 留 `error.txt`、`output.log`、`screen.png`、`snapshot.txt`、`console.txt`、`network.txt`、`trace.txt` (截图比对的
   `-actual` / `-expected` / `-diff` 也在这). `--trace` 每个测试都留 `trace.html`; `-u` / `--update-screenshots` 重写基线. `TestRunner` 每个文件一个
   `bun test` 子进程, 设置走 `ACDE_TEST_*` (`settings.ts`); 默认 headless、每个测试 60 s, 先清 `.acde/test-results`.
-  **汇总** (最后两行): 先 `acde test: N tests ran: P passed, F failed[, S not run (skipped, todo, or not matched by -t)]`, 再是 0.0.8 原有的
-  按文件数的一行 `acde test: N files, P passed, F failed…` (不动, 它数的是文件; 新的一行放在它前面, 原来的最后一行还是最后一行). 测试数取自
+  **汇总** (一行, acde#85, `TestRunner.summary`): `acde test: N tests in M files: P passed, F failed[, S not run (skipped, todo, or not
+  matched by -t)]`, 再按需接 `; failed: <文件>`、`; not counted: …`、`; <n> files skipped (no test matches -t)`、`; <n> files not run (--bail)`;
+  M 是有报告的文件数; 一个文件都没有报告时开头是 `<n> files ran`. `acde test:` 有失败时红, 否则绿. 测试数取自
   bun 的 JUnit 报告: 每个文件的 `bun test` 加 `--reporter=junit --reporter-outfile <临时文件>` (实测 bun 1.4.4: 终端输出不变; 根元素
   `<testsuites tests failures skipped>`, `skipped` 含 skip、todo 和 `-t` 没选中的; 钩子失败算一个 `(unnamed)` 的失败用例), `TestRunner.tally`
   只读根元素的这三个属性: 跑了的 = tests − skipped, 通过 = 跑了的 − failures. 不解析 bun 给人看的输出. 文件加载就出错 (顶层抛错) 或进程被杀时

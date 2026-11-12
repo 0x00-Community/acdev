@@ -6,6 +6,8 @@ export interface Sink {
   write(text: string): unknown
 }
 
+export const Exit = { DONE: 0, ERROR: 1, NOTHING: 2, DECLINED: 3 } as const
+
 export class Output {
   static readonly LABELS: Readonly<Record<string, keyof Palette>> = {
     'error:': 'error', 'warning:': 'warn', 'note:': 'dim', 'hint:': 'dim', 'ok:': 'ok',
@@ -37,6 +39,10 @@ export class Output {
     const write = (...args: unknown[]) => Output.line(format(...args), stream)
     console.error = write
     console.warn = write
+  }
+
+  static option(command: string, option: string, value: string, expected: string): Error {
+    return new Error(`${command}: --${option} ${value}: ${expected} (acde ${command} --help)`)
   }
 
   static message(error: unknown): string {

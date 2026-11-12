@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import { Exit } from './output.ts'
 import { AppPackage } from './package.ts'
 import { Jsonc } from './runtime.ts'
 import { Sessions, type Session } from './sessions.ts'
@@ -22,9 +23,9 @@ export interface UninstallOptions {
 }
 
 export class Uninstall {
-  static readonly NOT_INSTALLED = 1
-  static readonly IN_USE = 2
-  static readonly DECLINED = 3
+  static readonly NOT_INSTALLED = Exit.NOTHING
+  static readonly IN_USE = Exit.ERROR
+  static readonly DECLINED = Exit.DECLINED
 
   static list(dir = AppPackage.packagesDir()): Installed[] {
     if (!Uninstall.#isDir(dir)) return []

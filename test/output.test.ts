@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Color } from '../src/color.ts'
-import { Output } from '../src/output.ts'
+import { Exit, Output } from '../src/output.ts'
+import { Uninstall } from '../src/uninstall.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -97,4 +99,17 @@ describe('colour and error output', () => {
       expect(forced.stderr).toStartWith('\x1b[1;31macde:\x1b[22;39m ')
       expect(forced.stderr.split('\n')).toHaveLength(2)
     })
+
+  test('exit codes: 0 done, 1 error, 2 nothing done, 3 cancelled; the CLI reference lists them', () => {
+    expect(Exit).toEqual({ DONE: 0, ERROR: 1, NOTHING: 2, DECLINED: 3 })
+    expect([Uninstall.IN_USE, Uninstall.NOT_INSTALLED, Uninstall.DECLINED]).toEqual([1, 2, 3])
+    const reference = readFileSync(join(import.meta.dir, '../skills/acde/references/reference/cli.md'), 'utf8')
+    const table = reference.slice(reference.indexOf('Exit codes are the same for every command'))
+    for (const code of Object.values(Exit)) expect(table).toMatch(new RegExp(`^\\| ${code} \\| `, 'm'))
+  })
+
+  test('an option value error reads command, option, value, what it takes, and the help to read', () => {
+    expect(Output.option('test', 'timeout', 'x', 'milliseconds per test').message)
+      .toBe('test: --timeout x: milliseconds per test (acde test --help)')
+  })
 })

@@ -85,7 +85,7 @@ describe('acde check --platform', () => {
 
     const unknown = await cli(['check', '--platform', 'beos'], desk)
     expect(unknown.code).toBe(1)
-    expect(unknown.stderr).toContain('--platform beos: windows, macos or linux')
+    expect(unknown.stderr).toBe('acde: check: --platform beos: windows, macos, linux (acde check --help)\n')
   })
 })
 
@@ -120,6 +120,25 @@ describe('mistakes', () => {
     const level = lines((await cli(['console', '--level', 'loud'], APP)).stderr)
     const levels = [...Tools.LEVELS].join(', ')
     expect(level).toEqual([`acde: console: --level loud: one of ${levels} (acde console --help)`])
+    const shaped: [string[], string][] = [
+      [['test', '--timeout', 'x'], 'acde: test: --timeout x: milliseconds per test, 1 or more (acde test --help)'],
+      [['test', '--workers', '0'], 'acde: test: --workers 0: how many test files run at once, 1 or more '
+        + '(acde test --help)'],
+      [['test', '--retries', '-1'], 'acde: test: --retries -1: how often to run a failing test again, 0 or more '
+        + '(acde test --help)'],
+      [['test', '--video=sometimes'], 'acde: test: --video sometimes: failed (the default: only for failing tests), '
+        + 'on or off (acde test --help)'],
+      [['webs', '--session', 'abc'], 'acde: webs: --session abc: the process id of an acde dev (acde webs --help)'],
+      [['devtools', '--session', 'abc'], 'acde: devtools: --session abc: the process id of an acde dev '
+        + '(acde devtools --help)'],
+      [['query', 'p', '--limit', 'x'], 'acde: query: --limit x: how many elements to list at most, 1 to 3000 '
+        + '(acde query --help)'],
+    ]
+    for (const [argv, said] of shaped) {
+      const ran = await cli(argv, APP)
+      expect(ran.code, argv.join(' ')).toBe(1)
+      expect(lines(ran.stderr)).toEqual([said])
+    }
     const nameless = await cli(['new', '--yes'], APP)
     expect(nameless.code).toBe(1)
     const asked = 'acde: new: a directory (or run it in a terminal to be asked) (acde new --help)'
