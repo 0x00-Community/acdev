@@ -6,7 +6,7 @@ name: release
 # variable both are true. Later jobs read needs.plan.outputs. Artifacts go through christopherhx/gitea-upload-artifact and
 # gitea-download-artifact (pinned; the official v4+ actions refuse every server but github.com). Tags are pushed with git.
 # The version directory and latest.json go to Tencent Cloud COS (bucket calbin-1318886512, ap-beijing, under pkgs/; secrets
-# COS_SECRET_ID / COS_SECRET_KEY) on both servers, through scripts/release/cos.sh. The GitHub release runs only on github.com;
+# COS_SECRET_ID / COS_SECRET_KEY, given only to the steps that run it) on both servers, through scripts/release/cos.sh. The GitHub release runs only on github.com;
 # on Gitea, tag-gitea and latest-gitea take the place of tag and latest.
 on:
   workflow_dispatch:
@@ -393,8 +393,6 @@ jobs:
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
-      COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-      COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v7
         timeout-minutes: 10
@@ -407,8 +405,14 @@ jobs:
       - name: check the version directory before upload
         run: scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"
       - name: upload the version directory to COS (same content is skipped, different content is refused)
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
         run: scripts/release/cos.sh put "pkgs/$VERSION" "acdert/$VERSION"
       - name: verify every object of the version directory before the tag
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
         run: scripts/release/cos.sh verify "pkgs/$VERSION" "acdert/$VERSION"
 
   latest:
@@ -421,8 +425,6 @@ jobs:
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
-      COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-      COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v7
         timeout-minutes: 10
@@ -433,6 +435,9 @@ jobs:
           name: pkgs
           path: pkgs
       - name: 'latest.json (last: the version directory is verified and the GitHub release exists)'
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
         run: scripts/release/cos.sh latest pkgs/latest.json acdert/latest.json
       - run: echo "$PKGS_URL/acdert/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
 
@@ -446,8 +451,6 @@ jobs:
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
-      COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-      COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v7
         timeout-minutes: 10
@@ -458,5 +461,8 @@ jobs:
           name: pkgs
           path: pkgs
       - name: 'latest.json (last: the version directory is verified and tagged)'
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
         run: scripts/release/cos.sh latest pkgs/latest.json acdert/latest.json
       - run: echo "$PKGS_URL/acdert/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
