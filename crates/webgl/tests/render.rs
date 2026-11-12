@@ -143,7 +143,7 @@ fn robustness_and_mrt() {
     let mut gl = Context::new(gpu, true, Attributes { antialias: false, ..Default::default() }, 8, 8);
     let t = gl.create_texture();
     gl.bind_texture(TEXTURE_2D, Some(t));
-    gl.tex_image(TEXTURE_2D, 40, RGBA8 as u32, 1, 1, 1, 0, RGBA, UNSIGNED_BYTE, None);
+    gl.tex_image(TEXTURE_2D, 40, RGBA8, 1, 1, 1, 0, RGBA, UNSIGNED_BYTE, None);
     assert_eq!(gl.get_error(), INVALID_VALUE, "a level past the chain is INVALID_VALUE");
     gl.tex_image(TEXTURE_2D, 0, RGBA8, 1 << 20, 1, 1, 0, RGBA, UNSIGNED_BYTE, None);
     assert_eq!(gl.get_error(), INVALID_VALUE, "a texture past MAX_TEXTURE_SIZE is INVALID_VALUE");
