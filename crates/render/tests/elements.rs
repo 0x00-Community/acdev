@@ -218,3 +218,21 @@ fn pointer_events_all_takes_the_hit_back_from_a_none_ancestor() {
     );
     assert_eq!(doc.dom.hit_test(10.0, 10.0), Some(doc.dom.get_element_by_id("inner")));
 }
+
+#[test]
+fn simple_svg_images_paint_as_backgrounds_and_masks() {
+    let svg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect width='10' height='10' fill='red'/%3E%3C/svg%3E";
+    let doc = page(&format!(
+        "<!doctype html><style>body {{ margin: 0; background: #fff; }} div {{ width: 40px; height: 40px; }}
+        #bg {{ background: url(\"{svg}\") no-repeat; background-size: 20px 20px; }}
+        #mask {{ background: blue; mask-image: url(\"{svg}\"); mask-size: 20px 20px; mask-repeat: no-repeat; }}</style>
+        <div id=bg></div><div id=mask></div>"
+    ));
+    doc.sync();
+    doc.commit();
+    let px = pixels(&doc);
+    assert_eq!(rgb(&px, 10.0, 10.0), [255, 0, 0], "background");
+    assert_eq!(rgb(&px, 30.0, 30.0), [255, 255, 255], "background-size");
+    assert_eq!(rgb(&px, 10.0, 50.0), [0, 0, 255], "mask lets the blue through");
+    assert_eq!(rgb(&px, 30.0, 70.0), [255, 255, 255], "outside the mask");
+}

@@ -1803,7 +1803,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render/box_shadow.rs` | spread 加到圆角; 偏移和模糊乘缩放; 透明内阴影只跳过自己; 内阴影第一个在最上; 不模糊的内阴影一次填充 (padding box 加反向的洞, 重合的边抵消; 先填再 DestOut 挖洞时两条边落在同一像素里会剩一条淡线, xterm.js 的竖线光标) |
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
 | `render/border.rs` `draw_outline` | outline 沿中线、`outline-offset`、dashed / dotted、圆角、在内容之后、乘 opacity |
-| `render.rs` `draw_svg` / `draw_simple_svg` / `draw_svg_tree` | 画 simple SVG 的命令; usvg 树相对元素画再放置 |
+| `render.rs` `draw_svg` / `draw_simple_svg` / `draw_svg_tree` / `draw_svg_image` | 画 simple SVG 的命令; usvg 树相对元素画再放置; 背景和遮罩层 (`render/background.rs`) 也画 simple SVG 的命令 (图片加载时简单的 SVG 只留根元素的壳, 原先背景、`mask-image` 里的图标、下拉箭头一律不画) |
 | `svg.rs` `mask_clips` / `filter` / `layered`, blitz-dom `serialize.rs` 写 `mask-type` (呈现属性也收) | 遮罩: 只有一条纯色无描边路径时按它裁剪, 不透明度是 alpha 遮罩的填充不透明度 / 亮度遮罩的颜色亮度乘它; 别的遮罩只裁到遮罩区域 (vello 没有遮罩层). 滤镜: 从 SourceGraphic 接起来的高斯模糊、drop shadow、颜色矩阵 (Figma 导出的透明 feFlood + feBlend 前缀放过) 变成合成器的滤镜层, 在组的用户坐标里; 别的原语整组不滤. 已知: 合成器里滤镜层外面的非矩形裁剪 (遮罩路径) 只按包围矩形裁 (同 #46 一类), Vite logo 的模糊光晕会溢出闪电形状, 在遮罩矩形内; canvas / 离屏里滤镜层不做 (vello 忽略) |
 | `text.rs` `stroke_text` / `Ellipsis` / `draw_ellipsis_marker`, `render.rs` `ellipsis` | `text-overflow: ellipsis` 和 line-clamp 的 "…" (`Ellipsis.end` 是 frame 的内容盒宽, 已经是设备像素, 不再乘 scale) |
 | `render/gradient.rs` | 色标位置按规范; 超出渐变线的色标: 线性拉长, 径向 / 锥形夹回 |
