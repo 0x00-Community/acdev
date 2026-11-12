@@ -36,6 +36,7 @@ export const hooks = {
   inline: null as null | ((target: EventTarget, type: string, set: boolean) => void),
   checkpoint: null as null | (() => void),
   listen: null as null | ((type: string) => void),
+  window: null as null | ((type: string) => void),
 }
 
 let thrown = 0
@@ -105,6 +106,7 @@ export class Event {
       event.#canceled = event.#canceled && event.#cancelable
       const path: EventTarget[] = [target]
       ;(target as Targetish)[BUILD_PATH]?.(event, path)
+      if (hooks.window && path[path.length - 1] === (G as unknown as EventTarget)) hooks.window(event.#type)
       event.#path = path
       const activation = event.#type === 'click' && hooks.activation ? hooks.activation(event, path) : null
       const previous = currentEvent

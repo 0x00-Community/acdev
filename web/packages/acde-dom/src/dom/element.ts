@@ -1,15 +1,15 @@
 import { DOMException, guard } from '../core/exception'
-import { getHandler, setHandler } from '../core/event'
-import { getters, tag } from '../core/host'
+import { getHandler, setHandler, type EventTarget } from '../core/event'
+import { G, getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { loads } from './env'
 import { DOMRect, rectList, type DOMRectList } from './geometry'
 import { computedStyleOf, metricGetters, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
 import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
-import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap, inner } from './realm'
+import { bodyId, changed, CONNECTED as CONNECTED_KEY, documentId, dom, ID, moved, wrap, inner } from './realm'
 import { string } from './reflect'
-import { inHtmlDocument, namespaceOf, nullable, validAttributeLocalName, validateAndExtract } from './namespaces'
+import { documents, inHtmlDocument, namespaceOf, nullable, validAttributeLocalName, validateAndExtract } from './namespaces'
 
 export const LOCAL = Symbol('localName')
 export const NS = Symbol('namespace')
@@ -40,6 +40,12 @@ export const HANDLER_TYPES = [
   'waiting', 'webkitanimationend', 'webkitanimationiteration', 'webkitanimationstart', 'webkittransitionend', 'wheel',
 ] as const
 const HANDLER_SET = new Set<string>(HANDLER_TYPES)
+export const BODY_WINDOW_TYPES: ReadonlySet<string> = new Set([
+  'blur', 'error', 'focus', 'load', 'resize', 'scroll', 'afterprint', 'beforeprint', 'beforeunload', 'hashchange', 'languagechange',
+  'message', 'messageerror', 'offline', 'online', 'pagehide', 'pageshow', 'popstate', 'rejectionhandled', 'storage', 'unhandledrejection',
+  'unload',
+])
+const windowDecided = new Set<string>()
 const HANDLER_ATTRIBUTE = /\son[a-z]+\s*=/i
 const FORM_ATTRIBUTE = /\sform\s*=/i
 const LINK_ELEMENT = /<link[\s/>]/i
@@ -148,10 +154,16 @@ export class Element extends Node {
   }
 
   [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
-    if (name.length > 2 && name.charCodeAt(0) === 111 && name.charCodeAt(1) === 110 && HANDLER_SET.has(name.slice(2))) {
-      flags.inlineHandlers = true
-      handlerSet(this, name.slice(2))
-      setHandler(this, name.slice(2), value)
+    if (name.length > 2 && name.charCodeAt(0) === 111 && name.charCodeAt(1) === 110) {
+      const type = name.slice(2)
+      if (reflectsWindow(this, type)) {
+        flags.inlineHandlers = true
+        setWindowHandler(type, value)
+      } else if (HANDLER_SET.has(type)) {
+        flags.inlineHandlers = true
+        handlerSet(this, type)
+        setHandler(this, type, value)
+      }
     } else if (name === 'form') flags.formAttributes = true
   }
 
@@ -878,7 +890,32 @@ export function dataset(element: Element): DOMStringMap {
 
 const SEEN = Symbol('handlersSeen')
 
+export function reflectsWindow(element: Element, type: string): boolean {
+  if (!BODY_WINDOW_TYPES.has(type) || element[NS] !== Ns.Html || element[LOCAL] !== 'body') return false
+  return (documents.others ? dom.ownerDocument(element[ID]) : documentId) === documentId
+}
+
+export function setWindowHandler(type: string, value: unknown): void {
+  windowDecided.add(type)
+  setHandler(G as unknown as EventTarget, type, value)
+}
+
+export function windowHandlerOf(type: string): void {
+  if (!flags.inlineHandlers || windowDecided.has(type) || !BODY_WINDOW_TYPES.has(type)) return
+  const body = bodyId()
+  if (body === NONE || dom.localName(body) !== 'body') return
+  const source = dom.getAttribute(body, `on${type}`)
+  if (source === null) return
+  windowDecided.add(type)
+  if (getHandler(G as unknown as EventTarget, type) === null) setHandler(G as unknown as EventTarget, type, source)
+}
+
+export function windowHandlerSet(type: string): void {
+  windowDecided.add(type)
+}
+
 export function handlerOf(element: Element, type: string): unknown {
+  if (reflectsWindow(element, type)) return null
   if (!flags.inlineHandlers) return getHandler(element, type)
   const holder = element as unknown as { [SEEN]?: Set<string> }
   const seen = (holder[SEEN] ??= new Set())

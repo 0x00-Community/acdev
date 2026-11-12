@@ -68,6 +68,36 @@ test('composedPath, window.event, inline handlers from markup and properties, er
   assert.equal(web.host.errors.length, 1)
 })
 
+test('body event handler attributes and properties are the window\'s', async () => {
+  using web = await page('<!doctype html><html><body onload="window.loaded = (window.loaded || 0) + 1" onfocus="window.bodyFocus = true"><p>x</p></body></html>')
+  const parsed = web.json(`(() => {
+    const before = typeof window.onload
+    const onPageLoad = window.loaded
+    window.dispatchEvent(new Event('load'))
+    document.body.dispatchEvent(new Event('focus'))
+    return { before, onPageLoad, mirrored: document.body.onload === window.onload, loaded: window.loaded, bodyFocus: window.bodyFocus === true, own: document.body.getAttribute('onload') !== null }
+  })()`)
+  assert.deepEqual(parsed, { before: 'function', onPageLoad: 1, mirrored: true, loaded: 2, bodyFocus: false, own: true })
+
+  const changed = web.json(`(() => {
+    const log = []
+    document.body.setAttribute('onhashchange', 'window.hashed = true')
+    window.dispatchEvent(new Event('hashchange'))
+    const f = () => log.push('prop')
+    document.body.onresize = f
+    window.dispatchEvent(new Event('resize'))
+    const created = document.createElement('body')
+    created.onpopstate = () => log.push('created')
+    window.dispatchEvent(new Event('popstate'))
+    const other = document.implementation.createHTMLDocument('x').body
+    other.onstorage = () => log.push('other')
+    window.dispatchEvent(new Event('storage'))
+    window.onload = null
+    return { hashed: window.hashed === true, log, resize: window.onresize === f, otherOwn: other.onstorage, storage: window.onstorage, cleared: document.body.onload }
+  })()`)
+  assert.deepEqual(changed, { hashed: true, log: ['prop', 'created'], resize: true, otherOwn: null, storage: null, cleared: null })
+})
+
 test('click activation: checkbox toggles (undone when cancelled), label clicks its control, submit fires submit', async () => {
   using web = await page('<!doctype html><html><body><form id="f"><label id="l">x <input id="c" type="checkbox"></label><input id="t" name="t" value="v"><button id="s">go</button></form></body></html>')
   const result = web.json(`(() => {

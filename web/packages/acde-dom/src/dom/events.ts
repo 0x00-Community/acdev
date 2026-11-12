@@ -3,7 +3,7 @@ import { serializable } from '../core/clone'
 import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type EventTarget } from '../core/event'
 import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
-import { Element, flags, handlerOf, handlerSet } from './element'
+import { Element, flags, handlerOf, handlerSet, windowHandlerOf, windowHandlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
 import { indexKey } from './legacy'
 import { pathHooks, type Node } from './node'
@@ -78,7 +78,14 @@ hooks.compile = (target, _type, source) => {
   }
 }
 
+hooks.window = windowHandlerOf
+
 hooks.inline = (target, type, set) => {
+  if (target === (G as unknown as EventTarget)) {
+    if (set) windowHandlerSet(type)
+    else windowHandlerOf(type)
+    return
+  }
   if (!(target instanceof Element)) return
   if (set) handlerSet(target, type)
   else handlerOf(target, type)

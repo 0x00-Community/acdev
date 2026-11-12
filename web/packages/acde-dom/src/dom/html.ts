@@ -1,11 +1,11 @@
 import { DOMException } from '../core/exception'
-import { defineHandlers, Event, EventTarget, fire } from '../core/event'
+import { defineHandlers, Event, EventTarget, fire, getHandler } from '../core/event'
 import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
 import { ACTIVATION, activation, MouseEvent, ToggleEvent } from './events'
 import { customClass, customName } from './custom'
-import { ATTRIBUTE_CHANGED, dataset, Element, flags, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
+import { ATTRIBUTE_CHANGED, BODY_WINDOW_TYPES, dataset, Element, flags, HANDLER_TYPES, LOCAL, NS, pendingElement, reflectsWindow, setAttribute, setWindowHandler, tokenList, windowHandlerOf, type DOMStringMap, type DOMTokenList } from './element'
 import { loads, resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricGetters, metricsOf } from './layout'
@@ -280,6 +280,21 @@ export const HTMLHeadElement = simple('HTMLHeadElement', 'head')
 export const HTMLHtmlElement = simple('HTMLHtmlElement', 'html', (p) => string(p, 'version'))
 export const HTMLBodyElement = simple('HTMLBodyElement', 'body', (p) => {
   for (const name of ['text', 'link', 'vLink', 'aLink', 'bgColor', 'background']) string(p, name)
+  for (const type of BODY_WINDOW_TYPES) {
+    Object.defineProperty(p, `on${type}`, {
+      get(this: Element) {
+        if (!reflectsWindow(this, type)) return null
+        windowHandlerOf(type)
+        return getHandler(G as unknown as EventTarget, type)
+      },
+      set(this: Element, value: unknown) {
+        if (!reflectsWindow(this, type)) return
+        setWindowHandler(type, typeof value === 'function' || (value !== null && typeof value === 'object') ? value : null)
+      },
+      enumerable: true,
+      configurable: true,
+    })
+  }
 })
 export const HTMLMetaElement = simple('HTMLMetaElement', 'meta', (p) => {
   string(p, 'name')
