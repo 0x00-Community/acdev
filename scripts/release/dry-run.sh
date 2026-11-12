@@ -22,6 +22,7 @@ mkdir -p "$artifacts/host/app/dist"
 printf 'export {}\n' > "$artifacts/host/app/dist/web.js"
 cp "$repo/LICENSE" "$artifacts/host/LICENSE"
 
+bun install --frozen-lockfile --cwd "$repo/web"
 "$here/stage.sh" "$artifacts" "$version" "$work/stage"
 echo "staged: $(ls -A "$work/stage" | tr '\n' ' ')"
 for triple in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc; do
