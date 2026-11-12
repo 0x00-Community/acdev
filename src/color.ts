@@ -1,3 +1,5 @@
+import stringWidth from 'string-width'
+
 export type Paint = (text: string) => string
 
 export interface Palette {
@@ -35,6 +37,6 @@ export class Color {
   }
 
   static width(text: string): number {
-    return text.replace(/\x1b\[[0-9;]*m/g, '').length
+    return stringWidth(text)
   }
 }

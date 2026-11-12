@@ -37,7 +37,8 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 要复制的命令、路径、网址不折断 (折在中间, 复制下来就成了两条命令, 比如 `curl -fsSL` 单独一行), 长了交给终端软换行 (复制时仍是一行):
 `acde doctor` (`Doctor.format`) 每项一行 `title: summary`、一行 `fix:`, 都不折, 因为 summary 里随处插着路径 (带空格的也有), fix 是命令,
 文字里分不出哪段能折; `Help.block` / `Help.wrap` 收文字 (按空白拆成词, `Help.words`) 或一组不可拆的片段, `acde skills` 状态表的路径是一个片段,
-带空格也不拆, 只折后面的 agent 名单. `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
+带空格也不拆, 只折后面的 agent 名单. 宽度按终端列数算 (`Color.width`, 依赖 `string-width`: 按字素簇, 中日韩和全角字符 2 列, 组合符号和零宽字符
+0 列, 颜色码不算); 只在空白处折, 中文之间不断开 (帮助是英文, 而路径里的中文也不能断). `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
 颜色 (`src/color.ts`): 写到的那个流是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色 (`0`、`false` 视为关, 同 Node 和 chalk),
 `TERM=dumb` 不上色. 上色的只有帮助、快速上手、标签 (`ok:` 绿、`warning:` 黄、`error:` 红、`note:`/`hint:` 暗)、`acde doctor` 的状态词
 (ok 绿、warn 黄、error 红、skip 暗), 以及结果行的前缀: `build`/`install` 成功的 `acde:` 绿, `acde doctor:` 和 `acde test:` 汇总按结果

@@ -35,6 +35,22 @@ describe('colour and error output', () => {
     expect(Color.enabled(tty, { NO_COLOR: '1', FORCE_COLOR: '1' })).toBe(false)
   })
 
+  test('width counts terminal columns: CJK and fullwidth take two, marks and zero-width characters none, colour none', () => {
+    expect(Color.width('acde dev')).toBe(8)
+    expect(Color.width('记账')).toBe(4)
+    expect(Color.width('应用已启动，正在重新加载。')).toBe(26)
+    expect(Color.width('ledger 记账 app')).toBe(15)
+    expect(Color.width('ＡＢＣ')).toBe(6)
+    expect(Color.width('かな カナ 한글')).toBe(14)
+    expect(Color.width('e\u0301')).toBe(1)
+    expect(Color.width('a\u200bb\u200d')).toBe(2)
+    expect(Color.width('\ufeffok')).toBe(2)
+    expect(Color.width('👍')).toBe(2)
+    expect(Color.width('\x1b[1;31m记账\x1b[22;39m ok')).toBe(7)
+    expect(Color.width(Color.palette(true).name('应用'))).toBe(4)
+    expect(Color.width('')).toBe(0)
+  })
+
   test('a line on stderr colours only its label, and only when stderr shows colour', () => {
     const terminal = sink(true)
     Output.line('acde: warning: the SDK is older', terminal, {})

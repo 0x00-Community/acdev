@@ -201,6 +201,15 @@ describe('mistakes', () => {
         if (!line.trimStart().startsWith('$ ')) expect(line.length, line).toBeLessThanOrEqual(width)
       }
     }
+    expect(Help.wrap('记账 应用 已经 启动 然后 重新 加载 页面', 20, '  ')).toEqual([
+      '  记账 应用 已经',
+      '  启动 然后 重新',
+      '  加载 页面',
+    ])
+    expect(Help.block(['/Users/张三/项目/记账', '(Claude', 'Code)'], 30, '    ', 'link  ')).toEqual([
+      'link  /Users/张三/项目/记账',
+      '    (Claude Code)',
+    ])
     const narrow = Help.overview(commands, '0.0.0', plain, 60).split('\n')
     const at = narrow.findIndex((line) => line.startsWith('  -h, --help'))
     expect(narrow[at + 1]).toMatch(/^ {17}\S/)
