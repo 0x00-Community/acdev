@@ -1,0 +1,667 @@
+use std::cell::RefCell;
+use std::sync::Arc;
+
+use acde_hostwin::{FileFilter, Grant, InjectEvent, Injected, OpenRequest, SaveRequest, Shell};
+
+use acdert::Msg;
+use acdert::v8;
+
+thread_local! {
+    static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
+    static CALLBACK: RefCell<Option<v8::Global<v8::Function>>> = const { RefCell::new(None) };
+}
+
+pub fn exports<'s>(scope: &mut v8::PinScope<'s, '_>, native: Option<v8::Local<'s, v8::Value>>) -> v8::Local<'s, v8::Value> {
+    let obj = native.and_then(|n| v8::Local::<v8::Object>::try_from(n).ok()).unwrap_or_else(|| v8::Object::new(scope));
+    let shell = v8::Object::new(scope);
+    acdert::methods!(scope, shell,
+        "broker" => broker,
+    );
+    let hosted = v8::Boolean::new(scope, true);
+    acdert::set(scope, shell, "hosted", hosted.into());
+    acdert::set(scope, obj, "Shell", shell.into());
+    let chooser = v8::Object::new(scope);
+    acdert::methods!(scope, chooser,
+        "open" => chooser_open,
+    );
+    acdert::set(scope, obj, "FileChooser", chooser.into());
+    obj.into()
+}
+
+fn with<R>(scope: &mut v8::PinScope, f: impl FnOnce(&Shell) -> R) -> Option<R> {
+    let result = SHELL.with(|s| s.borrow().as_ref().map(f));
+    if result.is_none() {
+        acdert::throw_error(scope, "Shell: not open");
+    }
+    result
+}
+
+fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(shell) = Shell::open() else {
+        return acdert::throw_error(scope, "Shell.broker: no host windows");
+    };
+    SHELL.with(|s| *s.borrow_mut() = Some(shell));
+    let obj = v8::Object::new(scope);
+    acdert::methods!(scope, obj,
+        "pump" => pump,
+        "onEvents" => on_events,
+        "grant" => grant,
+        "place" => place,
+        "release" => release,
+        "focus" => focus,
+        "hide" => hide,
+        "setState" => set_state,
+        "close" => close,
+        "launch" => launch,
+        "screenshot" => screenshot,
+        "stats" => stats,
+        "windows" => windows,
+        "animate" => animate,
+        "shortcut" => shortcut,
+        "unshortcut" => unshortcut,
+        "setMenus" => set_menus,
+        "menus" => menus,
+        "inject" => inject,
+        "drop" => drop_files,
+        "quit" => quit,
+        "capture" => capture,
+        "devRespond" => dev_respond,
+        "devEvent" => dev_event,
+        "answerFolder" => answer_folder,
+        "answerOpen" => answer_open,
+        "answerSave" => answer_save,
+        "readClipboard" => read_clipboard,
+        "writeClipboard" => write_clipboard,
+        "resizeScreen" => resize_screen,
+        "approve" => approve,
+        "dismissApproval" => dismiss_approval,
+    );
+    #[cfg(any(windows, target_os = "macos"))]
+    acdert::methods!(scope, obj,
+        "openDefault" => open_default,
+    );
+    #[cfg(windows)]
+    acdert::methods!(scope, obj,
+        "fileHandlers" => file_handlers,
+        "openWith" => open_with,
+    );
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    acdert::methods!(scope, obj,
+        "notify" => notify,
+    );
+    let name = acdert::string(scope, "");
+    acdert::set(scope, obj, "socketName", name.into());
+    let hosted = v8::Boolean::new(scope, true);
+    acdert::set(scope, obj, "hosted", hosted.into());
+    rv.set(obj.into());
+}
+
+fn pump(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(events) = with(scope, Shell::pump) else {
+        return;
+    };
+    let list = v8::Array::new(scope, events.len() as i32);
+    for (i, event) in events.into_iter().enumerate() {
+        let event = acdert::event_object(scope, event);
+        list.set_index(scope, i as u32, event.into());
+    }
+    rv.set(list.into());
+}
+
+fn on_events(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return acdert::throw_type_error(scope, "onEvents: not a function");
+    };
+    let callback = v8::Global::new(scope, callback);
+    CALLBACK.with(|c| *c.borrow_mut() = Some(callback));
+    let tx = acdert::current().sender();
+    let waker: acde_hostwin::Waker = Arc::new(move || {
+        _ = tx.send(Msg::Task(Box::new(call_back)));
+    });
+    with(scope, |shell| shell.set_waker(Some(waker)));
+}
+
+fn call_back(scope: &mut v8::PinScope) {
+    let Some(callback) = CALLBACK.with(|c| c.borrow().clone()) else {
+        return;
+    };
+    let callback = v8::Local::new(scope, callback);
+    acdert::call(scope, callback, &[]);
+}
+
+fn numbers(scope: &mut v8::PinScope, value: Option<v8::Local<v8::Value>>) -> Option<Vec<f64>> {
+    let array = v8::Local::<v8::Array>::try_from(value?).ok()?;
+    (0..array.length()).map(|i| array.get_index(scope, i).and_then(|v| v.number_value(scope))).collect()
+}
+
+fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let mut wanted = Grant::default();
+    if let Ok(options) = v8::Local::<v8::Object>::try_from(args.get(0)) {
+        wanted.desktop = acdert::get(scope, options, "desktop").is_some_and(|v| v.boolean_value(scope));
+        wanted.hidden = acdert::get(scope, options, "hidden").is_some_and(|v| v.boolean_value(scope));
+        wanted.window = acdert::get(scope, options, "window").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite()).map(|n| n as u32);
+        wanted.mode = acdert::get(scope, options, "mode").filter(|v| v.is_string()).and_then(|v| v.to_rust_string_lossy(scope).parse().ok());
+        let rect = acdert::get(scope, options, "rect");
+        wanted.rect = numbers(scope, rect).and_then(|r| <[f64; 4]>::try_from(r).ok());
+        let size = acdert::get(scope, options, "size");
+        wanted.size = numbers(scope, size).and_then(|s| <[f64; 2]>::try_from(s).ok());
+        wanted.parent = acdert::get(scope, options, "parent").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite() && *n >= 0.0).map(|n| n as u32);
+        wanted.modal = acdert::get(scope, options, "modal").is_some_and(|v| v.boolean_value(scope));
+        wanted.host = acdert::get(scope, options, "host").is_some_and(|v| v.boolean_value(scope));
+    }
+    let Some((window, token)) = with(scope, |shell| shell.grant(wanted)) else {
+        return;
+    };
+    let window = v8::Number::new(scope, f64::from(window));
+    let token = v8::BigInt::new_from_u64(scope, token);
+    let obj = acdert::object(scope, &[("window", window.into()), ("token", token.into())]);
+    rv.set(obj.into());
+}
+
+fn resize_screen(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let (width, height) = (acdert::arg_f64(scope, &args, 0), acdert::arg_f64(scope, &args, 1));
+    if let Some(Err(e)) = with(scope, |shell| shell.resize_screen(width, height)) {
+        acdert::throw_error(scope, &e);
+    }
+}
+
+fn place(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    let rect = [1, 2, 3, 4].map(|i| acdert::arg_f64(scope, &args, i));
+    with(scope, |shell| shell.place(window, rect));
+}
+
+macro_rules! by_window {
+    ($($name:ident),*) => {$(
+        fn $name(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+            let window = acdert::arg_f64(scope, &args, 0) as u32;
+            with(scope, |shell| shell.$name(window));
+        }
+    )*};
+}
+
+by_window!(release, focus, close);
+
+fn animate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    let options = v8::Local::<v8::Object>::try_from(args.get(1)).ok();
+    let mut number = |name: &str| options.and_then(|o| acdert::get(scope, o, name)).filter(|v| v.is_number()).and_then(|v| v.number_value(scope));
+    let spec = acde_hostwin::Animate {
+        opacity: number("opacity"),
+        scale: number("scale"),
+        dx: number("dx"),
+        dy: number("dy"),
+        duration_ms: number("duration").unwrap_or(0.0),
+        delay_ms: number("delay").unwrap_or(0.0),
+        easing: options.and_then(|o| acdert::get_string(scope, o, "easing")).and_then(|e| e.parse().ok()),
+    };
+    with(scope, |shell| shell.animate(window, spec));
+}
+
+fn hide(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    let hidden = acdert::arg_bool(scope, &args, 1);
+    with(scope, |shell| shell.hide(window, hidden));
+}
+
+fn set_state(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    match acdert::arg_string(scope, &args, 1).parse::<acde_hostwin::WindowState>() {
+        Ok(state) => {
+            with(scope, |shell| shell.set_state(window, state));
+        }
+        Err(e) => acdert::throw_type_error(scope, &format!("setState: {e}")),
+    }
+}
+
+fn launch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let argv = acdert::strings(scope, args.get(0)).unwrap_or_default();
+    let options = v8::Local::<v8::Object>::try_from(args.get(1)).ok();
+    let cwd = options.and_then(|o| acdert::get(scope, o, "cwd")).filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
+    let env = match options.and_then(|o| acdert::get(scope, o, "env")) {
+        Some(env) => acdert::own_string_pairs(scope, env),
+        None => Vec::new(),
+    };
+    match with(scope, |shell| shell.launch(&argv, cwd.as_deref(), &env)) {
+        Some(Ok(pid)) => rv.set(v8::Number::new(scope, f64::from(pid)).into()),
+        Some(Err(e)) => acdert::throw_error(scope, &e),
+        None => {}
+    }
+}
+
+fn screenshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let path = std::path::PathBuf::from(acdert::arg_string(scope, &args, 0));
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acdert::offload(
+        scope,
+        &mut rv,
+        "acde-screenshot",
+        move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.screenshot(path)),
+        settle_screenshot,
+    );
+}
+
+fn settle_screenshot(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, done: Result<(u32, u32), String>) {
+    match done {
+        Ok((width, height)) => {
+            let width = num(scope, f64::from(width));
+            let height = num(scope, f64::from(height));
+            let obj = acdert::object(scope, &[("width", width), ("height", height)]);
+            resolver.resolve(scope, obj.into());
+        }
+        Err(e) => {
+            let error = acdert::failure(scope, &format!("screenshot: {e}"), None, "screenshot");
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn stats(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(stats) = with(scope, Shell::stats) else {
+        return;
+    };
+    let fields: Vec<(&str, v8::Local<v8::Value>)> = stats.into_iter().map(|(k, v)| (k, v8::Number::new(scope, v).into())).collect();
+    rv.set(acdert::object(scope, &fields).into());
+}
+
+fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(list) = with(scope, Shell::windows) else {
+        return;
+    };
+    let pid = f64::from(std::process::id());
+    let array = v8::Array::new(scope, list.len() as i32);
+    for (i, w) in list.into_iter().enumerate() {
+        let id = num(scope, f64::from(w.id));
+        let window = num(scope, f64::from(w.id));
+        let canvas = num(scope, 0.0);
+        let mode = acdert::string(scope, w.mode.as_str());
+        let state = acdert::string(scope, w.state.as_str());
+        let [x, y, width, height] = [num(scope, w.rect[0]), num(scope, w.rect[1]), num(scope, w.rect[2]), num(scope, w.rect[3])];
+        let z = num(scope, w.z as f64);
+        let focus = v8::Boolean::new(scope, w.focus);
+        let hidden = v8::Boolean::new(scope, w.hidden);
+        let pid = num(scope, pid);
+        let parent = match w.parent {
+            Some(p) => num(scope, f64::from(p)),
+            None => v8::null(scope).into(),
+        };
+        let modal = v8::Boolean::new(scope, w.modal);
+        let minimize = v8::Boolean::new(scope, w.minimize);
+        let fields = [
+            ("id", id),
+            ("window", window),
+            ("canvas", canvas),
+            ("mode", mode.into()),
+            ("state", state.into()),
+            ("x", x),
+            ("y", y),
+            ("width", width),
+            ("height", height),
+            ("z", z),
+            ("focus", focus.into()),
+            ("hidden", hidden.into()),
+            ("pid", pid),
+            ("parent", parent),
+            ("modal", modal.into()),
+            ("minimize", minimize.into()),
+        ];
+        let obj = acdert::object(scope, &fields);
+        array.set_index(scope, i as u32, obj.into());
+    }
+    rv.set(array.into());
+}
+
+fn num<'s>(scope: &mut v8::PinScope<'s, '_>, value: f64) -> v8::Local<'s, v8::Value> {
+    v8::Number::new(scope, value).into()
+}
+
+fn shortcut_call(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, on: bool) {
+    let combo = acdert::arg_string(scope, args, 0);
+    let kind = acdert::arg_string(scope, args, 1);
+    let owner = acdert::arg_f64(scope, args, 2) as u32;
+    if let Some(Err(e)) = with(scope, |shell| shell.shortcut(&combo, &kind, owner, on)) {
+        acdert::throw_error(scope, &e);
+    }
+}
+
+fn set_menus(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    let menus = acdert::arg_string(scope, &args, 1);
+    if let Some(Err(e)) = with(scope, |shell| shell.set_menus(window, &menus)) {
+        acdert::throw_error(scope, &e);
+    }
+}
+
+fn menus(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    match with(scope, |shell| shell.menus(window)).flatten() {
+        Some(text) => rv.set(acdert::string(scope, &text).into()),
+        None => rv.set_null(),
+    }
+}
+
+fn shortcut(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    shortcut_call(scope, &args, true);
+}
+
+fn unshortcut(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    shortcut_call(scope, &args, false);
+}
+
+fn injected(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Result<Injected, String> {
+    let options = v8::Local::<v8::Object>::try_from(value).map_err(|_| "inject: not an object".to_owned())?;
+    let kind = acdert::get(scope, options, "type").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope)).unwrap_or_default();
+    let source = acdert::get(scope, options, "source").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
+    let mut number =
+        |name: &str| acdert::get(scope, options, name).filter(|v| !v.is_null_or_undefined()).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
+    let (x, y, dx, dy) = (number("x"), number("y"), number("dx"), number("dy"));
+    let (button, code) = (number("button").map(|b| b as u32), number("code").map(|c| c as u32));
+    Injected::try_from(InjectEvent { kind, x, y, button, dx, dy, source, code })
+}
+
+fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    match injected(scope, args.get(0)) {
+        Ok(event) => _ = with(scope, |shell| shell.inject(event)),
+        Err(e) => acdert::throw_error(scope, &e),
+    }
+}
+
+fn drop_files(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    let Some(paths) = acdert::strings(scope, args.get(1)).filter(|paths| !paths.is_empty()) else {
+        return acdert::throw_type_error(scope, "drop: the files are a non-empty list of paths");
+    };
+    let (x, y) = (args.get(2).number_value(scope).filter(|n| n.is_finite()), args.get(3).number_value(scope).filter(|n| n.is_finite()));
+    let at = x.zip(y).map(|(x, y)| [x, y]);
+    let paths = paths.into_iter().map(std::path::PathBuf::from).collect();
+    if let Some(Err(error)) = with(scope, |shell| shell.drop_files(window, at, paths)) {
+        acdert::throw_error(scope, &error);
+    }
+}
+
+fn capture(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = acdert::arg_f64(scope, &args, 0) as u32;
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acdert::offload(
+        scope,
+        &mut rv,
+        "acde-capture",
+        move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.capture(window)),
+        settle_capture,
+    );
+}
+
+fn settle_capture(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, shot: Result<acde_hostwin::Shot, String>) {
+    use base64::Engine;
+    match shot {
+        Ok(shot) => {
+            let width = num(scope, f64::from(shot.width));
+            let height = num(scope, f64::from(shot.height));
+            let png = acdert::string(scope, &base64::engine::general_purpose::STANDARD.encode(&shot.png));
+            let obj = acdert::object(scope, &[("width", width), ("height", height), ("png", png.into())]);
+            resolver.resolve(scope, obj.into());
+        }
+        Err(e) => {
+            let error = acdert::failure(scope, &format!("capture: {e}"), None, "capture");
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let id = acdert::arg_f64(scope, &args, 0);
+    if !id.is_finite() || id.fract() != 0.0 {
+        return acdert::throw_type_error(scope, "devRespond: the id is an integer");
+    }
+    let ok = acdert::arg_bool(scope, &args, 1);
+    let payload = acdert::arg_string(scope, &args, 2);
+    let result = if ok { Ok(payload.as_str()) } else { Err(payload.as_str()) };
+    if let Some(Err(e)) = with(scope, |_| acde_hostwin::dev_respond(id as i64, result)) {
+        acdert::throw_error(scope, &e);
+    }
+}
+
+fn dev_event(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let message = acdert::arg_string(scope, &args, 0);
+    match with(scope, |_| acde_hostwin::dev_event(&message)) {
+        Some(Ok(reached)) => rv.set(num(scope, reached as f64)),
+        Some(Err(e)) => acdert::throw_error(scope, &e),
+        None => {}
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let title = acdert::arg_string(scope, &args, 0);
+    let body = acdert::arg_string(scope, &args, 1);
+    let subtitle = acdert::arg_string(scope, &args, 2);
+    if let Some(Err(e)) = with(scope, |_| acde_hostwin::notify(&title, &body, &subtitle)) {
+        acdert::throw_error(scope, &e);
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn open_default(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let target = acdert::arg_string(scope, &args, 0);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acdert::offload(scope, &mut rv, "acde-open", move || acde_hostwin::open_default(&target), settle_default);
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn settle_default(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, done: Result<(), acde_hostwin::OpenError>) {
+    let error = match done {
+        Ok(()) => {
+            let undefined = v8::undefined(scope).into();
+            resolver.resolve(scope, undefined);
+            return;
+        }
+        Err(acde_hostwin::OpenError::Refused(message)) => acdert::failure(scope, &message, Some(403), "refused"),
+        Err(acde_hostwin::OpenError::Failed(message)) => acdert::failure(scope, &message, Some(500), "failed"),
+    };
+    resolver.reject(scope, error);
+}
+
+#[cfg(windows)]
+fn file_handlers(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let extension = acdert::arg_string(scope, &args, 0);
+    acdert::offload(scope, &mut rv, "acde-handlers", move || acde_hostwin::file_handlers(&extension), settle_handlers);
+}
+
+#[cfg(windows)]
+fn settle_handlers(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, listed: Result<Vec<acde_hostwin::FileHandler>, String>) {
+    let list = match listed {
+        Ok(list) => list,
+        Err(message) => {
+            let error = acdert::failure(scope, &message, Some(500), "failed");
+            resolver.reject(scope, error);
+            return;
+        }
+    };
+    let array = v8::Array::new(scope, list.len() as i32);
+    for (i, handler) in list.into_iter().enumerate() {
+        let id: v8::Local<v8::Value> = acdert::string(scope, &handler.name).into();
+        let label: v8::Local<v8::Value> = acdert::string(scope, &handler.label).into();
+        let icon: v8::Local<v8::Value> = acdert::string(scope, &handler.icon).into();
+        let default: v8::Local<v8::Value> = v8::Boolean::new(scope, handler.default).into();
+        let obj = acdert::object(scope, &[("id", id), ("label", label), ("icon", icon), ("default", default)]);
+        array.set_index(scope, i as u32, obj.into());
+    }
+    resolver.resolve(scope, array.into());
+}
+
+#[cfg(windows)]
+fn open_with(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let handler = acdert::arg_string(scope, &args, 0);
+    let path = acdert::arg_string(scope, &args, 1);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acdert::offload(scope, &mut rv, "acde-open", move || acde_hostwin::open_with(&handler, &path), settle_default);
+}
+
+fn answer_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let answer = args.get(0);
+    let path = (!answer.is_null_or_undefined()).then(|| std::path::PathBuf::from(acdert::arg_string(scope, &args, 0)));
+    with(scope, |_| acde_hostwin::answer_folder(path));
+}
+
+fn read_clipboard(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(text) = with(scope, |_| acde_hostwin::clipboard_text()) else { return };
+    let text = acdert::string(scope, &text);
+    rv.set(text.into());
+}
+
+fn write_clipboard(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let text = acdert::arg_string(scope, &args, 0);
+    with(scope, |_| acde_hostwin::set_clipboard_text(text));
+}
+
+fn answer_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let answer = args.get(0);
+    let paths = if answer.is_null_or_undefined() {
+        None
+    } else {
+        match acdert::strings(scope, answer) {
+            Some(paths) if !paths.is_empty() => Some(paths.into_iter().map(std::path::PathBuf::from).collect()),
+            _ => return acdert::throw_type_error(scope, "answerOpen: the answer is a non-empty list of paths, or null"),
+        }
+    };
+    with(scope, |_| acde_hostwin::answer_open(paths));
+}
+
+fn answer_save(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let answer = args.get(0);
+    let path = (!answer.is_null_or_undefined()).then(|| std::path::PathBuf::from(acdert::arg_string(scope, &args, 0)));
+    with(scope, |_| acde_hostwin::answer_save(path));
+}
+
+fn chooser_open(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let chooser = v8::Object::new(scope);
+    acdert::methods!(scope, chooser,
+        "openFile" => open_file,
+        "saveFile" => save_file,
+    );
+    let Some(resolver) = v8::PromiseResolver::new(scope) else { return };
+    resolver.resolve(scope, chooser.into());
+    rv.set(resolver.get_promise(scope).into());
+}
+
+fn chooser_options<'s>(scope: &mut v8::PinScope, value: v8::Local<'s, v8::Value>, method: &str) -> Option<v8::Local<'s, v8::Object>> {
+    let options = v8::Local::<v8::Object>::try_from(value).ok();
+    if options.is_none() {
+        acdert::throw_type_error(scope, &format!("{method}: the options are an object"));
+    }
+    options
+}
+
+fn flag(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> bool {
+    acdert::get(scope, obj, name).is_some_and(|v| v.is_true())
+}
+
+fn file_filters(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>) -> Vec<FileFilter> {
+    let Some(list) = acdert::get(scope, obj, "filters").and_then(|v| v8::Local::<v8::Array>::try_from(v).ok()) else {
+        return Vec::new();
+    };
+    (0..list.length())
+        .filter_map(|i| {
+            let filter = list.get_index(scope, i).and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())?;
+            let mut strings = |name: &str| acdert::get(scope, filter, name).and_then(|v| acdert::strings(scope, v)).unwrap_or_default();
+            let globs = strings("globs");
+            let mimes = strings("mimes");
+            Some(FileFilter { name: acdert::get_string(scope, filter, "name").unwrap_or_default(), globs, mimes })
+        })
+        .collect()
+}
+
+fn open_file(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(options) = chooser_options(scope, args.get(0), "openFile") else { return };
+    let request = OpenRequest {
+        title: acdert::get_string(scope, options, "title").unwrap_or_default(),
+        multiple: flag(scope, options, "multiple"),
+        directory: flag(scope, options, "directory"),
+        filters: file_filters(scope, options),
+    };
+    acdert::offload(scope, &mut rv, "acde-chooser", move || crate::chooser::open(request), settle_open);
+}
+
+fn save_file(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(options) = chooser_options(scope, args.get(0), "saveFile") else { return };
+    let request = SaveRequest {
+        title: acdert::get_string(scope, options, "title").unwrap_or_default(),
+        name: acdert::get_string(scope, options, "name").unwrap_or_default(),
+        filters: file_filters(scope, options),
+    };
+    acdert::offload(scope, &mut rv, "acde-chooser", move || crate::chooser::save(request), settle_save);
+}
+
+fn chooser_failed(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, error: &str) {
+    let error = acdert::failure(scope, error, None, "chooser");
+    resolver.reject(scope, error);
+}
+
+fn settle_open(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, picked: Result<Option<Vec<String>>, String>) {
+    match picked {
+        Ok(Some(paths)) => {
+            let paths: Vec<v8::Local<v8::Value>> = paths.iter().map(|path| acdert::string(scope, path).into()).collect();
+            let list = v8::Array::new_with_elements(scope, &paths);
+            resolver.resolve(scope, list.into());
+        }
+        Ok(None) => {
+            let null = v8::null(scope).into();
+            resolver.resolve(scope, null);
+        }
+        Err(e) => chooser_failed(scope, resolver, &e),
+    }
+}
+
+fn settle_save(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, picked: Result<Option<String>, String>) {
+    match picked {
+        Ok(picked) => {
+            let value = match picked {
+                Some(path) => acdert::string(scope, &path).into(),
+                None => v8::null(scope).into(),
+            };
+            resolver.resolve(scope, value);
+        }
+        Err(e) => chooser_failed(scope, resolver, &e),
+    }
+}
+
+fn approve(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let title = acdert::arg_string(scope, &args, 0);
+    let message = acdert::arg_string(scope, &args, 1);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acdert::offload(scope, &mut rv, "acde-approve", move || acde_hostwin::approve(&title, &message), settle_approve);
+}
+
+fn settle_approve(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, answer: Result<Option<bool>, String>) {
+    match answer {
+        Ok(answer) => {
+            let value = match answer {
+                Some(allowed) => v8::Boolean::new(scope, allowed).into(),
+                None => v8::null(scope).into(),
+            };
+            resolver.resolve(scope, value);
+        }
+        Err(e) => {
+            let error = acdert::failure(scope, &e, None, "approve");
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn dismiss_approval(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with(scope, |_| acde_hostwin::dismiss_approval());
+}
+
+fn quit(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with(scope, Shell::quit);
+}
