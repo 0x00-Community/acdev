@@ -357,3 +357,19 @@ fn an_image_that_failed_out_of_the_document_is_not_loaded_again_when_inserted() 
     dom.set_attribute(img, "src", "https://img.example.com/other.png").unwrap();
     drop(take(&loads, "https://img.example.com/other.png"));
 }
+
+#[test]
+fn setting_the_same_src_again_after_a_failure_loads_the_image_again() {
+    let (_doc, dom, loads) = page("<body><img id=a src='https://img.example.com/flaky.png'></body>");
+    let a = by_id(&dom, "a");
+    drop(take(&loads, "https://img.example.com/flaky.png"));
+    dom.take_loaded();
+    assert_eq!(dom.image_state(a).unwrap(), [0.0, 0.0, 2.0]);
+    dom.set_attribute(a, "src", "https://img.example.com/flaky.png").unwrap();
+    take(&loads, "https://img.example.com/flaky.png").finish(Some(png()));
+    assert_eq!(dom.take_loaded(), vec![a]);
+    assert_eq!(dom.image_state(a).unwrap(), [2.0, 3.0, 1.0]);
+    dom.set_attribute(a, "alt", "x").unwrap();
+    dom.set_attribute(a, "alt", "x").unwrap();
+    assert!(loads.lock().unwrap().is_empty(), "other attributes keep the same-value shortcut and load nothing");
+}

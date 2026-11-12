@@ -1730,10 +1730,11 @@ impl Engine {
         let element = self.doc.tree()[node].element_data();
         let html = element.is_some_and(|e| e.name.ns == ns!(html)) && !self.in_xml_document(node);
         let canvas = html && element.is_some_and(|e| &*e.name.local == "canvas");
+        let img = html && element.is_some_and(|e| &*e.name.local == "img");
+        let again =
+            |local: &str| matches!(local, "value" | "style") || (canvas && matches!(local, "width" | "height")) || (img && matches!(local, "src" | "srcset"));
         let qual = match existing {
-            Some((qual, old))
-                if value == Some(&*old) && !matches!(&*qual.local, "value" | "style") && !(canvas && matches!(&*qual.local, "width" | "height")) =>
-            {
+            Some((qual, old)) if value == Some(&*old) && !again(&qual.local) => {
                 return Ok(false);
             }
             Some((qual, _)) => qual,
