@@ -96,7 +96,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
   `sys.openOffice()` 开 (network / office / system 只在 Linux). `acde:system` (清单能力 `system`, crates/acdert `system.rs` → runtime `system.rs`,
   从 acde-base 移植): 这台电脑的信息 (主机名、系统、CPU、GPU、NPU、内存、开机时长、序列号)、各卷容量、时区和 NTP (经 timedated)、改时区 /
-  NTP / 主机名 (经 hostnamed, 要 polkit 授权)、当前用户; 每次调用在 offload 线程上现读, 没有变化事件. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
+  NTP / 主机名 (经 hostnamed, 要 polkit 授权)、当前用户; 每次调用在 offload 线程上现读, 没有变化事件.
+  `acde:bluetooth` (能力 `bluetooth`, crates/acdert `bluetooth.rs` → runtime `bluetooth.rs`, 从 acde-base 移植): BlueZ 的适配器和设备 (开关、可见、改名、
+  扫描、配对 / 应答、连接、信任、屏蔽、忘记), 自己注册配对代理; `on('changed' | 'pairing')` 由 acde-host `bluetooth.ts` 包在原生 `watch` / `pairing` 上.
+  登录时的开关 (`setOnLogin`: remember / on / off, 存在 `$XDG_CONFIG_HOME`) 只在自己的会话里由 Broker 调 `sys.restoreBluetooth()` 应用, 宿主窗口和登录页不碰. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
   公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
   `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的

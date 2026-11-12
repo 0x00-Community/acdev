@@ -53,6 +53,7 @@ export interface Capabilities {
   readonly terminal?: boolean
   readonly network?: boolean
   readonly system?: boolean
+  readonly bluetooth?: boolean
   readonly office?: boolean
   readonly launch?: boolean
   readonly slots?: boolean

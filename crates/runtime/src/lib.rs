@@ -1,6 +1,8 @@
 #[cfg(target_os = "linux")]
 mod atspi;
 #[cfg(target_os = "linux")]
+mod bluetooth;
+#[cfg(target_os = "linux")]
 mod bus;
 pub mod channel;
 #[cfg(windows)]
@@ -33,6 +35,8 @@ mod terminal;
 mod voice;
 #[cfg(target_os = "linux")]
 pub use atspi::Accessibility;
+#[cfg(target_os = "linux")]
+pub use bluetooth::{Bluetooths, BtCall};
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
 pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};

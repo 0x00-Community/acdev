@@ -11,7 +11,7 @@ import { Packages, type InstalledDesktop } from './packages'
 import { StoragePlaces } from './storage'
 import { AppRegistry } from './apps'
 import { mkdirSync, readFileSync, writeFileSync } from './sys/fs'
-import { bindNatives, type Natives } from './sys/natives'
+import { bindNatives, sys, type Natives } from './sys/natives'
 import { xdgHome } from './sys/os'
 import { dirname, join, resolve } from './sys/path'
 import { onceSignal, process } from './sys/process'
@@ -276,6 +276,7 @@ class Main {
       } catch (error) {
         Log.write(Level.Warn, 'acde_host', `fcitx5 not started: ${(error as Error).message}`)
       }
+      sys().restoreBluetooth?.()
     }
     for (const command of args.list('launch')) shell.launch(command.split(' ').filter(Boolean))
     if (Autostart.wanted(session) && !standalone && !greeter) {

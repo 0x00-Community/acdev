@@ -10,6 +10,11 @@ declare module 'acde:terminal' {
   const terminal: import('@dopame/acde-api').AcdeModules['terminal']
   export { terminal, terminal as default }
 }
+declare module 'acde:bluetooth' {
+  const bluetooth: import('@dopame/acde-api').AcdeModules['bluetooth']
+  export { bluetooth, bluetooth as default }
+}
+
 declare module 'acde:system' {
   const system: import('@dopame/acde-api').AcdeModules['system']
   export { system, system as default }

@@ -3,6 +3,8 @@ mod backend;
 #[cfg(windows)]
 mod backends;
 mod bind;
+#[cfg(target_os = "linux")]
+mod bluetooth;
 mod caches;
 mod capture;
 mod child;

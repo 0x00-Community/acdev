@@ -10,6 +10,11 @@ declare module 'acde:terminal' {
   const terminal: import('../types/page').AcdeTerminals
   export { terminal, terminal as default }
 }
+declare module 'acde:bluetooth' {
+  const bluetooth: import('../types/page').AcdeBluetooth
+  export { bluetooth, bluetooth as default }
+}
+
 declare module 'acde:system' {
   const system: import('../types/page').AcdeSystem
   export { system, system as default }

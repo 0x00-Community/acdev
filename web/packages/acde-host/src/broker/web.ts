@@ -51,13 +51,14 @@ export class Web {
   }
 
   static grants(app: string | null, caps: Capabilities | null, tier: WebTier | null = null): Omit<WebGrants, 'storage'> {
-    if (!caps) return { app, fs: true, terminal: true, network: true, system: true, office: true, camera: true, microphone: true }
+    if (!caps) return { app, fs: true, terminal: true, network: true, system: true, bluetooth: true, office: true, camera: true, microphone: true }
     return {
       app,
       fs: FileAccess.grant(caps, tier),
       terminal: !!caps.terminal,
       network: !!caps.network,
       system: !!caps.system,
+      bluetooth: !!caps.bluetooth,
       office: !!caps.office,
       camera: caps.camera === true,
       microphone: caps.microphone === true,

@@ -50,6 +50,8 @@ struct System {
     #[cfg(target_os = "linux")]
     networks: acde_runtime::Networks,
     #[cfg(target_os = "linux")]
+    bluetooth: acde_runtime::Bluetooths,
+    #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
 }
 
@@ -66,6 +68,8 @@ struct Grants {
     office: Option<acde_runtime::OfficeService>,
     #[cfg(target_os = "linux")]
     system: bool,
+    #[cfg(target_os = "linux")]
+    bluetooth: Option<acde_runtime::Bluetooths>,
 }
 
 impl Webs {
@@ -84,6 +88,8 @@ impl Webs {
                 office: None,
                 #[cfg(target_os = "linux")]
                 system: false,
+                #[cfg(target_os = "linux")]
+                bluetooth: None,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -108,6 +114,8 @@ impl Webs {
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let computer = bind::get(scope, wanted, "system").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
+        let bluetooth = bind::get(scope, wanted, "bluetooth").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -128,6 +136,8 @@ impl Webs {
             network: network.then(|| system.networks.clone()),
             #[cfg(target_os = "linux")]
             system: computer,
+            #[cfg(target_os = "linux")]
+            bluetooth: bluetooth.then(|| system.bluetooth.clone()),
         }
     }
 }
@@ -157,6 +167,10 @@ impl Grants {
         #[cfg(target_os = "linux")]
         if self.system {
             crate::system::install(scope, natives);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(bluetooth) = self.bluetooth {
+            crate::bluetooth::install(scope, natives, bluetooth);
         }
     }
 }
@@ -253,11 +267,21 @@ impl Spec {
         crate::webgl::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();
+        #[cfg(target_os = "linux")]
+        crate::bluetooth::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);
         let reason = reason.lock().ok().and_then(|r| r.clone());
         (code, reason)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn restore_bluetooth(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let bluetooth = WEBS.with(|w| w.borrow().system.bluetooth.clone());
+    if let Err(e) = std::thread::Builder::new().name("acde-bluetooth".into()).spawn(move || bluetooth.restore()) {
+        bind::throw_error(scope, &format!("restoreBluetooth: {e}"));
     }
 }
 

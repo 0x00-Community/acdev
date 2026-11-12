@@ -657,12 +657,70 @@ export interface AcdeSystem {
   user(): Promise<SystemUser>
 }
 
+export interface BluetoothDevice {
+  readonly id: string
+  readonly address: string
+  readonly name: string
+  readonly named: boolean
+  readonly kind: 'audio' | 'headset' | 'keyboard' | 'mouse' | 'phone' | 'computer' | 'gamepad' | 'other'
+  readonly icon: string
+  readonly paired: boolean
+  readonly connected: boolean
+  readonly trusted: boolean
+  readonly blocked: boolean
+  readonly battery: number | null
+  readonly rssi: number | null
+}
+
+export interface BluetoothState {
+  readonly available: boolean
+  readonly powered: boolean
+  readonly discoverable: boolean
+  readonly discoverableTimeout: number
+  readonly pairable: boolean
+  readonly discovering: boolean
+  readonly name: string
+  readonly address: string
+  readonly blocked: 'soft' | 'hard' | null
+  readonly onLogin: 'remember' | 'on' | 'off'
+  readonly devices: readonly BluetoothDevice[]
+}
+
+export interface BluetoothPairing {
+  readonly device: string
+  readonly name: string
+  readonly kind: 'confirm' | 'display' | 'pin' | 'passkey' | 'authorize' | 'service' | 'cancel'
+  readonly passkey?: string
+  readonly entered?: number
+  readonly uuid?: string
+}
+
+export interface AcdeBluetooth {
+  state(): Promise<BluetoothState>
+  setPowered(on: boolean): Promise<void>
+  setDiscoverable(on: boolean, timeout?: number): Promise<void>
+  setName(name: string): Promise<void>
+  scan(on: boolean): Promise<void>
+  pair(id: string): Promise<void>
+  answer(id: string, accept: boolean, pin?: string): Promise<void>
+  connect(id: string): Promise<void>
+  disconnect(id: string): Promise<void>
+  forget(id: string): Promise<void>
+  setTrusted(id: string, on: boolean): Promise<void>
+  setBlocked(id: string, on: boolean): Promise<void>
+  rename(id: string, name: string): Promise<void>
+  setOnLogin(mode: 'remember' | 'on' | 'off'): Promise<void>
+  on(type: 'changed', handler: (state: BluetoothState) => void): () => boolean
+  on(type: 'pairing', handler: (request: BluetoothPairing) => void): () => boolean
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice
   readonly terminal?: AcdeTerminals
   readonly network?: AcdeNetwork
   readonly system?: AcdeSystem
+  readonly bluetooth?: AcdeBluetooth
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch
