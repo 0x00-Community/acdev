@@ -25,7 +25,7 @@ export class Appearance {
       try {
         message = (JSON.parse(message) as { message?: string }).message || message
       } catch {}
-      Log.write(Level.Info, 'acde_host', `color scheme: light, the portal has no setting (${message})`)
+      Log.write(Level.Debug, 'acde_host', `color scheme: light, the portal has no setting (${message})`)
     }
   }
 }
