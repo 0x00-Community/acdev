@@ -360,7 +360,14 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `inspector::start` 后把 `inspector::remote()` 按 web 名登记 (`devtools::opened`), `inspector::stop` 时 `closed`. 客户端 `attach` 时在
   它的目标页面上开一个 inspector session (`Remote::connect`), 回复和通知直接 `Client::send` 回去; `message` 原样投给这个 session
   (目标还没登记时回 false, 端点答 -32601), `detach` 断开. 页面关了: 给它的客户端发 `Inspector.detached {reason: "target_closed"}` 再关
-  WebSocket; 重载例外 (#202, 见下). 有 session 连着时页面事件循环不退出 (`keep_alive`). 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
+  WebSocket; 重载例外 (#202, 见下). 有 session 连着时页面事件循环不退出 (`keep_alive`).
+  **断点和单步** (#194): V8 暂停 (断点、`debugger`、单步) 时调 inspector client 的 `run_message_loop_on_pause`, 页面线程在
+  `inspector::paused` 里等 `Pending` 的条件变量 (每 100 ms 醒一次), 有消息就 `dispatch_posted` (V8 域和页面域都答, 页面域的处理器在
+  暂停中照样跑, 不过任务末尾的钩子和微任务检查点要等继续以后); V8 的 `quit_message_loop_on_pause` (继续、单步) 让它返回. 三种情况也返回、
+  页面接着跑: 最后一个客户端断开 (`extra` 空了)、页面要停 (`inspector::stop_when` 交给它的 `stopping`, web 被 terminate 时为真, 返回后
+  V8 的 terminate 生效)、没有客户端时根本不进 (热重载那个 session 设了 `Debugger.setSkipAllPauses`, 所以没人连着时 `debugger` 不停).
+  暂停期间这个 web 的 `busyMs` 记 0, Broker 不把它当卡死. 页面在跑长任务时 DevTools 的 `Debugger.pause` 另经 `IsolateHandle::request_interrupt`
+  在 JS 里插进去 (`interrupted` 只从队列里取出 `Debugger.pause` 交给 V8). 暂停时窗口停在最后一帧. 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
   域. 没人接的页面错误 (`host.reportError`) 也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的
   `description` 里).
   **重载不断开** (#202): Broker 让同一个 web 重来前 (`Web.terminate` 时 `reloading` 为真: `location.reload` 的 `window.reload`、单应用

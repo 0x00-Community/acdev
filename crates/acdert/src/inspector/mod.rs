@@ -1,9 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use v8::UniquePtr;
 use v8::inspector::{
@@ -30,6 +31,16 @@ struct Client {
 }
 
 impl V8InspectorClientImpl for Client {
+    fn run_message_loop_on_pause(&self, context_group_id: i32) {
+        if context_group_id == GROUP {
+            paused(self.isolate, &self.context);
+        }
+    }
+
+    fn quit_message_loop_on_pause(&self) {
+        STATE.with(|s| s.borrow().as_ref().map(|s| s.pause.quit.set(true)));
+    }
+
     fn ensure_default_context_in_group(&self, context_group_id: i32) -> Option<v8::Local<'_, v8::Context>> {
         if context_group_id != GROUP {
             return None;
@@ -118,6 +129,30 @@ impl Pending {
     fn pop(&self) -> Option<Posted> {
         self.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
     }
+
+    fn wait(&self, timeout: Duration) {
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        drop(self.ready.wait_timeout_while(queue, timeout, |q| q.is_empty()));
+    }
+
+    fn take_pauses(&self) -> Vec<(u32, String)> {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pauses = Vec::new();
+        queue.retain(|posted| match posted {
+            Posted::Message(id, text) if method(text) == Some("Debugger.pause") => {
+                pauses.push((*id, text.clone()));
+                false
+            }
+            _ => true,
+        });
+        pauses
+    }
+}
+
+fn method(text: &str) -> Option<&str> {
+    let start = text.find("\"method\"")? + 8;
+    let rest = text[start..].trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    rest.split('"').next()
 }
 
 #[derive(Clone)]
@@ -125,6 +160,7 @@ pub struct Remote {
     pending: Arc<Pending>,
     next: Arc<AtomicU32>,
     wake: Sender<rt::Msg>,
+    isolate: v8::IsolateHandle,
 }
 
 impl Remote {
@@ -135,7 +171,11 @@ impl Remote {
     }
 
     pub fn send(&self, session: u32, message: String) {
+        let pause = method(&message) == Some("Debugger.pause");
         self.post(Posted::Message(session, message));
+        if pause {
+            self.isolate.request_interrupt(interrupted, std::ptr::null_mut());
+        }
     }
 
     pub fn page(&self, session: u32, message: String) {
@@ -163,8 +203,17 @@ struct Session {
     calls: Cell<i32>,
 }
 
+#[derive(Default)]
+struct Pause {
+    quit: Cell<bool>,
+    depth: Cell<u32>,
+    stopping: RefCell<Option<Arc<AtomicBool>>>,
+}
+
 struct State {
     main: Session,
+    pause: Pause,
+    isolate: v8::IsolateHandle,
     extra: RefCell<HashMap<u32, Rc<V8InspectorSession>>>,
     pending: Arc<Pending>,
     next: Arc<AtomicU32>,
@@ -203,6 +252,7 @@ pub fn start(scope: &mut v8::PinScope, name: &str) {
     attach(scope, name);
     if dev() {
         send("Debugger.enable", "{}");
+        send("Debugger.setSkipAllPauses", r#"{"skip":true}"#);
         if let Some(remote) = remote() {
             devtools::opened(name, remote);
             STATE.with(|s| s.borrow_mut().as_mut().map(|s| s.listed = true));
@@ -222,12 +272,14 @@ pub(crate) fn attach(scope: &mut v8::PinScope, name: &str) {
     let main = Session { session, inbox, calls: Cell::new(0) };
     let wake = rt::current().sender();
     let (pending, next, name, listed) = (Arc::default(), Arc::new(AtomicU32::new(1)), name.to_owned(), false);
-    let state = State { main, extra: Default::default(), pending, next, wake, name, listed, page: Default::default(), inspector };
+    let isolate = scope.thread_safe_handle();
+    let pause = Pause::default();
+    let state = State { main, pause, isolate, extra: Default::default(), pending, next, wake, name, listed, page: Default::default(), inspector };
     STATE.with(|s| *s.borrow_mut() = Some(state));
 }
 
 pub fn remote() -> Option<Remote> {
-    STATE.with(|s| s.borrow().as_ref().map(|s| Remote { pending: s.pending.clone(), next: s.next.clone(), wake: s.wake.clone() }))
+    STATE.with(|s| s.borrow().as_ref().map(|s| Remote { pending: s.pending.clone(), next: s.next.clone(), wake: s.wake.clone(), isolate: s.isolate.clone() }))
 }
 
 pub fn dispatch_posted(scope: &mut v8::PinScope) {
@@ -269,6 +321,60 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                 }
                 drop(session);
             }
+        }
+    }
+}
+
+pub fn stop_when(stopping: Arc<AtomicBool>) {
+    STATE.with(|s| s.borrow().as_ref().map(|s| *s.pause.stopping.borrow_mut() = Some(stopping)));
+}
+
+const PAUSE_POLL: Duration = Duration::from_millis(100);
+
+fn paused(isolate: v8::UnsafeRawIsolatePtr, context: &v8::Global<v8::Context>) {
+    let Some(pending) = STATE.with(|s| {
+        let s = s.borrow();
+        let s = s.as_ref()?;
+        if s.extra.borrow().is_empty() {
+            return None;
+        }
+        s.pause.quit.set(false);
+        s.pause.depth.set(s.pause.depth.get() + 1);
+        Some(s.pending.clone())
+    }) else {
+        return;
+    };
+    let busy = rt::current().busy();
+    let was = busy.swap(0, Ordering::Relaxed);
+    let resume = || {
+        STATE.with(|s| {
+            s.borrow().as_ref().is_none_or(|s| {
+                let stopping = s.pause.stopping.borrow().as_ref().is_some_and(|f| f.load(Ordering::SeqCst));
+                s.pause.quit.get() || stopping || s.extra.borrow().is_empty()
+            })
+        })
+    };
+    {
+        let mut raw = isolate;
+        let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(&mut raw) };
+        v8::scope_with_context!(let scope, isolate, context);
+        while !resume() {
+            pending.wait(PAUSE_POLL);
+            dispatch_posted(scope);
+        }
+    }
+    STATE.with(|s| s.borrow().as_ref().map(|s| s.pause.depth.set(s.pause.depth.get().saturating_sub(1))));
+    if was != 0 {
+        busy.store(rt::busy_stamp(), Ordering::Relaxed);
+    }
+}
+
+unsafe extern "C" fn interrupted(_: v8::UnsafeRawIsolatePtr, _: *mut std::ffi::c_void) {
+    let Some(pending) = STATE.with(|s| s.borrow().as_ref().map(|s| s.pending.clone())) else { return };
+    for (id, text) in pending.take_pauses() {
+        let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow().get(&id).cloned()));
+        if let Some(session) = session {
+            session.dispatch_protocol_message(StringView::from(text.as_bytes()));
         }
     }
 }
@@ -414,6 +520,122 @@ mod tests {
         assert_eq!(by_id(3)["result"]["result"]["value"], true, "$0 is the inspected node");
         remote.disconnect(session);
         runtime.task(|scope| dispatch_posted(scope));
+        stop();
+    }
+
+    fn run(scope: &mut v8::PinScope, code: &str) -> Option<String> {
+        let code = v8::String::new(scope, code)?;
+        let value = v8::Script::compile(scope, code, None)?.run(scope)?;
+        Some(value.to_rust_string_lossy(scope))
+    }
+
+    fn client(remote: &Remote) -> (u32, std::sync::mpsc::Receiver<serde_json::Value>) {
+        let (tx, rx) = channel::<serde_json::Value>();
+        let tx = Mutex::new(tx);
+        let session = remote.connect(Arc::new(move |text| _ = tx.lock().unwrap().send(serde_json::from_str(&text).expect("json"))));
+        (session, rx)
+    }
+
+    fn next(rx: &std::sync::mpsc::Receiver<serde_json::Value>, wanted: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let message = rx.recv_timeout(left).expect("the message in time");
+            if wanted(&message) {
+                return message;
+            }
+        }
+    }
+
+    #[test]
+    fn a_debugger_statement_pauses_until_devtools_resumes_and_answers_while_paused() {
+        let mut runtime = rt::Runtime::new(None, "pausing");
+        runtime.task(|scope| attach(scope, "pausing"));
+        send("Debugger.enable", "{}");
+        send("Debugger.setSkipAllPauses", r#"{"skip":true}"#);
+        let remote = remote().expect("an inspector");
+        let (session, rx) = client(&remote);
+        remote.send(session, r#"{"id":1,"method":"Debugger.enable","params":{}}"#.into());
+        runtime.task(|scope| dispatch_posted(scope));
+        let driving = remote.clone();
+        let driver = std::thread::spawn(move || {
+            let paused = next(&rx, |m| m["method"] == "Debugger.paused");
+            let frame = paused["params"]["callFrames"][0]["callFrameId"].as_str().expect("a frame").to_owned();
+            let evaluate =
+                serde_json::json!({"id": 2, "method": "Debugger.evaluateOnCallFrame", "params": {"callFrameId": frame, "expression": "local + ' 中文'"}});
+            driving.send(session, evaluate.to_string());
+            let local = next(&rx, |m| m["id"] == 2)["result"]["result"]["value"].clone();
+            driving.send(session, r#"{"id":3,"method":"Debugger.stepOver","params":{}}"#.into());
+            let stepped = next(&rx, |m| m["method"] == "Debugger.paused")["params"]["callFrames"][0]["location"]["lineNumber"].clone();
+            driving.send(session, r#"{"id":4,"method":"Debugger.resume","params":{}}"#.into());
+            next(&rx, |m| m["method"] == "Debugger.resumed");
+            (local, stepped)
+        });
+        let after = runtime
+            .task(|scope| run(scope, "(function () {\n  const local = 'here'\n  debugger\n  globalThis.after = local + '!'\n  return globalThis.after\n})()"));
+        let (local, stepped) = driver.join().expect("driver");
+        assert_eq!(local, "here 中文", "evaluated in the paused frame");
+        assert_eq!(stepped, 3, "step over stopped on the next line");
+        assert_eq!(after.as_deref(), Some("here!"), "the page ran on after resume");
+        remote.disconnect(session);
+        runtime.task(|scope| dispatch_posted(scope));
+        stop();
+    }
+
+    #[test]
+    fn a_debugger_statement_without_a_client_does_not_pause() {
+        let mut runtime = rt::Runtime::new(None, "unwatched");
+        runtime.task(|scope| attach(scope, "unwatched"));
+        send("Debugger.enable", "{}");
+        send("Debugger.setSkipAllPauses", r#"{"skip":true}"#);
+        let started = Instant::now();
+        let value = runtime.task(|scope| run(scope, "debugger; 'ran'"));
+        assert_eq!(value.as_deref(), Some("ran"));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        stop();
+    }
+
+    #[test]
+    fn stopping_the_page_ends_a_pause() {
+        let mut runtime = rt::Runtime::new(None, "closing");
+        runtime.task(|scope| attach(scope, "closing"));
+        let stopping = Arc::new(AtomicBool::new(false));
+        stop_when(stopping.clone());
+        let remote = remote().expect("an inspector");
+        let (session, rx) = client(&remote);
+        remote.send(session, r#"{"id":1,"method":"Debugger.enable","params":{}}"#.into());
+        runtime.task(|scope| dispatch_posted(scope));
+        let isolate = runtime.isolate.thread_safe_handle();
+        let closer = std::thread::spawn(move || {
+            next(&rx, |m| m["method"] == "Debugger.paused");
+            stopping.store(true, Ordering::SeqCst);
+            isolate.terminate_execution();
+        });
+        let started = Instant::now();
+        let value = runtime.task(|scope| run(scope, "debugger; 'not reached'"));
+        closer.join().expect("closer");
+        assert_eq!(value, None, "the page script was terminated");
+        assert!(started.elapsed() < Duration::from_secs(5), "the pause ended");
+        remote.disconnect(session);
+        stop();
+    }
+
+    #[test]
+    fn detaching_the_last_client_ends_a_pause() {
+        let mut runtime = rt::Runtime::new(None, "detaching");
+        runtime.task(|scope| attach(scope, "detaching"));
+        let remote = remote().expect("an inspector");
+        let (session, rx) = client(&remote);
+        remote.send(session, r#"{"id":1,"method":"Debugger.enable","params":{}}"#.into());
+        runtime.task(|scope| dispatch_posted(scope));
+        let leaving = remote.clone();
+        let leaver = std::thread::spawn(move || {
+            next(&rx, |m| m["method"] == "Debugger.paused");
+            leaving.disconnect(session);
+        });
+        let value = runtime.task(|scope| run(scope, "debugger; 'went on'"));
+        leaver.join().expect("leaver");
+        assert_eq!(value.as_deref(), Some("went on"));
         stop();
     }
 }

@@ -206,6 +206,7 @@ impl Spec {
         let isolate = runtime.isolate.thread_safe_handle();
         let reason = Arc::new(Mutex::new(None::<String>));
         let stopping = Arc::new(AtomicBool::new(false));
+        crate::inspector::stop_when(stopping.clone());
         let guard = HeapGuard::install(&mut runtime, isolate.clone(), reason.clone(), stopping.clone());
         let tid = cfg_select! {
             target_os = "linux" => rustix::thread::gettid().as_raw_nonzero().get(),
