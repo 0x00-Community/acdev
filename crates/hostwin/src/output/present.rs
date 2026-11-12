@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acde_gpu::{Backdrop, Composer, Effect, FilterEffect, Op, Overrides, Px, Scene, Shadow, Vello, vello, wgpu};
+use acde_gpu::{Backdrop, Effect, FilterEffect, Px, Scene, Shadow, wgpu};
 use acde_model::{Inbox, Pacer};
 use acde_render::{Bar, Decoration, Layer, Plane, RenderHandle};
+use acde_vello::{Composer, Op, Overrides, Vello, vello};
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::Color;
 

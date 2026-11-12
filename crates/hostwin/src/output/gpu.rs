@@ -22,6 +22,7 @@ pub(crate) struct Gpu {
 impl Gpu {
     pub fn open() -> Result<Self, String> {
         let (instance, adapter, shared) = acde_gpu::Gpu::open("acde host")?;
+        _ = shared.set_compositor(std::sync::Arc::new(acde_vello::VelloCompositor));
         log::info!("web layer uses {} ({:?}, {:?})", shared.info.name, shared.info.device_type, shared.info.backend);
         shared.on_lost(|message| fail(&format!("the GPU device was lost ({message})"), LOST_EXIT));
         Ok(Self { instance, adapter, shared })

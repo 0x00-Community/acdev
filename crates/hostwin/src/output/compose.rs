@@ -163,7 +163,7 @@ struct Thread {
     dump: Option<PathBuf>,
     dump_at: Option<Instant>,
     pages: HashMap<u32, Bound>,
-    composer: acde_gpu::Composer,
+    composer: acde_vello::Composer,
     canvas: Option<Canvas>,
     retry_at: Option<Instant>,
     fault: Option<Fault>,
@@ -242,7 +242,7 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let dump = std::env::var_os("ACDE_HOST_DUMP").map(PathBuf::from);
     let (tx, rx) = mpsc::channel();
     let size = (size.0.max(1), size.1.max(1));
-    let composer = acde_gpu::Composer::new(device, &gpu.shared.queue);
+    let composer = acde_vello::Composer::new(device, &gpu.shared.queue);
     let pages = HashMap::new();
     let fault = Fault::from_env();
     let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, draws: 0 };
