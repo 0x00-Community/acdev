@@ -1,11 +1,12 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use super::{STATE, Sink};
-use crate::bind;
+use crate::{bind, rt};
 
 pub(super) const DOMAINS: [&str; 5] = ["Page", "DOM", "CSS", "Overlay", "Network"];
 
@@ -19,12 +20,15 @@ pub(super) type Resolving = Arc<Mutex<HashMap<String, (Rewritten, Option<Value>)
 
 const NODE_LOOKUP: &str = "acde.devtools.node";
 const HIGHLIGHT: &str = "acde.devtools.highlight";
+const HANDLER_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
 pub(super) struct PageSide {
     sinks: RefCell<HashMap<u32, Sink>>,
     handler: RefCell<Option<v8::Global<v8::Function>>>,
     resolving: RefCell<HashMap<u32, Resolving>>,
+    waiting: RefCell<Vec<(u32, String)>>,
+    timed: Cell<bool>,
 }
 
 impl PageSide {
@@ -154,10 +158,42 @@ pub(super) fn routed(message: &str) -> bool {
 
 pub(super) fn message(scope: &mut v8::PinScope, id: u32, message: &str) {
     let found = STATE.with(|s| s.borrow().as_ref().map(|s| (s.page.handler.borrow().clone(), s.page.sinks.borrow().get(&id).cloned())));
-    let Some((handler, Some(sink))) = found else { return };
-    let Some(handler) = handler else { return sink(not_found(message)) };
+    let Some((handler, Some(_))) = found else { return };
+    let Some(handler) = handler else { return wait(id, message) };
     let args = [v8::Integer::new_from_unsigned(scope, id).into(), bind::string(scope, message).into()];
     bind::call(scope, &handler, &args);
+}
+
+fn wait(id: u32, message: &str) {
+    let first = STATE.with(|s| {
+        let s = s.borrow();
+        let s = s.as_ref()?;
+        s.page.waiting.borrow_mut().push((id, message.to_owned()));
+        Some(!s.page.timed.replace(true))
+    });
+    if first == Some(true) {
+        rt::current().delay(HANDLER_WAIT, |_: &mut v8::PinScope| unanswered());
+    }
+}
+
+fn unanswered() {
+    let left = STATE.with(|s| {
+        let s = s.borrow();
+        let s = s.as_ref()?;
+        s.page.timed.set(false);
+        let waiting = std::mem::take(&mut *s.page.waiting.borrow_mut());
+        Some(waiting.into_iter().filter_map(|(id, message)| s.page.sinks.borrow().get(&id).cloned().map(|sink| (sink, message))).collect::<Vec<_>>())
+    });
+    for (sink, message) in left.into_iter().flatten() {
+        sink(not_found(&message));
+    }
+}
+
+fn handed(scope: &mut v8::PinScope) {
+    let waiting = STATE.with(|s| s.borrow().as_ref().map(|s| std::mem::take(&mut *s.page.waiting.borrow_mut()))).unwrap_or_default();
+    for (id, text) in waiting {
+        message(scope, id, &text);
+    }
 }
 
 pub(super) fn disconnected(scope: &mut v8::PinScope, id: u32) {
@@ -165,6 +201,7 @@ pub(super) fn disconnected(scope: &mut v8::PinScope, id: u32) {
         let s = s.borrow();
         let s = s.as_ref()?;
         s.page.resolving.borrow_mut().remove(&id);
+        s.page.waiting.borrow_mut().retain(|(waiting, _)| *waiting != id);
         s.page.sinks.borrow_mut().remove(&id)?;
         s.page.handler.borrow().clone()
     });
@@ -192,12 +229,14 @@ pub fn install(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mu
     let name = STATE.with(|s| {
         s.borrow().as_ref().map(|s| {
             *s.page.handler.borrow_mut() = Some(handler);
-            s.name.clone()
+            (s.name.clone(), !s.page.waiting.borrow().is_empty())
         })
     });
-    if let Some(name) = name {
-        rv.set(bind::string(scope, &name).into());
+    let Some((name, waiting)) = name else { return };
+    if waiting {
+        _ = rt::current().sender().send(rt::Msg::Task(Box::new(handed)));
     }
+    rv.set(bind::string(scope, &name).into());
 }
 
 pub fn reply(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

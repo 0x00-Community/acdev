@@ -438,6 +438,7 @@ export class Broker {
         exit(code)
       }, grants), init.tier, init.url ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
+    web.onReload = () => this.#dev.reloading(web.name)
     web.onPost = (message) => {
       if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)
       else if (typeof (message as { devroute?: unknown })?.devroute === 'number') this.#dev.used((message as { devroute: number }).devroute)
@@ -738,6 +739,7 @@ export class Broker {
       return
     }
     const old = this.#desktop
+    if (old) old.reloading = true
     this.#dev.keep('', await this.#dev.snapshot(old))
     await this.#replaceDesktop(old)
   }

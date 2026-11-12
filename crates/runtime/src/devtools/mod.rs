@@ -2,10 +2,11 @@ mod client;
 mod http;
 mod ws;
 
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, Once, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use napi_derive::napi;
 
@@ -16,6 +17,7 @@ use crate::sync::Locked;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CONNECTIONS: usize = 32;
 const HEAD_WAIT: Duration = Duration::from_secs(10);
+pub const RELOAD_WAIT: Duration = Duration::from_secs(10);
 
 #[napi(object)]
 #[derive(Clone, PartialEq)]
@@ -47,6 +49,23 @@ impl DevTools {
             endpoint.set_targets(targets);
         }
     }
+
+    #[napi]
+    pub fn reloading(web: String) {
+        if let Some(endpoint) = endpoint() {
+            endpoint.reloading.locked().insert(web, Instant::now() + RELOAD_WAIT);
+        }
+    }
+}
+
+pub fn reloading(web: &str) -> bool {
+    endpoint().is_some_and(|e| e.reloading(web))
+}
+
+pub fn reloaded(web: &str) {
+    if let Some(endpoint) = endpoint() {
+        endpoint.reloading.locked().remove(web);
+    }
 }
 
 pub trait Forward: Send + Sync {
@@ -75,6 +94,7 @@ struct Endpoint {
     targets: Mutex<Vec<DevToolsTarget>>,
     clients: Mutex<Vec<Client>>,
     forward: Mutex<Option<Arc<dyn Forward>>>,
+    reloading: Mutex<HashMap<String, Instant>>,
 }
 
 static ENDPOINT: OnceLock<Option<Endpoint>> = OnceLock::new();
@@ -112,6 +132,7 @@ impl Endpoint {
             targets: Mutex::default(),
             clients: Mutex::default(),
             forward: Mutex::default(),
+            reloading: Mutex::default(),
         })
     }
 
@@ -122,9 +143,18 @@ impl Endpoint {
         }
     }
 
-    fn set_targets(&self, targets: Vec<DevToolsTarget>) {
+    fn reloading(&self, web: &str) -> bool {
+        let mut reloading = self.reloading.locked();
+        let now = Instant::now();
+        reloading.retain(|_, until| *until > now);
+        reloading.contains_key(web)
+    }
+
+    fn set_targets(&self, mut targets: Vec<DevToolsTarget>) {
         let gone: Vec<Client> = {
             let mut current = self.targets.locked();
+            let kept: Vec<DevToolsTarget> = current.iter().filter(|t| !targets.iter().any(|n| n.id == t.id) && self.reloading(&t.id)).cloned().collect();
+            targets.extend(kept);
             if *current == targets {
                 return;
             }
@@ -160,5 +190,29 @@ impl Endpoint {
     fn forwarded(&self, client: &Client, message: &str) -> bool {
         let forward = self.forward.locked().clone();
         forward.is_some_and(|f| f.message(client, message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(id: &str) -> DevToolsTarget {
+        DevToolsTarget { id: id.into(), kind: "page".into(), title: id.into(), url: String::new() }
+    }
+
+    #[test]
+    fn a_reloading_target_stays_listed_until_its_page_is_back_or_the_wait_ends() {
+        let endpoint = Endpoint::new(TcpListener::bind(("127.0.0.1", 0)).unwrap(), 4, HEAD_WAIT).unwrap();
+        endpoint.set_targets(vec![target("desktop"), target("alpha#7")]);
+        endpoint.reloading.locked().insert("alpha#7".into(), Instant::now() + RELOAD_WAIT);
+        endpoint.set_targets(vec![target("desktop")]);
+        let ids = |e: &Endpoint| e.targets.locked().iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&endpoint), ["desktop", "alpha#7"], "kept while it reloads");
+        assert!(endpoint.reloading("alpha#7"));
+        endpoint.reloading.locked().insert("alpha#7".into(), Instant::now());
+        assert!(!endpoint.reloading("alpha#7"), "the mark runs out");
+        endpoint.set_targets(vec![target("desktop")]);
+        assert_eq!(ids(&endpoint), ["desktop"]);
     }
 }

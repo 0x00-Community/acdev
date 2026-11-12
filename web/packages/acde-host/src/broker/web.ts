@@ -12,6 +12,7 @@ export class Web {
   hung = false
   closing = false
   reloading = false
+  onReload: (() => void) | null = null
   readonly owns = new Map<number, number>()
   readonly startedPids = new Set<number>()
   readonly started = new Set<number>()
@@ -37,6 +38,7 @@ export class Web {
   }
 
   terminate(): Promise<number> {
+    if (this.reloading) this.onReload?.()
     this.thread.terminate()
     return this.#exited
   }

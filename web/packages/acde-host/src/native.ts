@@ -102,6 +102,7 @@ export interface NativeDevToolsTarget {
 export interface NativeDevTools {
   open(): { readonly port: number } | null
   targets(targets: NativeDevToolsTarget[]): void
+  reloading?(web: string): void
 }
 
 export interface Native {

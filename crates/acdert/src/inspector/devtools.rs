@@ -1,11 +1,17 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
-use acde_runtime::devtools::{self, Client};
+use acde_runtime::devtools::{self, Client, RELOAD_WAIT};
+use serde_json::Value;
 
-use crate::inspector::Remote;
+use crate::inspector::{Remote, Sink};
 
 const TARGET_CLOSED: &str = r#"{"method":"Inspector.detached","params":{"reason":"target_closed"}}"#;
+const CONTEXTS_CLEARED: &str = r#"{"method":"Runtime.executionContextsCleared","params":{}}"#;
+const DOCUMENT_UPDATED: &str = r#"{"method":"DOM.documentUpdated","params":{}}"#;
+const REPLAYED: &str = r#"{"id":-"#;
+const FRAME_TREE: &str = r#"{"id":-1,"#;
 
 trait Peer: Clone + Send + Sync + 'static {
     fn id(&self) -> u64;
@@ -32,63 +38,206 @@ impl Peer for Client {
     }
 }
 
+trait Reloads: Send + Sync {
+    fn reloading(&self, web: &str) -> bool;
+    fn reloaded(&self, web: &str);
+}
+
+struct Endpoint;
+
+impl Reloads for Endpoint {
+    fn reloading(&self, web: &str) -> bool {
+        devtools::reloading(web)
+    }
+
+    fn reloaded(&self, web: &str) {
+        devtools::reloaded(web);
+    }
+}
+
+#[derive(Default)]
+struct Enabled(Vec<(String, Value)>);
+
+impl Enabled {
+    fn note(&mut self, message: &Value) {
+        let Some(method) = message["method"].as_str() else { return };
+        if let Some(domain) = method.strip_suffix(".enable") {
+            self.0.retain(|(d, _)| d != domain);
+            self.0.push((domain.to_owned(), message.get("params").cloned().unwrap_or_else(|| Value::Object(Default::default()))));
+        } else if let Some(domain) = method.strip_suffix(".disable") {
+            self.0.retain(|(d, _)| d != domain);
+        }
+    }
+
+    fn has(&self, domain: &str) -> bool {
+        self.0.iter().any(|(d, _)| d == domain)
+    }
+}
+
 struct Attached<P> {
     web: String,
     session: u32,
     remote: Remote,
     peer: P,
+    enabled: Enabled,
+}
+
+struct Waiting<P> {
+    web: String,
+    peer: P,
+    enabled: Enabled,
+    queue: Vec<String>,
+    until: Instant,
 }
 
 struct Pages<P> {
     pages: Mutex<HashMap<String, Remote>>,
     sessions: Mutex<HashMap<u64, Attached<P>>>,
+    waiting: Mutex<HashMap<u64, Waiting<P>>>,
+    reloads: Arc<dyn Reloads>,
 }
 
 impl<P> Default for Pages<P> {
     fn default() -> Self {
-        Self { pages: Mutex::default(), sessions: Mutex::default() }
+        Self::new(Arc::new(Endpoint))
+    }
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn post(remote: &Remote, session: u32, message: String) {
+    match super::page::routed(&message) {
+        true => remote.page(session, message),
+        false => remote.send(session, message),
+    }
+}
+
+fn sink<P: Peer>(peer: P) -> Sink {
+    Arc::new(move |text: String| {
+        if !text.starts_with(REPLAYED) {
+            _ = peer.send(&text);
+            return;
+        }
+        if !text.starts_with(FRAME_TREE) {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&text) else { return };
+        let frame = &value["result"]["frameTree"]["frame"];
+        if frame.is_object() {
+            _ = peer.send(&serde_json::json!({"method": "Page.frameNavigated", "params": {"frame": frame, "type": "Navigation"}}).to_string());
+        }
+    })
+}
+
+impl<P> Pages<P> {
+    fn new(reloads: Arc<dyn Reloads>) -> Self {
+        Self { pages: Mutex::default(), sessions: Mutex::default(), waiting: Mutex::default(), reloads }
     }
 }
 
 impl<P: Peer> Pages<P> {
     fn opened(&self, web: &str, remote: Remote) {
-        self.pages.lock().unwrap_or_else(|e| e.into_inner()).insert(web.to_owned(), remote);
+        locked(&self.pages).insert(web.to_owned(), remote.clone());
+        self.reloads.reloaded(web);
+        let back: Vec<Waiting<P>> = {
+            let mut waiting = locked(&self.waiting);
+            let ids: Vec<u64> = waiting.iter().filter(|(_, w)| w.web == web).map(|(id, _)| *id).collect();
+            ids.into_iter().filter_map(|id| waiting.remove(&id)).collect()
+        };
+        for waiting in back {
+            self.resume(waiting, remote.clone());
+        }
     }
 
-    fn closed(&self, web: &str) {
-        self.pages.lock().unwrap_or_else(|e| e.into_inner()).remove(web);
+    fn resume(&self, waiting: Waiting<P>, remote: Remote) {
+        let Waiting { web, peer, enabled, queue, .. } = waiting;
+        let session = remote.connect(sink(peer.clone()));
+        if enabled.has("Runtime") {
+            peer.send(CONTEXTS_CLEARED);
+        }
+        for (n, (domain, params)) in enabled.0.iter().enumerate() {
+            let replay = serde_json::json!({"id": -2 - n as i64, "method": format!("{domain}.enable"), "params": params});
+            post(&remote, session, replay.to_string());
+        }
+        if enabled.has("Page") {
+            post(&remote, session, r#"{"id":-1,"method":"Page.getFrameTree","params":{}}"#.to_owned());
+        }
+        if enabled.has("DOM") {
+            peer.send(DOCUMENT_UPDATED);
+        }
+        for message in queue {
+            post(&remote, session, message);
+        }
+        locked(&self.sessions).insert(peer.id(), Attached { web, session, remote, peer, enabled });
+    }
+
+    fn closed(&self, web: &str) -> bool {
+        locked(&self.pages).remove(web);
         let gone: Vec<Attached<P>> = {
-            let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sessions = locked(&self.sessions);
             let ids: Vec<u64> = sessions.iter().filter(|(_, a)| a.web == web).map(|(id, _)| *id).collect();
             ids.into_iter().filter_map(|id| sessions.remove(&id)).collect()
         };
+        let reloading = self.reloads.reloading(web);
         for attached in gone {
-            attached.peer.send(TARGET_CLOSED);
-            attached.peer.close();
+            if reloading {
+                let Attached { web, peer, enabled, .. } = attached;
+                let waiting = Waiting { web, peer: peer.clone(), enabled, queue: Vec::new(), until: Instant::now() + RELOAD_WAIT };
+                locked(&self.waiting).insert(peer.id(), waiting);
+            } else {
+                attached.peer.send(TARGET_CLOSED);
+                attached.peer.close();
+            }
+        }
+        reloading
+    }
+
+    fn expire(&self, now: Instant) {
+        let gone: Vec<Waiting<P>> = {
+            let mut waiting = locked(&self.waiting);
+            let ids: Vec<u64> = waiting.iter().filter(|(_, w)| w.until <= now).map(|(id, _)| *id).collect();
+            ids.into_iter().filter_map(|id| waiting.remove(&id)).collect()
+        };
+        for waiting in gone {
+            waiting.peer.send(TARGET_CLOSED);
+            waiting.peer.close();
         }
     }
 
     fn attach(&self, peer: &P) {
         let Some(web) = peer.target() else { return };
-        let Some(remote) = self.pages.lock().unwrap_or_else(|e| e.into_inner()).get(web).cloned() else { return };
-        let to = peer.clone();
-        let session = remote.connect(Arc::new(move |text: String| _ = to.send(&text)));
-        let attached = Attached { web: web.to_owned(), session, remote, peer: peer.clone() };
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(peer.id(), attached);
+        let Some(remote) = locked(&self.pages).get(web).cloned() else {
+            if self.reloads.reloading(web) {
+                let until = Instant::now() + RELOAD_WAIT;
+                let waiting = Waiting { web: web.to_owned(), peer: peer.clone(), enabled: Enabled::default(), queue: Vec::new(), until };
+                locked(&self.waiting).insert(peer.id(), waiting);
+            }
+            return;
+        };
+        let session = remote.connect(sink(peer.clone()));
+        let attached = Attached { web: web.to_owned(), session, remote, peer: peer.clone(), enabled: Enabled::default() };
+        locked(&self.sessions).insert(peer.id(), attached);
     }
 
     fn message(&self, peer: &P, message: &str) -> bool {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(attached) = sessions.get(&peer.id()) else { return false };
-        match super::page::routed(message) {
-            true => attached.remote.page(attached.session, message.to_owned()),
-            false => attached.remote.send(attached.session, message.to_owned()),
+        let parsed = serde_json::from_str::<Value>(message).unwrap_or_default();
+        if let Some(attached) = locked(&self.sessions).get_mut(&peer.id()) {
+            attached.enabled.note(&parsed);
+            post(&attached.remote, attached.session, message.to_owned());
+            return true;
         }
+        let mut waiting = locked(&self.waiting);
+        let Some(waiting) = waiting.get_mut(&peer.id()) else { return false };
+        waiting.enabled.note(&parsed);
+        waiting.queue.push(message.to_owned());
         true
     }
 
     fn detach(&self, peer: &P) {
-        let attached = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(&peer.id());
+        locked(&self.waiting).remove(&peer.id());
+        let attached = locked(&self.sessions).remove(&peer.id());
         if let Some(attached) = attached {
             attached.remote.disconnect(attached.session);
         }
@@ -123,7 +272,16 @@ pub fn opened(web: &str, remote: Remote) {
 }
 
 pub fn closed(web: &str) {
-    pages().closed(web);
+    if !pages().closed(web) {
+        return;
+    }
+    let expire = || {
+        std::thread::sleep(RELOAD_WAIT + Duration::from_millis(100));
+        pages().expire(Instant::now());
+    };
+    if let Err(e) = std::thread::Builder::new().name("acde-devtools-reload".into()).spawn(expire) {
+        log::warn!("devtools reload wait: {e}");
+    }
 }
 
 #[cfg(test)]
@@ -242,6 +400,80 @@ mod tests {
             run(scope, "String(globalThis.gone)")
         });
         assert_eq!(gone.as_deref(), Some("1"), "the handler hears the session end");
+        crate::inspector::stop();
+    }
+
+    struct Reloading(AtomicBool);
+
+    impl Reloads for Reloading {
+        fn reloading(&self, _: &str) -> bool {
+            self.0.load(Ordering::SeqCst)
+        }
+
+        fn reloaded(&self, _: &str) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_reload_keeps_the_client_and_moves_it_to_the_new_page() {
+        let reloads = Arc::new(Reloading(AtomicBool::new(false)));
+        let pages = Pages::<Fake>::new(reloads.clone());
+        let fake = Fake::default();
+        {
+            let mut old = rt::Runtime::new(None, "alpha#1");
+            old.task(|scope| {
+                crate::inspector::attach(scope, "alpha#1");
+                run(scope, "globalThis.which = 'old'");
+            });
+            pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
+            pages.attach(&fake);
+            assert!(pages.message(&fake, r#"{"id":1,"method":"Runtime.enable","params":{}}"#));
+            answer(&mut old, &fake, 1);
+            reloads.0.store(true, Ordering::SeqCst);
+            assert!(pages.closed("alpha#1"), "a reload is waited for");
+            crate::inspector::stop();
+        }
+        assert!(!fake.closed.load(Ordering::SeqCst), "the WebSocket stays open");
+        assert!(values(&fake).iter().all(|m| m["method"] != "Inspector.detached"), "no detach on a reload");
+        assert!(pages.message(&fake, r#"{"id":2,"method":"Runtime.evaluate","params":{"expression":"which"}}"#), "queued while the page reloads");
+        let before = fake.got.lock().unwrap().len();
+        let mut new = rt::Runtime::new(None, "alpha#1");
+        new.task(|scope| {
+            crate::inspector::attach(scope, "alpha#1");
+            run(scope, "globalThis.which = 'new'");
+        });
+        pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
+        let evaluated = answer(&mut new, &fake, 2);
+        assert_eq!(evaluated["result"]["result"]["value"], "new", "evaluation lands on the new page");
+        let after = values(&fake).split_off(before);
+        let cleared = after.iter().position(|m| m["method"] == "Runtime.executionContextsCleared").expect("contexts cleared");
+        let created = after.iter().position(|m| m["method"] == "Runtime.executionContextCreated").expect("a new context");
+        assert!(cleared < created, "{after:?}");
+        assert!(after.iter().all(|m| m["id"].as_i64().is_none_or(|id| id > 0)), "replayed enables are not answered to the client: {after:?}");
+        assert!(!fake.closed.load(Ordering::SeqCst));
+        assert!(!reloads.0.load(Ordering::SeqCst), "the reload mark is cleared");
+        crate::inspector::stop();
+    }
+
+    #[test]
+    fn a_reload_that_never_comes_back_detaches_after_the_wait() {
+        let reloads = Arc::new(Reloading(AtomicBool::new(false)));
+        let pages = Pages::<Fake>::new(reloads.clone());
+        let fake = Fake::default();
+        let mut runtime = rt::Runtime::new(None, "alpha#1");
+        runtime.task(|scope| crate::inspector::attach(scope, "alpha#1"));
+        pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
+        pages.attach(&fake);
+        reloads.0.store(true, Ordering::SeqCst);
+        assert!(pages.closed("alpha#1"));
+        assert!(pages.message(&fake, r#"{"id":1,"method":"Runtime.enable"}"#));
+        pages.expire(Instant::now());
+        assert!(!fake.closed.load(Ordering::SeqCst), "still within the wait");
+        pages.expire(Instant::now() + RELOAD_WAIT * 2);
+        assert_eq!(fake.got.lock().unwrap().last().map(String::as_str), Some(TARGET_CLOSED));
+        assert!(fake.closed.load(Ordering::SeqCst), "closed as a real close");
+        assert!(!pages.message(&fake, "{}"), "nothing waits any more");
         crate::inspector::stop();
     }
 }

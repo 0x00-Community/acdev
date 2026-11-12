@@ -360,12 +360,20 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `inspector::start` 后把 `inspector::remote()` 按 web 名登记 (`devtools::opened`), `inspector::stop` 时 `closed`. 客户端 `attach` 时在
   它的目标页面上开一个 inspector session (`Remote::connect`), 回复和通知直接 `Client::send` 回去; `message` 原样投给这个 session
   (目标还没登记时回 false, 端点答 -32601), `detach` 断开. 页面关了: 给它的客户端发 `Inspector.detached {reason: "target_closed"}` 再关
-  WebSocket. 有 session 连着时页面事件循环不退出 (`keep_alive`). 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
+  WebSocket; 重载例外 (#202, 见下). 有 session 连着时页面事件循环不退出 (`keep_alive`). 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
   域. 没人接的页面错误 (`host.reportError`) 也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的
   `description` 里).
+  **重载不断开** (#202): Broker 让同一个 web 重来前 (`Web.terminate` 时 `reloading` 为真: `location.reload` 的 `window.reload`、单应用
+  acde dev 的 `devReload`、桌面的 `devReload`) 先调 napi `DevTools.reloading(web 名)`, 端点记 10 秒 (`RELOAD_WAIT`); 期间目标留在
+  `/json/list` 里, 它的客户端不因列表变化被关. 旧页面 `closed` 时 `Pages` 见到这个记号就不发 detached, 把会话挂起 (记着客户端开过的域和
+  `enable` 参数, 挂起期间收到的消息排队); 同名新页面 `opened` 时清掉记号, 在新 inspector 上重新 `connect`: 开过 Runtime 的先补发
+  `Runtime.executionContextsCleared`, 再按原顺序重放各域的 `enable` (负数 id, 回复不给客户端; V8 因此自己发 `executionContextCreated`,
+  页面域照常进页面), 开过 Page 的用 `Page.getFrameTree` (id -1) 的回答发 `Page.frameNavigated`, 开过 DOM 的发 `DOM.documentUpdated`,
+  再按序投递排队的消息. 等满 10 秒没回来按真的关闭处理 (detached 后关). 桌面里的应用经 `devReload` 是关窗再开新窗口, web 名变了, 仍是新目标.
+  页面域的消息在页面装处理器之前到 (新页面刚起) 先排着, 装上后在下一个任务里投给它; 2 秒还没装 (如 Broker 的 isolate) 才答 -32601.
   **页面这边答的域** (#187): `Page`、`DOM`、`CSS`、`Overlay`、`Network` (`inspector/page.rs` `DOMAINS`, 按方法名点前面的域分) 不进 V8 session,
   经同一个 `Remote` 投成 `Posted::Page`, 在页面线程上交给页面装的处理器 (`host.devtoolsHandler(fn)` → 回 frame id 即 web 名; `fn(session, text)`,
-  客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时 Rust 直接答 -32601.
+  客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时先排着 (见上), 2 秒后答 -32601.
   JS 一侧在 acde-host `devtools/`: `DevToolsPage` (只在 `ACDE_DEV` 时由 `worker.ts` 装) 按域分发, 每个客户端一份 `enabled`, 没有自己
   `enable` / `disable` 的域由它记开关, 没实现的方法答 -32601, `emit(domain, method, params)` 只发给开了这个域的客户端, `emitTo(session, …)` 只发给
   这一个; 域是 `DevToolsDomain` `{name, methods, closed?}` (`closed(session)`: 客户端断开). 已有: `Page` (`devtools/page.ts`): `getFrameTree` / `getResourceTree`, 主 frame 的 `id` 和 `loaderId` 是 web 名

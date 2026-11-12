@@ -71,6 +71,10 @@ export class DevRequests {
     return state
   }
 
+  reloading(web: string): void {
+    this.#devtools?.reloading?.(web)
+  }
+
   publish(): void {
     if (!this.#devtools) return
     const targets: NativeDevToolsTarget[] = this.#host.webs().map((web) => ({
