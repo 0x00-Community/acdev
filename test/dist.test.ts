@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync,
   rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
@@ -202,18 +202,18 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       const home = tmp()
       const versions = join(home, '.acde', 'versions')
       for (const old of ['0.0.0', '0.0.0-busy']) mkdirSync(join(versions, old, 'bin'), { recursive: true })
-      const sleep = which('sleep')!
-      const busy = join(versions, '0.0.0-busy', 'bin', 'sleep')
-      copyFileSync(sleep, busy)
-      chmodSync(busy, 0o755)
-      const running = Bun.spawn([busy, '30'], { stdout: 'ignore', stderr: 'ignore' })
+      const busy = join(versions, '0.0.0-busy', 'bin', 'hold')
+      writeFileSync(busy, 'sleep 30\n')
+      const running = Bun.spawn(['/bin/sh', busy], { stdout: 'ignore', stderr: 'ignore' })
       try {
-        expect((await install(home, ['--version', '0.0.1'])).code).toBe(0)
+        const first = await install(home, ['--version', '0.0.1'])
+        expect(first.code, first.out).toBe(0)
+        expect(first.out).toContain(`removed acde 0.0.0 (${join(versions, '0.0.0')})`)
+        expect(first.out).toContain(`kept acde 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
         const second = await install(home)
         expect(second.code, second.out).toBe(0)
         expect(readdirSync(versions).filter((name) => !name.startsWith('.')).sort())
           .toEqual(['0.0.0-busy', '0.0.1', '0.0.2'])
-        expect(second.out).toContain(`removed acde 0.0.0 (${join(versions, '0.0.0')})`)
         expect(second.out).toContain(`kept acde 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
       } finally {
         running.kill()

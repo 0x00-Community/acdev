@@ -20,7 +20,8 @@ in_use() {
     target=$(readlink "$exe" 2>/dev/null) || continue
     case $target in "$1"/*) return 0 ;; esac
   done
-  ps -axo command= 2>/dev/null | grep -F "$1/" >/dev/null
+  commands=$(ps -axo command= 2>/dev/null) || return 1
+  printf '%s\n' "$commands" | grep -F "$1/" >/dev/null
 }
 
 prune() {
