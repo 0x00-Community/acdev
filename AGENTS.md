@@ -1760,6 +1760,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | --- | --- |
 | `cache.rs` (新), `render.rs` `record` / `ensure` / `flatten`, `lib.rs` `paint_scene_cached` / `paint_scene_reference` | 增量录制: 按绘制边界 (根、stacking context、裁剪 / 滚动容器、图片、SVG、canvas、大列表的块级子元素) 缓存片段, `Dep::holds` 核对后复用, 帧按引用展开成 `Piece`; 表单控件和 iframe 每帧重录; LRU; 整页录制给 verify |
 | `render.rs` `render_element_part` `border_box` | 边框盒在元素自己的坐标里 (否则挪过的片段不能复用) |
+| `text.rs` `embolden` | 合成粗体: 字体没有要求的那么粗的字面 (fontique 的 synthesis `embolden`) 时照 Skia (Chrome) 加粗轮廓: 9 px 以下是字号的 1/24, 36 px 以上 1/32, 中间线性, 每边一半; 上游只有 `font-embolden` 那种给所有字都加的苹果式描粗 |
 | `layers.rs`, `render.rs`, `render/background.rs`, `render/box_shadow.rs` | `push_layer` / `maybe_with_layer` 代替 `LayerManager` (上游超过 1024 层丢裁剪), 不建多余的裁剪路径 |
 | `debug_overlay.rs` (删) | 去掉 devtools 叠加层和 euclid |
 | `lib.rs` `paint_element` | 只画一个元素和子树, 不带祖先的变换 / 透明 / 裁剪 (拖动图标) |
