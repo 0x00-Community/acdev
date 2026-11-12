@@ -344,6 +344,7 @@ impl Bar {
 pub struct Decoration {
     fonts: FontContext,
     layouts: LayoutContext<()>,
+    widths: Option<(Vec<String>, Vec<f64>)>,
 }
 
 impl Default for Decoration {
@@ -380,7 +381,7 @@ impl Decoration {
     pub fn new() -> Self {
         let fonts =
             FontContext { source_cache: SourceCache::new_shared(), collection: Collection::new(CollectionOptions { shared: false, system_fonts: true }) };
-        Self { fonts, layouts: LayoutContext::new() }
+        Self { fonts, layouts: LayoutContext::new(), widths: None }
     }
 
     pub fn scene(&mut self, bar: &Bar) -> Scene {
@@ -447,14 +448,20 @@ impl Decoration {
     }
 
     pub fn menu_labels(&mut self, bar: &Bar) -> Vec<[f64; 4]> {
-        let mut x = bar.menus_start();
-        let mut out = Vec::with_capacity(bar.menus.len());
-        for label in &bar.menus {
-            let w = f64::from(self.styled(label, Self::MENU_WEIGHT, 1.0).width()) + 2.0 * Self::MENU_PAD;
-            out.push([x, 0.0, w, bar.height]);
-            x += w;
+        if self.widths.as_ref().is_none_or(|(labels, _)| *labels != bar.menus) {
+            let widths = bar.menus.iter().map(|label| f64::from(self.styled(label, Self::MENU_WEIGHT, 1.0).width()) + 2.0 * Self::MENU_PAD).collect();
+            self.widths = Some((bar.menus.clone(), widths));
         }
-        out
+        let widths = self.widths.as_ref().map(|(_, w)| w.as_slice()).unwrap_or_default();
+        let mut x = bar.menus_start();
+        widths
+            .iter()
+            .map(|&w| {
+                let rect = [x, 0.0, w, bar.height];
+                x += w;
+                rect
+            })
+            .collect()
     }
 
     pub fn menu_list(&mut self, bar: &Bar, list: &MenuList, at: f64, below: f64) -> (Scene, MenuPlace) {
