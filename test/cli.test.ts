@@ -521,6 +521,15 @@ describe('a project made by acde from its checkout', () => {
     }
   })
 
+  test('npm projects get an .npmrc that lets npm 12 fetch the SDK tarball; others do not', async () => {
+    const npm = join(tmp(), 'with-npm')
+    expect((await cli(['new', npm, '--pm', 'npm', '--no-install'], tmp())).code).toBe(0)
+    expect(readFileSync(join(npm, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    const bun = join(tmp(), 'with-bun')
+    expect((await cli(['new', bun, '--pm', 'bun', '--no-install'], tmp())).code).toBe(0)
+    expect(existsSync(join(bun, '.npmrc'))).toBe(false)
+  })
+
   test('npm, pnpm and yarn projects get vite for the html and desktop templates, bun ones do not', () => {
     for (const [pm, vite] of [
       ['bun', undefined],
