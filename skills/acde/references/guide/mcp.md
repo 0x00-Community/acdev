@@ -21,7 +21,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `doctor` | Checks this machine for `acde dev`, as [`acde doctor`](doctor.md) does; call it first when `start` fails |
 | `doctor_fix` | Checks, fixes what acde may fix without asking, and checks again, as `acde doctor --fix` does. The fixes that download, install or stop something it only names: the user runs `acde doctor --fix` in a terminal (it asks), or agrees to `acde doctor --fix --yes`. Its `dir` must be inside the working directory |
 | `sessions` | Lists running `acde dev` sessions; can pin one |
-| `start` / `stop` / `logs` | Starts its own `acde dev` session (for the project in the working directory by default), stops it, reads its output |
+| `start` / `stop` / `logs` | Starts its own `acde dev` session (for the project in the working directory by default), stops it, reads its output. When an `acde dev` already runs those projects, `start` uses that session and says so (`attached to acde dev <pid>, which already runs …`); `stop` and `logs` do not reach a session started elsewhere. `start {force: true}` starts another one anyway |
 | `webs` | Lists pages, and the camera or microphone prompts that wait |
 | `permissions` / `answer` / `revoke` | Lists the camera and microphone prompts that wait and the decisions made, allows or denies a waiting prompt, takes back a decision; see [Camera and microphone](tools.md#camera-and-microphone) |
 | `snapshot` | The screen as text: windows and the elements of the focused window, each with a ref |

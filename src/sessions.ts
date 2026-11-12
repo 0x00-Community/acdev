@@ -100,6 +100,15 @@ export class Sessions {
     }
   }
 
+  static sameDir(a: string, b: string): boolean {
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+  }
+
+  static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session | null {
+    return sessions.find((session) => session.pid !== self
+      && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine)))) ?? null
+  }
+
   static list(dir = Sessions.dir()): Session[] {
     if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return []
     const found: Session[] = []

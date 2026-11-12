@@ -346,7 +346,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   第二次 SIGINT 发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
 - 一个工程一个会话 (acde#91, `DevSession.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
   (Windows 不分大小写) 就报 `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another`
-  退出 1. `--force` 照样起. `acde test` 的会话 (`Acde.launch({force: true})`) 用自己的输出目录, 带 `--force`, 不受影响; MCP 的 `start` 不带.
+  退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写). `acde test` 的会话 (`Acde.launch({force: true})`) 用
+  自己的输出目录, 带 `--force`, 不受影响. MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话: 有就钉住并连上它,
+  回 `attached to acde dev <pid>, which already runs <目录>; it was started elsewhere, so logs and stop do not reach it (start {force: true}
+  starts another)` 加 webs 表 (agent 常忘了后台开着的会话, 不让它卡在报错上); `force: true` 才另起 (带 `--force`).
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
   不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid (取自文件名) 死了的; 读不出来的文件 (正被改写) 再读一次, pid 还活着就跳过不删, 列表中途消失的文件也跳过

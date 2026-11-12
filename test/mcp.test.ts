@@ -148,6 +148,21 @@ describe('acde mcp', () => {
       expect(logs.error).toBe(true)
       expect(logs.text).toContain('started elsewhere')
       await client.close()
+      const here = await connect(s.project, s.env)
+      try {
+        const reused = await here.call('start', { headless: true })
+        expect(reused.error).toBe(false)
+        expect(reused.text).toStartWith(`attached to acde dev ${outside.session.pid}, which already runs `
+          + `${outside.session.dirs.join(', ')}; it was started elsewhere`)
+        expect(reused.text).toContain('alpha#7')
+        expect((await here.call('stop')).text).toContain('start did not run an acde dev here')
+        const another = await here.call('start', { headless: true, force: true })
+        expect(another.text).toMatch(/^acde dev \d+ runs app alpha/)
+        expect(another.text).not.toStartWith(`acde dev ${outside.session.pid} `)
+        expect((await here.call('stop')).text).toMatch(/^stopped acde dev \d+$/)
+      } finally {
+        await here.client.close()
+      }
     } finally {
       await outside.close()
     }

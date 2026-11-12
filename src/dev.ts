@@ -8,7 +8,7 @@ import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
 import { Runtime, type Child } from './runtime.ts'
-import { Sessions, type Reloaded, type Session } from './sessions.ts'
+import { Sessions, type Reloaded } from './sessions.ts'
 
 const SETTLE_MS = 150
 const VERSION_MS = 10_000
@@ -207,20 +207,11 @@ export class DevSession {
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
-  static sameDir(a: string, b: string): boolean {
-    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
-  }
-
-  static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session | null {
-    return sessions.find((session) => session.pid !== self
-      && session.dirs.some((dir) => dirs.some((mine) => DevSession.sameDir(dir, mine)))) ?? null
-  }
-
   #refuseSecond(): void {
     const dirs = this.#units.map((u) => u.pkg.dir)
-    const other = DevSession.running(Sessions.list(), dirs)
+    const other = Sessions.running(Sessions.list(), dirs)
     if (!other || this.#force) return
-    const dir = other.dirs.find((d) => dirs.some((mine) => DevSession.sameDir(d, mine)))!
+    const dir = other.dirs.find((d) => dirs.some((mine) => Sessions.sameDir(d, mine)))!
     throw new Error(`acde dev ${other.pid} already runs ${dir}; stop it first (acde stop --session ${other.pid}), `
       + 'or pass --force to start another')
   }
