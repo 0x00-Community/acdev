@@ -47,7 +47,7 @@ To leave your startup files alone:
 curl -fsSL https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.sh | sh -s -- --no-modify-path
 ```
 
-To install a specific version: `sh -s -- --version 0.0.8`. The oldest version the installers can install is 0.0.8.
+To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on the download site is 0.0.9.
 
 ## Windows
 
@@ -62,10 +62,10 @@ This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like t
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
 ```powershell
-$env:ACDE_VERSION = '0.0.8'; $env:ACDE_NO_MODIFY_PATH = '1'
+$env:ACDE_VERSION = '0.0.9'; $env:ACDE_NO_MODIFY_PATH = '1'
 irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 | iex
 
-& ([scriptblock]::Create((irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1))) -Version 0.0.8 -NoModifyPath
+& ([scriptblock]::Create((irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1))) -Version 0.0.9 -NoModifyPath
 ```
 
 ## Installer options
@@ -121,9 +121,11 @@ Use this only when the installer cannot set up the runtime, for example without 
 | `acdert-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
 | `acdert-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
 | `acdert-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory), the same on every platform |
+| `acde-api-<version>.tar.gz` | The SDK, `@dopame/acde-api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
+| `LICENSE` | The runtime's license |
 | `SHA256SUMS` | Checksums of the files above |
 
-Each runtime archive holds only the binary, `acdert` (`acdert.exe` on Windows). Releases up to 0.0.8 have the bare binary instead, under the same name without `.tar.xz` (`.exe` instead of `.tar.gz` on Windows).
+Each runtime archive holds only the binary, `acdert` (`acdert.exe` on Windows).
 
 Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: acdert looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
 
@@ -222,5 +224,6 @@ acde and the runtime keep data outside the install directory. Delete these too t
 | `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions, the last desktop, and other session state |
 | `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Approval decisions (`permissions.json`) |
 | `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches (only when `XDG_RUNTIME_DIR` is not set) |
+| `acde/devtools` under `~/Library/Caches` (macOS), `%LOCALAPPDATA%` (Windows) or `$XDG_CACHE_HOME` (`~/.cache`, Linux) | The browser profile that `acde devtools` and F12 open DevTools in (after 0.0.9) |
 
 On Windows, reinstalling the same version while `acde dev` runs moves the files in use aside (`versions/<version>.old-…`); the installer says so, and removes them the next time it runs.

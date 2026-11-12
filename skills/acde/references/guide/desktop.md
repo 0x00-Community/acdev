@@ -46,7 +46,7 @@ apps.on('changed', ({ apps }) => render(apps))
 
 `app.icon` is an icon name or an image URL; the desktop decides how to draw it. An app that cannot run here is not in the list: one that requires a capability this platform lacks. `changed` fires with the new list when it changes.
 
-`apps.open(id)` rejects when the app cannot start: with `status: 404`, `code: 'unsupported_app'` (`Viewer needs "network" (unsupported on this platform)`) for an app that requires what this platform lacks. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
+`apps.open(id)` rejects when the app cannot start: with `status: 404`, `code: 'unsupported_app'` for an app that requires what this platform lacks (`Viewer needs "network" (not available on macOS host windows); list it in "optional" to run without it`), and with `status: 503`, `code: 'service_not_running'` for one whose service is not running (`Viewer needs "clock" (service not running)`). In 0.0.9, an app whose required camera or microphone the user denied also rejects, with `status: 403`, `code: 'denied'` (`Viewer: "camera" is denied by the user`); after 0.0.9 it starts. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
 
 ## Windows
 
@@ -100,13 +100,14 @@ desktop.setFrameTheme({
 desktop.setFrameTheme(null) // back to the default look
 ```
 
-Colors are `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` or `rgba()`; each of `active` and `inactive` takes `background`, `title`, `line`, and `buttons`. Every call gives the whole theme. Unknown values throw a `TypeError`.
+Colors are `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` or `rgba()`; each of `active` and `inactive` takes `background`, `title`, `line`, and `buttons`. Add `light: { active, inactive }` for the windows whose page does not declare dark support (no `dark` in its `color-scheme`, see [Windows](window.md#size-and-title-bar)); `active` and `inactive` are then for pages that do. Every call gives the whole theme. A bad value throws a `TypeError`; an unknown key is ignored, with a warning in the log.
 
 ## Notifications, downloads, and shortcuts
 
 ```js
 desktop.on('notification', (n) => toast(n.title, n.body, n.icon))
 desktop.on('download', (d) => showDownload(d.name, d.path))
+desktop.on('edge', ({ edge, entered }) => { if (edge === 'top') menuBar.hidden = !entered })
 
 await windows.shortcut('ctrl+alt+t', 'desktop')
 desktop.on('shortcut', ({ key }) => { if (key === 'ctrl+alt+t') apps.open('term') })
@@ -114,9 +115,11 @@ desktop.on('shortcut', ({ key }) => { if (key === 'ctrl+alt+t') apps.open('term'
 
 Shortcut scopes: `session` (highest, cannot be overridden) → app-level shortcuts of the focused window → `desktop`. On conflicts, the first registration wins.
 
+`edge` fires when the pointer reaches (`entered: true`) or leaves an edge of the screen (`top`, `right`, `bottom`, `left`), without taking focus: a desktop that hides its menu bar or Dock over a full-screen window shows them again with it.
+
 ## Camera and microphone prompts
 
-The camera and the microphone ask the user the first time an app uses them (see [Capabilities](capabilities.md#camera-and-microphone)); no other capability asks. The desktop shows these prompts and passes the answers on with `acde:permissions`:
+The camera and the microphone ask the user the first time an app uses them (see [Capabilities](capabilities.md#camera-and-microphone)); no other capability asks. In 0.0.9, one that an app requires is asked for when the app starts, with `reason: 'launch'`; after 0.0.9, `reason` is always `'request'`. The desktop shows these prompts and passes the answers on with `acde:permissions`:
 
 ```js
 import { permissions } from 'acde:permissions'

@@ -64,7 +64,7 @@ An app declares the file types and the link schemes it can open in its config:
 
 When the user double-clicks a `.md` file in the file manager, or another app asks for it to be opened, the system picks an app in this order:
 
-1. The default app the user has set (XDG MIME Applications spec, `mimeapps.list`);
+1. The default app the user has set (XDG MIME Applications spec, `mimeapps.list`; on Windows it is remembered per file extension);
 2. The first app whose `mimeTypes` lists the type (an exact type wins over `text/*`);
 3. A native program (Dopame OS / Linux), or the system's default program (the host window on macOS and Windows).
 
@@ -102,4 +102,4 @@ They suit the desktop and system apps, which know paths. For an ordinary app the
 
 Changing the default app for a type is `setDefault(association, app)` from `acde:setDefault`, a shell module for the desktop and system apps (`association` is the value `handlers()` returned).
 
-File types are detected with shared-mime-info, so a dev session on macOS gets the same results as Dopame OS (for example, `.md` is `text/markdown`). On macOS this needs `brew install shared-mime-info`; without it, a one-line warning is printed.
+File types are detected with shared-mime-info, so a dev session on macOS gets the same results as Dopame OS (for example, `.md` is `text/markdown`). On macOS this needs `brew install shared-mime-info`; without it, a one-line warning is printed. On Windows the types are the ones the system has registered for each file extension, and a name it knows no type for has the type `''`.

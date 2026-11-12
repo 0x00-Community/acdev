@@ -244,7 +244,7 @@ await app.reload()
 
 ## Approvals
 
-Declared capabilities need no answer. Only the camera and the microphone ask the user, the first time the page calls `getUserMedia()` (see [Capabilities](capabilities.md#camera-and-microphone)). Every test starts with an empty home, so nothing is decided yet and no prompt is answered by itself: the call waits until the test answers.
+Declared capabilities need no answer. Only the camera and the microphone ask the user (see [Capabilities](capabilities.md#camera-and-microphone)): after 0.0.9, the first time the page calls `getUserMedia()`; in 0.0.9, when an app that declares one starts, so there the test answers before it uses the window. Every test starts with an empty home, so nothing is decided yet and no prompt is answered by itself: the call (in 0.0.9, the window) waits until the test answers. The example is for after 0.0.9:
 
 ```ts
 import { expect, test } from 'acde/test'

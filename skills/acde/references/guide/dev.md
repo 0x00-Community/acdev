@@ -25,7 +25,7 @@ A running `acde dev` is a **dev session**: the [debugging commands](tools.md), [
 
 With several projects or `--desktop`, the desktop is chosen like this: the value of `--desktop`; otherwise the only desktop project among them; otherwise `dopame`. A `--desktop` value that looks like a path (contains `/`, or is `.` / `..`), or that names a project in the current directory, is treated as one more project.
 
-The session is ready when `acde webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. Only a page that asks for the camera or the microphone waits for an answer, which `acde allow` or `acde deny` gives from another terminal; see [Camera and microphone](tools.md#camera-and-microphone).
+The session is ready when `acde webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. The camera and the microphone wait for an answer, which `acde allow` or `acde deny` gives from another terminal: in 0.0.9, an app that declares one opens its window only once answered; after 0.0.9, only a page that asks for one waits. See [Camera and microphone](tools.md#camera-and-microphone).
 
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
@@ -55,9 +55,9 @@ To watch them from another terminal, or to read them from a script, use `acde co
 
 ## DevTools
 
-Press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acde: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acde devtools [web]` does the same from another terminal (see the [CLI reference](../reference/cli.md)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
+After 0.0.9, press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acde: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acde devtools [web]` does the same from another terminal (see [DevTools](tools.md#devtools)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
 
-DevTools open in a browser profile of acde's own, not your everyday one. Without Chrome or Edge, or with `ACDE_BROWSER=none`, the terminal prints the address to paste into one instead.
+DevTools open in a browser profile of acde's own, not your everyday one. `ACDE_BROWSER` names another browser; without Chrome or Edge, or with `ACDE_BROWSER=none`, the terminal prints the address to paste into one instead.
 
 ## Runtime
 

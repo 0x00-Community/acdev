@@ -4,9 +4,9 @@
 acde <command> [args]
 ```
 
-On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde` with no command.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde --help`.
 
-`acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
+`acde --version` (or `-v`, or `acde version`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`, or `acde help`) prints the usage of every command; `acde <command> --help` and `acde help <command>` print that command only. `acde` with no arguments prints only its version, the three commands that start a project, and a pointer to `acde --help`. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Output is colored when it goes to a terminal; `NO_COLOR` (set and not empty) turns color off, and `FORCE_COLOR` (set and not `0`) turns it on.
 
 ## Setup
 
@@ -34,19 +34,19 @@ With `--fix`, after the report it prints `fixing: <what>`, the output of what it
 ### acde new
 
 ```text
-acde new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--no-install] [--git] [--pm PM] [--yes]
+acde new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install|--no-install] [--git] [--pm PM] [--yes]
 ```
 
-Creates a project. In a terminal, it asks for whatever is missing; with `--yes`, or outside a terminal, it asks nothing (then `dir` is required, the template defaults to `html`, and no dependencies are installed and no repository is created).
+Creates a project. In a terminal, it asks for whatever is missing; with `--yes`, or outside a terminal, it asks nothing (then `dir` is required, the template defaults to `html`, the dependencies are installed unless `--no-install` is given, and no repository is created unless `--git` is given).
 
 | Option | Description |
 | --- | --- |
 | `--template` | `html` `desktop` `react` `vue` `svelte` `solid` `preact` `vanilla` `next` `nuxt` `sveltekit` `astro` |
 | `--id` / `--label` | App id and display name |
-| `--backend` | Add `server.ts`, a backend (`html` and the Vite templates; `next`, `nuxt`, `sveltekit` and `astro` have their own server, and a desktop has none) |
-| `--no-install` | Do not install the dependencies (by default `acde new` installs them, the SDK included, with the package manager) |
+| `--backend` | Add `server.ts`, a backend. In 0.0.9, `html` only (the other templates ignore it); after 0.0.9, `html` and the Vite templates, and `next`, `nuxt`, `sveltekit`, `astro` (which have their own server) and `desktop` (which has none) refuse it |
+| `--install` / `--no-install` | Install the dependencies, the SDK included, with the package manager, or do not; without either, `acde new` asks in a terminal and installs them otherwise |
 | `--git` | `git init` and make the first commit (if a git user name and email are configured) |
-| `--pm` | `bun` `npm` `pnpm` `yarn`; decides whether the project runs on Bun or Node.js |
+| `--pm` | `bun` `npm` `pnpm` `yarn`; decides whether the project runs on Bun or Node.js (default: `bun` when acde runs on Bun, else `npm`; in a terminal with both installed, it asks) |
 
 ### acde check
 
@@ -131,7 +131,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
 | `acde revoke <app> <capability>` | Takes back a decision |
 | `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
-| `acde devtools [web]` | Opens the DevTools of Chrome or Edge on a page of the session (a web name, an app id, `desktop`, a window title, or `services` or a service name for the services; default: the focused page) and prints the DevTools address. It looks for Edge, then Chrome on Windows; the Chrome app, then the Edge app on macOS; `google-chrome`, `chrome`, `chromium`, `microsoft-edge` on `PATH` on Linux. The browser runs with a profile of its own in acde's cache directory (`acde/devtools/` under `%LOCALAPPDATA%`, `~/Library/Caches` or `~/.cache`), never your everyday one; it opens no window of its own and no sync prompt, only the DevTools window, and stays running for the next `acde devtools`. `ACDE_BROWSER` names another browser; `ACDE_BROWSER=none` opens nothing. Without a browser, or when it cannot be started or reached, it prints the address and why, to paste into the address bar of Chrome or Edge, and exits 0. Asked again for a page whose DevTools are open, it brings them to the front. F12 in a window of `acde dev` (fn+F12 on a Mac keyboard) does the same for the page in that window, and the page never sees that F12; F12 with a modifier still reaches the page |
+| `acde devtools [web]` | Opens the DevTools of Chrome or Edge on a page of the session (a web name, an app id, `desktop`, a window title, or `services` or a service name for the services; default: the focused page) and prints the DevTools address. It looks for Edge, then Chrome on Windows; the Chrome app, then the Edge app on macOS; `google-chrome`, `chrome`, `chromium`, `microsoft-edge` on `PATH` on Linux. The browser runs with a profile of its own in acde's cache directory (`acde/devtools/` under `%LOCALAPPDATA%`, `~/Library/Caches` or `~/.cache`), never your everyday one; it opens no window of its own and no sync prompt, only the DevTools window, and stays running for the next `acde devtools`. `ACDE_BROWSER` names another browser; `ACDE_BROWSER=none` opens nothing. Without a browser, or when it cannot be started or reached, it prints the address and why, to paste into the address bar of Chrome or Edge, and exits 0. Asked again for a page whose DevTools are open, it brings them to the front. F12 in a window of `acde dev` (fn+F12 on a Mac keyboard) does the same for the page in that window, and the page never sees that F12; F12 with a modifier still reaches the page (after 0.0.9) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
 
 | Option | Description |
@@ -185,7 +185,7 @@ See [Coding agents](../guide/agents.md).
 
 ```text
 acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
-          [--workers N] [--retries N] [--video[=on]]
+          [--workers N] [--retries N] [--video[=on|failed|off]]
 ```
 
 | Option | Description |
@@ -199,6 +199,6 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |
 | `--workers` | How many test files run at once (default: half the cores, at most 4; 1 with `--headed` or `--bail`) |
 | `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
-| `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests; `--video=on` keeps it for every test |
+| `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests (the same as `--video=failed`); `--video=on` keeps it for every test, `--video=off` for none (the default) |
 
 The run ends with a line that counts tests (`acde test: 5 tests ran: 4 passed, 1 failed`) and a last line that counts files (`acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

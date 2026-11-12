@@ -18,11 +18,11 @@ Who can import what. "App" is an app of its own package; a "system app" ships in
 | `acde:apps` | ✓ | ✓ | ✓ |
 | `acde:open` | ✓ (opening an app needs `open`) | ✓ (same) | ✓ |
 | `acde:fs` | `fs` | `fs` | ✓ |
-| `acde:terminal` | `terminal`, approved by the user | `terminal` | ✓ |
-| `acde:network` | `network`, approved by the user | `network` | ✓ |
+| `acde:terminal` | `terminal` | `terminal` | ✓ |
+| `acde:network` | `network` | `network` | ✓ |
 | `acde:office` | `office` | `office` | ✓ |
 | `acde:openPath` `acde:handlers` | `openFiles` | `openFiles` | ✓ |
-| `acde:launch` | `launch` or `slots`, approved by the user | `launch` or `slots` | ✓ |
+| `acde:launch` | `launch` or `slots` | `launch` or `slots` | ✓ |
 | `acde:windows` `acde:packages` `acde:session` `acde:desktops` `acde:inspect` `acde:desktop` `acde:setDefault` `acde:permissions` (shell modules) | | The module's name: `"windows": true` | ✓ |
 | `acde:<service>` | The service's name in `services` | The same | ✓ |
 
@@ -127,22 +127,36 @@ interface CapabilityStatus {
 }
 ```
 
-`level` is the contract level (1). `request(name)` asks the user for a capability that needs approval and resolves with its status after the answer; for anything else it resolves at once. A capability that needs approval is `available` only once the user allowed it: `not-asked` before the prompt, `asking` while it waits, `denied` after a denial or after the approval was taken back. A call that the approval stops fails with `status: 403`, the `capability`, and one of the codes `not_asked`, `asking`, `denied`. Names are capability names, `fs.<place>` for a shared place (`fs.downloads`), and service names. See [Capabilities](../guide/capabilities.md#acdecapabilities).
+`level` is the contract level (1). `request(name)` asks the user for a capability that needs approval and resolves with its status after the answer; for anything else it resolves at once. A capability that needs approval is `available` only once the user allowed it: `not-asked` before the prompt, `asking` while it waits, `denied` after a denial or after the approval was taken back. A call that the approval stops fails with `status: 403`, the `capability`, and one of the codes `not_asked`, `asking`, `denied`. Names are capability names, `fs.<place>` for a shared place (`fs.downloads`), service names, and `notifications` (the standard `Notification` API: `available`, or `unsupported` where this way of running has no notifications). See [Capabilities](../guide/capabilities.md#acdecapabilities).
 
 ## acde:fs
 
 ```ts
 interface AcdeFs {
   roots(): Promise<FinderRoot[]>
-  list(root: string, path?: string, hidden?: boolean): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
+  list(root: string, path?: string, hidden?: boolean): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean; skipped?: number }>
   stat(root: string, path: string): Promise<FinderEntry & { path: string }>
-  readText(root: string, path: string): Promise<{ text: string; modifiedMs: number; size: number }>
-  readBytes(root: string, path: string): Promise<{ data: Uint8Array; modifiedMs: number; size: number }>
+  readText(root: string, path: string): Promise<{ text: string; modifiedMs: number; size: number; version: string }>
+  readBytes(root: string, path: string): Promise<{ data: Uint8Array; modifiedMs: number; size: number; version: string }>
+  readRange(root: string, path: string, offset: number, length: number, options?: { ifVersion?: string }): Promise<{
+    data: Uint8Array; offset: number; size: number; modifiedMs: number; version: string
+  }>
   writeFile(root: string, path: string, data: string | Uint8Array, options?: {
     create?: 'always' | 'new' | 'never'
+    ifVersion?: string
     ifModifiedMs?: number
     mkdirs?: boolean
   }): Promise<FinderEntry>
+  openWrite(root: string, path: string, options?: {
+    keepExistingData?: boolean
+    create?: 'always' | 'new' | 'never'
+    ifVersion?: string
+    mkdirs?: boolean
+  }): Promise<{ id: string; size: number }>
+  writeChunk(id: string, offset: number, data: string | Uint8Array): Promise<void>
+  truncateWrite(id: string, size: number): Promise<void>
+  commitWrite(id: string): Promise<FinderEntry>
+  abortWrite(id: string): Promise<void>
   mkdir(root: string, path: string, options?: { recursive?: boolean }): Promise<FinderEntry>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>
@@ -171,6 +185,8 @@ interface FinderEntry {
   size: number
   modifiedMs: number
   target?: string
+  version?: string
+  inPlace?: true
 }
 
 interface FinderPreview {
@@ -186,11 +202,13 @@ interface FinderPreview {
 
 - `root` is the `id` of an item of `roots()`: `private`, a shared place's name, or `folder-…` for a picked folder; never a path. An app's roots have `source` `private`, `place` (with `place`), or `granted`, and no `path`.
 - `path` is there only for system apps that name shared places, and for the desktop page. `locate` and `openPath` work only for them; in other apps they reject with `EACCES`.
-- The desktop page's roots are folders by path (`source` `desktop`, `downloads`, `default`, `task`, or `granted`), and their `id` is the path.
-- `list` includes hidden entries unless `hidden` is `false`.
+- The desktop page's roots are folders by path (`source` `desktop`, `downloads`, `default`, or `granted`), and their `id` is the path.
+- `list` leaves hidden entries out unless `hidden` is `true`; `skipped` counts entries whose names are not valid Unicode.
 - `copy` copies a file or a folder from one root into the folder `toDir` of another; a taken name gets a number (`todo 2.md`), and `path` is where the copy is in `toRoot`.
 - `revoke` gives back a folder the user picked.
-- Limits: `readText` / `readBytes` 64 MiB; `preview` text 256 KiB.
+- `version` is an opaque string for one state of a file; pass it as `ifVersion` and a write (or a `readRange`) of a file that changed since fails with `ECONFLICT`. `inPlace` marks a write that could not go through a temporary file. See [Safe writes](../guide/files.md#safe-writes).
+- `openWrite` starts a write in parts: `writeChunk` at any offset, `truncateWrite`, then `commitWrite` puts the file in place (or `abortWrite`). A write left alone for 10 minutes is given up. See [Large files](../guide/files.md#large-files).
+- Limits: `readText` / `readBytes` / `writeFile` 64 MiB; `readRange` / `writeChunk` 16 MiB a call; `list` 5000 entries (`truncated`); `preview` text 256 KiB.
 - `download` answers the type the system knows for the file's name as `contentType`: `text/markdown` for `note.md`, `image/png` for `shot.png`, and `application/octet-stream` for a name it knows no type for (`data.xyz`). The types come from the system, as described under [Files and links](../guide/open.md#files-and-links).
 - Errors have `code` and `status`; see [Files and folders](../guide/files.md#errors).
 
@@ -233,7 +251,7 @@ interface AcdeAppList {
 interface DesktopApp { id: string; label: string; icon: string; script: string }
 ```
 
-`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes, also when the user denies a capability an app requires or takes its approval back. Installing packages and native programs are in [`acde:packages`](#acdepackages).
+`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes. In 0.0.9 it also fires when the user denies a camera or microphone that an app requires, or takes that approval back, because the app leaves the list; after 0.0.9, a denial keeps the app in the list. Installing packages and native programs are in [`acde:packages`](#acdepackages).
 
 ## acde:openPath / acde:handlers / acde:setDefault
 
@@ -256,7 +274,7 @@ interface OpenHandler {
 
 ## acde:launch
 
-Needs `launch` (for `start`) or `slots` (for `embed`), both approved by the user.
+Needs `launch` (for `start`) or `slots` (for `embed`).
 
 ```ts
 interface AcdeLaunch {
@@ -274,7 +292,7 @@ interface LaunchOptions { cwd?: string; env?: Record<string, string> }
 
 ## acde:terminal
 
-Needs `terminal`, approved by the user.
+Needs `terminal`.
 
 ```ts
 interface AcdeTerminals {
@@ -293,7 +311,7 @@ type TerminalEvent =
 
 ## acde:network
 
-Linux only (Dopame OS, or any Linux with NetworkManager). Needs `network`, approved by the user.
+Linux only (Dopame OS, or any Linux with NetworkManager). Needs `network`.
 
 ```ts
 interface AcdeNetwork {
@@ -458,6 +476,7 @@ interface AcdeDesktop {
   on(type: 'download', handler: (e: DownloadEvent) => void): () => boolean
   on(type: 'screenshot', handler: (e: { type: 'screenshot'; path: string; width: number; height: number } | { type: 'screenshot'; path: string; error: string }) => void): () => boolean
   on(type: 'shortcut', handler: (e: ShortcutEvent) => void): () => boolean
+  on(type: 'edge', handler: (e: { type: 'screenedge'; edge: 'top' | 'right' | 'bottom' | 'left'; entered: boolean; output: string }) => void): () => boolean
 }
 
 interface PanelReserve { edge: 'top' | 'bottom' | 'left' | 'right'; thickness?: number }
@@ -470,6 +489,7 @@ interface PinnedPanel {
 interface FrameTheme {
   active?: FrameColors
   inactive?: FrameColors
+  light?: { active?: FrameColors; inactive?: FrameColors }
   buttonStyle?: 'dots' | 'glyphs'
   buttonSide?: 'left' | 'right'
   titleAlign?: 'center' | 'start'
@@ -496,6 +516,10 @@ interface DownloadEvent {
   size: number
 }
 ```
+
+- `edge` fires when the pointer reaches (`entered: true`) or leaves an edge of the screen, once per edge (twice in a corner); `output` is the screen's name, `host` in a host window. It takes no focus, for a desktop that shows its hidden menu bar or Dock.
+- `light`: the title bar colors for windows whose page does not declare dark support (`color-scheme` without `dark`); `active` / `inactive` are then for pages that do. Every `setFrameTheme` call gives the whole theme; a bad value throws a `TypeError`, and an unknown key is ignored with a warning in the log.
+- A system app that declares `"desktop": true` gets `apps()`, `setDoubleClick`, `setFrameTheme`, and the `notification`, `download` and `edge` events; `pin`, `screenshot` and `shortcut` are the desktop page's only.
 
 See [Desktops](../guide/desktop.md#panels).
 
@@ -530,7 +554,7 @@ interface PermissionDecision {
 }
 ```
 
-A prompt's `capability` is `camera` or `microphone`, the only capabilities that ask; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `revoke` resolves to `false` when there was no decision. See [Desktops](../guide/desktop.md#camera-and-microphone-prompts).
+A prompt's `capability` is `camera` or `microphone`, the only capabilities that ask; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `revoke` resolves to `false` when there was no decision. In 0.0.9, a prompt for a camera or microphone that the app requires comes when the app starts, with `reason: 'launch'`; after 0.0.9, every prompt comes on first use, with `reason: 'request'`. See [Desktops](../guide/desktop.md#camera-and-microphone-prompts).
 
 ## acde:inspect
 

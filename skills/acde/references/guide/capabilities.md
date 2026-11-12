@@ -36,7 +36,7 @@ The `capabilities` in your config decide which modules an app can import:
 | `openFiles` | `acde:openPath` / `acde:handlers`, and `open(request)` without a target app: a file or a link goes to its default app |
 | `launch` | `start` in `acde:launch`: start native programs |
 | `slots` | `embed` in `acde:launch`: native programs embedded in your own window (Dopame OS only) |
-| `camera` / `microphone` | `navigator.mediaDevices.getUserMedia()` video / audio (not on Windows); the user is asked on first use, see [below](#camera-and-microphone) |
+| `camera` / `microphone` | `navigator.mediaDevices.getUserMedia()` video / audio (not on Windows); the user is asked, see [below](#camera-and-microphone) |
 
 Every app can import these without requesting anything: `acde:window` (its own window), `acde:capabilities` (what it has, see [below](#acdecapabilities)), `acde:apps` (`list()` and `open()`), and `acde:open` (opening another app still needs `open`).
 
@@ -57,11 +57,13 @@ Calling a method the app has no right to is rejected with `status: 403` (`code: 
 
 ## Camera and microphone
 
-Declaring a capability is what gives the app access to it: nothing is asked, also for shared places in `fs.roots`, `terminal`, `network`, `launch` and `slots`. Only the camera and the microphone ask the user, the first time a page calls `navigator.mediaDevices.getUserMedia()`; the call waits for the answer. The apps bundled with a desktop (system apps) are not asked.
+Declaring a capability is what gives the app access to it: nothing is asked, also for shared places in `fs.roots`, `terminal`, `network`, `launch` and `slots`. Only the camera and the microphone ask the user. The apps bundled with a desktop (system apps) are not asked.
 
+- **When**: the first time a page calls `navigator.mediaDevices.getUserMedia()` (or `request()`, below); the call waits for the answer. In 0.0.9, a camera or microphone the app requires (not in `optional`) is asked for when the app starts, and the window opens after the answer; after 0.0.9, it is asked for on first use too.
 - **Allowed**: the decision is stored per app (`$XDG_CONFIG_HOME/acde/permissions.json`) and the user is not asked again.
-- **Denied**: `getUserMedia()` rejects with `NotAllowedError`, as in a browser; the app keeps running.
-- **In a dev session**: answer with `acde allow` or `acde deny`, take a decision back with `acde revoke`; see [Debugging](tools.md#camera-and-microphone). In a desktop, the desktop shows the prompt (see [Desktops](desktop.md#camera-and-microphone-prompts)); tests answer with `acde.allow()` (see [Testing](testing.md#approvals)).
+- **Denied**: `getUserMedia()` rejects with `NotAllowedError`, as in a browser. In 0.0.9, denying a required one keeps the app from starting (`Notes: "camera" is denied by the user`, 403 `denied`) and takes it off the app list; after 0.0.9, the app keeps running and stays in the list.
+- **Who asks**: in a desktop, the desktop shows the prompt (see [Desktops](desktop.md#camera-and-microphone-prompts)). In the host window of a single app, Windows asks in a dialog; in 0.0.9, macOS and Linux show nothing. After 0.0.9, a macOS host window asks in a sheet (`Allow` / `Don't Allow`) and a Linux host window in a desktop notification with Allow and Deny (without a notification service, nothing shows).
+- **In a dev session**: answer with `acde allow` or `acde deny` (also when nothing shows, and headless), take a decision back with `acde revoke`; see [Debugging](tools.md#camera-and-microphone). Tests answer with `acde.allow()` (see [Testing](testing.md#approvals)).
 
 ## Optional capabilities
 
@@ -95,7 +97,7 @@ capabilities.level // 1: the contract level of the runtime
 capabilities.platform // 'linux' | 'darwin' | 'win32'
 capabilities.mode // 'session' (Dopame OS) | 'desktop' (a desktop in the host window) | 'standalone' (a single app in the host window)
 capabilities.get('terminal') // { name, kind: 'system' | 'service', state, reason, optional }
-capabilities.list() // the same for every system capability and every service the app lists
+capabilities.list() // the same for every system capability and shell module, notifications, and each fs.<place> and service the app declares
 await capabilities.request('camera') // asks the user for the camera or microphone; resolves with the status
 ```
 
@@ -111,6 +113,8 @@ await capabilities.request('camera') // asks the user for the camera or micropho
 | `denied` | Camera or microphone: the user denied it, or the decision was taken back |
 
 `request()` of any other capability, or of one the user already answered, resolves at once with the current status.
+
+`notifications` is the standard `Notification` API, which needs no declaration: it is `available`, or `unsupported` where this way of running shows no notifications (a single app on Windows).
 
 ## Types
 
