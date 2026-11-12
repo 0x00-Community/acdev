@@ -21,6 +21,13 @@ export interface Child {
   kill(signal?: NodeJS.Signals): void
 }
 
+export interface RuntimeProbe {
+  readonly level: number
+  readonly said: string
+  readonly stderr: string
+  readonly failed: string | null
+}
+
 export interface Captured {
   readonly code: number | null
   readonly stdout: string
@@ -33,6 +40,7 @@ export class Runtime {
   static readonly bun = typeof process.versions['bun'] === 'string'
   static readonly CONDITIONS = ['node', 'import', 'module', 'default']
   static readonly KILL_MS = 5_000
+  static readonly VERSION_MS = 10_000
 
   static spawn(argv: readonly string[], options: SpawnOptions = {}): Child {
     const [file, ...args] = argv
@@ -79,6 +87,17 @@ export class Runtime {
       spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], options)
     }
     child.kill('SIGKILL')
+  }
+
+  static async level(acdert: string, timeout = Runtime.VERSION_MS): Promise<RuntimeProbe> {
+    const ran = await Runtime.capture([acdert, '--version'], { timeout })
+    const level = /\(contract level (\d+)\)/.exec(ran.stdout)
+    const stderr = ran.stderr.trim()
+    const last = stderr.split(/\r?\n/).at(-1)
+    const failed = ran.error
+      ?? (ran.timedOut ? `it did not exit within ${timeout / 1000} s`
+        : ran.code !== 0 ? `it exited with code ${ran.code}${last ? `: ${last}` : ''}` : null)
+    return { level: level ? Number(level[1]) : 0, said: ran.stdout.trim(), stderr, failed }
   }
 
   static async capture(argv: readonly string[], options: SpawnOptions & { readonly timeout: number }): Promise<Captured> {

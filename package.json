@@ -23,7 +23,8 @@
     "acde": "bun bin/acde.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
-    "dist": "bun scripts/dist.ts"
+    "dist": "bun scripts/dist.ts",
+    "startup": "bun scripts/startup.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

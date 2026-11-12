@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { cliEnv, cliFile, cliRuntime, findAcdert, requireAcdert } from '../launcher.mjs'
 import { cleanup, tmp, WINDOWS } from './helpers.ts'
@@ -168,5 +168,43 @@ describe('launcher: the environment of the CLI', () => {
     const env = cliEnv(exe, { PATH: '/usr/bin', Path: 'other', ACDE_HOST_RUNTIME: 'bun' }, 'linux')
     expect(env['PATH']).toBe(`${bin}${delimiter}/usr/bin`)
     expect(env['Path']).toBe('other')
+  })
+})
+
+describe('start-up', () => {
+  test('cli.ts imports only light modules up front; the rest loads when a command needs it', () => {
+    const source = readFileSync(join(import.meta.dir, '../src/cli.ts'), 'utf8')
+    const imported = [...source.matchAll(/^import (?!type )[^\n]* from '([^']+)'/gm)].map((m) => m[1]).sort()
+    expect(imported).toEqual([
+      './color.ts', './driver/types.ts', './help.ts', './output.ts', './runtime.ts', './starters.ts', './versions.ts',
+      'acde/launcher',
+      'node:fs', 'node:path',
+    ])
+  })
+
+  test.skipIf(WINDOWS)('bin/acde (sh) asks bun for its version once, then again only when bun changes', () => {
+    const top = join(tmp(), 'versions', '0.0.5')
+    mkdirSync(join(top, 'bin'), { recursive: true })
+    mkdirSync(join(top, 'lib', 'acde', 'dist'), { recursive: true })
+    copyFileSync(join(import.meta.dir, '../scripts/acde.sh'), join(top, 'bin', 'acde'))
+    chmodSync(join(top, 'bin', 'acde'), 0o755)
+    writeFileSync(join(top, 'lib', 'acde', 'dist', 'cli.js'), "console.log('cli', process.argv.slice(2).join(' '))\n")
+    const fake = join(tmp(), 'fake')
+    mkdirSync(fake)
+    const log = join(fake, 'calls')
+    const bun = join(fake, 'bun')
+    writeFileSync(bun, `#!/bin/sh\necho "$*" >>${JSON.stringify(log)}\n`
+      + `if [ "$1" = --version ]; then echo 1.4.4; exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`)
+    chmodSync(bun, 0o755)
+    const env = { PATH: `${fake}:/usr/bin:/bin`, HOME: fake }
+    const run = () => Bun.spawnSync([join(top, 'bin', 'acde'), '-v'], { env }).stdout.toString()
+    const probes = () => readFileSync(log, 'utf8').split('\n').filter((line) => line === '--version').length
+    for (let i = 0; i < 3; i++) expect(run()).toBe('cli -v\n')
+    expect(probes()).toBe(1)
+    expect(existsSync(join(top, 'lib', 'runtime-cache'))).toBe(true)
+    const later = new Date(Date.now() + 10_000)
+    utimesSync(bun, later, later)
+    expect(run()).toBe('cli -v\n')
+    expect(probes()).toBe(2)
   })
 })
