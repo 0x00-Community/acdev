@@ -646,3 +646,11 @@ test('a failed start is one line without the Error prefix; ACDE_DEBUG keeps the 
   assert.equal(Failure.line('plain text', false), 'acde: plain text\n')
   assert.equal(Failure.line('plain text', true), 'acde: plain text\n')
 })
+
+test('ACDE_DEBUG turns the stack on only when it is set to something other than empty or 0', () => {
+  assert.equal(Failure.debug({}), false)
+  assert.equal(Failure.debug({ ACDE_DEBUG: '' }), false)
+  assert.equal(Failure.debug({ ACDE_DEBUG: '0' }), false)
+  assert.equal(Failure.debug({ ACDE_DEBUG: '1' }), true)
+  assert.equal(Failure.debug({ ACDE_DEBUG: 'yes' }), true)
+})

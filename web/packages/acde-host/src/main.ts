@@ -327,7 +327,7 @@ export default async function main(natives: Natives): Promise<void> {
     if (error instanceof UsageError) {
       process.stderr.write(`${error.message}\n${UsageError.USAGE}\n`)
       code = 2
-    } else process.stderr.write(Failure.line(error, !!process.env['ACDE_DEBUG']))
+    } else process.stderr.write(Failure.line(error, Failure.debug(process.env)))
   }
   process.exit(code)
 }
