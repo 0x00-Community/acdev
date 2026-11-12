@@ -76,6 +76,9 @@ Added after 0.0.9:
 - Inline SVG colors given as `oklch()`, `lab()` or `color-mix()` (Tailwind 4's palette) are painted.
 - In SVG images and inline SVG, a `<mask>` made of one filled path clips to it (other masks clip to their region), and a group `filter` made of blurs, drop shadows and color matrices is applied (the glow of icons exported from Figma).
 - An element with an `id` is reachable as a global (`window.wave`).
+- `pointer-events: all` and the other SVG values (`visible`, `painted`, `fill`, `stroke` …) are understood and act as `auto`. In 0.0.9 they are dropped, so the element inherits `none`: every button in a Mantine `Modal` or `Drawer` cannot be clicked.
+- An SVG image used as a `background-image` or `mask-image` is drawn. In 0.0.9 a simple one (shapes in plain colours: icons, the select arrows of `@tailwindcss/forms` and Bootstrap, CSS mask icons) draws nothing.
+- An inline `<svg>` without a `viewBox` draws its content in CSS pixels from its top left, and clips it to its box, as browsers do. In 0.0.9 it is stretched to the size of the box, so an `<svg>` sized only by CSS draws too large and off centre (Mantine's `RingProgress`).
 - `<input>` and `<textarea>` have undo and redo: `Ctrl+Z`, and `Ctrl+Shift+Z` or `Ctrl+Y`.
 
 ## Not yet supported

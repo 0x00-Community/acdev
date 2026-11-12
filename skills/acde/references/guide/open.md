@@ -86,6 +86,8 @@ await open({ kind: 'open-file', handle }) // a handle from a picker, a drop, or 
 await open({ kind: 'open-link', url: 'mailto:someone@example.com' })
 ```
 
+The same order picks the app, so an app that lists the file's type in `mimeTypes` gets its own file back as a request (unless the user set another default app); there is no way to ask for the system's program instead. On macOS and Windows the system's default program takes only regular files of documents and media: `pdf`, images (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `tif`, `tiff`, `heic`, `heif`, `avif`, `ico`), audio and video (`mp3`, `wav`, `ogg`, `oga`, `flac`, `m4a`, `aac`, `opus`, `wma`, `mp4`, `m4v`, `webm`, `mov`, `mkv`, `avi`, `wmv`), `txt`, `md`, `csv`, `log`, `json`, and office documents (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`). A folder, an `.html` page or any other file is refused, and the promise rejects with a message such as `no app can open this kind of file (text/html): /…/index.html is not handed to the system: only documents and media open in system apps, not .html files`. `http` and `https` links open in the default browser.
+
 With an app id (`open('viewer', { kind: 'open-file', handle })`) the request goes to that app; this needs `open` rather than `openFiles`, and is rejected with 409 `not_accepted` when the target does not declare the file's type in `mimeTypes` or the link's scheme in `schemes`. A read-only handle (from a drop) stays read-only for the receiver.
 
 `acde:openPath` and `acde:handlers` (also `openFiles`) work with a path or a URI instead of a handle:

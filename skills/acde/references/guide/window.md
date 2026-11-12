@@ -9,7 +9,7 @@ Each app window is a separate web page with its own DOM and JS heap; one window 
 - `acde dev --headless` has no host window, and `size` is not applied: the screen is 1440 × 900 (1280 × 800 in `acde test`) and the app fills it, so the page is 1440 × 868. To see the app in a window of its own `size`, run it in a desktop: `acde dev --desktop ./my-desktop`, or `--desktop dopame` once that desktop is installed (see [acde dev](dev.md#what-runs)).
 - The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh`, and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
 - The title comes from `document.title` or `window.setTitle()`, whichever was set last (a `<title>` in the page replaces a title set before the document loaded); if neither is set, `label` is used.
-- Declare the colour schemes your page supports, as in a browser: `color-scheme: light dark` on the root (`:root { color-scheme: light dark }`) or `<meta name="color-scheme" content="light dark">` when it follows the system with `prefers-color-scheme`, `dark` when it is always dark. The system draws a dark title bar only for pages that name `dark`; a page that declares nothing is taken as light only and gets a light title bar even in a dark theme. The `html` template follows the system and declares `light dark`.
+- Declare the colour schemes your page supports, as in a browser: `color-scheme: light dark` on the root (`:root { color-scheme: light dark }`) or `<meta name="color-scheme" content="light dark">` when it follows the system with `prefers-color-scheme`, `dark` when it is always dark. The system draws a dark title bar only for pages that name `dark`; a page that declares nothing is taken as light only and gets a light title bar even in a dark theme. The `html` template follows the system and declares `light dark`. In 0.0.9, an app run on its own (an `acde dev` of the app, `acde test`) always gets a light title bar, because only a desktop sets the title bar's colours. After 0.0.9, there the title bar is dark while the page is: a page that names only `dark` always, a page that names `light dark` while `prefers-color-scheme` is `dark` (the system's scheme, or `emulate({ colorScheme })` in a test).
 
 ## acde:window
 
@@ -93,6 +93,13 @@ self.setMenus([
   },
 ])
 ```
+
+Call `setMenus` again with the whole list to change anything (a `checked` mark, a `disabled` item). Where the menus show:
+
+- In a desktop, in its menu bar (the Dopame desktop shows the focused window's menus).
+- In 0.0.9, an app run on its own (an `acde dev` of the app, `acde test`) shows them nowhere. After 0.0.9, it shows them on the title bar the system draws: the menu names after the window buttons, the window's title moved past them. A name opens its menu on a press; the arrow keys, Return and Escape work the open menu, and choosing an item runs its `onSelect`. An item without `onSelect` is shown disabled. `acde inspect` lists the menus first (`menuitem "File" [collapsed] [w1.m1]`, and the items of the open one, `w1.m1.2`), `acde act w1.m1.2 click` opens the menu and chooses the item, and in a test `getByRole('menuitem', { name: 'New' })` finds them. With `"frame": false` there is no title bar, so no menus either.
+
+An item's `shortcut` (`'ctrl+n'`, the same names as `shortcut()`) is shown next to it. In 0.0.9 it is only shown: register the combo with `self.shortcut()` as well and handle the `shortcut` event. After 0.0.9, the system also binds it while the window is focused, with or without a desktop: pressing it runs the item's `onSelect`, as long as the item has one and is not `disabled`. The page then gets no `keydown` for that combo, and if the app also registered it with `self.shortcut()`, the item runs and no `shortcut` event comes, so it does not run twice.
 
 ## A second window of your app
 

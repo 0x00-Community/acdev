@@ -124,7 +124,7 @@ Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens n
 
 ## Running sessions
 
-These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, or a window, such as `w1`. See [Debugging](../guide/tools.md).
+These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, a window, such as `w1`, or (after 0.0.9) a menu on a window's title bar, such as `w1.m1`, or an item of it, `w1.m1.2`. See [Debugging](../guide/tools.md).
 
 | Command | Description |
 | --- | --- |
@@ -136,7 +136,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
-| `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key (after 0.0.9) |
+| `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key (after 0.0.9). In 0.0.9, `down`, `up` and `wheel` happen where the pointer is, whatever their `x` and `y`: send a `move` there first; after 0.0.9 they move the pointer to their `x` and `y` |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acde: no console entries` / `acde: no requests` on stderr and exit 0 (after 0.0.9) |
 | `acde choose <folder\|open\|save> [path...] [--cancel]` | (after 0.0.9) Answers the next folder, file or save picker the page opens: one folder, one or more files, or the file to write; `--cancel` answers it as cancelled. Prints `the next folder picker answers <path>`. A headless session shows no picker, so answer it before the action that opens it |

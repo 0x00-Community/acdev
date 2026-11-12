@@ -71,6 +71,16 @@ app.locator('li').and(app.getByText('Milk'))
 
 Locators are lazy: they are resolved again against the latest tree every time they are used. Actions require **exactly one** match; with several, they fail instead of guessing.
 
+Adjacent text in one element is one name, as written: JSX `{rate}%` is `100%`. In 0.0.9 the tree puts a space between text nodes (`100 %`), so `getByText('100%')` finds nothing there; match `/100\s?%/` for 0.0.9.
+
+After 0.0.9, an app run on its own shows its window menus on the title bar ([Windows](window.md#menus)), and they are in the tree: click the menu, then the item.
+
+```ts
+await app.getByRole('menuitem', { name: 'File' }).click()
+await app.getByRole('menuitem', { name: 'New' }).click()
+await app.keyboard.press('Control+N')   // an item's shortcut runs it too
+```
+
 `filter` takes `hasText`, `hasNotText`, `has` and `hasNot` (another locator, looked for inside each element). `or` matches what either locator matches, in document order; `and` what both match.
 
 A CSS locator (`locator`, `getByTestId`, `getByPlaceholder`, …) also matches elements that are not rendered, as in Playwright: `toHaveCount` counts them, `toBeVisible` / `toBeHidden` / `isVisible()` / `waitFor({ state })` tell whether an element is rendered, and actions wait until it is. Elements found through the semantic tree (`getByRole`, `getByText`, `getByLabel`) are always rendered ones.
@@ -347,7 +357,14 @@ test('adds', async ({ app }) => {
 
 ## The driver alone
 
-`acde/driver` also works in any Node.js or Bun script:
+`acde/driver` also works in any Node.js or Bun script. Outside `acde test` nothing resolves `acde/driver` by itself: link the installed acde into the script's project once (it is a package named `acde`; types come with it):
+
+```sh
+cd ~/.acde/current/lib/acde && bun link    # npm link with Node.js
+cd ~/my-scripts && bun link acde           # npm link acde
+```
+
+The link points at the version that is installed now; link it again after `acde` is upgraded.
 
 ```ts
 import { Acde } from 'acde/driver'
