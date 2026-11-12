@@ -350,11 +350,28 @@ record({
   headless: process.env['ACDE_HEADLESS'] ?? null,
   env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])),
 })
-console.error('[alpha#7] js: fake acdert is up')
+console.error('12.345 I acde js: fake acdert is up')
 if (process.env['FAKE_ACDERT_LOGS']) {
-  console.error('14.382 I main acde_hostwin::output::gpu: fake adapter')
-  console.error('14.383 W main acde_hostwin: fake warning')
-  console.error('14.384 E acde acde_host: fake error')
+  console.error([
+    '14.382 I main acde_hostwin::output::gpu: fake adapter',
+    '14.383 W main acde_hostwin: fake warning',
+    '14.384 E acde acde_host: fake error',
+    '14.385 I acde acde_host: startup: fake shell running ms=14',
+    '14.386 I acde acde_host: [alpha#backend] started (pid 4242, port 3000)',
+    '14.387 I acde-child-out acdert::child: [alpha#backend] fake backend output',
+    '14.388 I acde-child-out acdert::backends: [alpha#backend] fake channel backend output',
+    '14.389 I acde acdert::backends: removed /tmp/fake-sockets, left by an acdert that is gone',
+    '14.390 I acde js: fake page log',
+    'and its second line',
+    '14.391 D acde js: fake page debug',
+    '14.392 W acde js: fake page warning',
+    '14.393 I acde acde_host: [alpha#7] alert: fake alert',
+    '14.394 I acde acde_host: Alpha (alpha) waits for the user to allow "camera" (prompt 1; fake)',
+    '14.394 I acde-dev-conn acde_hostwin::dev: acde dev: reload alpha',
+    '14.394 I acde acde_host: broker started (2ms)',
+    '14.395 D acde acde_render::gpu: fake debug',
+    'thread \'main\' panicked at fake.rs:1:1:',
+  ].join('\n'))
 }
 const endpoint = process.env['ACDE_DEV']!
 const server = net.createServer((socket) => {

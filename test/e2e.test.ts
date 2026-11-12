@@ -204,7 +204,7 @@ test('never ends', async ({ app }) => {
     expect(readFileSync(join(unstarted, 'error.txt'), 'utf8')).toContain('acde: dev app alpha (headless)')
     const output = readFileSync(join(unstarted, 'output.log'), 'utf8').split('\n')
     expect(output[0]).toStartWith('acde: dev app alpha (headless): ')
-    expect(output).toContain('[alpha#7] js: fake acdert is up')
+    expect(output).toContain('12.345 I acde js: fake acdert is up')
     expect(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
 
     const windowless = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'], { FAKE_ACDERT_WINDOWLESS: '1' })

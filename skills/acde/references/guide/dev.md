@@ -49,7 +49,7 @@ By default the build goes into the project's `.acde/`. `--out DIR` changes that:
 
 ## Logs
 
-The terminal shows builds and reloads, the pages' `console.*` output and uncaught errors (`[<app>#<window>] page error: …`), backend output (`[<app>#backend]`), and the runtime's warnings and errors (lines such as `14.383 W main …`). The runtime's info log (`14.382 I main …`) is left out; `acde dev --verbose` shows it too.
+The terminal shows builds and reloads, the pages' `console.*` output (lines such as `6975.356 I acde js: …`) and uncaught errors (`[<app>#<window>] page error: …`), backend output (`[<app>#backend] …`), what happens to an app (its backend started or stopped, its state restored after a reload, an `alert()`, a permission prompt waiting for an answer), and the runtime's warnings and errors (lines such as `14.383 W main …`). The runtime's own info log (startup timings, GPU and the like: `14.382 I main …`) is left out; `acde dev --verbose` shows it too.
 
 To watch them from another terminal, or to read them from a script, use `acde console` / `acde network` from the [debugging tools](tools.md).
 

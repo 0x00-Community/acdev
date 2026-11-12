@@ -243,7 +243,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       check(acde.trace.steps.find((step) => step.title === 'open("beta")')?.ok).toBe(true)
       check(acde.trace.steps.filter((step) => step.title.startsWith('act(')).length).toBe(0)
 
-      check(acde.logs!.tail(100).text).toContain('[alpha#7] js: fake acdert is up')
+      check(acde.logs!.tail(100).text).toContain('12.345 I acde js: fake acdert is up')
       check(acde.logs!.tail(100, { grep: /^acde: dev app alpha/ }).lines.length).toBe(1)
       const next = acde.logs!.next
       check(acde.logs!.since(next).lines).toEqual([])
@@ -487,7 +487,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(lines[0]).toMatch(/^acde dev \(pid \d+\) did not register a session within 5 s in .+acde-dev$/)
     check(lines[1]).toBe('no session yet: its build did not finish, or acdert did not start listening; last output:')
     check(lines[2]).toStartWith('acde: dev app alpha: ')
-    check(unheard.logs.tail(5000).text).toContain('[alpha#7] js: fake acdert is up')
+    check(unheard.logs.tail(5000).text).toContain('12.345 I acde js: fake acdert is up')
 
     const windowless = await stalled({ FAKE_ACDERT_WINDOWLESS: '1' })
     check(windowless.phase).toBe('window')

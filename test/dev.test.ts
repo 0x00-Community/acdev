@@ -8,6 +8,7 @@ import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { DevSession } from '../src/dev.ts'
 import { Devtools } from '../src/devtools.ts'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
@@ -514,18 +515,63 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions)).toEqual([])
   }, 30_000)
 
-  test('the runtime\'s info log shows only with --verbose; its warnings and errors always do', async () => {
+  test('keeps: what the pages and backends print, what happens to apps, warnings and errors; not the runtime\'s own log', () => {
+    for (const line of [
+      '6975.356 I acde js: PAGE-LOG-MARKER',
+      '16152.936 D acde js: console.debug',
+      '16153.027 W acde js: console.warn',
+      '123.456 I acde-child-out acdert::child: [app#backend] hi',
+      '123.457 I acde-child-out acdert::backends: [app#backend] hi',
+      '38.157 I acde acde_host: [withapi#backend] started (pid 5135, port 3000)',
+      '15489.032 I acde acde_host: [withapi#1048576] acde dev: state restored (0 kept)',
+      '16153.128 I acde acde_host: [ledger#1048576] alert: hi',
+      '21.000 I acde acde_host: Ledger (ledger) waits for the user to allow "camera" (prompt 1; answer it with acde allow '
+        + 'or acde deny, the acde driver, or acde:permissions)',
+      '22.000 I acde acde_host: color scheme: dark (emulated)',
+      '14.383 W main acde_hostwin: a warning',
+      '14.384 E acde acde_host: an error',
+      'line',
+      '',
+      'thread \'main\' panicked at src/main.rs:1:1:',
+    ]) expect([line, DevSession.keeps(line)]).toEqual([line, true])
+    for (const line of [
+      '13.611 I main acde_hostwin::output::gpu: web layer uses Apple M3 Pro (IntegratedGpu, Metal)',
+      '30.096 I acde acde_host: startup: shell created ms=30',
+      '32.130 I acde acde_host: broker started (2ms)',
+      '22700.843 I acde acde_host: ended (signal), exit 0',
+      '22700.844 I acde acde_host: session logout, exit 0',
+      '15442.335 I acde-dev-conn acde_hostwin::dev: acde dev: reload withapi',
+      '95.000 I acde acdert::backends: removed /tmp/b/app, left by an acdert that is gone',
+      '19.236 D acde-warm acde_render::gpu: [vello] warm-up',
+      '20.000 T acde acde_host: [app#1] traced',
+    ]) expect([line, DevSession.keeps(line)]).toEqual([line, false])
+  })
+
+  test('without --verbose the runtime\'s own info log is left out; page, backend, warnings and errors are not', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const kept = [
+      '12.345 I acde js: fake acdert is up',
+      '14.383 W main acde_hostwin: fake warning',
+      '14.384 E acde acde_host: fake error',
+      '14.386 I acde acde_host: [alpha#backend] started (pid 4242, port 3000)',
+      '14.387 I acde-child-out acdert::child: [alpha#backend] fake backend output',
+      '14.388 I acde-child-out acdert::backends: [alpha#backend] fake channel backend output',
+      '14.390 I acde js: fake page log\nand its second line',
+      '14.391 D acde js: fake page debug',
+      '14.392 W acde js: fake page warning',
+      '14.393 I acde acde_host: [alpha#7] alert: fake alert',
+      '14.394 I acde acde_host: Alpha (alpha) waits for the user to allow "camera" (prompt 1; fake)',
+      'thread \'main\' panicked at fake.rs:1:1:',
+    ]
+    const dropped = ['fake adapter', 'fake shell running', 'fake-sockets', 'reload alpha', 'broker started', 'fake debug']
     for (const verbose of [false, true]) {
       const dev = start(verbose ? [alpha, '--verbose'] : [alpha], base, { FAKE_ACDERT_LOGS: '1' })
       await until('the session file', () => existsSync(dev.file))
       await dev.stop()
       const said = await dev.output
-      expect(said).toContain('[alpha#7] js: fake acdert is up\n')
-      expect(said).toContain('14.383 W main acde_hostwin: fake warning\n')
-      expect(said).toContain('14.384 E acde acde_host: fake error\n')
-      expect(said.includes('fake adapter')).toBe(verbose)
+      for (const line of kept) expect(said).toContain(`${line}\n`)
+      for (const word of dropped) expect([word, said.includes(word)]).toEqual([word, verbose])
     }
   }, 30_000)
 

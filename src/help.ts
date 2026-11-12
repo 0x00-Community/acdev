@@ -124,7 +124,11 @@ export class Help {
         ],
         options: [
           { flag: '--headless', about: 'No host window (machines without a display, CI)' },
-          { flag: '--verbose', about: 'Also the runtime\'s info log (by default only its warnings and errors)' },
+          {
+            flag: '--verbose',
+            about: 'Also the runtime\'s own info log (by default only what the pages and backends print, '
+              + 'and the runtime\'s warnings and errors)',
+          },
           { flag: '--app ID', about: 'With several apps in a project, the one to open' },
           { flag: '--desktop ID|DIR', about: 'Run the projects in that desktop' },
           { flag: '--out DIR', about: 'Where to build (default: .acde; one project only)' },

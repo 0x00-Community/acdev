@@ -126,7 +126,7 @@ describe('acde mcp', () => {
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })
 
       const logs = await call('logs', { grep: 'fake acdert' })
-      expect(logs.text).toMatch(/^next: \d+\n\[alpha#7\] js: fake acdert is up$/)
+      expect(logs.text).toMatch(/^next: \d+\n12\.345 I acde js: fake acdert is up$/)
       const next = Number(/^next: (\d+)/.exec(logs.text)![1])
       expect((await call('logs', { since: next })).text).toBe(`next: ${next}\n(no lines)`)
 

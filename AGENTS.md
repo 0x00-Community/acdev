@@ -333,7 +333,17 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 契约级别: 构建后、起 acdert 之前跑 `acdert --version`, 从 `(contract level N)` 取运行时级别 (没有这段的旧 acdert 算第 0 级;
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdert; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
-- acdert 的 stderr: 默认经管道逐行转出, 丢掉运行时 info 及以下的日志行 (`DevSession.INFO`: `<秒>.<毫秒> I|D|T <线程> <目标>: `), 警告、错误和其他行 (页面的 `[<app>#<window>]`、panic) 照转; `--verbose` 时 stderr 直接继承, 什么都不丢. driver (`Acde.launch`, MCP 的 `start`、`acde test`) 总带 `--verbose`, 日志照旧完整.
+- acdert 的 stderr: 默认经管道逐行转出, 只丢运行时自己的 info 及以下日志, 开发者的代码打的和关于应用的事都留下 (`DevSession.keeps`).
+  运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (acdert `crates/log`). 留下: 不是这种格式的行 (panic、多行消息
+  的后续行)、任何目标的 `W` / `E`、目标 `js` 的任何级别 (页面的 `console.*`, 消息里没有页面名)、目标 `acdert::child` / `acdert::backends`
+  里消息以 `[` 开头的 `I` 行 (后端和桌面服务进程的输出 `[<app>#backend] …` / `[<服务>] …`; 走 `spawnBackend` 的是 `acdert::backends`,
+  走 `spawn` 的是 `acdert::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by an acdert that is gone`)、目标 `acde_host` 的 `I` 行
+  (宿主讲应用发生了什么: 后端 `started (pid …, port …)` / `stopped`、重载后的 `acde dev: state restored`、页面的 `alert:`、`waits for the user
+  to allow "camera"` 这类待答的批准、`color scheme: …`), 但不含每次都有的生命周期行 (`DevSession.LIFECYCLE`: `startup: …`、`broker started (…)`、
+  `ended (…), exit N` / `session <kind>, exit N`). 其余目标的 `I` (GPU、监听地址、`acde dev: reload <id>`, acde dev 自己打 `rebuilt …, reloading`)
+  和各目标的 `D` / `T` 都丢. 宿主的行不带统一标记, 所以是按 acdert `web/packages/acde-host` 的 `Log.write(Level.Info, 'acde_host', …)` 逐条定的;
+  那边加了每次启动都打的行, 要加进 `LIFECYCLE`. `--verbose` 时 stderr 直接继承, 什么都不丢. driver (`Acde.launch`, MCP 的 `start`、`acde test`)
+  总带 `--verbose`, 日志照旧完整.
 - 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdert 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
 - 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acde dev` 和 `acde test --headed`
   在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdert 只报

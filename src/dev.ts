@@ -49,11 +49,23 @@ export interface RuntimeProbe {
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
   static readonly INTERRUPT_MS = 2_000
-  static readonly INFO = /^\d+\.\d{3} [IDT] \S+ \S+: /
+  static readonly RECORD = /^\d+\.\d{3} ([EWIDT]) \S+ (\S+): (.*)$/
+  static readonly PAGE = 'js'
+  static readonly HOST = 'acde_host'
+  static readonly PROCESSES: ReadonlySet<string> = new Set(['acdert::child', 'acdert::backends'])
+  static readonly LIFECYCLE = /^(?:startup: |broker started \(|(?:ended \(.*\)|session \S+), exit -?\d+$)/
+
+  static keeps(line: string): boolean {
+    const [, level, target = '', message = ''] = DevSession.RECORD.exec(line) ?? []
+    if (level === undefined || level === 'E' || level === 'W' || target === DevSession.PAGE) return true
+    if (level !== 'I') return false
+    if (target === DevSession.HOST) return !DevSession.LIFECYCLE.test(message)
+    return DevSession.PROCESSES.has(target) && message.startsWith('[')
+  }
 
   static quiet(from: Readable, to: Writable): void {
     createInterface({ input: from, crlfDelay: Infinity }).on('line', (line) => {
-      if (!DevSession.INFO.test(line)) to.write(`${line}\n`)
+      if (DevSession.keeps(line)) to.write(`${line}\n`)
     })
   }
 
