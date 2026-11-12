@@ -285,18 +285,7 @@ impl ParsingContext<'_> {
         Ok(base)
     }
 
-    // acde: bounded nesting (`MAX_DEPTH`)
     pub fn parse_unary(
-        &mut self,
-        frontend: &mut Frontend,
-        ctx: &mut Context,
-        stmt: &mut StmtContext,
-    ) -> Result<Handle<HirExpr>> {
-        let meta = self.last_meta;
-        self.nested(meta, |this| this.parse_unary_nested(frontend, ctx, stmt))
-    }
-
-    fn parse_unary_nested(
         &mut self,
         frontend: &mut Frontend,
         ctx: &mut Context,
@@ -306,7 +295,8 @@ impl ParsingContext<'_> {
             TokenValue::Plus | TokenValue::Dash | TokenValue::Bang | TokenValue::Tilde => {
                 let Token { value, mut meta } = self.bump(frontend)?;
 
-                let expr = self.parse_unary(frontend, ctx, stmt)?;
+                // acde: bounded nesting (`MAX_DEPTH`), a prefix chain recurses here
+                let expr = self.nested(meta, |this| this.parse_unary(frontend, ctx, stmt))?;
                 let end_meta = stmt.hir_exprs[expr].meta;
 
                 let kind = match value {
@@ -332,7 +322,8 @@ impl ParsingContext<'_> {
             TokenValue::Increment | TokenValue::Decrement => {
                 let Token { value, meta } = self.bump(frontend)?;
 
-                let expr = self.parse_unary(frontend, ctx, stmt)?;
+                // acde: bounded nesting (`MAX_DEPTH`)
+                let expr = self.nested(meta, |this| this.parse_unary(frontend, ctx, stmt))?;
 
                 stmt.hir_exprs.append(
                     HirExpr {
@@ -447,7 +438,18 @@ impl ParsingContext<'_> {
         Ok(condition)
     }
 
+    // acde: bounded nesting (`MAX_DEPTH`), chained assignments and conditionals recurse here
     pub fn parse_assignment(
+        &mut self,
+        frontend: &mut Frontend,
+        ctx: &mut Context,
+        stmt: &mut StmtContext,
+    ) -> Result<Handle<HirExpr>> {
+        let meta = self.last_meta;
+        self.nested(meta, |this| this.parse_assignment_nested(frontend, ctx, stmt))
+    }
+
+    fn parse_assignment_nested(
         &mut self,
         frontend: &mut Frontend,
         ctx: &mut Context,

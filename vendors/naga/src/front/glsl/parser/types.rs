@@ -35,7 +35,18 @@ impl ParsingContext<'_> {
         span: &mut Span,
         ty: &mut Handle<Type>,
     ) -> Result<bool> {
-        if self.bump_if(frontend, TokenValue::LeftBracket).is_some() {
+        if let Some(Token { meta: bracket, .. }) = self.bump_if(frontend, TokenValue::LeftBracket) {
+            // acde: GLSL ES 1.00 and 3.00 have no arrays of arrays
+            if frontend.webgl.is_some()
+                && matches!(ctx.module.types[*ty].inner, TypeInner::Array { .. })
+            {
+                return Err(Error {
+                    kind: ErrorKind::SemanticError(
+                        "arrays of arrays are not allowed in GLSL ES".into(),
+                    ),
+                    meta: bracket,
+                });
+            }
             let size = if let Some(Token { meta, .. }) =
                 self.bump_if(frontend, TokenValue::RightBracket)
             {
@@ -93,16 +104,15 @@ impl ParsingContext<'_> {
                 let ty_name = self.expect_ident(frontend)?.0;
                 self.expect(frontend, TokenValue::LeftBrace)?;
                 let mut members = Vec::new();
-                let span = self.parse_struct_declaration_list(
-                    frontend,
-                    ctx,
-                    &mut members,
+                let layout = match frontend.webgl.is_some() {
                     // acde: WebGL structs can be loose uniforms
-                    match frontend.webgl.is_some() {
-                        true => StructLayout::WebGl,
-                        false => StructLayout::Std140,
-                    },
-                )?;
+                    true => StructLayout::WebGl,
+                    false => StructLayout::Std140,
+                };
+                // acde: bounded nesting (`MAX_DEPTH`), a struct defined in a struct recurses here
+                let span = self.nested(meta, |this| {
+                    this.parse_struct_declaration_list(frontend, ctx, &mut members, layout)
+                })?;
                 let end_meta = self.expect(frontend, TokenValue::RightBrace)?.meta;
                 meta.subsume(end_meta);
                 let ty = ctx.module.types.insert(

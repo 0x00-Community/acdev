@@ -100,19 +100,38 @@ fn frag_data_and_blocks() {
     assert_eq!(blocks, [("Camera", 80), ("Material", 32)]);
 }
 
+fn compile_on_web_stack(source: String) -> Result<(), String> {
+    let mb = std::env::var("ACDE_TEST_STACK_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(8usize);
+    std::thread::Builder::new().stack_size(mb << 20).spawn(move || shader::compile(ShaderStage::Fragment, &source, &[]).map(drop)).unwrap().join().unwrap()
+}
+
 #[test]
 fn errors() {
     let e = shader::compile(ShaderStage::Fragment, "void main() { gl_FragColor = vec4(undefinedThing); }", &[]).err().unwrap();
     assert!(e.contains("ERROR"), "{e}");
-    let deep = format!("void main() {{ float x = {}1.0{}; gl_FragColor = vec4(x); }}", "(".repeat(5000), ")".repeat(5000));
-    let e = std::thread::Builder::new().stack_size(2 << 20).spawn(move || shader::compile(ShaderStage::Fragment, &deep, &[]).err()).unwrap().join().unwrap();
-    assert!(e.unwrap().contains("too deep"));
-    let long = format!("void main() {{ float x = 1.0{}; gl_FragColor = vec4(x); }}", " + 1.0".repeat(5000));
-    let e = std::thread::Builder::new().stack_size(2 << 20).spawn(move || shader::compile(ShaderStage::Fragment, &long, &[]).err()).unwrap().join().unwrap();
-    assert!(e.is_some());
-    let fine = format!("void main() {{ float x = {}1.0{}; gl_FragColor = vec4(x); }}", "(".repeat(100), ")".repeat(100));
-    let ok = std::thread::Builder::new().stack_size(2 << 20).spawn(move || shader::compile(ShaderStage::Fragment, &fine, &[]).is_ok()).unwrap().join().unwrap();
-    assert!(ok);
+    let n = 5000;
+    for deep in [
+        format!("void main() {{ float x = {}1.0{}; gl_FragColor = vec4(x); }}", "(".repeat(n), ")".repeat(n)),
+        format!("void main() {{ float x = {}1.0; gl_FragColor = vec4(x); }}", "-".repeat(n)),
+        format!("void main() {{ float x; x = {}1.0; gl_FragColor = vec4(x); }}", "x = ".repeat(n)),
+        format!("void main() {{ bool b = true; float x = {}1.0; gl_FragColor = vec4(x); }}", "b ? 1.0 : ".repeat(n)),
+        format!("void main() {{ float x[1] = {}1.0{}; gl_FragColor = vec4(x[0]); }}", "{".repeat(n), "}".repeat(n)),
+        format!("{} float x; {} void main() {{ gl_FragColor = vec4(0.0); }}", "struct S { ".repeat(n), "} s; };".repeat(n)),
+    ] {
+        let head = deep[..48].to_owned();
+        let e = compile_on_web_stack(deep).err();
+        assert!(e.as_deref().is_some_and(|e| e.contains("too deep")), "{head}: {e:?}");
+    }
+    let long = format!("void main() {{ float x = 1.0{}; gl_FragColor = vec4(x); }}", " + 1.0".repeat(n));
+    assert!(compile_on_web_stack(long).is_err());
+    let arrays = "#version 300 es\nprecision highp float; out vec4 o; void main() { float a[2][2]; o = vec4(a[0][0]); }".to_owned();
+    assert!(compile_on_web_stack(arrays).err().is_some_and(|e| e.contains("arrays of arrays")));
+    for fine in [
+        format!("void main() {{ float x = {}1.0{}; gl_FragColor = vec4(x); }}", "(".repeat(100), ")".repeat(100)),
+        format!("void main() {{ float x = {}1.0; gl_FragColor = vec4(x); }}", "- ".repeat(100)),
+    ] {
+        assert_eq!(compile_on_web_stack(fine), Ok(()));
+    }
 }
 
 #[test]

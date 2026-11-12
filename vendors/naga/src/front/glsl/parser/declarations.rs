@@ -94,7 +94,18 @@ impl ParsingContext<'_> {
         }
     }
 
+    // acde: bounded nesting (`MAX_DEPTH`), braced initializer lists recurse here
     pub fn parse_initializer(
+        &mut self,
+        frontend: &mut Frontend,
+        ty: Handle<Type>,
+        ctx: &mut Context,
+    ) -> Result<(Handle<Expression>, Span)> {
+        let meta = self.last_meta;
+        self.nested(meta, |this| this.parse_initializer_nested(frontend, ty, ctx))
+    }
+
+    fn parse_initializer_nested(
         &mut self,
         frontend: &mut Frontend,
         ty: Handle<Type>,
