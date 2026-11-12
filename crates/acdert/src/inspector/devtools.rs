@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn a_client_evaluates_hears_the_console_and_is_told_when_the_page_closes() {
-        let mut runtime = rt::Runtime::new(None, "alpha#1");
+        let mut runtime = rt::Runtime::new(None, "alpha#1", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| crate::inspector::attach(scope, "alpha#1"));
         let pages = Pages::<Fake>::default();
         pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn page_domains_go_to_the_page_handler_and_the_rest_to_v8() {
-        let mut runtime = rt::Runtime::new(None, "alpha#1");
+        let mut runtime = rt::Runtime::new(None, "alpha#1", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| crate::inspector::attach(scope, "alpha#1"));
         let pages = Pages::<Fake>::default();
         pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
@@ -428,7 +428,7 @@ mod tests {
         let pages = Pages::<Fake>::new(reloads.clone());
         let fake = Fake::default();
         {
-            let mut old = rt::Runtime::new(None, "alpha#1");
+            let mut old = rt::Runtime::new(None, "alpha#1", std::sync::Arc::new(crate::platform::Headless));
             old.task(|scope| {
                 crate::inspector::attach(scope, "alpha#1");
                 run(scope, "globalThis.which = 'old'");
@@ -445,7 +445,7 @@ mod tests {
         assert!(values(&fake).iter().all(|m| m["method"] != "Inspector.detached"), "no detach on a reload");
         assert!(pages.message(&fake, r#"{"id":2,"method":"Runtime.evaluate","params":{"expression":"which"}}"#), "queued while the page reloads");
         let before = fake.got.lock().unwrap().len();
-        let mut new = rt::Runtime::new(None, "alpha#1");
+        let mut new = rt::Runtime::new(None, "alpha#1", std::sync::Arc::new(crate::platform::Headless));
         new.task(|scope| {
             crate::inspector::attach(scope, "alpha#1");
             run(scope, "globalThis.which = 'new'");
@@ -468,7 +468,7 @@ mod tests {
         let reloads = Arc::new(Reloading(AtomicBool::new(false)));
         let pages = Pages::<Fake>::new(reloads.clone());
         let fake = Fake::default();
-        let mut runtime = rt::Runtime::new(None, "alpha#1");
+        let mut runtime = rt::Runtime::new(None, "alpha#1", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| crate::inspector::attach(scope, "alpha#1"));
         pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
         pages.attach(&fake);

@@ -3,6 +3,9 @@ name = "acdert"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "acdert"
 path = "src/main.rs"
@@ -14,7 +17,7 @@ acde-render = { path = "../render" }
 acde-gpu = { path = "../gpu" }
 # WebGL (webgl.rs): the GL state machine on the shared wgpu device
 acde-webgl = { path = "../webgl" }
-acde-hostwin = { path = "../hostwin" }
+acde-model = { path = "../model" }
 acde-runtime = { path = "../runtime" }
 # web storage (storage.rs): localStorage shared by the webs of one app or desktop, kept in SQLite
 acde-storage = { path = "../storage" }
@@ -55,4 +58,8 @@ pipewire = { version = "0", features = ["v0_3_49"] }
 cpal = "0"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Console"] }
+windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Console"] }
+
+# languages.rs: the user's preferred languages (NSLocale)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSLocale", "NSString"] }

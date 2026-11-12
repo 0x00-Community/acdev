@@ -7,18 +7,18 @@ use std::ops::{Deref, DerefMut};
 #[macro_export]
 macro_rules! methods {
     ($scope:expr, $obj:expr, data = $data:expr; $($name:literal => $f:expr),* $(,)?) => {
-        $( $crate::bind::method_with($scope, $obj, $name, $f, Some($data)); )*
+        $( $crate::method_with($scope, $obj, $name, $f, Some($data)); )*
     };
     ($scope:expr, $obj:expr, $($name:literal => $f:expr),* $(,)?) => {
-        $( $crate::bind::method($scope, $obj, $name, $f); )*
+        $( $crate::method($scope, $obj, $name, $f); )*
     };
 }
 
 #[macro_export]
 macro_rules! js_object {
     ($scope:expr, { $($key:literal => $value:expr),* $(,)? }) => {{
-        let fields = [$(($key, $crate::bind::IntoJs::js($value, &mut *$scope))),*];
-        $crate::bind::object($scope, &fields)
+        let fields = [$(($key, $crate::IntoJs::js($value, &mut *$scope))),*];
+        $crate::object($scope, &fields)
     }};
 }
 

@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn a_second_session_evaluates_and_hears_the_console_from_another_thread() {
-        let mut runtime = rt::Runtime::new(None, "inspected");
+        let mut runtime = rt::Runtime::new(None, "inspected", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "inspected"));
         let remote = remote().expect("an inspector");
         let (tx, rx) = channel::<String>();
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn set_inspected_node_makes_the_node_the_console_dollar_zero() {
-        let mut runtime = rt::Runtime::new(None, "dollar");
+        let mut runtime = rt::Runtime::new(None, "dollar", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| {
             attach(scope, "dollar");
             let source = "globalThis.marker = {tag: 'node 5'}; globalThis[Symbol.for('acde.devtools.node')] = (id) => (id === 5 ? marker : undefined)";
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn a_debugger_statement_pauses_until_devtools_resumes_and_answers_while_paused() {
-        let mut runtime = rt::Runtime::new(None, "pausing");
+        let mut runtime = rt::Runtime::new(None, "pausing", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "pausing"));
         send("Debugger.enable", "{}");
         send("Debugger.setSkipAllPauses", r#"{"skip":true}"#);
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn a_debugger_statement_without_a_client_does_not_pause() {
-        let mut runtime = rt::Runtime::new(None, "unwatched");
+        let mut runtime = rt::Runtime::new(None, "unwatched", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "unwatched"));
         send("Debugger.enable", "{}");
         send("Debugger.setSkipAllPauses", r#"{"skip":true}"#);
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn stopping_the_page_ends_a_pause() {
-        let mut runtime = rt::Runtime::new(None, "closing");
+        let mut runtime = rt::Runtime::new(None, "closing", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "closing"));
         let stopping = Arc::new(AtomicBool::new(false));
         stop_when(stopping.clone());
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn detaching_the_last_client_ends_a_pause() {
-        let mut runtime = rt::Runtime::new(None, "detaching");
+        let mut runtime = rt::Runtime::new(None, "detaching", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "detaching"));
         let remote = remote().expect("an inspector");
         let (session, rx) = client(&remote);
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn debugger_pause_interrupts_a_busy_loop() {
-        let mut runtime = rt::Runtime::new(None, "spinning");
+        let mut runtime = rt::Runtime::new(None, "spinning", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "spinning"));
         let remote = remote().expect("an inspector");
         let (session, rx) = client(&remote);
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn a_console_evaluation_that_hits_debugger_pauses_and_a_disconnect_ends_it() {
-        let mut runtime = rt::Runtime::new(None, "console");
+        let mut runtime = rt::Runtime::new(None, "console", std::sync::Arc::new(crate::platform::Headless));
         runtime.task(|scope| attach(scope, "console"));
         let remote = remote().expect("an inspector");
         let (session, rx) = client(&remote);

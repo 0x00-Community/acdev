@@ -63,6 +63,7 @@ pub struct Loop {
     exit: Cell<Option<i32>>,
     started: Instant,
     name: String,
+    platform: crate::platform::Shared,
 }
 
 thread_local! {
@@ -74,6 +75,10 @@ pub fn current() -> Rc<Loop> {
 }
 
 impl Loop {
+    pub fn platform(&self) -> crate::platform::Shared {
+        self.platform.clone()
+    }
+
     pub fn sender(&self) -> Sender<Msg> {
         self.tx.clone()
     }
@@ -188,7 +193,7 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(heap_mb: Option<usize>, name: &str) -> Self {
+    pub fn new(heap_mb: Option<usize>, name: &str, platform: crate::platform::Shared) -> Self {
         crate::engine::init();
         let mut params = v8::CreateParams::default();
         if let Some(mb) = heap_mb {
@@ -217,6 +222,7 @@ impl Runtime {
             exit: Cell::new(None),
             started: Instant::now(),
             name: name.to_owned(),
+            platform,
         });
         LOOP.with(|l| *l.borrow_mut() = Some(lp.clone()));
         let context = {
@@ -588,7 +594,7 @@ mod tests {
 
     #[test]
     fn termination_in_the_end_of_task_hook_is_not_a_page_error() {
-        let mut rt = Runtime::new(None, "termination");
+        let mut rt = Runtime::new(None, "termination", std::sync::Arc::new(crate::platform::Headless));
         rt.task(|scope| {
             let code = v8::String::new(scope, "globalThis.reports = []; (e) => { globalThis.reports.push(String(e)) }").expect("source");
             let reporter = v8::Script::compile(scope, code, None).and_then(|s| s.run(scope)).expect("reporter");

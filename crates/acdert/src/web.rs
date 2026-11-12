@@ -53,7 +53,6 @@ struct System {
     office: Option<acde_runtime::OfficeService>,
 }
 
-#[derive(Default)]
 struct Grants {
     app: Option<String>,
     storage: Option<acde_storage::Place>,
@@ -69,7 +68,20 @@ struct Grants {
 
 impl Webs {
     fn grants(&mut self, scope: &mut v8::PinScope, wanted: v8::Local<v8::Value>) -> Grants {
-        let Ok(wanted) = v8::Local::<v8::Object>::try_from(wanted) else { return Grants::default() };
+        let Ok(wanted) = v8::Local::<v8::Object>::try_from(wanted) else {
+            return Grants {
+                app: None,
+                storage: None,
+                fs: None,
+                picker: crate::picker::Picker::new(rt::current().platform(), None),
+                capture: Default::default(),
+                terminal: None,
+                #[cfg(target_os = "linux")]
+                network: None,
+                #[cfg(target_os = "linux")]
+                office: None,
+            };
+        };
         let fs = match bind::get(scope, wanted, "fs") {
             Some(v) if v.is_true() => Some(Err(None)),
             Some(v) if v.is_array() => Some(Err(Some(bind::strings(scope, v).unwrap_or_default()))),
@@ -92,7 +104,7 @@ impl Webs {
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
-        let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
+        let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         let fs = fs.and_then(|fs| match fs {
             Ok(files) => app.as_deref().map(|app| workspace.files(files, app)),
             Err(roots) => Some(workspace.scoped(roots, app.as_deref())),
@@ -167,12 +179,13 @@ impl Spec {
         let (ready, started) = std::sync::mpsc::sync_channel(1);
         let dead = Arc::new(AtomicBool::new(false));
         let name = self.name.clone();
+        let platform = rt::current().platform();
         std::thread::Builder::new()
             .name("acde".into())
             .stack_size(Self::STACK)
             .spawn(move || {
                 UPSTREAM.with(|u| *u.borrow_mut() = Some((broker.clone(), on_message.clone())));
-                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(dead.clone(), &ready))) {
+                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(dead.clone(), &ready, platform))) {
                     Ok(ended) => ended,
                     Err(panic) => {
                         let message =
@@ -200,9 +213,9 @@ impl Spec {
         started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())
     }
 
-    fn run(self, killed: Arc<AtomicBool>, ready: &std::sync::mpsc::SyncSender<Handle>) -> (i32, Option<String>) {
+    fn run(self, killed: Arc<AtomicBool>, ready: &std::sync::mpsc::SyncSender<Handle>, platform: crate::platform::Shared) -> (i32, Option<String>) {
         let heap = (self.heap_mb > 0.0).then_some(self.heap_mb as usize);
-        let mut runtime = rt::Runtime::new(heap, &self.name);
+        let mut runtime = rt::Runtime::new(heap, &self.name, platform);
         let isolate = runtime.isolate.thread_safe_handle();
         let reason = Arc::new(Mutex::new(None::<String>));
         let stopping = Arc::new(AtomicBool::new(false));

@@ -1,55 +1,35 @@
-mod audio;
-mod backend;
-#[cfg(windows)]
-mod backends;
-mod bind;
-mod caches;
-mod capture;
-mod child;
-mod chooser;
-mod doctor;
-mod dom;
-mod encoding;
-mod engine;
-mod fs;
-mod host;
-mod hostnative;
-mod idb;
-mod inspector;
-mod modules;
-mod napi;
-#[cfg(target_os = "linux")]
-mod network;
-#[cfg(target_os = "linux")]
-mod office;
-mod offload;
-mod picker;
-mod profile;
-mod rt;
-mod storage;
-#[cfg(target_os = "linux")]
-mod supervise;
-mod surface;
-mod sys;
-mod terminal;
-mod web;
-mod webgl;
-#[cfg(target_os = "linux")]
-mod webgpu;
-mod webnative;
-
 #[cfg(target_os = "linux")]
 #[global_allocator]
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-#[cfg(target_os = "linux")]
-fn outer() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless()
-}
+const USAGE: &str = "\
+usage: acdert [options]
+       acdert desktops [--desktop <id>] [--package <dir>]
+       acdert sessions <dir> [--package <dir>]
+       acdert applications <dir> [--package <dir>] [--exec <program>]
+       acdert open [--app <id>] <path|uri>...
+       acdert run <file> [args...]
+       acdert --version | --help
+
+Without a command acdert runs the session (on Linux without WAYLAND_DISPLAY or DISPLAY: the screen through DRM/KMS).
+Apps and desktops in a host window (what acde dev runs) are acde-dbg's.
+
+Options:
+  --desktop <id|dir>   the desktop to start (else ACDE_DESKTOP, else the last one, else the first installed)
+  --size <W>x<H>       the screen size of the session (default 1440x900)
+  --scale <n>          the scale of the session (default 1)
+  --launch <command>   start a program in the session (repeatable)
+  --seconds <n>        end after n seconds
+  --stats              print the compositor's statistics at exit
+  --greeter            the login screen (greetd's greeter)
+  -V, --version        print the version and contract level
+  -h, --help           print this help
+";
 
 #[cfg(target_os = "linux")]
 fn session_env() {
-    let outer = outer();
+    let outer = ["WAYLAND_DISPLAY", "DISPLAY"].iter().any(|name| std::env::var_os(name).is_some())
+        || std::env::var("ACDE_HEADLESS").is_ok_and(|v| !v.is_empty() && v != "0");
     let backend = std::env::var("ACDE_BACKEND").ok();
     if outer && backend.is_none() {
         return;
@@ -71,25 +51,6 @@ fn session_env() {
     }
 }
 
-fn hosted_session(args: &[String]) -> i32 {
-    let args = args.to_vec();
-    acde_hostwin::run(move || sys::start(sys::Entry::Broker, &args))
-}
-
-#[cfg(target_os = "linux")]
-fn session(args: &[String]) -> i32 {
-    let debug = matches!(args.first().map(String::as_str), Some("app" | "desktop"));
-    if debug && outer() && std::env::var_os("ACDE_BACKEND").is_none() {
-        return hosted_session(args);
-    }
-    supervise::Supervisor::new(args).run()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn session(args: &[String]) -> i32 {
-    hosted_session(args)
-}
-
 #[cfg(target_os = "linux")]
 fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     use rustix::fs::{FlockOperation, flock};
@@ -100,75 +61,40 @@ fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok()
 }
 
-const USAGE: &str = "\
-usage: acdert [app <id> | desktop <id|dir>] [options]
-       acdert desktops [--desktop <id>] [--package <dir>]
-       acdert sessions <dir> [--package <dir>]
-       acdert applications <dir> [--package <dir>] [--exec <program>]
-       acdert open [--app <id>] <path|uri>...
-       acdert run <file> [args...]
-       acdert doctor [--json]
-       acdert --version | --help
-
-Without a command acdert runs the session (on Linux without WAYLAND_DISPLAY or DISPLAY: the screen through DRM/KMS).
-app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acde dev runs).
-doctor checks what that needs here (host files, GPU, display) and exits 1 when something is missing.
-
-Options:
-  --desktop <id|dir>   the desktop to start (else ACDE_DESKTOP, else the last one, else the first installed)
-  --size <W>x<H>       the screen size of the session (default 1440x900)
-  --scale <n>          the scale of the session (default 1)
-  --launch <command>   start a program in the session (repeatable)
-  --seconds <n>        end after n seconds
-  --stats              print the compositor's statistics at exit
-  --greeter            the login screen (greetd's greeter)
-  -V, --version        print the version and contract level
-  -h, --help           print this help
-";
-
-const API_LEVEL: u32 = api_level(include_str!("../../../web/packages/acde-api/src/runtime/level.js"));
-
-const fn api_level(source: &str) -> u32 {
-    let bytes = source.as_bytes();
-    let (mut i, mut level, mut digits) = (0, 0u32, 0);
-    while i < bytes.len() {
-        if bytes[i].is_ascii_digit() {
-            level = level * 10 + (bytes[i] - b'0') as u32;
-            digits += 1;
-        } else if digits > 0 {
-            break;
+#[cfg(target_os = "linux")]
+fn session(args: &[String], platform: acdert::Shared) -> i32 {
+    match args.get(1).map(String::as_str) {
+        Some("runtime") => acdert::start(acdert::Entry::Broker, &args[2..], platform),
+        _ => {
+            session_env();
+            acdert::Supervisor::new(&args[1..]).run()
         }
-        i += 1;
     }
-    assert!(level > 0, "acde-api src/runtime/level.js defines no positive API_LEVEL");
-    level
+}
+
+#[cfg(not(target_os = "linux"))]
+fn session(_: &[String], _: acdert::Shared) -> i32 {
+    log::error!("the session runs on Linux; apps and desktops in a host window are acde-dbg's");
+    2
 }
 
 fn main() {
     acde_log::init();
     let args: Vec<String> = std::env::args().collect();
+    let platform: acdert::Shared = cfg_select! {
+        target_os = "linux" => std::sync::Arc::new(acdert::Session),
+        _ => std::sync::Arc::new(acdert::Headless),
+    };
     let code = match args.get(1).map(String::as_str) {
         Some("--version" | "-V") => {
-            println!("acdert {} (contract level {API_LEVEL})", env!("CARGO_PKG_VERSION"));
+            println!("{}", acdert::version("acdert"));
             0
         }
         Some("--help" | "-h") => {
             print!("{USAGE}");
             0
         }
-        Some("doctor") => doctor::run(&args[2..]),
-        Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),
-        Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
-        #[cfg(target_os = "linux")]
-        Some("runtime") => sys::start(sys::Entry::Broker, &args[2..]),
-        _ => {
-            #[cfg(target_os = "linux")]
-            session_env();
-            session(&args[1..])
-        }
+        _ => acdert::common(&args, &platform).unwrap_or_else(|| session(&args, platform)),
     };
-    child::stop_all();
-    acde_storage::flush_all();
-    acde_log::flush();
-    std::process::exit(code);
+    acdert::exit(code);
 }

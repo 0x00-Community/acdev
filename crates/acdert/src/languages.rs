@@ -1,5 +1,5 @@
 #[cfg(windows)]
-pub(crate) fn preferred() -> Vec<String> {
+pub fn preferred() -> Vec<String> {
     use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
     let (mut count, mut size) = (0u32, 0u32);
     if unsafe { GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, std::ptr::null_mut(), &mut size) } == 0 || size == 0 {
@@ -19,12 +19,12 @@ fn names(multi: &[u16]) -> Vec<String> {
 
 #[cfg(target_os = "macos")]
 #[allow(unused_unsafe)]
-pub(crate) fn preferred() -> Vec<String> {
+pub fn preferred() -> Vec<String> {
     unsafe { objc2_foundation::NSLocale::preferredLanguages() }.iter().map(|tag| tag.to_string()).collect()
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub(crate) fn preferred() -> Vec<String> {
+pub fn preferred() -> Vec<String> {
     ["/etc/locale.conf", "/etc/default/locale"].iter().find_map(|path| std::fs::read_to_string(path).ok()).map(|text| configured(&text)).unwrap_or_default()
 }
 

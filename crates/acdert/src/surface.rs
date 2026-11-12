@@ -1,92 +1,58 @@
 use std::collections::HashMap;
 
-pub use acde_hostwin::{Event, Waker};
+pub use acde_model::{Event, Waker};
 pub use acde_render::DragImage;
 use acde_render::{RenderHandle, SurfaceCommand as C};
 
-pub enum Surface {
-    #[cfg(target_os = "linux")]
-    Wayland(acde_window::Surface),
-    Host(acde_hostwin::Surface),
-}
-
-macro_rules! each {
-    ($self:ident, $s:ident => $body:expr) => {
-        match $self {
-            #[cfg(target_os = "linux")]
-            Surface::Wayland($s) => $body,
-            Surface::Host($s) => $body,
-        }
-    };
-}
+pub struct Surface(Box<dyn crate::platform::Window>);
 
 macro_rules! commands {
     ($($name:ident($($arg:ident: $t:ty),*) => $command:expr;)*) => {$(
         pub fn $name(&self, $($arg: $t),*) {
-            each!(self, s => s.send($command))
+            self.0.send($command)
         }
     )*};
 }
 
 impl Surface {
     pub fn claim(token: u64, render: RenderHandle, frame: u32, app: Option<String>) -> Result<Self, String> {
-        if acde_hostwin::active() {
-            return acde_hostwin::Surface::claim(token, render, frame, app).map(Surface::Host);
-        }
-        #[cfg(target_os = "linux")]
-        return acde_window::Surface::claim(token, render, frame).map(Surface::Wayland);
-        #[cfg(not(target_os = "linux"))]
-        let _ = frame;
-        #[cfg(not(target_os = "linux"))]
-        Err("claimSurface: no windows here".into())
+        crate::rt::current().platform().claim(token, render, frame, app).map(Surface)
     }
 
     pub fn minimizable(&self) -> bool {
-        match self {
-            Surface::Host(s) => s.minimizable(),
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(_) => true,
-        }
+        self.0.minimizable()
     }
 
     pub fn host_controls(&self) -> bool {
-        match self {
-            Surface::Host(s) => s.host_controls(),
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(_) => false,
-        }
+        self.0.host_controls()
     }
 
     pub fn size(&self) -> Option<(u32, u32, f64)> {
-        match self {
-            Surface::Host(s) => s.size(),
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(_) => None,
-        }
+        self.0.size()
     }
 
     pub fn hosted(&self) -> bool {
-        matches!(self, Surface::Host(_))
+        self.0.hosted()
     }
 
     pub fn window(&self) -> u32 {
-        each!(self, s => s.window())
+        self.0.window()
     }
 
     pub fn content_offset(&self) -> (f64, f64) {
-        each!(self, s => s.content_offset())
+        self.0.content_offset()
     }
 
     pub fn pump(&self) -> Vec<Event> {
-        each!(self, s => s.pump())
+        self.0.pump()
     }
 
     pub fn has_events(&self) -> bool {
-        each!(self, s => s.has_events())
+        self.0.has_events()
     }
 
     pub fn set_waker(&self, waker: Option<Waker>) {
-        each!(self, s => s.set_waker(waker))
+        self.0.set_waker(waker)
     }
 
     commands! {

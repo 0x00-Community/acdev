@@ -4,8 +4,9 @@ use acde_runtime::{EntryKind, FsError, Opened, PickedFolders, Range, Workspace};
 
 use crate::{bind, offload};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Picker {
+    platform: crate::platform::Shared,
     grants: Option<Workspace>,
     folders: PickedFolders,
 }
@@ -35,12 +36,12 @@ impl From<FsError> for Failed {
 type Answer = Result<Reply, Failed>;
 
 impl Picker {
-    pub fn new(grants: Option<Workspace>) -> Self {
-        Self { grants, folders: PickedFolders::default() }
+    pub fn new(platform: crate::platform::Shared, grants: Option<Workspace>) -> Self {
+        Self { platform, grants, folders: PickedFolders::default() }
     }
 
     fn directory(&self, title: &str, writable: bool) -> Answer {
-        let Some(picked) = crate::chooser::folder(title).map_err(Failed::Chooser)? else {
+        let Some(picked) = self.platform.choose_folder(title).map_err(Failed::Chooser)? else {
             return Ok(Reply::Path(None));
         };
         let path = self.folders.add(&picked)?;

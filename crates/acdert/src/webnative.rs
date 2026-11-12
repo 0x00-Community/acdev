@@ -155,7 +155,7 @@ fn traced(events: &[Event]) {
     }
 }
 
-pub(crate) fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -> v8::Local<'s, v8::Object> {
+pub fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -> v8::Local<'s, v8::Object> {
     let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("type", bind::string(scope, &event.kind).into())];
     let numbers = [
         ("window", event.window.map(f64::from)),
@@ -265,7 +265,7 @@ fn request_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _
 
 fn request_state(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let name = bind::arg_string(scope, &args, 0);
-    match name.parse::<acde_hostwin::WindowState>() {
+    match name.parse::<acde_model::WindowState>() {
         Ok(state) => {
             with_surface(scope, |surface| surface.request_state(state as u32));
         }
@@ -320,7 +320,7 @@ fn reserve_panel(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
 
 fn set_double_click(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let name = bind::arg_string(scope, &args, 0);
-    match name.parse::<acde_hostwin::DoubleClick>() {
+    match name.parse::<acde_model::DoubleClick>() {
         Ok(action) => {
             with_surface(scope, |surface| surface.set_double_click(action as u32));
         }

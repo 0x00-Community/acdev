@@ -37,6 +37,7 @@ macro_rules! wire {
 }
 
 mod event;
+mod files;
 mod motion;
 mod pace;
 mod plan;
@@ -45,6 +46,7 @@ mod shortcut;
 mod state;
 
 pub use event::*;
+pub use files::{FileFilter, OpenRequest, SaveRequest};
 pub use motion::*;
 pub use pace::Pacer;
 pub use plan::*;

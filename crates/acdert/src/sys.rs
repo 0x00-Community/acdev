@@ -240,14 +240,14 @@ fn homedir(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
 }
 
 fn languages(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let tags = acde_hostwin::preferred_languages().js(scope);
+    let tags = crate::languages::preferred().js(scope);
     rv.set(tags);
 }
 
 #[cfg(windows)]
 fn content_type(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let extension = bind::arg_string(scope, &args, 0);
-    match acde_hostwin::content_type(&extension) {
+    match crate::rt::current().platform().content_type(&extension) {
         Some(mime) => rv.set(bind::string(scope, &mime).into()),
         None => rv.set_null(),
     }
@@ -588,7 +588,7 @@ pub enum Entry {
     Broker,
 }
 
-pub fn start(entry: Entry, args: &[String]) -> i32 {
+pub fn start(entry: Entry, args: &[String], platform: crate::platform::Shared) -> i32 {
     let (file, globals) = match entry {
         Entry::Script(file) => (PathBuf::from(file), true),
         Entry::Broker => (crate::web::app_dir().join("broker.js"), false),
@@ -604,12 +604,12 @@ pub fn start(entry: Entry, args: &[String]) -> i32 {
             return 1;
         }
     };
-    let mut runtime = rt::Runtime::new(None, "broker");
+    let mut runtime = rt::Runtime::new(None, "broker", platform);
     crate::modules::set_loader(Rc::new(FileLoader));
     runtime.task(|scope| {
         let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("host", crate::host::object(scope).into()), ("sys", object(scope, args).into())];
         let napi = crate::napi::exports(scope);
-        let native = if acde_hostwin::active() { crate::hostnative::exports(scope, Some(napi)) } else { napi };
+        let native = crate::rt::current().platform().exports(scope, napi);
         fields.push(("native", native));
         if !globals {
             let natives = bind::object(scope, &fields);
