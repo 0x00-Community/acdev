@@ -332,9 +332,6 @@ fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         rv.set_null();
         return;
     };
-    if !acde_gpu::has_error_sink() {
-        acde_gpu::set_error_sink(Some(Box::new(|e| log::error!("webgl: wgpu error outside a scope: {e}"))));
-    }
     let id = STATE.with(|s| {
         let mut s = s.borrow_mut();
         if s.listener.is_none() {
