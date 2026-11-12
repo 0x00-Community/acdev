@@ -412,7 +412,7 @@ describe('acde.config.jsonc', () => {
     expect(made.stdout).toMatch(/^acde: HTML in (?:.+[\\/])?with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
     expect(made.stdout).toContain(`acde: then:\n  ${Creator.LATER.join('\n  ')}\n`)
     for (const step of Creator.LATER) expect(step.length).toBeLessThanOrEqual(70)
-    expect(made.stdout).toContain('acde install builds it and puts it on the desktop')
+    expect(made.stdout).toContain('\n  acde install: build it and add it to this machine\'s desktop\n')
     const out = join(tmp(), 'out')
     expect((await cli(['build', '--out', out], dir)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({
