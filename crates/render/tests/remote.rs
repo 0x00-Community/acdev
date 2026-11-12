@@ -111,6 +111,22 @@ fn icons_load_from_their_largest_entry_in_png_or_bmp() {
 }
 
 #[test]
+fn a_cursor_file_loads_from_its_largest_entry() {
+    let (_doc, dom, loads) = page("<body><img id=cur src='https://site.example.com/pointer.cur'></body>");
+    let cur = by_id(&dom, "cur");
+    let mut file = icon(&[(4, 2, 32, bmp_entry(4, 2)), (1, 1, 32, bmp_entry(1, 1))]);
+    file[2] = 2;
+    for (entry, (x, y)) in [(0, (300u16, 290u16)), (1, (0, 0))] {
+        let at = 6 + 16 * entry + 4;
+        file[at..at + 2].copy_from_slice(&x.to_le_bytes());
+        file[at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
+    }
+    take(&loads, "https://site.example.com/pointer.cur").finish(Some(file));
+    assert_eq!(dom.take_loaded(), vec![cur]);
+    assert_eq!(dom.image_state(cur).unwrap(), [4.0, 2.0, 1.0], "a hotspot over 256 does not stop the decoder");
+}
+
+#[test]
 fn local_and_data_urls_never_reach_the_loader() {
     let (_doc, dom, loads) = page(&format!("<body><img id=a src='data:image/png;base64,{PNG}'><img src='file:///nowhere/x.png'></body>"));
     assert_eq!(dom.image_state(by_id(&dom, "a")).unwrap()[2], 1.0);
