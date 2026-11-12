@@ -235,7 +235,7 @@ impl Node {
                 (|a: &ComputedValues, b: &ComputedValues| a.$clone() == b.$clone()) as fn(&ComputedValues, &ComputedValues) -> bool,
             )),*] };
         }
-        const COUNT: usize = 18;
+        const COUNT: usize = 19;
         let mut props: [Prop; COUNT] = props! {
             "fill" => clone_fill, "fill-opacity" => clone_fill_opacity, "fill-rule" => clone_fill_rule,
             "stroke" => clone_stroke, "stroke-width" => clone_stroke_width, "stroke-opacity" => clone_stroke_opacity,
@@ -243,7 +243,7 @@ impl Node {
             "stroke-miterlimit" => clone_stroke_miterlimit, "stroke-dasharray" => clone_stroke_dasharray,
             "stroke-dashoffset" => clone_stroke_dashoffset, "opacity" => clone_opacity, "visibility" => clone_visibility,
             "color" => clone_color, "font-family" => clone_font_family, "font-size" => clone_font_size,
-            "font-weight" => clone_font_weight, "font-style" => clone_font_style,
+            "font-weight" => clone_font_weight, "font-style" => clone_font_style, "mask-type" => clone_mask_type,
         };
         // acrender: colors as sRGB rgb() / rgba(): usvg reads no oklch(), lab(), color-mix() ... (Tailwind 4's palette)
         for prop in props.iter_mut() {

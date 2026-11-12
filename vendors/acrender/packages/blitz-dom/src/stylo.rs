@@ -1709,4 +1709,5 @@ const SVG_PRESENTATION: &[&str] = &[
     "font-size",
     "font-weight",
     "font-style",
+    "mask-type",
 ];

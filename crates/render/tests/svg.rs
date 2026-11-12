@@ -216,3 +216,32 @@ fn use_and_paint_refer_to_another_svg_in_the_page() {
     let (_, red) = page.count(0, 0, 100, 100);
     assert!(red > 9000, "fill=url(#red) from the sheet: {red} red pixels");
 }
+
+#[test]
+fn a_mask_of_one_opaque_path_clips_to_it() {
+    let page = Page::new(CSS);
+    let svg = page.svg(0, "svg", &[("viewBox", "0 0 100 100")]);
+    let mask = page.svg(
+        svg,
+        "mask",
+        &[("id", "half"), ("maskUnits", "userSpaceOnUse"), ("x", "0"), ("y", "0"), ("width", "100"), ("height", "100"), ("style", "mask-type: alpha")],
+    );
+    page.svg(mask, "path", &[("d", "M0 0H50V100H0Z"), ("fill", "#000")]);
+    let group = page.svg(svg, "g", &[("mask", "url(#half)")]);
+    page.svg(group, "rect", &[("width", "100"), ("height", "100"), ("fill", "#f00")]);
+    let (_, left) = page.count(0, 0, 50, 100);
+    let (_, right) = page.count(50, 0, 100, 100);
+    assert!(left > 4500 && right < 100, "left {left} right {right}");
+}
+
+#[test]
+fn a_luminance_mask_of_a_black_path_hides_everything() {
+    let page = Page::new(CSS);
+    let svg = page.svg(0, "svg", &[("viewBox", "0 0 100 100")]);
+    let mask = page.svg(svg, "mask", &[("id", "dark"), ("maskUnits", "userSpaceOnUse"), ("x", "0"), ("y", "0"), ("width", "100"), ("height", "100")]);
+    page.svg(mask, "path", &[("d", "M0 0H50V100H0Z"), ("fill", "#000")]);
+    let group = page.svg(svg, "g", &[("mask", "url(#dark)")]);
+    page.svg(group, "rect", &[("width", "100"), ("height", "100"), ("fill", "#f00")]);
+    let (_, red) = page.count(0, 0, 100, 100);
+    assert_eq!(red, 0);
+}
