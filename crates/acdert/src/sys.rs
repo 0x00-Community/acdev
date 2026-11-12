@@ -199,6 +199,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         },
     );
     bind::set(scope, obj, "platform", platform.into());
+    let pid = v8::Number::new(scope, f64::from(std::process::id()));
+    bind::set(scope, obj, "pid", pid.into());
     obj
 }
 

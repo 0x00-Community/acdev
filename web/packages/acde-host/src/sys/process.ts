@@ -14,6 +14,9 @@ export const process = {
   get platform(): string {
     return sys().platform
   },
+  get pid(): number {
+    return sys().pid
+  },
   exit(code = 0): never {
     return sys().exit(code)
   },

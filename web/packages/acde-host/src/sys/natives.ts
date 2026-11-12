@@ -20,6 +20,7 @@ export interface WebThreadHandle {
 interface SysNative {
   readonly argv: readonly string[]
   readonly platform: string
+  readonly pid: number
   env(): Record<string, string>
   proxyEnv(): Record<string, string>
   exit(code: number): never

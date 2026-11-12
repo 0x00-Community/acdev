@@ -1000,8 +1000,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
-  `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
-  指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
+  `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`<运行时目录>/acde/apps/<acdert 的 pid>/<id>/`: 每个会话一份, acde dev 和 acde test 同时跑
+  同一个应用不再互相删 socket; 应用的后端停了删它的目录, Broker 关闭时删整个 pid 目录, 第一次起后端时扫掉进程已不在的 pid 目录;
+  `<端口>.sock` 的路径超过 `sun_path` (macOS 104 字节, Linux 108) 时不起, 打一行 warn. 运行时目录是 `XDG_RUNTIME_DIR`, Linux 上没有时
+  `/run/user/<uid>`, 别处 `$TMPDIR/acde-<uid>`; `sys.pid` 给出 acdert 的 pid), 指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
 - **后端的代理变量** (runtime `proxy::backend_variables`, Broker 经 `sys.proxyEnv()` 并进后端环境, 各平台都有): 会话设了
   `http_proxy` / `https_proxy` / `all_proxy` 中任何一个, 就原样传 `http_proxy` / `https_proxy` / `all_proxy` / `no_proxy` 这几个变量 (unix 上大小写
   两种名字各自照传, Windows 环境变量名不分大小写, 用大写名). 一个都没设时给平台的手动代理, 和页面用的同一份系统设置: Windows 是用户

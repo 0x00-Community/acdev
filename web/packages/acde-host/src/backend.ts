@@ -29,6 +29,8 @@ export class AppBackends {
   static readonly RESTARTS = 3
   static readonly STOP_MS = 3000
   static readonly ENV = ['HOME', 'USER', 'PATH', 'LANG', 'LANGUAGE', 'TZ', 'XDG_RUNTIME_DIR']
+  static readonly SUN_PATH: Readonly<Record<string, number>> = { darwin: 104, freebsd: 104, linux: 108 }
+  static #swept = false
 
   readonly #options: AppBackendsOptions
   readonly #running = new Map<string, Running>()
@@ -43,8 +45,35 @@ export class AppBackends {
     return sys().spawnBackend !== undefined
   }
 
-  static socketDir(id: string): string {
-    return join(runtimeDir(), 'acde', 'apps', id)
+  static socketsRoot(): string {
+    return join(runtimeDir(), 'acde', 'apps')
+  }
+
+  static socketDir(id: string, pid = process.pid, root = AppBackends.socketsRoot()): string {
+    return join(root, String(pid), id)
+  }
+
+  static stale(names: readonly string[], own: number, alive: (pid: number) => boolean): string[] {
+    return names.filter((name) => /^[1-9]\d*$/.test(name) && Number(name) !== own && !alive(Number(name)))
+  }
+
+  static tooLong(socket: string, platform = process.platform): string | null {
+    const max = AppBackends.SUN_PATH[platform] ?? 104
+    let bytes = 0
+    for (const char of socket) {
+      const code = char.codePointAt(0)!
+      bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+    }
+    return bytes < max ? null : `the socket path ${socket} is ${bytes} bytes, the system allows ${max - 1}: use a shorter app id or TMPDIR`
+  }
+
+  static #sweep(): void {
+    if (AppBackends.#swept) return
+    AppBackends.#swept = true
+    const root = AppBackends.socketsRoot()
+    for (const name of AppBackends.stale(readDirOr(root), process.pid, (pid) => sys().kill(pid, '0'))) {
+      rmSync(join(root, name), { recursive: true, force: true })
+    }
   }
 
   static env(key: string): string | undefined {
@@ -77,8 +106,17 @@ export class AppBackends {
     if (!app.backend || this.#running.has(app.id) || this.#failed.has(app.id)) return
     const windows = AppBackends.windows
     const sockets = windows ? '' : AppBackends.socketDir(app.id)
+    const tooLong = windows ? null : AppBackends.tooLong(join(sockets, `${app.backend.port}.sock`))
+    if (tooLong) {
+      AppBackends.#report(`${app.id}#backend`, `not started: ${tooLong}`, Level.Warn)
+      return
+    }
     try {
-      if (!windows) mkdirSync(sockets, { recursive: true, mode: 0o700 })
+      if (!windows) {
+        AppBackends.#sweep()
+        mkdirSync(AppBackends.socketsRoot(), { recursive: true, mode: 0o700 })
+        mkdirSync(sockets, { recursive: true, mode: 0o700 })
+      }
       mkdirSync(AppBackends.#dataDir(app.id), { recursive: true })
     } catch (error) {
       AppBackends.#report(`${app.id}#backend`, (error as Error).message, Level.Warn)
@@ -185,22 +223,24 @@ export class AppBackends {
     this.#running.delete(id)
     running.stopping = true
     const pid = running.pid
-    if (pid === null) return
-    const stopBackend = sys().stopBackend
-    if (stopBackend) {
-      stopBackend(pid, AppBackends.STOP_MS)
-      await running.ended
-    } else {
-      const timer = unref(stopGroup(pid, () => running.pid === pid, AppBackends.STOP_MS))
-      await running.ended
-      clearTimeout(timer)
-      AppBackends.#removeSockets(running.sockets)
+    if (pid !== null) {
+      const stopBackend = sys().stopBackend
+      if (stopBackend) {
+        stopBackend(pid, AppBackends.STOP_MS)
+        await running.ended
+      } else {
+        const timer = unref(stopGroup(pid, () => running.pid === pid, AppBackends.STOP_MS))
+        await running.ended
+        clearTimeout(timer)
+      }
     }
-    AppBackends.#report(`${id}#backend`, 'stopped')
+    if (running.sockets) rmSync(running.sockets, { recursive: true, force: true })
+    if (pid !== null) AppBackends.#report(`${id}#backend`, 'stopped')
   }
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.#running.keys()].map((id) => this.stop(id)))
+    if (!AppBackends.windows) rmSync(join(AppBackends.socketsRoot(), String(process.pid)), { recursive: true, force: true })
   }
 
   static #removeSockets(dir: string): void {
