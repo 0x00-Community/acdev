@@ -209,6 +209,15 @@ export class Help {
           + 'target ref; scroll takes pixels.',
         'Exit code 1: the action was not done, or the ref does not exist (acde inspect --find gives current refs).',
       ], [], ['acde act w1.12 click', 'acde act w1.3 type "hello"', 'acde act w1.3 key "ctrl+a backspace"']),
+      inspecting('input', '<web> <events|->', 'Send raw mouse and keyboard events to a page', [
+        'Sends a JSON array of events to a web (a web name, an app id or desktop), in its CSS pixels; - reads it from '
+          + 'stdin. Events: {"type":"move","x":..,"y":..}, down / up (x, y, button: left | right | middle), wheel (x, y, '
+          + 'dx, dy), keydown / keyup (key: "ArrowLeft", "Shift", "a"…), text (text), wait (ms, up to 10000).',
+        'Moves are a frame apart, so a run of moves with the button down draws a path; keydown, wait, keyup holds a key.',
+      ], [], [
+        'acde input game \'[{"type":"keydown","key":"ArrowRight"},{"type":"wait","ms":500},{"type":"keyup","key":"ArrowRight"}]\'',
+        'acde input paint \'[{"type":"move","x":10,"y":10},{"type":"down","x":10,"y":10},{"type":"move","x":60,"y":40},{"type":"up","x":60,"y":40}]\'',
+      ]),
       inspecting('eval', '<web> <code|->', 'Evaluate JavaScript in a page', [
         'Runs code in a web (a web name, an app id or desktop) and prints the result as JSON; - reads the code '
           + 'from stdin.',
