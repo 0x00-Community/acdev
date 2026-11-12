@@ -5,15 +5,15 @@
 | Variable | Effect |
 | --- | --- |
 | `ACDE_INSTALL` | Install directory, default `~/.acde` |
-| `ACDE_DIST` | Where the installers download acde from, and where `acde doctor --online` looks for a newer one; default `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde` |
-| `ACDERT_DIST` | Where the installers download the runtime from, and where `acde new` and `acde sdk update` point the SDK dependency; default `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert` |
+| `ACDE_DIST` | Where the installers download acde from, and where `acde doctor --online` looks for a newer one; default `https://pkgs.dopame.ai/acde` |
+| `ACDERT_DIST` | Where the installers download the runtime from, and where `acde new` and `acde sdk update` point the SDK dependency; default `https://pkgs.dopame.ai/acdert` |
 | `ACDERT` | The acdert binary `acde dev` and `acde test` run: a path, or a name on PATH. Unset: the acdert the installer put next to acde, then `acdert` on PATH |
 | `ACDE_BUNDLER=vite` | Bundle with Vite on Bun too |
-| `ACDE_DEBUG=1` | An error also prints its stack trace (normally only the one-line message) |
+| `ACDE_DEBUG=1` | An error also prints its stack trace (normally only the one-line message) (after 0.0.9) |
 | `ACDE_BROWSER` | The browser `acde devtools` and F12 in `acde dev` open DevTools in: a path, or `none` to open nothing and only print the address. Unset: Edge, then Chrome on Windows; Chrome, then Edge on macOS; Chrome, Chromium or Edge on `PATH` on Linux (after 0.0.9) |
 | `CI` | When set, `toHaveScreenshot` does not write new baselines; a missing baseline fails right away |
 | `NO_COLOR` | Set and not empty: no color in acde's output |
-| `FORCE_COLOR` | Set and not `0`: color even when the output is not a terminal |
+| `FORCE_COLOR` | Set and not `0` or `false`: color even when the output is not a terminal |
 
 ## Runtime (acdert)
 

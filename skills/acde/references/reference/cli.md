@@ -6,7 +6,7 @@ acde <command> [args]
 
 On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; a wrong option value always reads `acde: <command>: --<option> <value>: <what it takes> (acde <command> --help)`. The full usage is printed only by `acde --help`.
 
-Exit codes are the same for every command:
+After 0.0.9, exit codes are the same for every command:
 
 | Exit code | Meaning |
 | --- | --- |
@@ -15,9 +15,9 @@ Exit codes are the same for every command:
 | 2 | Nothing done, but not an error: nothing matched (`acde query`, `acde inspect --find`) or nothing to remove (`acde uninstall`) |
 | 3 | Cancelled or not confirmed: Ctrl+C in a question of `acde new` or during `acde sdk update`, a declined `acde uninstall`, or no terminal to ask in and no `--yes` |
 
-What a command found goes to stdout; "nothing found", errors and notes go to stderr with the `acde:` prefix.
+What a command found goes to stdout; "nothing found", errors and notes go to stderr with the `acde:` prefix. In 0.0.9 some commands differ: `acde query` prints "nothing in …" on stdout, and `acde uninstall` exits 1 when the package is not installed and 2 when it is in use.
 
-`acde --version` (or `-v`, or `acde version`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`, or `acde help`) prints the usage of every command; `acde <command> --help` and `acde help <command>` print that command only. `acde` with no arguments prints only its version, the three commands that start a project, and a pointer to `acde --help`. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Output is colored when it goes to a terminal; `NO_COLOR` (set and not empty) turns color off, and `FORCE_COLOR` (set and not `0`) turns it on. An error is one line, `acde: <what went wrong>`; with `ACDE_DEBUG=1` its stack trace follows.
+`acde --version` (or `-v`, or `acde version`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`, or `acde help`) prints the usage of every command; `acde <command> --help` and `acde help <command>` print that command only. `acde` with no arguments prints only its version, the three commands that start a project, and a pointer to `acde --help`. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Output is colored when it goes to a terminal; `NO_COLOR` (set and not empty) turns color off, and `FORCE_COLOR` (set and not `0` or `false`) turns it on. Only labels are colored: `acde:`, `error:`, `warning:`, the statuses of `acde doctor` and the headings of the help. An error is one line, `acde: <what went wrong>`; with `ACDE_DEBUG=1` its stack trace follows (after 0.0.9).
 
 ## Setup
 
@@ -97,7 +97,7 @@ acde uninstall [id|dir] [--yes] [--data | --keep-data]
 
 Removes a package that `acde install` put into the packages directory, found by its id (its directory name there) or by the project directory it was installed from. For a handwritten package, installed as a link, it removes only the link; the project it points at stays. Before removing, it prints what it removes (`acde: removes <id>: <path> ...`) and, in a terminal, asks; `--yes` removes without asking, and outside a terminal nothing is removed without `--yes`. When an `acde dev` session runs the package's desktop or one of its apps, or runs a desktop while the package has apps, it removes nothing and names the session to stop first (`acde stop --session <pid>`). With no argument it lists the installed packages, one per line: the id and the path (for a link, `-> <project>`).
 
-The data of the package's apps and desktops (`storage/app-<id>/`, `storage/desktop-<id>/` and `apps/<id>/` under `$XDG_DATA_HOME/acde`, or under `ACDE_STORAGE` for the storage) is removed with `--data` and kept with `--keep-data`; with neither, a terminal is asked and `--yes` keeps it, printing `acde: kept its data (…): <paths>`. Both together is a wrong argument (exit code 1).
+The data of the package's apps and desktops (`storage/app-<id>/`, `storage/desktop-<id>/` and `apps/<id>/` under `$XDG_DATA_HOME/acde`, or under `ACDE_STORAGE` for the storage) is removed with `--data` and kept with `--keep-data` (after 0.0.9; 0.0.9 keeps it); with neither, a terminal is asked and `--yes` keeps it, printing `acde: kept its data (…): <paths>`. Both together is a wrong argument (exit code 1).
 
 | Exit code | Meaning |
 | --- | --- |
@@ -112,7 +112,7 @@ The data of the package's apps and desktops (`storage/app-<id>/`, `storage/deskt
 acde sdk [update] [dir]
 ```
 
-Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). With npm 12 or later it also adds `allow-remote=root` to `.npmrc` (in the workspace root for a workspace member, where npm reads it; npm 12 refuses URL dependencies without it; projects `acde new` makes with npm 12 have it already). npm 11 does not need it and gets no `.npmrc`, so a project made with npm 11 needs one `acde sdk update` before npm 12 installs it. If the package manager is not on PATH it changes nothing. If the install fails or is interrupted (Ctrl+C), it puts `package.json`, the lock file and `.npmrc` back as they were and says so, naming any file it could not put back; run the install again to bring `node_modules` back in line. `acde check` also warns when `node_modules` holds another SDK version than `package.json` names. `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
+Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://pkgs.dopame.ai/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). With npm 12 or later it also adds `allow-remote=root` to `.npmrc` (in the workspace root for a workspace member, where npm reads it; npm 12 refuses URL dependencies without it; projects `acde new` makes with npm 12 have it already). npm 11 does not need it and gets no `.npmrc`, so a project made with npm 11 needs one `acde sdk update` before npm 12 installs it. If the package manager is not on PATH it changes nothing. If the install fails or is interrupted (Ctrl+C), it puts `package.json`, the lock file and `.npmrc` back as they were and says so, naming any file it could not put back; run the install again to bring `node_modules` back in line. `acde check` also warns when `node_modules` holds another SDK version than `package.json` names. `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
 
 ### acde dev
 
@@ -120,11 +120,11 @@ Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with.
 acde dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless] [--verbose] [--force]
 ```
 
-Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens no window; use it on a machine without a display. `--verbose` also prints the runtime's own info log; by default the terminal shows what the pages and backends print, what happens to each app, and the runtime's warnings and errors. On Linux without `WAYLAND_DISPLAY` or `DISPLAY`, `acde dev` without `--headless` stops with `acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` and exits with code 1. Only one `acde dev` runs a project at a time, even when two start at the same moment: a second one exits with code 1 before it builds and names the running one (`acde: acde dev <pid> already runs <dir>; stop it first (acde stop --session <pid>), or pass --force to start another`); `--force` starts it anyway. Ctrl+C, SIGINT and SIGTERM end the session and its runtime, and remove its files; files left by a session that was killed are removed by the next `acde dev` or session command. See [acde dev](../guide/dev.md) and [Without a display](../guide/tools.md#without-a-display).
+Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens no window; use it on a machine without a display. `--verbose` (after 0.0.9) also prints the runtime's own info log; by default the terminal shows what the pages and backends print, what happens to each app, and the runtime's warnings and errors. On Linux without `WAYLAND_DISPLAY` or `DISPLAY`, `acde dev` without `--headless` stops with `acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` and exits with code 1. After 0.0.9, only one `acde dev` runs a project at a time, even when two start at the same moment: a second one exits with code 1 before it builds and names the running one (`acde: acde dev <pid> already runs <dir>; stop it first (acde stop --session <pid>), or pass --force to start another`); `--force` starts it anyway. Ctrl+C, SIGINT and SIGTERM end the session and its runtime, and remove its files (in 0.0.9, a SIGINT sent to `acde dev` alone, not through the terminal, is ignored); after 0.0.9, files left by a session that was killed are removed by the next `acde dev` or session command. See [acde dev](../guide/dev.md) and [Without a display](../guide/tools.md#without-a-display).
 
 ## Running sessions
 
-These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, or a window, such as `w1`. See [Debugging](../guide/tools.md).
+These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, a window, such as `w1`, or (after 0.0.9) a menu on a window's title bar, such as `w1.m1`, or an item of it, `w1.m1.2`. See [Debugging](../guide/tools.md).
 
 | Command | Description |
 | --- | --- |
@@ -136,9 +136,11 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
-| `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key (after 0.0.9) |
+| `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key (after 0.0.9). In 0.0.9, `down`, `up` and `wheel` happen where the pointer is, whatever their `x` and `y`: send a `move` there first; after 0.0.9 they move the pointer to their `x` and `y` |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
-| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acde: no console entries` / `acde: no requests` on stderr and exit 0 |
+| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acde: no console entries` / `acde: no requests` on stderr and exit 0 (after 0.0.9) |
+| `acde choose <folder\|open\|save> [path...] [--cancel]` | (after 0.0.9) Answers the next folder, file or save picker the page opens: one folder, one or more files, or the file to write; `--cancel` answers it as cancelled. Prints `the next folder picker answers <path>`. A headless session shows no picker, so answer it before the action that opens it |
+| `acde drop <web> <file...> [--at X,Y]` | (after 0.0.9) Drops files onto a page as a drag from the system would (`dragenter`, `dragover`, `drop` with the files), at `X,Y` in its CSS pixels or in the middle. Prints `dropped N files onto <web>` |
 | `acde permissions` | The camera and microphone prompts that wait and the decisions made |
 | `acde allow [<prompt id> \| <app> <capability>] [--all]` | Allows a waiting camera or microphone prompt |
 | `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
@@ -153,8 +155,10 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `--ref` | `query`: search only under this element (`w1.12`) |
 | `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
 | `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
+| `--cancel` | `choose`: answer the picker as cancelled |
+| `--at` | `drop`: where to drop, `X,Y` in the page's CSS pixels |
 
-`acde query` prints `N in <window>:` and one line per element (exit code 0), or `acde: nothing in <window> matches "<selector>"` on stderr (exit code 2). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
+`acde query` prints `N in <window>:` and one line per element (exit code 0), or `acde: nothing in <window> matches "<selector>"` on stderr (exit code 2; in 0.0.9 on stdout, without `acde: `). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
 
 `acde permissions` prints two blocks and exits with code 0:
 
@@ -214,4 +218,4 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
 | `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests (the same as `--video=failed`); `--video=on` keeps it for every test, `--video=off` for none (the default) |
 
-The run ends with one line that counts tests and files and names the failing files (`acde test: 5 tests in 2 files: 4 passed, 1 failed; failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).
+The run ends with one line that counts tests and files and names the failing files (after 0.0.9; 0.0.9 prints a line for tests and one for files) (`acde test: 5 tests in 2 files: 4 passed, 1 failed; failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

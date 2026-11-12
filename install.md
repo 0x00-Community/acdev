@@ -2,7 +2,7 @@
 
 You are a coding agent, and the user asked you to set up acde on this machine. acde is the command line tool for building apps and desktops for Dopame OS. Do the steps below in order and run the commands yourself. Ask the user only where a step says to. End with the report in the last step.
 
-Everything you need comes from `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/`. Do not fetch installers for acde from anywhere else.
+Everything you need comes from `https://pkgs.dopame.ai/acde/`. Do not fetch installers for acde from anywhere else.
 
 ## 1. A JavaScript runtime
 
@@ -20,16 +20,16 @@ If neither is new enough, ask the user whether to install Bun (https://bun.sh) o
 macOS and Linux:
 
 ```sh
-curl -fsSL https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.sh | sh
+curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDE_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDE_NO_MODIFY_PATH=1`), and another install directory (`ACDE_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
+Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDE_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDE_NO_MODIFY_PATH=1`), and another install directory (`ACDE_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
 
 The installer downloads the acde archive and the Dopame runtime it pairs with, acdert (the binary for this platform and its host files), checks every SHA-256, and unpacks them into `~/.acde` (`%USERPROFILE%\.acde` on Windows): `acdert` ends up in the same `bin` directory as `acde`. It then adds that directory to PATH: on macOS and Linux in the startup files of every shell installed (bash, zsh, fish, sh, csh/tcsh, nushell; login shells included), on Windows in front of the user `Path`. It needs no root. On Linux it unpacks acdert with `xz`; if `xz` is missing it stops before installing anything and says so: install the `xz` (or `xz-utils`) package and run it again. If any download or check fails, it installs nothing and an earlier install stays as it was. Running it again upgrades an existing install, runtime included.
 
@@ -70,7 +70,7 @@ acde doctor
 
 It prints one line per check, each beginning `ok`, `warn`, `error` or `skip`, a line beginning `fix:` under each warning and error, and a last line beginning `acde doctor:`; it exits with code 1 when a check is an error. The `acdert` line names the runtime it found with its version and contract level, and the `gpu` line is the runtime drawing a test frame on this machine's GPU.
 
-- An error on the `acdert` line (none found, or one that does not run) means the install did not finish: run `acde doctor --fix --yes`, which runs the installer of this version again, and report what it printed. Only if the installer cannot work here (no access to `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/`, or no acdert build for this platform), ask the user whether to set the runtime up by hand; if they agree, follow the section "Install the runtime by hand" in the skill's `references/start/install.md` (in the directory `acde skills path` prints), and nothing else: do not build it or fetch it from anywhere else.
+- An error on the `acdert` line (none found, or one that does not run) means the install did not finish: run `acde doctor --fix --yes`, which runs the installer of this version again, and report what it printed. Only if the installer cannot work here (no access to `https://pkgs.dopame.ai/`, or no acdert build for this platform), ask the user whether to set the runtime up by hand; if they agree, follow the section "Install the runtime by hand" in the skill's `references/start/install.md` (in the directory `acde skills path` prints), and nothing else: do not build it or fetch it from anywhere else.
 - Any other error: report the line and its fix to the user. A `gpu` error means the runtime cannot draw on this machine; it is not something to work around.
 - Warnings and skips do not stop the next step. A `PATH` warning is expected in a shell started before the install (step 2), and the `project` check is skipped because there is no project yet.
 

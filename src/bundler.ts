@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import acdeVite from '@dopame/acde-api/vite'
 import { InlineStyles } from './inline-styles.ts'
@@ -149,6 +149,29 @@ if (typeof serve === "function" && main && typeof main.fetch === "function") ser
   }
 }
 
+export class AssetUrls {
+  static readonly FILTER = /\.[cm]?[jt]sx?$/
+  static readonly PATTERN = /new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n?#]+)\1\s*,\s*import\.meta\.url\s*\)/g
+
+  static rewrite(source: string, file: string): string | null {
+    if (!source.includes('import.meta.url')) return null
+    const imports: string[] = []
+    const out = source.replace(AssetUrls.PATTERN, (all: string, _quote: string, path: string) => {
+      const target = resolve(dirname(file), path)
+      if (AssetUrls.FILTER.test(path) || !existsSync(target) || !statSync(target).isFile()) return all
+      const name = `__acdeAssetUrl${imports.length}`
+      imports.push(`import ${name} from ${JSON.stringify(path)} with { type: 'file' };`)
+      return `new URL(${name}, import.meta.url)`
+    })
+    return imports.length ? `${imports.join(' ')} ${out}` : null
+  }
+
+  static loader(file: string): 'js' | 'jsx' | 'ts' | 'tsx' {
+    const ext = /\.([cm]?)([jt]sx?)$/.exec(file)?.[2] ?? 'js'
+    return ext as 'js' | 'jsx' | 'ts' | 'tsx'
+  }
+}
+
 export class BunBundler extends Bundler {
   static readonly OPTIONS = {
     format: 'esm', minify: { syntax: true, whitespace: false, identifiers: false }, throw: false,
@@ -177,6 +200,15 @@ export class BunBundler extends Bundler {
             setup: (build) => {
               build.onResolve({ filter: /^(?:\/|[A-Za-z]:[\\/])/ }, (args) =>
                 BunBundler.#public(job.rules, args.path, args.importer))
+            },
+          },
+          {
+            name: 'acde-asset-urls',
+            setup: (build) => {
+              build.onLoad({ filter: AssetUrls.FILTER }, async (args) => {
+                const contents = AssetUrls.rewrite(await Bun.file(args.path).text(), args.path)
+                return contents === null ? undefined : { contents, loader: AssetUrls.loader(args.path) }
+              })
             },
           },
         ],

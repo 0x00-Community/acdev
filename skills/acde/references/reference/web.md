@@ -30,7 +30,7 @@ Data lives in `$XDG_DATA_HOME/acde/storage/app-<id>/`.
 
 ## External resources
 
-Images (`<img>` and images in CSS), stylesheets (`<link rel="stylesheet">`) and fonts load from other hosts as they do in a browser: images and stylesheets without CORS, fonts only with an `Access-Control-Allow-Origin` that allows the page, a stylesheet only from a 2xx `text/css` response. They show up in `acde network` with the kinds `image`, `stylesheet` and `font`, and a failed one is a console error `Failed to load resource: <url>: <reason>`. A `<link rel="stylesheet">` fires `load` once its sheet is fetched and applied and `error` when it cannot be had (also when a sheet it `@import`s cannot); `link.sheet` and `document.styleSheets` have the sheet from then on. The rules of a sheet from another host (`sheet.cssRules`) throw `SecurityError` unless the link has `crossorigin` and the host allows the page with `Access-Control-Allow-Origin`. **ES modules can't be `import`ed from other hosts** (`module … is not a local file`): bundle the code you depend on into the app. (Classic `<script src>` can load from other hosts.) An app that should work without a network bundles its images, styles and fonts too.
+Images (`<img>` and images in CSS), stylesheets (`<link rel="stylesheet">`) and fonts load from other hosts as they do in a browser: images and stylesheets without CORS, fonts only with an `Access-Control-Allow-Origin` that allows the page, a stylesheet only from a 2xx `text/css` response. They show up in `acde network` with the kinds `image`, `stylesheet` and `font`, and a failed one is a console error `Failed to load resource: <url>: <reason>`. A `<link rel="stylesheet">` fires `load` once its sheet is fetched and applied and `error` when it cannot be had (also when a sheet it `@import`s cannot); `link.sheet` and `document.styleSheets` have the sheet from then on. The rules of a sheet from another host (`sheet.cssRules`) throw `SecurityError` unless the link has `crossorigin` and the host allows the page with `Access-Control-Allow-Origin`; after 0.0.9, its `@font-face` faces are still in `document.fonts`. **ES modules can't be `import`ed from other hosts** (`module … is not a local file`): bundle the code you depend on into the app. After 0.0.9, `blob:` and `data:` modules can be imported when their type is a JavaScript MIME type (`text/javascript`). (Classic `<script src>` can load from other hosts.) An app that should work without a network bundles its images, styles and fonts too.
 
 ## Scripts
 
@@ -76,6 +76,9 @@ Added after 0.0.9:
 - Inline SVG colors given as `oklch()`, `lab()` or `color-mix()` (Tailwind 4's palette) are painted.
 - In SVG images and inline SVG, a `<mask>` made of one filled path clips to it (other masks clip to their region), and a group `filter` made of blurs, drop shadows and color matrices is applied (the glow of icons exported from Figma).
 - An element with an `id` is reachable as a global (`window.wave`).
+- `pointer-events: all` and the other SVG values (`visible`, `painted`, `fill`, `stroke` …) are understood and act as `auto`. In 0.0.9 they are dropped, so the element inherits `none`: every button in a Mantine `Modal` or `Drawer` cannot be clicked.
+- An SVG image used as a `background-image` or `mask-image` is drawn. In 0.0.9 a simple one (shapes in plain colours: icons, the select arrows of `@tailwindcss/forms` and Bootstrap, CSS mask icons) draws nothing.
+- An inline `<svg>` without a `viewBox` draws its content in CSS pixels from its top left, and clips it to its box, as browsers do. In 0.0.9 it is stretched to the size of the box, so an `<svg>` sized only by CSS draws too large and off centre (Mantine's `RingProgress`).
 - `<input>` and `<textarea>` have undo and redo: `Ctrl+Z`, and `Ctrl+Shift+Z` or `Ctrl+Y`.
 
 ## Not yet supported
@@ -85,6 +88,7 @@ Added after 0.0.9:
 ## Differences from browsers
 
 - `alert()` is drawn inside the window; `confirm()` returns `false` and `prompt()` returns `null`.
+- There is no top layer: after 0.0.9, an open popover and a modal `<dialog>` get the highest `z-index` instead, so an ancestor's `transform`, `filter` or `contain` still clips them, and they have no `::backdrop`.
 - `navigator.userAgent` and `navigator.platform` say Linux on every system (`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acdert/<version>` and `Linux x86_64`), and editing shortcuts use Ctrl everywhere, so an app behaves the same on every host. To know the real system, read `platform` from [`acde:capabilities`](../guide/capabilities.md#acdecapabilities).
 - In 0.0.9 there are no developer tools: use the [debugging tools](../guide/tools.md) and [MCP](../guide/mcp.md). After 0.0.9, `acde dev` opens the DevTools of Chrome or Edge on a page (F12 in the window, or `acde devtools`); see [acde dev](../guide/dev.md#devtools).
 - Pages have no security sandbox (there is no syscall-level isolation yet): don't run code you don't trust.

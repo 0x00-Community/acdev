@@ -7,7 +7,7 @@ acde ships a **skill**: instructions and reference files that teach a coding age
 Paste this into your agent:
 
 ```text
-Read https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.md and follow it to set up acde on this machine.
+Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.
 ```
 
 It installs acde, installs the skill for the agent, and reports what is ready and what is missing.

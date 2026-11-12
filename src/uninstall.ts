@@ -1,7 +1,10 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import { Project } from './app.ts'
 import { Exit } from './output.ts'
 import { AppPackage } from './package.ts'
 import { Jsonc } from './runtime.ts'
@@ -23,6 +26,11 @@ export interface UninstallOptions {
   readonly sessions?: readonly Session[]
   readonly data?: boolean
   readonly env?: NodeJS.ProcessEnv
+}
+
+export interface Entries {
+  readonly file: string
+  readonly keys: readonly string[]
 }
 
 export class Uninstall {
@@ -96,40 +104,106 @@ export class Uninstall {
       }
     }
     const data = Uninstall.data(entry, options.env)
+    const entries = Uninstall.entries(entry, options.env)
+    const listed = [...data, ...entries.map(Uninstall.describeEntries)]
     let drop = options.data
-    if (drop === undefined && data.length > 0 && !options.yes && options.confirm)
-      drop = await options.confirm(`Also remove the data of ${entry.id} (${data.join(', ')})?`)
+    if (drop === undefined && listed.length > 0 && !options.yes && options.confirm)
+      drop = await options.confirm(`Also remove the data of ${entry.id} (${listed.join(', ')})?`)
     Uninstall.remove(entry)
     options.say(`acde: uninstalled ${entry.id} from ${entry.path}`)
     if (drop === true) {
       for (const path of data) rmSync(path, { recursive: true, force: true })
       for (const path of data) options.say(`acde: removed its data ${path}`)
-    } else if (data.length > 0) {
-      options.say(`acde: kept its data (delete it by hand; --data removes it while uninstalling): ${data.join(', ')}`)
+      for (const found of entries) {
+        const problem = Uninstall.forget(found)
+        options.say(problem === null
+          ? `acde: removed its entries from ${found.file} (${found.keys.join(', ')})`
+          : `acde: could not remove its entries from ${found.file}: ${problem}`)
+      }
+    } else if (listed.length > 0) {
+      options.say(`acde: kept its data (delete it by hand; --data removes it while uninstalling): ${listed.join(', ')}`)
     }
     return 0
   }
 
-  static data(entry: Installed, env: NodeJS.ProcessEnv = process.env): string[] {
-    const home = (kind: 'DATA' | 'CONFIG', fallback: string) => {
-      const set = env[`XDG_${kind}_HOME`]
-      return set && isAbsolute(set) ? set : join(env['HOME'] || homedir(), fallback)
+  static describeEntries(found: Entries): string {
+    return `${found.file} (${found.keys.join(', ')})`
+  }
+
+  static #home(env: NodeJS.ProcessEnv, kind: 'DATA' | 'CONFIG' | 'STATE'): string {
+    const set = env[`XDG_${kind}_HOME`]
+    if (set && isAbsolute(set)) return set
+    const base = env['HOME'] || homedir()
+    return kind === 'DATA' ? join(base, '.local', 'share') : kind === 'STATE' ? join(base, '.local', 'state') : join(base, '.config')
+  }
+
+  static entries(entry: Installed, env: NodeJS.ProcessEnv = process.env): Entries[] {
+    const apps = new Set(entry.apps)
+    const stores: [string, (key: string) => boolean][] = [
+      [join(Uninstall.#home(env, 'CONFIG'), 'acde', 'permissions.json'), (key) => Uninstall.#permission(key, apps)],
+      [join(Uninstall.#home(env, 'STATE'), 'acde', 'windows.json'), (key) => apps.has(key)],
+    ]
+    return stores.flatMap(([file, mine]) => {
+      const saved = Uninstall.#object(file)
+      const keys = saved ? Object.keys(saved).filter(mine) : []
+      return keys.length > 0 ? [{ file, keys }] : []
+    })
+  }
+
+  static #permission(key: string, apps: ReadonlySet<string>): boolean {
+    const at = key.lastIndexOf(':')
+    return at > 0 && apps.has(key.slice(0, at)) && Project.ID.test(key.slice(at + 1))
+  }
+
+  static #inside(parent: string, path: string): boolean {
+    const step = relative(resolve(parent), resolve(path))
+    return step !== '' && !step.startsWith('..') && !isAbsolute(step)
+  }
+
+  static forget(found: Entries): string | null {
+    const saved = Uninstall.#object(found.file)
+    if (!saved) return 'it is no longer a JSON object'
+    for (const key of found.keys) delete saved[key]
+    const temp = `${found.file}.${process.pid}.tmp`
+    try {
+      writeFileSync(temp, JSON.stringify(saved))
+      renameSync(temp, found.file)
+      return null
+    } catch (error) {
+      rmSync(temp, { force: true })
+      return (error as Error).message
     }
-    const data = join(home('DATA', join('.local', 'share')), 'acde')
-    const config = join(home('CONFIG', '.config'), 'acde', 'storage')
+  }
+
+  static #object(file: string): Record<string, unknown> | null {
+    try {
+      const value = JSON.parse(readFileSync(file, 'utf8')) as unknown
+      return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
+  }
+
+  static data(entry: Installed, env: NodeJS.ProcessEnv = process.env): string[] {
+    const data = join(Uninstall.#home(env, 'DATA'), 'acde')
+    const config = join(Uninstall.#home(env, 'CONFIG'), 'acde', 'storage')
+    const grants = join(Uninstall.#home(env, 'STATE'), 'acde', 'grants')
     const set = env['ACDE_STORAGE']
     const storage = set === undefined ? join(data, 'storage') : set || null
     const legacy = set === undefined ? config : null
-    const paths = [
-      ...entry.apps.flatMap((id) => [
-        ...(storage ? [join(storage, `app-${id}`)] : []), join(data, 'apps', id),
-        ...(legacy ? [join(legacy, `app-${id}.json`)] : []),
+    const apps = entry.apps.filter((id) => Project.ID.test(id))
+    const desktops = entry.desktops.filter((id) => Project.ID.test(id))
+    const under = (parent: string, child: string): [string, string] => [parent, join(parent, child)]
+    const paths: [string, string][] = [
+      ...apps.flatMap((id) => [
+        ...(storage ? [under(storage, `app-${id}`)] : []), under(join(data, 'apps'), id), under(join(data, 'files'), id),
+        under(grants, `${id}.json`), ...(legacy ? [under(legacy, `app-${id}.json`)] : []),
       ]),
-      ...entry.desktops.flatMap((id) => [
-        ...(storage ? [join(storage, `desktop-${id}`)] : []), ...(legacy ? [join(legacy, `${id}.json`)] : []),
+      ...desktops.flatMap((id) => [
+        ...(storage ? [under(storage, `desktop-${id}`)] : []), ...(legacy ? [under(legacy, `${id}.json`)] : []),
       ]),
     ]
-    return paths.filter((path) => existsSync(path))
+    return paths.filter(([parent, path]) => Uninstall.#inside(parent, path) && existsSync(path)).map(([, path]) => path)
   }
 
   static remove(entry: Installed): void {
@@ -150,7 +224,7 @@ export class Uninstall {
     const link = isLink ? Uninstall.#target(path) : null
     const manifest = Uninstall.#manifest(path)
     const ids = (list: unknown) => Array.isArray(list)
-      ? list.map((item) => (item as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string')
+      ? list.map((item) => (item as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string' && Project.ID.test(id))
       : []
     const id = path.split(/[\\/]/).pop()!
     return { id, path, link, apps: ids(manifest?.apps), desktops: ids(manifest?.desktops) }

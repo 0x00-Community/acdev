@@ -14,7 +14,7 @@ notes#1048576  app      notes  1048576  Notes
 
 ## Sessions
 
-These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acde: using acde dev <pid> (...), the only one running`); otherwise they fail and list all sessions. Sessions that `acde test` started for its tests are left out of this choice (they are listed with `acde test` after what they run); only `--session <pid>` reaches them.
+These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acde: using acde dev <pid> (...), the only one running`); otherwise they fail and list all sessions. After 0.0.9, sessions that `acde test` started for its tests are left out of this choice (they are listed with `acde test` after what they run); only `--session <pid>` reaches them.
 
 ## Commands
 
@@ -118,6 +118,8 @@ Without `--find`, the text is always in this English format: one line per window
 
 A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails (`acde: act w1.23: there is no such element (any more); …`); take a new `inspect` then.
 
+After 0.0.9, an app run on its own shows its window menus on the title bar (see [Windows](window.md#menus)), and `inspect` lists them first: `menubar [w1.m]`, one `menuitem "File" [collapsed] [w1.m1]` per menu, and under the open one its items with their shortcuts, `menuitem "New": "ctrl+n" [w1.m1.1]` (a separator takes a number too). `acde act w1.m1 click` opens a menu, `acde act w1.m1.1 click` opens it if needed and chooses the item (`chose File › New`), and `acde act w1 key escape` closes it. A disabled item is not chosen (`acde: act w1.m1.4: w1.m1.4 (Print) is disabled`).
+
 By default the tree leaves out elements that can't be seen: `display: none`, `aria-hidden`, `inert`, `opacity: 0` and hidden `visibility`. `--all` lists every window that is not marked `[minimized]` in the window list and also keeps the elements hidden by `opacity: 0` (marked `transparent`; they can still be clicked) or by `visibility` (marked `invisible`; they can't); `display: none`, `aria-hidden` and `inert` are always left out.
 
 A window that is off the screen is marked `[minimized]` in the window list: one whose state is `minimized` (after `act w1 minimize`, the app's own `minimize()`, or the desktop's `windows.requestState(id, 'minimized')`), and one the desktop hid with `windows.hide(id)`. Its elements are not listed: `--all` and `--find` skip it, and `--window w1` prints `(empty)` and `(minimized; act restore on it to see its elements)` under its line. Pointer actions on it (`click`, `double`, `right`, `hover`, `scroll`, and `drag` from or onto it) are refused, and `act w1 restore` brings it back. In a desktop session:
@@ -195,12 +197,12 @@ $ acde query button
 - button "Load more" [w1.11] <button>
 
 $ acde query nav
-nothing in w1 matches "nav"
+acde: nothing in w1 matches "nav"
 ```
 
 Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent, or its window is minimized. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
-The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches (`nothing in w1 matches "nav"`), the exit code is 2; otherwise it is 0.
+The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches, it says so on stderr (`acde: nothing in w1 matches "nav"`; in 0.0.9 on stdout, without `acde: `) and the exit code is 2; otherwise it is 0.
 
 ### Styles and layout
 
@@ -265,7 +267,7 @@ acde shot notes       # ./notes.png
 acde screen           # ./screen.png, every window together
 ```
 
-A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), or from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)). The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
+A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)), or (after 0.0.9) from the shell with `acde choose folder ~/Notes`, `acde choose open a.md b.md` or `acde choose save out.md` (`--cancel` to cancel). `acde drop <web> <file...>` (after 0.0.9) drops files onto a page, as a drag from the file manager would. The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
 
 ## Camera and microphone
 

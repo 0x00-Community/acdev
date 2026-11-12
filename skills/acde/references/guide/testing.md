@@ -48,7 +48,7 @@ Each test gets:
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 
-A test's session does not count as the project's `acde dev`: an `acde dev` you run on the same project while tests run starts and keeps running, and commands such as `acde eval` and the MCP tools use yours, never a test's (only `--session <pid>` reaches a test's session).
+After 0.0.9, a test's session does not count as the project's `acde dev`: an `acde dev` you run on the same project while tests run starts and keeps running, and commands such as `acde eval` and the MCP tools use yours, never a test's (only `--session <pid>` reaches a test's session).
 
 ## Locators
 
@@ -70,6 +70,16 @@ app.locator('li').and(app.getByText('Milk'))
 ```
 
 Locators are lazy: they are resolved again against the latest tree every time they are used. Actions require **exactly one** match; with several, they fail instead of guessing.
+
+Adjacent text in one element is one name, as written: JSX `{rate}%` is `100%`. In 0.0.9 the tree puts a space between text nodes (`100 %`), so `getByText('100%')` finds nothing there; match `/100\s?%/` for 0.0.9.
+
+After 0.0.9, an app run on its own shows its window menus on the title bar ([Windows](window.md#menus)), and they are in the tree: click the menu, then the item.
+
+```ts
+await app.getByRole('menuitem', { name: 'File' }).click()
+await app.getByRole('menuitem', { name: 'New' }).click()
+await app.keyboard.press('Control+N')   // an item's shortcut runs it too
+```
 
 `filter` takes `hasText`, `hasNotText`, `has` and `hasNot` (another locator, looked for inside each element). `or` matches what either locator matches, in document order; `and` what both match.
 
@@ -299,7 +309,7 @@ Several files run at once: half the machine's cores, at most 4, and one at a tim
 
 With `-t`, a file in which no test matches is skipped and does not count as failed (`acde test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acde test` prints `acde test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
 
-Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with one summary line:
+Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with one summary line (after 0.0.9; 0.0.9 prints two, `acde test: 5 tests ran: 4 passed, 1 failed, …` and `acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`):
 
 ```text
 acde test: 5 tests in 2 files: 4 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t); failed: e2e/notes.e2e.ts
@@ -347,7 +357,14 @@ test('adds', async ({ app }) => {
 
 ## The driver alone
 
-`acde/driver` also works in any Node.js or Bun script:
+`acde/driver` also works in any Node.js or Bun script. Outside `acde test` nothing resolves `acde/driver` by itself: link the installed acde into the script's project once (it is a package named `acde`; types come with it):
+
+```sh
+cd ~/.acde/current/lib/acde && bun link    # npm link with Node.js
+cd ~/my-scripts && bun link acde           # npm link acde
+```
+
+The link points at the version that is installed now; link it again after `acde` is upgraded.
 
 ```ts
 import { Acde } from 'acde/driver'

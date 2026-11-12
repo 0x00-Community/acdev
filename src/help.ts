@@ -246,6 +246,17 @@ export class Help {
       inspecting('pointer', '<x> <y>', 'Move the pointer to a screen point', [
         'Moves the pointer as a real move (hover, screen edges); in a host window the screen is its content area.',
       ], [], ['acde pointer 0 0']),
+      inspecting('choose', '<folder|open|save> [path...]', 'Answer the next file picker', [
+        'Answers the next picker of that kind the page opens: folder (one folder), open (one or more files) or save '
+          + '(the file to write). A headless session shows no picker, so answer it before the action that opens it; in '
+          + 'a window the answer also takes the place of the dialog. Relative paths are from the current directory.',
+      ], [{ flag: '--cancel', about: 'Answer the picker as cancelled' }],
+      ['acde choose folder ~/Notes', 'acde choose open a.md b.md', 'acde choose save out/report.md', 'acde choose open --cancel']),
+      inspecting('drop', '<web> <file...>', 'Drop files onto a page', [
+        'Drops files onto a web (a web name, an app id or desktop) as a drag from the system would: the page gets '
+          + 'dragenter, dragover and drop with the files. Relative paths are from the current directory.',
+      ], [{ flag: '--at X,Y', about: 'Where, in the page\'s CSS pixels (default: the middle of the page)' }],
+      ['acde drop notes notes/today.md', 'acde drop notes a.png --at 120,300']),
       inspecting('permissions', '', 'List camera and microphone prompts', [
         'The camera and microphone prompts that wait and the decisions made (other capabilities are granted '
           + 'when declared).',
