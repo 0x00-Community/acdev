@@ -27,7 +27,7 @@ acde uninstall <id>     # or the project directory it was installed from
 
 It says what it removes and asks first (`--yes` skips the question, and is needed outside a terminal). A copied package's directory is removed; for a handwritten package only the link is removed, never the project. A package that a running `acde dev` session uses is not removed: stop that session first.
 
-The apps' data (their storage, `storage/app-<id>/`, and backend data, `apps/<id>/`, under `~/.local/share/acde/`) is kept unless you ask: in a terminal `acde uninstall` asks whether to remove it too; `--data` removes it and `--keep-data` keeps it without asking. With `--yes` alone it is kept, and the paths are printed. [acde uninstall](../reference/cli.md#acde-uninstall) lists the exit codes.
+The apps' data (their storage, `storage/app-<id>/`, and backend data, `apps/<id>/`, under `~/.local/share/acde/`) is kept. After 0.0.9 it is kept unless you ask: in a terminal `acde uninstall` asks whether to remove it too; `--data` removes it and `--keep-data` keeps it without asking. With `--yes` alone it is kept, and the paths are printed. [acde uninstall](../reference/cli.md#acde-uninstall) lists the exit codes.
 
 ## Publishing
 

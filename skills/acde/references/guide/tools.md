@@ -14,7 +14,7 @@ notes#1048576  app      notes  1048576  Notes
 
 ## Sessions
 
-These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acde: using acde dev <pid> (...), the only one running`); otherwise they fail and list all sessions. Sessions that `acde test` started for its tests are left out of this choice (they are listed with `acde test` after what they run); only `--session <pid>` reaches them.
+These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acde: using acde dev <pid> (...), the only one running`); otherwise they fail and list all sessions. After 0.0.9, sessions that `acde test` started for its tests are left out of this choice (they are listed with `acde test` after what they run); only `--session <pid>` reaches them.
 
 ## Commands
 
@@ -195,12 +195,12 @@ $ acde query button
 - button "Load more" [w1.11] <button>
 
 $ acde query nav
-nothing in w1 matches "nav"
+acde: nothing in w1 matches "nav"
 ```
 
 Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent, or its window is minimized. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
-The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches (`nothing in w1 matches "nav"`), the exit code is 2; otherwise it is 0.
+The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches, it says so on stderr (`acde: nothing in w1 matches "nav"`; in 0.0.9 on stdout, without `acde: `) and the exit code is 2; otherwise it is 0.
 
 ### Styles and layout
 

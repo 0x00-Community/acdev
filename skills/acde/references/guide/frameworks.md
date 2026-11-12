@@ -24,7 +24,7 @@ To start a project with one of these frameworks, `acde new --template` has `next
 
 `acde dev` runs the same production build after every save and **reloads the whole page**; it does not use the framework dev server or hot module replacement (HMR). Across the reload, acde restores form values, scroll position, focus and text selection, but **component state is lost**: a React or Preact `useState` counter, Vue `ref`s, Svelte and Solid signals, and any other value held only in memory start over. Keep state you want to survive a reload in `localStorage` or IndexedDB. See [Reloading](dev.md#reloading).
 
-Pages made by `acde new --template react` (and the other Vite templates) say "save to reload the page" where Vite's own templates say "save to test HMR".
+After 0.0.9, pages made by `acde new --template react` (and the other Vite templates) say "save to reload the page" where Vite's own templates say "save to test HMR".
 
 ## Detection
 

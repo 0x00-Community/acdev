@@ -47,7 +47,7 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 | `acde dev sessions`, `approval` | The running `acde dev` sessions, and every camera or microphone prompt that waits for an answer |
 | `project` | `acde check` of the project |
 | `platform` | Whether this platform has every capability the project's apps require |
-| `dependencies` | The project's dependencies are installed (also when a workspace keeps them in a parent directory), its runtime is on PATH, and its `@dopame/acde-api` (in `package.json` and installed) is the version this acde is built with; an older SDK is reported here once, fixed by `acde sdk update` (followed by the directory when `acde doctor` was given one) |
+| `dependencies` | The project's dependencies are installed (also when a workspace keeps them in a parent directory), its runtime is on PATH, and its `@dopame/acde-api` (in `package.json` and installed) is the version this acde is built with; after 0.0.9, an older SDK is reported here once, fixed by `acde sdk update` (followed by the directory when `acde doctor` was given one) |
 | `git` | Whether git ignores `.acde/` |
 | `agent skill` | Whether the acde skill is installed for coding agents and current |
 | `latest release` | With `--online`: whether a newer acde is out |

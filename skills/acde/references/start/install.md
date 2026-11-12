@@ -59,7 +59,7 @@ irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 
 
 This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
 
-In the classic Windows console (powershell.exe or cmd.exe started on their own), the boxes and frames that `acde new` and other prompts draw use ASCII characters (`+`, `-`, `|`); Windows Terminal and the VS Code terminal show line-drawing ones. Both work the same; Windows Terminal is recommended.
+After 0.0.9, in the classic Windows console (powershell.exe or cmd.exe started on their own), the boxes and frames that `acde new` and other prompts draw use ASCII characters (`+`, `-`, `|`); Windows Terminal and the VS Code terminal show line-drawing ones. Both work the same; Windows Terminal is recommended.
 
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
@@ -214,7 +214,7 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 ## Upgrade and uninstall
 
-To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use. The installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acde dev` started from it) stays until the next install.
+To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use. After 0.0.9, the installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acde dev` started from it) stays until the next install.
 
 `acde uninstall` removes installed apps and desktops, not acde itself (see [Local install](../guide/install.md#uninstall)). To uninstall acde, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
 
