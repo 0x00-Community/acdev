@@ -1,0 +1,229 @@
+use wgpu::util::DeviceExt;
+
+use crate::context::Context;
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
+pub struct TargetKey(pub Vec<u64>);
+
+#[derive(Clone)]
+pub struct ColorTarget {
+    pub view: wgpu::TextureView,
+    pub resolve: Option<wgpu::TextureView>,
+    pub format: wgpu::TextureFormat,
+    pub class: crate::format::Class,
+    pub depth_slice: Option<u32>,
+}
+
+#[derive(Clone)]
+pub struct DepthTarget {
+    pub view: wgpu::TextureView,
+    pub format: wgpu::TextureFormat,
+    pub depth: bool,
+    pub stencil: bool,
+}
+
+#[derive(Clone)]
+pub struct Target {
+    pub key: TargetKey,
+    pub colors: Vec<Option<ColorTarget>>,
+    pub depth: Option<DepthTarget>,
+    pub width: u32,
+    pub height: u32,
+    pub samples: u32,
+    pub textures: Vec<u32>,
+}
+
+#[derive(Clone)]
+pub enum Source {
+    Buffer(wgpu::Buffer),
+    Data,
+}
+
+pub enum Call {
+    Draw { vertices: std::ops::Range<u32>, instances: std::ops::Range<u32> },
+    Indexed { indices: std::ops::Range<u32>, base_vertex: i32, instances: std::ops::Range<u32> },
+}
+
+pub struct Draw {
+    pub pipeline: wgpu::RenderPipeline,
+    pub resources: Option<wgpu::BindGroup>,
+    pub uniforms: [u32; 2],
+    pub vertex: Vec<(u32, Source, u64)>,
+    pub index: Option<(Source, u64, wgpu::IndexFormat)>,
+    pub call: Call,
+    pub viewport: [f32; 6],
+    pub scissor: [u32; 4],
+    pub stencil: u32,
+    pub blend: [f64; 4],
+    pub occlusion: Option<u32>,
+}
+
+pub struct Pass {
+    pub target: Target,
+    pub colors: Vec<Option<wgpu::Color>>,
+    pub depth: Option<f32>,
+    pub stencil: Option<u32>,
+    pub draws: Vec<Draw>,
+    pub data: Vec<u8>,
+    pub span: u32,
+    pub occlusion: Option<wgpu::QuerySet>,
+}
+
+#[derive(Default)]
+pub struct Recorder {
+    pub encoder: Option<wgpu::CommandEncoder>,
+    pub pass: Option<Pass>,
+    pub passes: u32,
+}
+
+impl Pass {
+    pub fn push_data(&mut self, bytes: &[u8], align: u32) -> u32 {
+        let at = (self.data.len() as u32).next_multiple_of(align.max(4));
+        self.data.resize(at as usize, 0);
+        self.data.extend_from_slice(bytes);
+        at
+    }
+}
+
+impl Context {
+    pub(crate) fn encoder(&mut self) -> &mut wgpu::CommandEncoder {
+        if self.recorder.encoder.is_none() {
+            self.recorder.encoder = Some(self.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde webgl") }));
+        }
+        self.recorder.encoder.as_mut().unwrap_or_else(|| unreachable!())
+    }
+
+    pub(crate) fn open_pass(&mut self, target: Target) -> &mut Pass {
+        let same = self.recorder.pass.as_ref().is_some_and(|p| p.target.key == target.key);
+        if !same {
+            self.flush_pass();
+            let colors = vec![None; target.colors.len()];
+            self.recorder.pass = Some(Pass { target, colors, depth: None, stencil: None, draws: Vec::new(), data: Vec::new(), span: 16, occlusion: None });
+        }
+        self.recorder.pass.as_mut().unwrap_or_else(|| unreachable!())
+    }
+
+    pub(crate) fn flush_pass(&mut self) {
+        let Some(pass) = self.recorder.pass.take() else { return };
+        if pass.draws.is_empty() && pass.colors.iter().all(Option::is_none) && pass.depth.is_none() && pass.stencil.is_none() {
+            return;
+        }
+        let align = self.limits.uniform_alignment;
+        let span = pass.span.next_multiple_of(16);
+        let mut data = pass.data;
+        let end = (data.len() as u32).next_multiple_of(align) + span;
+        data.resize(end as usize, 0);
+        let device = self.gpu.device.clone();
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("acde webgl pass data"),
+            contents: &data,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX,
+        });
+        let binding = |b| wgpu::BindGroupEntry {
+            binding: b,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &buffer, offset: 0, size: wgpu::BufferSize::new(u64::from(span)) }),
+        };
+        let uniforms = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("acde webgl uniforms"),
+            layout: &self.caches.uniforms,
+            entries: &[binding(0), binding(1)],
+        });
+        let target = &pass.target;
+        let colors: Vec<Option<wgpu::RenderPassColorAttachment>> = target
+            .colors
+            .iter()
+            .zip(&pass.colors)
+            .map(|(c, clear)| {
+                c.as_ref().map(|c| wgpu::RenderPassColorAttachment {
+                    view: &c.view,
+                    depth_slice: c.depth_slice,
+                    resolve_target: c.resolve.as_ref(),
+                    ops: wgpu::Operations { load: clear.map_or(wgpu::LoadOp::Load, wgpu::LoadOp::Clear), store: wgpu::StoreOp::Store },
+                })
+            })
+            .collect();
+        let depth = target.depth.as_ref().map(|d| wgpu::RenderPassDepthStencilAttachment {
+            view: &d.view,
+            depth_ops: d.depth.then(|| wgpu::Operations { load: pass.depth.map_or(wgpu::LoadOp::Load, wgpu::LoadOp::Clear), store: wgpu::StoreOp::Store }),
+            stencil_ops: d
+                .stencil
+                .then(|| wgpu::Operations { load: pass.stencil.map_or(wgpu::LoadOp::Load, wgpu::LoadOp::Clear), store: wgpu::StoreOp::Store }),
+        });
+        let occlusion = pass.occlusion.clone();
+        let encoder = self.encoder();
+        let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("acde webgl"),
+            color_attachments: &colors,
+            depth_stencil_attachment: depth,
+            timestamp_writes: None,
+            occlusion_query_set: occlusion.as_ref(),
+            multiview_mask: None,
+        });
+        let mut query = None;
+        for draw in &pass.draws {
+            if draw.occlusion != query {
+                if query.is_some() {
+                    rp.end_occlusion_query();
+                }
+                if let Some(q) = draw.occlusion {
+                    rp.begin_occlusion_query(q);
+                }
+                query = draw.occlusion;
+            }
+            rp.set_pipeline(&draw.pipeline);
+            rp.set_bind_group(0, &uniforms, &draw.uniforms);
+            if let Some(resources) = &draw.resources {
+                rp.set_bind_group(1, resources, &[]);
+            }
+            for (slot, source, offset) in &draw.vertex {
+                let b = match source {
+                    Source::Buffer(b) => b,
+                    Source::Data => &buffer,
+                };
+                rp.set_vertex_buffer(*slot, b.slice(*offset..));
+            }
+            if let Some((source, offset, format)) = &draw.index {
+                let b = match source {
+                    Source::Buffer(b) => b,
+                    Source::Data => &buffer,
+                };
+                rp.set_index_buffer(b.slice(*offset..), *format);
+            }
+            let [x, y, w, h, near, far] = draw.viewport;
+            rp.set_viewport(x, y, w, h, near, far);
+            let [sx, sy, sw, sh] = draw.scissor;
+            rp.set_scissor_rect(sx, sy, sw, sh);
+            rp.set_stencil_reference(draw.stencil);
+            let [r, g, b, a] = draw.blend;
+            rp.set_blend_constant(wgpu::Color { r, g, b, a });
+            match &draw.call {
+                Call::Draw { vertices, instances } => rp.draw(vertices.clone(), instances.clone()),
+                Call::Indexed { indices, base_vertex, instances } => rp.draw_indexed(indices.clone(), *base_vertex, instances.clone()),
+            }
+        }
+        if query.is_some() {
+            rp.end_occlusion_query();
+        }
+        drop(rp);
+        self.recorder.passes += 1;
+        if self.recorder.passes >= 256 {
+            self.submit();
+        }
+    }
+
+    pub fn submit(&mut self) -> Option<wgpu::SubmissionIndex> {
+        self.flush_pass();
+        let encoder = self.recorder.encoder.take()?;
+        self.recorder.passes = 0;
+        let gpu = self.gpu.clone();
+        let submitted = self.scoped(|_| gpu.submit([encoder.finish()]));
+        self.generation += 1;
+        match submitted {
+            Ok(index) => Some(index),
+            Err(e) => {
+                log::error!("webgl: submitting: {e}");
+                None
+            }
+        }
+    }
+}

@@ -1,0 +1,333 @@
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use crate::consts::*;
+use crate::format::Format;
+use crate::shader;
+
+pub type Id = u32;
+
+pub struct Buffer {
+    pub raw: Option<wgpu::Buffer>,
+    pub size: u64,
+    pub usage: u32,
+    pub element: Option<bool>,
+    pub shadow: Option<Vec<u8>>,
+    pub used: u64,
+    pub version: u64,
+    pub ranges: HashMap<(u32, u64, u32), u32>,
+}
+
+impl Buffer {
+    pub fn new() -> Self {
+        Buffer { raw: None, size: 0, usage: STATIC_DRAW, element: None, shadow: None, used: 0, version: 0, ranges: HashMap::new() }
+    }
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SamplerParams {
+    pub min: u32,
+    pub mag: u32,
+    pub wrap: [u32; 3],
+    pub min_lod: f32,
+    pub max_lod: f32,
+    pub compare_mode: u32,
+    pub compare_func: u32,
+    pub anisotropy: f32,
+}
+
+impl Default for SamplerParams {
+    fn default() -> Self {
+        SamplerParams {
+            min: NEAREST_MIPMAP_LINEAR,
+            mag: LINEAR,
+            wrap: [REPEAT; 3],
+            min_lod: -1000.0,
+            max_lod: 1000.0,
+            compare_mode: NONE,
+            compare_func: LEQUAL,
+            anisotropy: 1.0,
+        }
+    }
+}
+
+impl SamplerParams {
+    pub fn mipmapped(&self) -> bool {
+        !matches!(self.min, NEAREST | LINEAR)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub format: Format,
+}
+
+impl PartialEq for Format {
+    fn eq(&self, other: &Self) -> bool {
+        self.internal == other.internal && self.wgpu == other.wgpu
+    }
+}
+
+pub struct Alloc {
+    pub texture: wgpu::Texture,
+    pub format: Format,
+    pub width: u32,
+    pub height: u32,
+    pub layers: u32,
+    pub mips: u32,
+    pub samples: u32,
+    pub serial: u64,
+}
+
+pub struct Texture {
+    pub target: u32,
+    pub images: HashMap<(u32, u32), Image>,
+    pub alloc: Option<Alloc>,
+    pub immutable: bool,
+    pub immutable_levels: u32,
+    pub params: SamplerParams,
+    pub base_level: u32,
+    pub max_level: u32,
+    pub used: u64,
+    pub version: u64,
+}
+
+impl Texture {
+    pub fn new() -> Self {
+        Texture {
+            target: 0,
+            images: HashMap::new(),
+            alloc: None,
+            immutable: false,
+            immutable_levels: 0,
+            params: SamplerParams::default(),
+            base_level: 0,
+            max_level: 1000,
+            used: 0,
+            version: 0,
+        }
+    }
+
+    pub fn faces(&self) -> u32 {
+        if self.target == TEXTURE_CUBE_MAP { 6 } else { 1 }
+    }
+
+    pub fn base(&self) -> Option<Image> {
+        self.images.get(&(0, self.base_level)).copied()
+    }
+}
+
+impl Default for Texture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct Renderbuffer {
+    pub format: Option<Format>,
+    pub samples: u32,
+    pub width: u32,
+    pub height: u32,
+    pub texture: Option<wgpu::Texture>,
+    pub version: u64,
+    pub used: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Attachment {
+    Texture { id: Id, level: u32, layer: u32 },
+    Renderbuffer(Id),
+}
+
+pub struct Framebuffer {
+    pub color: [Option<Attachment>; 8],
+    pub depth: Option<Attachment>,
+    pub stencil: Option<Attachment>,
+    pub draw_buffers: [u32; 8],
+    pub read_buffer: u32,
+}
+
+impl Framebuffer {
+    pub fn new() -> Self {
+        let mut draw_buffers = [NONE; 8];
+        draw_buffers[0] = COLOR_ATTACHMENT0;
+        Framebuffer { color: [None; 8], depth: None, stencil: None, draw_buffers, read_buffer: COLOR_ATTACHMENT0 }
+    }
+}
+
+impl Default for Framebuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct Shader {
+    pub kind: u32,
+    pub source: String,
+    pub compiled: Option<Rc<shader::Compiled>>,
+    pub log: String,
+    pub compiled_ok: bool,
+    pub deleted: bool,
+    pub attached: u32,
+}
+
+pub struct UniformLocation {
+    pub uniform: usize,
+    pub element: u32,
+}
+
+pub struct Linked {
+    pub info: shader::Linked,
+    pub serial: u64,
+    pub vertex: wgpu::ShaderModule,
+    pub fragment: wgpu::ShaderModule,
+    pub locations: Vec<(String, UniformLocation)>,
+}
+
+pub struct Program {
+    pub vertex: Option<Id>,
+    pub fragment: Option<Id>,
+    pub bound_attributes: HashMap<String, u32>,
+    pub linked: Option<Rc<Linked>>,
+    pub link_ok: bool,
+    pub log: String,
+    pub validated: bool,
+    pub deleted: bool,
+    pub data: [Vec<u8>; 2],
+    pub data_version: u64,
+    pub units: Vec<Vec<u32>>,
+    pub block_bindings: Vec<u32>,
+    pub transform_feedback: (Vec<String>, u32),
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Attrib {
+    pub enabled: bool,
+    pub buffer: Option<Id>,
+    pub size: u32,
+    pub ty: u32,
+    pub normalized: bool,
+    pub integer: bool,
+    pub stride: u32,
+    pub offset: u64,
+    pub divisor: u32,
+}
+
+impl Default for Attrib {
+    fn default() -> Self {
+        Attrib { enabled: false, buffer: None, size: 4, ty: FLOAT, normalized: false, integer: false, stride: 0, offset: 0, divisor: 0 }
+    }
+}
+
+impl Attrib {
+    pub fn element_size(&self) -> u32 {
+        match self.ty {
+            BYTE | UNSIGNED_BYTE => self.size,
+            SHORT | UNSIGNED_SHORT | HALF_FLOAT | HALF_FLOAT_OES => 2 * self.size,
+            INT_2_10_10_10_REV | UNSIGNED_INT_2_10_10_10_REV => 4,
+            _ => 4 * self.size,
+        }
+    }
+
+    pub fn effective_stride(&self) -> u32 {
+        if self.stride == 0 { self.element_size() } else { self.stride }
+    }
+}
+
+pub struct VertexArray {
+    pub attribs: [Attrib; 16],
+    pub element: Option<Id>,
+    pub bound_once: bool,
+}
+
+impl VertexArray {
+    pub fn new() -> Self {
+        VertexArray { attribs: [Attrib::default(); 16], element: None, bound_once: false }
+    }
+}
+
+impl Default for VertexArray {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct Sampler {
+    pub params: SamplerParams,
+}
+
+pub struct Query {
+    pub target: u32,
+    pub result: Option<u64>,
+    pub pending: Option<(wgpu::QuerySet, wgpu::Buffer, wgpu::SubmissionIndex)>,
+    pub available_after: u64,
+}
+
+pub struct Sync {
+    pub submission: Option<wgpu::SubmissionIndex>,
+    pub signaled: bool,
+}
+
+pub struct TransformFeedback {
+    pub active: bool,
+    pub paused: bool,
+}
+
+#[allow(clippy::large_enum_variant, reason = "every object lives in one map, so boxing would only add an allocation each")]
+pub enum Object {
+    Buffer(Buffer),
+    Texture(Texture),
+    Renderbuffer(Renderbuffer),
+    Framebuffer(Framebuffer),
+    Shader(Shader),
+    Program(Program),
+    VertexArray(VertexArray),
+    Sampler(Sampler),
+    Query(Query),
+    Sync(Sync),
+    TransformFeedback(TransformFeedback),
+}
+
+macro_rules! accessors {
+    ($($get:ident, $get_mut:ident: $variant:ident => $ty:ty;)*) => {
+        impl Object {
+            $(
+                pub fn $get(&self) -> Option<&$ty> {
+                    match self {
+                        Object::$variant(x) => Some(x),
+                        _ => None,
+                    }
+                }
+                pub fn $get_mut(&mut self) -> Option<&mut $ty> {
+                    match self {
+                        Object::$variant(x) => Some(x),
+                        _ => None,
+                    }
+                }
+            )*
+        }
+    };
+}
+
+accessors! {
+    buffer, buffer_mut: Buffer => Buffer;
+    texture, texture_mut: Texture => Texture;
+    renderbuffer, renderbuffer_mut: Renderbuffer => Renderbuffer;
+    framebuffer, framebuffer_mut: Framebuffer => Framebuffer;
+    shader, shader_mut: Shader => Shader;
+    program, program_mut: Program => Program;
+    vertex_array, vertex_array_mut: VertexArray => VertexArray;
+    sampler, sampler_mut: Sampler => Sampler;
+    query, query_mut: Query => Query;
+    sync, sync_mut: Sync => Sync;
+    transform_feedback, transform_feedback_mut: TransformFeedback => TransformFeedback;
+}
