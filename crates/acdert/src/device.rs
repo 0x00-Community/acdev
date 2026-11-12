@@ -6,6 +6,7 @@ use crate::{bind, offload};
 #[derive(Default)]
 struct State {
     battery: Option<v8::Global<v8::Function>>,
+    idle: Option<v8::Global<v8::Function>>,
     #[cfg(target_os = "linux")]
     locks: bind::Slab<acde_runtime::WakeLock>,
 }
@@ -24,6 +25,8 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
     crate::methods!(scope, device,
         "wakeLock" => wake_lock,
         "releaseWakeLock" => release_wake_lock,
+        "idle" => idle,
+        "watchIdle" => watch_idle,
     );
     bind::set(scope, natives, "device", device.into());
 }
@@ -103,4 +106,37 @@ fn settle_lock(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver
 fn release_wake_lock(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let id = bind::arg_u32(scope, &args, 0);
     STATE.with(|s| s.borrow_mut().locks.remove(&id));
+}
+
+#[cfg(target_os = "linux")]
+fn idle(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    offload::run(scope, &mut rv, "acde-idle", || acde_runtime::Idle::open()?.status(), offload::settle_json::<false>);
+}
+
+#[cfg(target_os = "linux")]
+fn watch_idle(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return bind::throw_type_error(scope, "watchIdle: the callback is not a function");
+    };
+    let callback = v8::Global::new(scope, callback);
+    if STATE.with(|s| s.borrow_mut().idle.replace(callback).is_some()) {
+        return;
+    }
+    let tx = rt::current().sender();
+    let started = std::thread::Builder::new().name("acde-idle".into()).spawn(move || {
+        let sink = |status: serde_json::Value| tx.send(Msg::Task(Box::new(move |scope| deliver_idle(scope, &status)))).is_ok();
+        if let Err(e) = acde_runtime::Idle::open().and_then(|idle| idle.watch(sink)) {
+            log::debug!("idle watch: {e}");
+        }
+    });
+    if let Err(e) = started {
+        log::warn!("idle watch: {e}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn deliver_idle(scope: &mut v8::PinScope, status: &serde_json::Value) {
+    let Some(callback) = STATE.with(|s| s.borrow().idle.clone()) else { return };
+    let value = offload::json(scope, status);
+    bind::call(scope, &callback, &[value]);
 }

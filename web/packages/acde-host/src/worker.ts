@@ -123,7 +123,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     webgl: natives.webgl,
     audio: natives.audio,
     ...(natives.capture && { capture: permits.capture(natives.capture, access) }),
-    ...(natives.device && { device: natives.device }),
+    ...(natives.device && { device: permits.device(natives.device, access) }),
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null

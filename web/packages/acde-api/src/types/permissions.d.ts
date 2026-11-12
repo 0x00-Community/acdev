@@ -1,4 +1,4 @@
-export type ApprovalCapability = 'camera' | 'microphone'
+export type ApprovalCapability = 'camera' | 'microphone' | 'idleDetection'
 
 export type FolderCapability = `fs.folder-${string}`
 

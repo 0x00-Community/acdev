@@ -4,6 +4,7 @@ import { DOMException } from '../core/exception'
 import { dialogAnswer } from '../core/observe'
 import { G, getters, globals, host, KEY, tag } from '../core/host'
 import { capturePermission, MediaDevices, Permissions } from '../media/stream'
+import { idlePermission } from '../device/idle'
 import { structuredClone, transferList } from '../core/message'
 import { objectUrls, URL } from '../core/url'
 import { Blob } from '../core/blob'
@@ -389,6 +390,10 @@ function permissionState(name: string): string {
     case 'camera':
     case 'microphone':
       return capturePermission(name)
+    case 'idle-detection':
+      return idlePermission()
+    case 'screen-wake-lock':
+      return 'wakeLock' in Navigator.prototype ? 'granted' : 'denied'
     case 'notifications':
       return env.notify ? 'granted' : 'denied'
     case 'persistent-storage':

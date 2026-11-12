@@ -511,7 +511,7 @@ export class MediaDevices extends EventTarget {
 defineHandlers(MediaDevices.prototype, ['devicechange'])
 tag(MediaDevices)
 
-const PERMISSIONS = new Set(['camera', 'microphone', 'geolocation', 'notifications', 'persistent-storage', 'push', 'screen-wake-lock', 'clipboard-read', 'clipboard-write'])
+const PERMISSIONS = new Set(['camera', 'microphone', 'geolocation', 'notifications', 'persistent-storage', 'push', 'screen-wake-lock', 'idle-detection', 'clipboard-read', 'clipboard-write'])
 
 export class PermissionStatus extends EventTarget {
   readonly #name: string

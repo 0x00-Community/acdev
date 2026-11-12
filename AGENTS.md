@@ -821,6 +821,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `navigator.wakeLock.request('screen')` (Screen Wake Lock, 只在 Linux; 别处没有 `navigator.wakeLock`): runtime `wakelock.rs` 拿 logind 的
   `idle` inhibitor (acde-system 的电源策略认它) 外加会话总线上 `org.freedesktop.ScreenSaver.Inhibit` (GNOME / KDE 宿主桌面认它), 两个都拿不到就
   NotAllowedError; 页面不可见时请求被拒, 变成不可见时放掉所有锁并发 `release`.
+  `IdleDetector` (Idle Detection, 只在 Linux): runtime `idle.rs` 读 logind 会话的 `IdleHint` / `IdleSinceHintMonotonic` / `LockedHint` 并跟着
+  PropertiesChanged; `userState` 是 idle 当且仅当会话标了空闲且已空闲到 threshold (不到就定时补算), `screenState` 看 LockedHint. 空闲提示由桌面写给
+  logind (acde-system 的合成器、宿主桌面的会话管理器), 所以比 threshold 更早的空闲要等桌面先标. 授权是审批能力 `idleDetection` (清单声明,
+  `IdleDetector.requestPermission()` 弹 acde 的批准提示, `permissions.query({name: 'idle-detection'})` 看它); threshold 小于 1 分钟 TypeError.
 - **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/acdert `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
     `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、

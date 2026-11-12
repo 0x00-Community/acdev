@@ -57,6 +57,7 @@ export interface Capabilities {
   readonly audio?: boolean
   readonly devices?: boolean
   readonly power?: boolean
+  readonly idleDetection?: boolean
   readonly office?: boolean
   readonly launch?: boolean
   readonly slots?: boolean

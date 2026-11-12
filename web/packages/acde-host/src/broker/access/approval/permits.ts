@@ -1,5 +1,5 @@
 import type { CapabilityStatus } from '@dopame/acde-api'
-import type { CaptureNative } from '@dopame/acde-dom'
+import type { CaptureNative, DeviceNative } from '@dopame/acde-dom'
 import { FileAccess } from '../files'
 import { Permissions, type Approval } from './permissions'
 
@@ -61,6 +61,26 @@ export class Permits {
         }
       },
     })
+  }
+
+  device(native: DeviceNative, access: CaptureAccess): DeviceNative {
+    const name = 'idleDetection'
+    const state = (): 'granted' | 'denied' | 'prompt' => {
+      const approval = this.approval(name)
+      if (approval === 'granted') return 'granted'
+      return approval === 'denied' || !access.supported(name) ? 'denied' : 'prompt'
+    }
+    return {
+      ...native,
+      idlePermission: state,
+      requestIdlePermission: async () => {
+        if (state() !== 'prompt') return state() === 'granted'
+        const status = await access.request(name).catch(() => null)
+        if (status?.state === 'available') this.set(name, 'granted')
+        else if (status?.state === 'denied') this.set(name, 'denied')
+        return state() === 'granted'
+      },
+    }
   }
 
   capture(native: CaptureNative, access: CaptureAccess): CaptureNative {

@@ -14,6 +14,7 @@ export class ApprovalDialogs {
   static readonly #WHAT: Partial<Record<ApprovalCapability, string>> = {
     camera: 'It can use the camera.',
     microphone: 'It can use the microphone.',
+    idleDetection: 'It can see when you are away from this computer and when the screen is locked.',
   }
   readonly #answers: PromptAnswers
   readonly #native: () => NativeApproval | null

@@ -19,6 +19,8 @@ pub(crate) mod fs;
 mod greetd;
 mod http;
 #[cfg(target_os = "linux")]
+mod idle;
+#[cfg(target_os = "linux")]
 mod ime;
 mod js;
 #[cfg(target_os = "linux")]
@@ -57,6 +59,8 @@ pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
 pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, MAX_CHUNK, Opened, PickedFolders, Range, Workspace};
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
+#[cfg(target_os = "linux")]
+pub use idle::Idle;
 #[cfg(target_os = "linux")]
 pub use ime::{Ime, ImeCapability};
 #[cfg(target_os = "linux")]
