@@ -43,7 +43,7 @@ Creates a project. In a terminal, it asks for whatever is missing; with `--yes`,
 | --- | --- |
 | `--template` | `html` `desktop` `react` `vue` `svelte` `solid` `preact` `vanilla` `next` `nuxt` `sveltekit` `astro` |
 | `--id` / `--label` | App id and display name |
-| `--backend` | Include a backend (`html` only) |
+| `--backend` | Add `server.ts`, a backend (`html` and the Vite templates; `next`, `nuxt`, `sveltekit` and `astro` have their own server, and a desktop has none) |
 | `--no-install` | Do not install the dependencies (by default `acde new` installs them, the SDK included, with the package manager) |
 | `--git` | `git init` and make the first commit (if a git user name and email are configured) |
 | `--pm` | `bun` `npm` `pnpm` `yarn`; decides whether the project runs on Bun or Node.js |

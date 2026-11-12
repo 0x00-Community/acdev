@@ -20,7 +20,7 @@ Available templates:
 | --- | --- |
 | `html` | A plain web page (default); add `--backend` to include a backend |
 | `desktop` | A desktop (see [Desktops](../guide/desktop.md)) |
-| `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates |
+| `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates; `--backend` adds `server.ts` |
 | `next` `nuxt` `sveltekit` `astro` | Each framework's official scaffolding tool |
 
 Framework templates run the latest version of the framework's scaffolding tool through your package manager, then add `acde.config.jsonc`.

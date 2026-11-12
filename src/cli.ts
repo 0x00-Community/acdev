@@ -304,7 +304,7 @@ class Cli {
       ...(flags.has('git') && { git: true }),
       ...(flags.has('pm') && { pm: PackageManager.named(flags.get('pm')!).name }),
     }
-    if (given.template !== undefined) Creator.starter(given.template)
+    if (given.template !== undefined) Creator.checkBackend(Creator.starter(given.template), given.backend)
     if (!interactive) {
       if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acde new --help)')
       const created = await Creator.create(given, false)

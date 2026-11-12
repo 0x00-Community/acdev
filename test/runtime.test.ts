@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { delimiter, join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Frameworks } from '../src/frameworks.ts'
 import { Jsonc, Runtime } from '../src/runtime.ts'
@@ -91,3 +92,25 @@ describe('Frameworks.detect', () => {
     expect(Frameworks.detect({ pkg: { dependencies: { next: '16', vite: '8' } }, entry: true })?.name).toBe('next')
   })
 })
+
+describe('Frameworks.node (framework tools that start node on a machine with Bun only)', () => {
+  test('with no node on PATH, a node that is this Bun goes first on PATH', () => {
+    const scratch = tmp()
+    const bare = { PATH: tmp() }
+    const env = Frameworks.node(scratch, bare)
+    expect(env['PATH']!.split(delimiter)).toEqual([join(scratch, 'bin'), bare.PATH])
+    const node = which('node', env)!
+    expect(realpathSync(node)).toBe(realpathSync(process.execPath))
+    const ran = spawnSync(node, ['-e', 'console.log(typeof Bun)'], { encoding: 'utf8' })
+    expect(ran.stdout.trim()).toBe('object')
+    expect(Frameworks.node(scratch, bare)).toEqual(env)
+  })
+
+  test('a node already on PATH is left alone', () => {
+    const dir = tmp()
+    const name = process.platform === 'win32' ? 'node.exe' : 'node'
+    writeFileSync(join(dir, name), '')
+    expect(Frameworks.node(tmp(), { PATH: dir })).toEqual({})
+  })
+})
+

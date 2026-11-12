@@ -44,7 +44,7 @@ export class Help {
           { flag: '--template T', about: `the template: ${templates.join(', ')} (default: html)` },
           { flag: '--id ID', about: 'the app id (default: from the directory name)' },
           { flag: '--label NAME', about: 'the name shown on the window (default: from the id)' },
-          { flag: '--backend', about: 'add a server.ts backend (html template)' },
+          { flag: '--backend', about: 'add a server.ts backend (html and the Vite templates)' },
           { flag: '--pm PM', about: 'bun, npm, pnpm or yarn (default: the one running acde)' },
           { flag: '--no-install', about: 'do not install the dependencies' },
           { flag: '--git', about: 'start a git repository' },
