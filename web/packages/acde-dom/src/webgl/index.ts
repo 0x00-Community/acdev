@@ -65,9 +65,14 @@ export class WebGLVertexArrayObject extends WebGLObject {}
 export class WebGLVertexArrayObjectOES extends WebGLObject {}
 export class WebGLQuery extends WebGLObject {
   target = 0
+  ended = -1
 }
 export class WebGLSampler extends WebGLObject {}
-export class WebGLSync extends WebGLObject {}
+export class WebGLSync extends WebGLObject {
+  created = -1
+}
+
+let epoch = 0
 export class WebGLTransformFeedback extends WebGLObject {}
 for (const cls of [WebGLBuffer, WebGLTexture, WebGLFramebuffer, WebGLRenderbuffer, WebGLShader, WebGLProgram, WebGLVertexArrayObject, WebGLVertexArrayObjectOES, WebGLQuery, WebGLSampler, WebGLSync, WebGLTransformFeedback]) tag(cls)
 
@@ -1082,20 +1087,32 @@ export class WebGL2RenderingContext extends WebGLContextBase {
     if (!id) return this.#error(C.INVALID_OPERATION)
     this.#call('beginQuery', target, id)
     query.target = target
+    query.ended = -2
+    this.#queries.add(query)
+    this.#current.set(target, query)
   }
   endQuery(target: number): void {
     this.#call('endQuery', target)
+    for (const q of this.#queries) if (q.target === target && q.ended === -2) q.ended = epoch
+    this.#current.delete(target)
   }
-  getQuery(_target: number, name: number): WebGLQuery | null {
+  #queries = new Set<WebGLQuery>()
+  #current = new Map<number, WebGLQuery>()
+  getQuery(target: number, name: number): WebGLQuery | null {
     if (name !== C.CURRENT_QUERY) return this.#error(C.INVALID_ENUM), null
-    return null
+    return this.#current.get(target) ?? null
   }
   getQueryParameter(query: WebGLQuery, name: number): unknown {
     const id = this.#id(query, WebGLQuery)
     if (!id) return null
+    if (query.ended === epoch) {
+      if (name === C.QUERY_RESULT_AVAILABLE) return false
+      if (name === C.QUERY_RESULT) return 0
+    }
     const v = this.#call('queryResult', id, name)
     if (v == null) return null
-    return name === C.QUERY_RESULT_AVAILABLE ? !!v : v
+    if (name === C.QUERY_RESULT_AVAILABLE) return !!v
+    return query.target === C.ANY_SAMPLES_PASSED || query.target === C.ANY_SAMPLES_PASSED_CONSERVATIVE ? !!v : v
   }
 
   createSampler(): WebGLSampler | null {
@@ -1130,7 +1147,9 @@ export class WebGL2RenderingContext extends WebGLContextBase {
 
   fenceSync(condition: number, flags: number): WebGLSync | null {
     if (condition !== C.SYNC_GPU_COMMANDS_COMPLETE || flags !== 0) return this.#error(condition !== C.SYNC_GPU_COMMANDS_COMPLETE ? C.INVALID_ENUM : C.INVALID_VALUE), null
-    return webglHooks.wrap(this, WebGLSync, this.#call('fenceSync'))
+    const sync = webglHooks.wrap(this, WebGLSync, this.#call('fenceSync'))
+    if (sync) sync.created = epoch
+    return sync
   }
   isSync(sync: WebGLSync | null): boolean {
     return sync instanceof WebGLSync && !sync.deleted
@@ -1145,6 +1164,7 @@ export class WebGL2RenderingContext extends WebGLContextBase {
   clientWaitSync(sync: WebGLSync, _flags: number, _timeout: number): number {
     const id = this.#id(sync, WebGLSync)
     if (!id) return C.WAIT_FAILED
+    if (sync.created === epoch) return C.TIMEOUT_EXPIRED
     return this.#call('syncStatus', id) ? C.CONDITION_SATISFIED : C.TIMEOUT_EXPIRED
   }
   waitSync(_sync: WebGLSync, _flags: number, _timeout: number): void {}
@@ -1155,7 +1175,7 @@ export class WebGL2RenderingContext extends WebGLContextBase {
       case C.OBJECT_TYPE:
         return C.SYNC_FENCE
       case C.SYNC_STATUS:
-        return this.#call('syncStatus', id) ? C.SIGNALED : C.UNSIGNALED
+        return sync.created !== epoch && this.#call('syncStatus', id) ? C.SIGNALED : C.UNSIGNALED
       case C.SYNC_CONDITION:
         return C.SYNC_GPU_COMMANDS_COMPLETE
       case C.SYNC_FLAGS:
@@ -1419,6 +1439,9 @@ export const webglContexts = {
   },
   present(): void {
     for (const gl of live) contextHooks.present(gl)
+  },
+  endTask(): void {
+    epoch++
   },
   drawn(): boolean {
     for (const gl of live) if (contextHooks.drawn(gl)) return true

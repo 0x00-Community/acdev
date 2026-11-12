@@ -310,9 +310,10 @@ impl Context {
         crate::read::map(&self.gpu, &staging, index)
     }
 
-    pub(crate) fn max_index(&mut self, id: Id, ty: u32, offset: u64, count: u32) -> Option<u32> {
+    pub(crate) fn max_index(&mut self, id: Id, ty: u32, offset: u64, count: u32, restart: bool) -> Option<u32> {
         let b = self.buffer_mut(id)?;
-        if let Some(&m) = b.ranges.get(&(ty, offset, count)) {
+        let key = (ty | u32::from(restart) << 31, offset, count);
+        if let Some(&m) = b.ranges.get(&key) {
             return Some(m);
         }
         let shadow = b.shadow.as_ref()?;
@@ -325,12 +326,12 @@ impl Context {
         let end = start.checked_add(count as usize * size)?;
         let bytes = shadow.get(start..end)?;
         let max = match size {
-            1 => bytes.iter().map(|&b| u32::from(b)).max(),
-            2 => bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).filter(|&i| i != 0xffff).map(u32::from).max(),
-            _ => bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).filter(|&i| i != u32::MAX).max(),
+            1 => bytes.iter().filter(|&&b| !restart || b != 0xff).map(|&b| u32::from(b)).max(),
+            2 => bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).filter(|&i| !restart || i != 0xffff).map(u32::from).max(),
+            _ => bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).filter(|&i| !restart || i != u32::MAX).max(),
         }
         .unwrap_or(0);
-        b.ranges.insert((ty, offset, count), max);
+        b.ranges.insert(key, max);
         Some(max)
     }
 

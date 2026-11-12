@@ -159,25 +159,34 @@ impl Context {
         })
     }
 
-    fn alloc(&mut self, id: Id, format: Format, width: u32, height: u32, layers: u32, mips: u32) {
-        let device = self.gpu.device.clone();
-        let Some(t) = self.texture(id) else { return };
+    fn alloc(&mut self, id: Id, format: Format, width: u32, height: u32, layers: u32, mips: u32) -> bool {
+        let Some(t) = self.texture(id) else { return false };
         let dimension = if t.target == TEXTURE_3D { wgpu::TextureDimension::D3 } else { wgpu::TextureDimension::D2 };
         let mut usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC;
         let allowed = format.wgpu.guaranteed_format_features(self.features).allowed_usages;
         if allowed.contains(wgpu::TextureUsages::RENDER_ATTACHMENT) {
             usage |= wgpu::TextureUsages::RENDER_ATTACHMENT;
         }
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("acde webgl texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: layers },
-            mip_level_count: mips,
-            sample_count: 1,
-            dimension,
-            format: format.wgpu,
-            usage,
-            view_formats: &[],
+        let created = self.scoped(|device| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("acde webgl texture"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: layers },
+                mip_level_count: mips,
+                sample_count: 1,
+                dimension,
+                format: format.wgpu,
+                usage,
+                view_formats: &[],
+            })
         });
+        let texture = match created {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("webgl: texture: {e}");
+                self.error(OUT_OF_MEMORY);
+                return false;
+            }
+        };
         let old = self.texture_mut(id).and_then(|t| t.alloc.take());
         if let Some(old) = old.filter(|o| o.format == format && o.layers == layers) {
             self.flush_pass();
@@ -212,9 +221,14 @@ impl Context {
             t.version += 1;
             t.used = generation;
         }
+        true
     }
 
     fn ensure_level(&mut self, id: Id, face: u32, level: u32, [width, height, depth]: [u32; 3], format: Format) -> bool {
+        if level >= mip_count(self.limits.texture_size, self.limits.texture_size, 1) {
+            self.error(INVALID_VALUE);
+            return false;
+        }
         let Some(t) = self.texture_mut(id) else { return false };
         t.images.insert((face, level), Image { width, height, depth, format });
         let is_3d = t.target == TEXTURE_3D;
@@ -253,8 +267,7 @@ impl Context {
         }
         let mips = mip_count(w, h, d);
         let layers = if is_3d { d } else { layers };
-        self.alloc(id, format, w.max(1), h.max(1), layers.max(1), mips);
-        true
+        self.alloc(id, format, w.max(1), h.max(1), layers.max(1), mips)
     }
 
     #[allow(clippy::too_many_arguments, reason = "mirrors the GL entry point")]
@@ -275,7 +288,8 @@ impl Context {
         if three && !self.webgl2 {
             return self.error(INVALID_ENUM);
         }
-        if level < 0 || width < 0 || height < 0 || depth < 0 || border != 0 {
+        if level < 0 || level as u32 >= mip_count(self.limits.texture_size, self.limits.texture_size, 1) || width < 0 || height < 0 || depth < 0 || border != 0
+        {
             return self.error(INVALID_VALUE);
         }
         let Some((id, face)) = self.bound_texture(target) else { return };
@@ -392,6 +406,10 @@ impl Context {
             }
             internal
         };
+        if !self.format_allowed(sized) {
+            self.error(INVALID_ENUM);
+            return None;
+        }
         let mut f = format::sized(sized).or_else(|| {
             self.error(INVALID_VALUE);
             None
@@ -543,6 +561,7 @@ impl Context {
             return self.error(INVALID_VALUE);
         }
         let fmt = match format::sized(internal) {
+            Some(_) if !self.format_allowed(internal) => return self.error(INVALID_ENUM),
             Some(f) if !matches!(internal, RGBA | RGB | LUMINANCE | LUMINANCE_ALPHA | ALPHA | DEPTH_COMPONENT | DEPTH_STENCIL) => f,
             _ => match format::compressed(internal) {
                 Some((wgpu_format, feature)) if self.features.contains(feature) => format::compressed_format(internal, wgpu_format),
@@ -561,7 +580,9 @@ impl Context {
             TEXTURE_CUBE_MAP => 6,
             _ => d,
         };
-        self.alloc(id, fmt, w, h, layers, levels as u32);
+        if !self.alloc(id, fmt, w, h, layers, levels as u32) {
+            return;
+        }
         let faces = if target == TEXTURE_CUBE_MAP { 6 } else { 1 };
         let Some(t) = self.texture_mut(id) else { return };
         t.immutable = true;
@@ -723,6 +744,7 @@ impl Context {
         let premultiply = self.state.unpack_premultiply;
         let viewport = [origin[0] as f32, origin[1] as f32, w as f32, h as f32];
         self.blit(&source, [0.0, 0.0, 1.0, 1.0], &view, fmt.wgpu, viewport, flip, premultiply, false, wgpu::FilterMode::Nearest, 0.0);
+        self.mark_used(&[id]);
         if let Some(t) = self.texture_mut(id) {
             t.version += 1;
         }
@@ -886,6 +908,7 @@ impl Context {
                 }
             }
         }
+        self.mark_used(&[id]);
         let Some(t) = self.texture_mut(id) else { return };
         for level in base_level + 1..=last {
             for face in 0..faces {

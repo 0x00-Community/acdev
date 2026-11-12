@@ -265,6 +265,7 @@ impl Context {
             Ok(t) => t,
             Err(e) => return self.error(e),
         };
+        self.mark_used(&target.textures);
         let read_fb = self.state.read_framebuffer;
         if mask & COLOR_BUFFER_BIT != 0 {
             let source = match read_fb {
@@ -382,7 +383,7 @@ impl Context {
         self.drawing.dirty = false;
         let source = self.drawing.resolve.clone().or_else(|| self.drawing.color.clone())?;
         let (w, h) = (self.drawing.width, self.drawing.height);
-        let image = self.free_image(w, h);
+        let image = self.free_image(w, h)?;
         let mode = if !self.attrs.alpha {
             "opaque"
         } else if self.attrs.premultiplied_alpha {
@@ -456,37 +457,41 @@ impl Context {
         self.drawing.front.clone()
     }
 
-    fn free_image(&mut self, w: u32, h: u32) -> Arc<GpuImage> {
+    fn free_image(&mut self, w: u32, h: u32) -> Option<Arc<GpuImage>> {
         let d = &mut self.drawing;
         d.images.retain(|i| (i.texture.width(), i.texture.height()) == (w, h) || Arc::strong_count(i) > 1);
         let front = |i: &Arc<GpuImage>| d.front.as_ref().is_some_and(|f| Arc::ptr_eq(f, i));
         if let Some(i) =
             d.images.iter().position(|i| (i.texture.width(), i.texture.height()) == (w, h) && !front(i) && (Arc::strong_count(i) == 1 || i.copied()))
         {
-            return d.images[i].clone();
+            return Some(d.images[i].clone());
         }
         if d.images.len() >= MAX_IMAGES
             && let Some(i) = d.images.iter().position(|i| (i.texture.width(), i.texture.height()) == (w, h) && !front(i))
         {
-            return d.images[i].clone();
+            return Some(d.images[i].clone());
         }
-        let texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("acde webgl canvas"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        });
+        let texture = self
+            .scoped(|device| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("acde webgl canvas"),
+                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+            })
+            .ok()?;
         let image = GpuImage::new(texture, &self.gpu.images);
         self.drawing.images.push(image.clone());
-        image
+        Some(image)
     }
 
     pub fn front_pixels(&mut self) -> Option<(u32, u32, Vec<u8>)> {

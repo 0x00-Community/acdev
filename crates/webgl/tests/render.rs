@@ -136,3 +136,70 @@ fn converted_attributes() {
     assert_eq!(gl.get_error(), 0);
     assert_eq!(pixel(&mut gl, 4, 4), [255, 0, 128, 255], "UNSIGNED_SHORT x4 non-normalized becomes float");
 }
+
+#[test]
+fn robustness_and_mrt() {
+    let Some(gpu) = gpu() else { return };
+    let mut gl = Context::new(gpu, true, Attributes { antialias: false, ..Default::default() }, 8, 8);
+    let t = gl.create_texture();
+    gl.bind_texture(TEXTURE_2D, Some(t));
+    gl.tex_image(TEXTURE_2D, 40, RGBA8 as u32, 1, 1, 1, 0, RGBA, UNSIGNED_BYTE, None);
+    assert_eq!(gl.get_error(), INVALID_VALUE, "a level past the chain is INVALID_VALUE");
+    gl.tex_image(TEXTURE_2D, 0, RGBA8, 1 << 20, 1, 1, 0, RGBA, UNSIGNED_BYTE, None);
+    assert_eq!(gl.get_error(), INVALID_VALUE, "a texture past MAX_TEXTURE_SIZE is INVALID_VALUE");
+    gl.tex_image(TEXTURE_2D, 0, RGBA8, 4, 4, 1, 0, RGBA, UNSIGNED_BYTE, None);
+    let t2 = gl.create_texture();
+    gl.bind_texture(TEXTURE_2D, Some(t2));
+    gl.tex_image(TEXTURE_2D, 0, RGBA8, 4, 4, 1, 0, RGBA, UNSIGNED_BYTE, None);
+    assert_eq!(gl.get_error(), NO_ERROR);
+    let fb = gl.create_framebuffer();
+    gl.bind_framebuffer(FRAMEBUFFER, Some(fb));
+    gl.framebuffer_texture(FRAMEBUFFER, COLOR_ATTACHMENT0, TEXTURE_2D, Some(t), 0, 0);
+    gl.framebuffer_texture(FRAMEBUFFER, COLOR_ATTACHMENT0 + 1, TEXTURE_2D, Some(t2), 0, 0);
+    assert_eq!(gl.check_framebuffer_status(FRAMEBUFFER), FRAMEBUFFER_COMPLETE);
+    let p = program(
+        &mut gl,
+        "#version 300 es\nin vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }",
+        "#version 300 es\nprecision mediump float; layout(location = 1) out vec4 b; void main() { b = vec4(0.0, 0.0, 1.0, 1.0); }",
+    );
+    gl.use_program(Some(p));
+    let b = gl.create_buffer();
+    gl.bind_buffer(ARRAY_BUFFER, Some(b));
+    gl.buffer_data(ARRAY_BUFFER, Some(&floats(&[-1.0, -1.0, 3.0, -1.0, -1.0, 3.0])), 0, STATIC_DRAW);
+    gl.vertex_attrib_pointer(0, 2, FLOAT, false, 0, 0, false);
+    gl.enable_vertex_attrib(0, true);
+    gl.draw_buffers(&[COLOR_ATTACHMENT0, COLOR_ATTACHMENT0 + 1]);
+    gl.clear_color(1.0, 0.0, 0.0, 1.0);
+    gl.clear(COLOR_BUFFER_BIT);
+    gl.draw(TRIANGLES, 0, 3, 1, None);
+    assert_eq!(gl.get_error(), NO_ERROR, "a fragment shader without output 0 draws into attachment 1");
+    gl.read_buffer(COLOR_ATTACHMENT0 + 1);
+    assert_eq!(pixel(&mut gl, 1, 1), [0, 0, 255, 255]);
+    gl.read_buffer(COLOR_ATTACHMENT0);
+    assert_eq!(pixel(&mut gl, 1, 1), [255, 0, 0, 255], "attachment 0 keeps its clear");
+    let q = gl.create_query();
+    gl.begin_query(ANY_SAMPLES_PASSED, q);
+    gl.draw(TRIANGLES, 0, 3, 1, None);
+    gl.end_query(ANY_SAMPLES_PASSED);
+    gl.submit();
+    let mut available = 0;
+    for _ in 0..200 {
+        available = gl.query_result(q, QUERY_RESULT_AVAILABLE).unwrap();
+        if available == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(available, 1);
+    assert_eq!(gl.query_result(q, QUERY_RESULT), Some(1), "the draw passed samples");
+    let s = gl.fence_sync();
+    let mut signaled = false;
+    for _ in 0..200 {
+        if gl.sync_status(s) == Some(true) {
+            signaled = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(signaled);
+}

@@ -293,6 +293,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       const loading = deliverLoads()
       const playing = presentVideos()
       webglContexts.present()
+      webglContexts.endTask()
       canvases.flush()
       gpuContexts.present()
       frameVersion = version
@@ -301,6 +302,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     },
     endTask() {
       idbTaskEnded()
+      webglContexts.endTask()
       moved()
       canvases.flush()
       gpuContexts.present()

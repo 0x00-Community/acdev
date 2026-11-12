@@ -265,16 +265,26 @@ pub struct Sampler {
     pub params: SamplerParams,
 }
 
+pub struct Readback {
+    pub buffer: wgpu::Buffer,
+    pub state: std::sync::Arc<std::sync::atomic::AtomicU8>,
+}
+
+impl Readback {
+    pub const PENDING: u8 = 0;
+    pub const MAPPED: u8 = 1;
+    pub const FAILED: u8 = 2;
+}
+
 pub struct Query {
     pub target: u32,
+    pub active: bool,
+    pub slots: Vec<(std::rc::Rc<Readback>, u32)>,
     pub result: Option<u64>,
-    pub pending: Option<(wgpu::QuerySet, wgpu::Buffer, wgpu::SubmissionIndex)>,
-    pub available_after: u64,
 }
 
 pub struct Sync {
-    pub submission: Option<wgpu::SubmissionIndex>,
-    pub signaled: bool,
+    pub done: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub struct TransformFeedback {

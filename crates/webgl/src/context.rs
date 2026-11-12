@@ -239,32 +239,45 @@ impl Context {
             return;
         }
         self.flush_pass();
-        let device = &self.gpu.device;
         let samples = self.drawing.samples;
-        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
-        let texture = |label, format, samples, usage| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size,
-                mip_level_count: 1,
-                sample_count: samples,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage,
-                view_formats: &[],
-            })
-        };
-        let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
-        let readable = attachment | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
-        let color = texture("acde webgl drawing buffer", wgpu::TextureFormat::Rgba8Unorm, samples, if samples > 1 { attachment } else { readable });
-        self.drawing.resolve = (samples > 1).then(|| texture("acde webgl resolve", wgpu::TextureFormat::Rgba8Unorm, 1, readable));
-        self.drawing.color = Some(color);
-        self.drawing.depth_format = match (self.attrs.depth, self.attrs.stencil) {
+        let depth_format = match (self.attrs.depth, self.attrs.stencil) {
             (_, true) => Some(wgpu::TextureFormat::Depth24PlusStencil8),
             (true, false) => Some(wgpu::TextureFormat::Depth24Plus),
             _ => None,
         };
-        self.drawing.depth = self.drawing.depth_format.map(|f| texture("acde webgl depth", f, samples, attachment));
+        let created = self.scoped(|device| {
+            let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+            let texture = |label, format, samples, usage| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+            };
+            let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
+            let readable = attachment | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
+            let color = texture("acde webgl drawing buffer", wgpu::TextureFormat::Rgba8Unorm, samples, if samples > 1 { attachment } else { readable });
+            let resolve = (samples > 1).then(|| texture("acde webgl resolve", wgpu::TextureFormat::Rgba8Unorm, 1, readable));
+            let depth = depth_format.map(|f| texture("acde webgl depth", f, samples, attachment));
+            (color, resolve, depth)
+        });
+        let (color, resolve, depth) = match created {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("webgl: drawing buffer {width}x{height}: {e}");
+                self.error(OUT_OF_MEMORY);
+                return;
+            }
+        };
+        self.drawing.color = Some(color);
+        self.drawing.resolve = resolve;
+        self.drawing.depth_format = depth_format;
+        self.drawing.depth = depth;
         self.drawing.width = width;
         self.drawing.height = height;
         self.drawing.version += 1;
@@ -309,6 +322,9 @@ impl Context {
         if !f.contains(wgpu::Features::FLOAT32_FILTERABLE) {
             out.retain(|e| *e != "OES_texture_float_linear");
         }
+        if !f.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+            out.retain(|e| *e != "EXT_texture_norm16");
+        }
         if !f.contains(wgpu::Features::FLOAT32_BLENDABLE) {
             out.retain(|e| *e != "EXT_float_blend");
         }
@@ -345,6 +361,16 @@ impl Context {
             out.push("WEBGL_compressed_texture_astc");
         }
         out
+    }
+
+    pub(crate) fn format_allowed(&self, internal: u32) -> bool {
+        match internal {
+            R16_EXT | RG16_EXT | RGB16_EXT | RGBA16_EXT | R16_SNORM_EXT | RG16_SNORM_EXT | RGB16_SNORM_EXT | RGBA16_SNORM_EXT => {
+                self.extension("EXT_texture_norm16")
+            }
+            DEPTH32F_STENCIL8 => self.features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8),
+            _ => true,
+        }
     }
 
     pub fn renderer(&self) -> String {

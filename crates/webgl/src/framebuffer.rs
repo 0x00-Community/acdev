@@ -108,7 +108,7 @@ impl Context {
             RGB565 => RGB8,
             i => i,
         };
-        let Some(mut fmt) = format::sized(internal) else { return self.error(INVALID_ENUM) };
+        let Some(mut fmt) = format::sized(internal).filter(|_| self.format_allowed(internal)) else { return self.error(INVALID_ENUM) };
         if !self.color_renderable(&fmt) && !fmt.wgpu.is_depth_stencil_format() {
             return self.error(INVALID_ENUM);
         }
@@ -123,22 +123,32 @@ impl Context {
             return self.error(INVALID_OPERATION);
         }
         let texture = (width > 0 && height > 0).then(|| {
-            self.gpu.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("acde webgl renderbuffer"),
-                size: wgpu::Extent3d { width: width as u32, height: height as u32, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: samples,
-                dimension: wgpu::TextureDimension::D2,
-                format: fmt.wgpu,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | if samples == 1 {
-                        wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING
-                    } else {
-                        wgpu::TextureUsages::empty()
-                    },
-                view_formats: &[],
+            self.scoped(|device| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("acde webgl renderbuffer"),
+                    size: wgpu::Extent3d { width: width as u32, height: height as u32, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: fmt.wgpu,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | if samples == 1 {
+                            wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING
+                        } else {
+                            wgpu::TextureUsages::empty()
+                        },
+                    view_formats: &[],
+                })
             })
         });
+        let texture = match texture {
+            Some(Err(e)) => {
+                log::warn!("webgl: renderbuffer: {e}");
+                return self.error(OUT_OF_MEMORY);
+            }
+            Some(Ok(t)) => Some(t),
+            None => None,
+        };
         let serial = self.next_serial();
         if let Some(rb) = self.renderbuffer_mut(id) {
             rb.format = Some(fmt);
@@ -150,8 +160,20 @@ impl Context {
         }
     }
 
+    pub(crate) fn mark_used(&mut self, textures: &[Id]) {
+        let generation = self.generation;
+        for id in textures {
+            if let Some(t) = self.texture_mut(*id) {
+                t.used = generation;
+            }
+        }
+    }
+
     pub(crate) fn color_renderable(&self, fmt: &Format) -> bool {
         if fmt.wgpu.is_depth_stencil_format() || fmt.wgpu.is_compressed() {
+            return false;
+        }
+        if !fmt.wgpu.guaranteed_format_features(self.features).allowed_usages.contains(wgpu::TextureUsages::RENDER_ATTACHMENT) {
             return false;
         }
         let float =
@@ -432,6 +454,7 @@ impl Context {
     }
 
     pub(crate) fn pass_for_draw(&mut self, target: Target) {
+        self.mark_used(&target.textures);
         let default = self.state.draw_framebuffer.is_none();
         let fresh = default && !self.drawing.cleared;
         let alpha = self.attrs.alpha;

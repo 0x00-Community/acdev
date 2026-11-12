@@ -350,7 +350,8 @@ impl Context {
                 return self.error(INVALID_OPERATION);
             }
             if count > 0 {
-                let Some(max) = self.max_index(id, ty, offset as u64, count as u32) else { return self.error(INVALID_OPERATION) };
+                let restart = self.webgl2 && matches!(mode, LINE_STRIP | TRIANGLE_STRIP);
+                let Some(max) = self.max_index(id, ty, offset as u64, count as u32, restart) else { return self.error(INVALID_OPERATION) };
                 vertex_count = u64::from(max) + 1;
             }
             index = Some((id, ty, offset as u64, size));
@@ -505,7 +506,11 @@ impl Context {
         } else if let Some((id, ty, offset, _)) = index {
             if ty == UNSIGNED_BYTE {
                 let Some(bytes) = self.element_bytes(id) else { return self.error(INVALID_OPERATION) };
-                let mut out: Vec<u8> = bytes[offset as usize..(offset + count as u64) as usize].iter().flat_map(|&b| u16::from(b).to_le_bytes()).collect();
+                let restart = self.webgl2 && indexed_strip;
+                let mut out: Vec<u8> = bytes[offset as usize..(offset + count as u64) as usize]
+                    .iter()
+                    .flat_map(|&b| if restart && b == 0xff { 0xffff } else { u16::from(b) }.to_le_bytes())
+                    .collect();
                 out.resize(out.len().next_multiple_of(4), 0);
                 generated_indices = Some(out);
             } else {
@@ -550,6 +555,10 @@ impl Context {
             vertex.push((location, Source::Data, u64::from(at)));
         }
         vertex.sort_by_key(|v| v.0);
+        let occlusion = self.state.queries[..2].iter().find_map(|q| q.1).map(|id| {
+            pass.queries.push(id);
+            pass.queries.len() as u32 - 1
+        });
         let index = match (generated_indices, index_source) {
             (Some(g), _) => Some((Source::Data, u64::from(pass.push_data(&g, 4)), index_format)),
             (None, Some((s, offset))) => Some((s, offset, index_format)),
@@ -573,7 +582,7 @@ impl Context {
             scissor,
             stencil: (sf.reference.max(0) as u32) & 0xff,
             blend,
-            occlusion: None,
+            occlusion,
         });
     }
 

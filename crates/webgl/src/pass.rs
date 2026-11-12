@@ -66,7 +66,7 @@ pub struct Pass {
     pub draws: Vec<Draw>,
     pub data: Vec<u8>,
     pub span: u32,
-    pub occlusion: Option<wgpu::QuerySet>,
+    pub queries: Vec<crate::objects::Id>,
 }
 
 #[derive(Default)]
@@ -74,6 +74,7 @@ pub struct Recorder {
     pub encoder: Option<wgpu::CommandEncoder>,
     pub pass: Option<Pass>,
     pub passes: u32,
+    pub readbacks: Vec<std::rc::Rc<crate::objects::Readback>>,
 }
 
 impl Pass {
@@ -98,7 +99,7 @@ impl Context {
         if !same {
             self.flush_pass();
             let colors = vec![None; target.colors.len()];
-            self.recorder.pass = Some(Pass { target, colors, depth: None, stencil: None, draws: Vec::new(), data: Vec::new(), span: 16, occlusion: None });
+            self.recorder.pass = Some(Pass { target, colors, depth: None, stencil: None, draws: Vec::new(), data: Vec::new(), span: 16, queries: Vec::new() });
         }
         self.recorder.pass.as_mut().unwrap_or_else(|| unreachable!())
     }
@@ -149,7 +150,13 @@ impl Context {
                 .stencil
                 .then(|| wgpu::Operations { load: pass.stencil.map_or(wgpu::LoadOp::Load, wgpu::LoadOp::Clear), store: wgpu::StoreOp::Store }),
         });
-        let occlusion = pass.occlusion.clone();
+        let occlusion = (!pass.queries.is_empty()).then(|| {
+            device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("acde webgl occlusion"),
+                ty: wgpu::QueryType::Occlusion,
+                count: pass.queries.len() as u32,
+            })
+        });
         let encoder = self.encoder();
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("acde webgl"),
@@ -205,6 +212,31 @@ impl Context {
             rp.end_occlusion_query();
         }
         drop(rp);
+        if let Some(set) = occlusion {
+            let n = pass.queries.len() as u64;
+            let resolve = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("acde webgl occlusion"),
+                size: n * 8,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let read = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("acde webgl occlusion"),
+                size: n * 8,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let encoder = self.encoder();
+            encoder.resolve_query_set(&set, 0..n as u32, &resolve, 0);
+            encoder.copy_buffer_to_buffer(&resolve, 0, &read, 0, n * 8);
+            let readback = std::rc::Rc::new(crate::objects::Readback { buffer: read, state: Default::default() });
+            for (slot, id) in pass.queries.iter().enumerate() {
+                if let Some(q) = self.objects.get_mut(id).and_then(crate::objects::Object::query_mut) {
+                    q.slots.push((readback.clone(), slot as u32));
+                }
+            }
+            self.recorder.readbacks.push(readback);
+        }
         self.recorder.passes += 1;
         if self.recorder.passes >= 256 {
             self.submit();
@@ -218,6 +250,12 @@ impl Context {
         let gpu = self.gpu.clone();
         let submitted = self.scoped(|_| gpu.submit([encoder.finish()]));
         self.generation += 1;
+        for readback in std::mem::take(&mut self.recorder.readbacks) {
+            let state = readback.state.clone();
+            readback.buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+                state.store(if r.is_ok() { crate::objects::Readback::MAPPED } else { crate::objects::Readback::FAILED }, std::sync::atomic::Ordering::Release)
+            });
+        }
         match submitted {
             Ok(index) => Some(index),
             Err(e) => {
