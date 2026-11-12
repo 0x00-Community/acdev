@@ -231,6 +231,7 @@ impl<'a> Walk<'a> {
         let child_ids: Vec<NodeId> = n.children.to_vec();
         let named_by_content = content_named && !name.is_empty();
         self.faded = transparent;
+        let mut ended_blank = false;
         for child in child_ids {
             let Some(c) = self.node(child) else { continue };
             if let NodeData::Text(t) = &c.data {
@@ -238,13 +239,19 @@ impl<'a> Walk<'a> {
                     continue;
                 }
                 let text = collapse(&t.content, NAME_MAX);
+                let gap = ended_blank || t.content.starts_with(char::is_whitespace);
+                if !t.content.is_empty() {
+                    ended_blank = t.content.ends_with(char::is_whitespace);
+                }
                 if text.is_empty() {
                     continue;
                 }
                 match children.last_mut() {
                     Some(Sem { role, node: last, name, .. }) if role == "text" && *last == id => {
                         if name.chars().count() < NAME_MAX {
-                            name.push(' ');
+                            if gap {
+                                name.push(' ');
+                            }
                             name.push_str(&text);
                             *name = collapse(name, NAME_MAX);
                         }

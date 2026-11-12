@@ -99,3 +99,11 @@ fn a_label_names_a_button_and_the_other_labelable_elements() {
     assert_eq!(role("progressbar").unwrap(), "Volume", "a wrapping label");
     assert_eq!(role("button").unwrap(), "Keep it", "a label names a button before its text");
 }
+
+#[test]
+fn adjacent_text_nodes_join_as_written() {
+    let doc = page("<p>100<!---->%</p><p>a <!---->b</p><p>c<!----> d</p>");
+    for name in ["100%", "a b", "c d"] {
+        assert!(named(&doc, name, false).is_some(), "{name}: {:?}", nodes(&doc, false).iter().map(|n| n["name"].clone()).collect::<Vec<_>>());
+    }
+}

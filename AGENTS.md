@@ -1318,7 +1318,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   render 的节点 id, 所以 ref 跟着 DOM 节点走: 节点活着 (连在文档上, 或断开了但页面还拿着) 就不变, 移动、改文字、改属性、列表重排都不变,
   不按遍历顺序编号; 重绘时换成了新节点 (`innerHTML`、不带 key 的列表重建) 才是新 ref (节点 id 不复用), 旧 ref 回 `element N is gone`.
   测试 `crates/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签 (HTML-AAM: 有名字的 `<section>` 是 `region`, `<output>` 是 `status`), 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label (可被 label 的元素: input、select、textarea、button、meter、output、progress, `<label for>` 或外面套的 `<label>`, 先于子元素文字) / alt / 文字, 最多
-  120 字; 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
+  120 字 (同一元素里相邻的文字节点按原文接起来, 只在原文边界有空白时隔一个空格: JSX 的 `{n}%` 是 `100%`); 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
   没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `semantics(root, limit, offscreen, invisible)`: `invisible`
   时留下透明和 `visibility: hidden` 的元素, 自己或祖先 `opacity: 0` 的标 `transparent`, `visibility` 不可见的标 `invisible` (透明的照样能点,
   不可见的点不到); `display: none`、`aria-hidden`、`inert` 照样剪. `<select>`: 下拉框是
