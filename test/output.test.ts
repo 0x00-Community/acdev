@@ -120,7 +120,7 @@ describe('colour and error output', () => {
     expect(Exit).toEqual({ DONE: 0, ERROR: 1, NOTHING: 2, DECLINED: 3 })
     expect([Uninstall.IN_USE, Uninstall.NOT_INSTALLED, Uninstall.DECLINED]).toEqual([1, 2, 3])
     const reference = readFileSync(join(import.meta.dir, '../skills/acde/references/reference/cli.md'), 'utf8')
-    const table = reference.slice(reference.indexOf('Exit codes are the same for every command'))
+    const table = reference.slice(reference.search(/exit codes are the same for every command/i))
     for (const code of Object.values(Exit)) expect(table).toMatch(new RegExp(`^\\| ${code} \\| `, 'm'))
   })
 
