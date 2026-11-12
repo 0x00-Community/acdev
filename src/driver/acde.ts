@@ -96,6 +96,7 @@ export class Acde {
       ...(options.app !== undefined ? ['--app', options.app] : []),
       ...(options.out !== undefined ? ['--out', options.out] : []),
       ...(options.headless ? ['--headless'] : []),
+      ...(options.force ? ['--force'] : []),
       '--verbose',
     ]
     const env = cliEnv(runtime, { ...process.env, ...options.env, ACDE_FOLLOWED: '1' })

@@ -186,6 +186,7 @@ export interface LaunchOptions {
   readonly headless?: boolean
   readonly timeout?: number
   readonly startTimeout?: number
+  readonly force?: boolean
 }
 
 export interface PermissionPrompt {

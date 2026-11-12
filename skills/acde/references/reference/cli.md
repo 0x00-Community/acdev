@@ -115,10 +115,10 @@ Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with.
 ### acde dev
 
 ```text
-acde dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless] [--verbose]
+acde dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless] [--verbose] [--force]
 ```
 
-Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens no window; use it on a machine without a display. `--verbose` also prints the runtime's info log; by default only its warnings and errors are shown. On Linux without `WAYLAND_DISPLAY` or `DISPLAY`, `acde dev` without `--headless` stops with `acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` and exits with code 1. See [acde dev](../guide/dev.md) and [Without a display](../guide/tools.md#without-a-display).
+Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens no window; use it on a machine without a display. `--verbose` also prints the runtime's info log; by default only its warnings and errors are shown. On Linux without `WAYLAND_DISPLAY` or `DISPLAY`, `acde dev` without `--headless` stops with `acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` and exits with code 1. Only one `acde dev` runs a project at a time: a second one exits with code 1 and names the running one (`acde: acde dev <pid> already runs <dir>; stop it first (acde stop --session <pid>), or pass --force to start another`); `--force` starts it anyway. Ctrl+C, SIGINT and SIGTERM end the session and its runtime, and remove its files; files left by a session that was killed are removed by the next `acde dev` or session command. See [acde dev](../guide/dev.md) and [Without a display](../guide/tools.md#without-a-display).
 
 ## Running sessions
 

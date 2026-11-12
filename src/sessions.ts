@@ -112,6 +112,10 @@ export class Sessions {
       if (session && session.pid === pid && Sessions.alive(pid)) found.push(session)
       else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
     }
+    for (const name of readdirSync(dir)) {
+      const left = /^(\d+)\.(?:sock|json\.(\d+)\.tmp)$/.exec(name)
+      if (left && !Sessions.alive(Number(left[2] ?? left[1]))) rmSync(join(dir, name), { force: true })
+    }
     return found.sort((a, b) => a.started - b.started)
   }
 

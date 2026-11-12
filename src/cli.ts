@@ -47,7 +47,7 @@ class Cli {
     install: { args: [0, 1], flags: ['out'] },
     uninstall: { args: [0, 1], switches: ['yes'] },
     sdk: { args: [0, 2] },
-    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose'] },
+    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose', 'force'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
@@ -210,6 +210,7 @@ class Cli {
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
         ...(flags.has('headless') && { headless: true }),
         ...(flags.has('verbose') && { verbose: true }),
+        ...(flags.has('force') && { force: true }),
         acdert: await requireAcdert(),
       })
       return await session.run()

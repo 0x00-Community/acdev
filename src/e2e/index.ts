@@ -110,6 +110,7 @@ export class E2eRun {
         ...(one && { out: settings.out }),
         cwd: settings.dirs[0]!,
         startTimeout: E2eRun.startTimeout(timeout),
+        force: true,
       })
       acde.trace.screenshots = settings.trace
       if (settings.video !== 'off') video = Video.start(acde)
