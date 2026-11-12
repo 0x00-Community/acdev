@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -21,6 +21,7 @@ pub(super) type Resolving = Arc<Mutex<HashMap<String, (Rewritten, Option<Value>)
 const NODE_LOOKUP: &str = "acde.devtools.node";
 const HIGHLIGHT: &str = "acde.devtools.highlight";
 const HANDLER_WAIT: Duration = Duration::from_secs(2);
+pub(super) const QUEUED: usize = 1000;
 
 #[derive(Default)]
 pub(super) struct PageSide {
@@ -29,6 +30,7 @@ pub(super) struct PageSide {
     resolving: RefCell<HashMap<u32, Resolving>>,
     waiting: RefCell<Vec<(u32, String)>>,
     timed: Cell<bool>,
+    expected: Cell<Option<Instant>>,
 }
 
 impl PageSide {
@@ -158,22 +160,56 @@ pub(super) fn routed(message: &str) -> bool {
 
 pub(super) fn message(scope: &mut v8::PinScope, id: u32, message: &str) {
     let found = STATE.with(|s| s.borrow().as_ref().map(|s| (s.page.handler.borrow().clone(), s.page.sinks.borrow().get(&id).cloned())));
-    let Some((handler, Some(_))) = found else { return };
-    let Some(handler) = handler else { return wait(id, message) };
+    let Some((handler, Some(sink))) = found else { return };
+    let Some(handler) = handler else { return wait(id, message, &sink) };
     let args = [v8::Integer::new_from_unsigned(scope, id).into(), bind::string(scope, message).into()];
     bind::call(scope, &handler, &args);
 }
 
-fn wait(id: u32, message: &str) {
-    let first = STATE.with(|s| {
-        let s = s.borrow();
-        let s = s.as_ref()?;
-        s.page.waiting.borrow_mut().push((id, message.to_owned()));
-        Some(!s.page.timed.replace(true))
+pub(super) fn expect_handler() {
+    STATE.with(|s| {
+        if let Some(s) = s.borrow().as_ref()
+            && s.page.handler.borrow().is_none()
+        {
+            s.page.expected.set(Some(Instant::now() + HANDLER_WAIT));
+        }
     });
-    if first == Some(true) {
-        rt::current().delay(HANDLER_WAIT, |_: &mut v8::PinScope| unanswered());
+}
+
+enum Wait {
+    Answer,
+    Full,
+    Queued(Option<Duration>),
+}
+
+fn wait(id: u32, message: &str, sink: &Sink) {
+    let now = Instant::now();
+    let wait = STATE.with(|s| {
+        let s = s.borrow();
+        let Some(s) = s.as_ref() else { return Wait::Answer };
+        let Some(until) = s.page.expected.get().filter(|until| *until > now) else { return Wait::Answer };
+        let mut waiting = s.page.waiting.borrow_mut();
+        if waiting.len() >= QUEUED {
+            return Wait::Full;
+        }
+        waiting.push((id, message.to_owned()));
+        Wait::Queued((!s.page.timed.replace(true)).then(|| until - now))
+    });
+    match wait {
+        Wait::Answer => sink(not_found(message)),
+        Wait::Full => sink(reloading(message)),
+        Wait::Queued(Some(left)) => rt::current().delay(left, |_: &mut v8::PinScope| unanswered()),
+        Wait::Queued(None) => {}
     }
+}
+
+pub(super) fn reloading(message: &str) -> String {
+    let value = serde_json::from_str::<serde_json::Value>(message).unwrap_or_default();
+    let mut answer = serde_json::json!({"id": value["id"], "error": {"code": -32000, "message": "page is reloading"}});
+    if let Some(session) = value.get("sessionId") {
+        answer["sessionId"] = session.clone();
+    }
+    answer.to_string()
 }
 
 fn unanswered() {
@@ -181,6 +217,7 @@ fn unanswered() {
         let s = s.borrow();
         let s = s.as_ref()?;
         s.page.timed.set(false);
+        s.page.expected.set(None);
         let waiting = std::mem::take(&mut *s.page.waiting.borrow_mut());
         Some(waiting.into_iter().filter_map(|(id, message)| s.page.sinks.borrow().get(&id).cloned().map(|sink| (sink, message))).collect::<Vec<_>>())
     });
@@ -229,6 +266,7 @@ pub fn install(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mu
     let name = STATE.with(|s| {
         s.borrow().as_ref().map(|s| {
             *s.page.handler.borrow_mut() = Some(handler);
+            s.page.expected.set(None);
             (s.name.clone(), !s.page.waiting.borrow().is_empty())
         })
     });

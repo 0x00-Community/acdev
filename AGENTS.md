@@ -370,10 +370,12 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `Runtime.executionContextsCleared`, 再按原顺序重放各域的 `enable` (负数 id, 回复不给客户端; V8 因此自己发 `executionContextCreated`,
   页面域照常进页面), 开过 Page 的用 `Page.getFrameTree` (id -1) 的回答发 `Page.frameNavigated`, 开过 DOM 的发 `DOM.documentUpdated`,
   再按序投递排队的消息. 等满 10 秒没回来按真的关闭处理 (detached 后关). 桌面里的应用经 `devReload` 是关窗再开新窗口, web 名变了, 仍是新目标.
-  页面域的消息在页面装处理器之前到 (新页面刚起) 先排着, 装上后在下一个任务里投给它; 2 秒还没装 (如 Broker 的 isolate) 才答 -32601.
+  接回时先投 `Posted::ExpectHandler`: 新页面还没装处理器的话, 此后 2 秒内到的页面域消息先排着, 装上后在下一个任务里投给它, 2 秒还没装才答
+  -32601; 别的时候 (没接回过的会话、Broker 的 isolate) 没有处理器就立即答 -32601. 挂起的会话和页面这边的排队各最多 1000 条, 多出的答
+  -32000 "page is reloading".
   **页面这边答的域** (#187): `Page`、`DOM`、`CSS`、`Overlay`、`Network` (`inspector/page.rs` `DOMAINS`, 按方法名点前面的域分) 不进 V8 session,
   经同一个 `Remote` 投成 `Posted::Page`, 在页面线程上交给页面装的处理器 (`host.devtoolsHandler(fn)` → 回 frame id 即 web 名; `fn(session, text)`,
-  客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时先排着 (见上), 2 秒后答 -32601.
+  客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时立即答 -32601 (刚从重载接回时除外, 见上).
   JS 一侧在 acde-host `devtools/`: `DevToolsPage` (只在 `ACDE_DEV` 时由 `worker.ts` 装) 按域分发, 每个客户端一份 `enabled`, 没有自己
   `enable` / `disable` 的域由它记开关, 没实现的方法答 -32601, `emit(domain, method, params)` 只发给开了这个域的客户端, `emitTo(session, …)` 只发给
   这一个; 域是 `DevToolsDomain` `{name, methods, closed?}` (`closed(session)`: 客户端断开). 已有: `Page` (`devtools/page.ts`): `getFrameTree` / `getResourceTree`, 主 frame 的 `id` 和 `loaderId` 是 web 名

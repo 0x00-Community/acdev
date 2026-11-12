@@ -96,6 +96,7 @@ enum Posted {
     Connect(u32, Sink),
     Message(u32, String),
     Page(u32, String),
+    ExpectHandler,
     Disconnect(u32),
 }
 
@@ -143,6 +144,10 @@ impl Remote {
 
     pub fn disconnect(&self, session: u32) {
         self.post(Posted::Disconnect(session));
+    }
+
+    pub fn expect_handler(&self) {
+        self.post(Posted::ExpectHandler);
     }
 
     fn post(&self, posted: Posted) {
@@ -255,6 +260,7 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                 }
                 None => page::message(scope, id, &message),
             },
+            Posted::ExpectHandler => page::expect_handler(),
             Posted::Disconnect(id) => {
                 page::disconnected(scope, id);
                 let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow_mut().remove(&id)));

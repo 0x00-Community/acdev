@@ -154,6 +154,7 @@ impl<P: Peer> Pages<P> {
     fn resume(&self, waiting: Waiting<P>, remote: Remote) {
         let Waiting { web, peer, enabled, queue, .. } = waiting;
         let session = remote.connect(sink(peer.clone()));
+        remote.expect_handler();
         if enabled.has("Runtime") {
             peer.send(CONTEXTS_CLEARED);
         }
@@ -230,6 +231,10 @@ impl<P: Peer> Pages<P> {
         }
         let mut waiting = locked(&self.waiting);
         let Some(waiting) = waiting.get_mut(&peer.id()) else { return false };
+        if waiting.queue.len() >= super::page::QUEUED {
+            peer.send(&super::page::reloading(message));
+            return true;
+        }
         waiting.enabled.note(&parsed);
         waiting.queue.push(message.to_owned());
         true
@@ -379,8 +384,10 @@ mod tests {
         pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
         let fake = Fake::default();
         pages.attach(&fake);
+        let started = Instant::now();
         assert!(pages.message(&fake, r#"{"id":1,"method":"Page.getFrameTree","sessionId":"s"}"#));
         let refused = answer(&mut runtime, &fake, 1);
+        assert!(started.elapsed() < Duration::from_secs(1), "a session that was not handed over is answered at once");
         assert_eq!((&refused["error"]["code"], &refused["sessionId"]), (&serde_json::json!(-32601), &serde_json::json!("s")), "no handler yet");
         runtime.task(|scope| {
             let host = v8::Object::new(scope);
@@ -468,6 +475,12 @@ mod tests {
         reloads.0.store(true, Ordering::SeqCst);
         assert!(pages.closed("alpha#1"));
         assert!(pages.message(&fake, r#"{"id":1,"method":"Runtime.enable"}"#));
+        for id in 2..=super::super::page::QUEUED as i64 + 1 {
+            assert!(pages.message(&fake, &format!(r#"{{"id":{id},"method":"Runtime.evaluate","params":{{"expression":"1"}}}}"#)));
+        }
+        let over = values(&fake).into_iter().filter(|m| m["error"]["message"] == "page is reloading").collect::<Vec<_>>();
+        assert_eq!(over.len(), 1, "one past the cap is refused");
+        assert_eq!(over[0]["id"], super::super::page::QUEUED as i64 + 1);
         pages.expire(Instant::now());
         assert!(!fake.closed.load(Ordering::SeqCst), "still within the wait");
         pages.expire(Instant::now() + RELOAD_WAIT * 2);
