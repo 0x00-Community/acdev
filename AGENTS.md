@@ -20,7 +20,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde uninstall [id\|目录] [--yes]` | `src/uninstall.ts`: 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acde dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acde dev 起的 acdert 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
-| `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose]` | 构建、起 acdert、改了就重新构建并 `reload` |
+| `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose] [--force]` | 构建、起 acdert、改了就重新构建并 `reload`; 一个工程只许一个, `--force` 照样再起 (见「acde dev」) |
 | `acde doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修; `--fix` 修 acde 能修的 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
 | `acde permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见「开发工具」的「批准」) |
@@ -376,7 +376,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGTERM / SIGHUP 转给 acdert. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdert 发 SIGTERM (只发给 acde dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acde dev 一直不退),
   第二次 SIGINT 发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
-- 一个工程一个会话 (acde#91, `DevSession.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
+- 一个工程一个会话 (acde#91, `Sessions.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
   (Windows 不分大小写) 就报 `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another`
   退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写). `acde test` 的会话 (`Acde.launch({force: true})`) 用
   自己的输出目录, 带 `--force`, 不受影响. MCP 的 `start` 先看这些工程 (`dirs`, 默认工作目录, 取真实路径) 有没有活着的会话: 有就钉住并连上它,
