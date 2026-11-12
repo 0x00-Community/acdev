@@ -20,6 +20,7 @@ export interface AppModules {
   readonly bluetooth: Page.AcdeBluetooth
   readonly audio: Page.AcdeAudio
   readonly devices: Page.AcdeDevices
+  readonly power: Page.AcdePower
   readonly launch: Page.AcdeLaunch
   readonly apps: Page.AcdeAppList
   readonly open: Page.AcdeOpen

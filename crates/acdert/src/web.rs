@@ -56,6 +56,8 @@ struct System {
     #[cfg(target_os = "linux")]
     devices: acde_runtime::Devices,
     #[cfg(target_os = "linux")]
+    power: acde_runtime::Power,
+    #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
 }
 
@@ -78,6 +80,8 @@ struct Grants {
     audio: Option<acde_runtime::Sounds>,
     #[cfg(target_os = "linux")]
     devices: Option<acde_runtime::Devices>,
+    #[cfg(target_os = "linux")]
+    power: Option<acde_runtime::Power>,
 }
 
 impl Webs {
@@ -102,6 +106,8 @@ impl Webs {
                 audio: None,
                 #[cfg(target_os = "linux")]
                 devices: None,
+                #[cfg(target_os = "linux")]
+                power: None,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -132,6 +138,8 @@ impl Webs {
         let audio = bind::get(scope, wanted, "audio").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let devices = bind::get(scope, wanted, "devices").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
+        let power = bind::get(scope, wanted, "power").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -158,6 +166,8 @@ impl Webs {
             audio: audio.then(|| system.sounds.clone()),
             #[cfg(target_os = "linux")]
             devices: devices.then(|| system.devices.clone()),
+            #[cfg(target_os = "linux")]
+            power: power.then(|| system.power.clone()),
         }
     }
 }
@@ -199,6 +209,10 @@ impl Grants {
         #[cfg(target_os = "linux")]
         if let Some(devices) = self.devices {
             crate::devices::install(scope, natives, devices);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(power) = self.power {
+            crate::power::install(scope, natives, power);
         }
     }
 }
@@ -301,6 +315,8 @@ impl Spec {
         crate::sound::clear();
         #[cfg(target_os = "linux")]
         crate::devices::clear();
+        #[cfg(target_os = "linux")]
+        crate::power::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);

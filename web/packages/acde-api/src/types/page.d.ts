@@ -851,6 +851,89 @@ export interface AcdeDevices {
   on(type: 'added', handler: (drive: Drive) => void): () => boolean
 }
 
+export type PowerProfile = 'power-saver' | 'balanced' | 'performance'
+
+export type PowerAction = 'none' | 'sleep' | 'hibernate' | 'shutdown' | 'prompt' | 'lock' | 'screen-off'
+
+export type PowerIdleAction = 'none' | 'sleep' | 'hibernate' | 'shutdown'
+
+export interface ChargeLimit {
+  readonly start: number | null
+  readonly end: number | null
+  readonly writable: boolean
+  readonly upower: boolean
+}
+
+export interface PowerBattery {
+  readonly id: string
+  readonly name: string
+  readonly percent: number
+  readonly state: 'charging' | 'discharging' | 'full' | 'empty' | 'unknown'
+  readonly secondsLeft: number | null
+  readonly health: number | null
+  readonly rate: number | null
+  readonly chargeLimit: ChargeLimit | null
+}
+
+export interface PowerPolicy {
+  readonly dim: number | null
+  readonly screenOff: number | null
+  readonly idleAction: PowerIdleAction
+  readonly idleAfter: number
+  readonly lidAction: PowerAction
+  readonly lidExternal: boolean
+  readonly powerButton: PowerAction
+  readonly sleepMode: 'suspend' | 'hybrid' | 'suspend-then-hibernate'
+  readonly profile: PowerProfile | null
+  readonly brightness: number | null
+}
+
+export type PowerGroup = 'ac' | 'battery' | 'lowBattery'
+
+export interface PowerSettings {
+  readonly ac: PowerPolicy
+  readonly battery: PowerPolicy
+  readonly lowBattery: PowerPolicy
+  readonly lowLevel: number
+  readonly criticalLevel: number
+  readonly criticalAction: PowerIdleAction
+}
+
+export type PowerSettingsPatch = { readonly [G in PowerGroup]?: Partial<PowerPolicy> } & Partial<Pick<PowerSettings, 'lowLevel' | 'criticalLevel' | 'criticalAction'>>
+
+export interface PowerState {
+  readonly onBattery: boolean
+  readonly battery: PowerBattery | null
+  readonly batteries: readonly PowerBattery[]
+  readonly lid: boolean
+  readonly profile: PowerProfile | null
+  readonly profiles: readonly PowerProfile[]
+  readonly degraded: string | null
+  readonly screenOffSeconds: number | null
+  readonly sleepSeconds: number | null
+  readonly current: PowerGroup
+  readonly settings: PowerSettings
+  readonly can: { readonly suspend: boolean; readonly hibernate: boolean; readonly hybrid: boolean; readonly suspendThenHibernate: boolean }
+  readonly brightness: number | null
+  readonly inhibitors: readonly { readonly who: string; readonly why: string; readonly what: readonly ('sleep' | 'idle')[] }[]
+  readonly policy: boolean
+}
+
+export interface AcdePower {
+  state(): Promise<PowerState>
+  setProfile(profile: PowerProfile): Promise<void>
+  configure(patch: PowerSettingsPatch): Promise<void>
+  setScreenOff(seconds: number | null): Promise<void>
+  setSleep(seconds: number | null): Promise<void>
+  suspend(): Promise<void>
+  hibernate(): Promise<void>
+  setBrightness(value: number): Promise<void>
+  setChargeLimit(percent: number | null): Promise<void>
+  on(type: 'changed', handler: (state: PowerState) => void): () => boolean
+  on(type: 'prompt', handler: (event: { readonly type: 'prompt' }) => void): () => boolean
+  on(type: 'critical', handler: (event: { readonly type: 'critical'; readonly action: PowerIdleAction; readonly seconds: number }) => void): () => boolean
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice
@@ -860,6 +943,7 @@ export interface AcdePage {
   readonly bluetooth?: AcdeBluetooth
   readonly audio?: AcdeAudio
   readonly devices?: AcdeDevices
+  readonly power?: AcdePower
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch

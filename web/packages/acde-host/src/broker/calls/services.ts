@@ -14,7 +14,7 @@ export interface ServicesHost {
 
 export class ServiceCalls {
   static readonly SYNC = ['session.own'] as const
-  static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'office'])
+  static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'office'])
   static readonly #FUNCTION_KEYS = ['length', 'name', 'prototype', 'caller', 'arguments']
   readonly #host: ServicesHost
 

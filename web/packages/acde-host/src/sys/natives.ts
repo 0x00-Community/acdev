@@ -82,6 +82,7 @@ export interface WebGrants {
   readonly bluetooth: boolean
   readonly audio: boolean
   readonly devices: boolean
+  readonly power: boolean
   readonly office: boolean
   readonly camera: boolean
   readonly microphone: boolean

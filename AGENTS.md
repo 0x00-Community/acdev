@@ -106,7 +106,11 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `acde:devices` (能力 `devices`, crates/acdert `devices.rs` → runtime `devices/`, 从 acde-base 移植): UDisks2 上的可移动驱动器 (挂载、卸载、弹出)、
   CUPS 打印机 (经 IPP: 默认打印机、暂停 / 恢复、任务和取消)、自动挂载设置 (登录时 / 插入时 / 未知设备, 每个设备单独设); 事件 `changed` / `added`
   (新插入的驱动器) 由 acde-host `devices.ts` 包在原生 `watch(type)` / `unwatch(id)` 上. 自动挂载的监视只在自己的会话里由 Broker 调
-  `sys.startDevices()` 起. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
+  `sys.startDevices()` 起.
+  `acde:power` (能力 `power`, crates/acdert `power.rs` → runtime `power/`, 从 acde-base 移植): UPower 的电池、power-profiles-daemon 的模式、
+  按交流 / 电池 / 低电量分组的策略设置 (空闲动作、熄屏、合盖、电源键、亮度), logind 挂起 / 休眠, 背光亮度, 充电上限; 事件 `changed` / `prompt` /
+  `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上 (acde-base 是全局 static). 会话里的执行 (空闲计时、熄屏、
+  合盖和电源键) 要合成器配合, 见 acde-system. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
   公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
   `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的

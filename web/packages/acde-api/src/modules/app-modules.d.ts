@@ -10,6 +10,11 @@ declare module 'acde:terminal' {
   const terminal: import('../types/page').AcdeTerminals
   export { terminal, terminal as default }
 }
+declare module 'acde:power' {
+  const power: import('../types/page').AcdePower
+  export { power, power as default }
+}
+
 declare module 'acde:devices' {
   const devices: import('../types/page').AcdeDevices
   export { devices, devices as default }

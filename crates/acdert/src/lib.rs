@@ -27,6 +27,8 @@ mod office;
 mod offload;
 mod picker;
 mod platform;
+#[cfg(target_os = "linux")]
+mod power;
 mod profile;
 mod rt;
 #[cfg(target_os = "linux")]
