@@ -274,21 +274,15 @@ pub enum MozTheme {
 pub enum PointerEvents {
     Auto,
     None,
-    #[cfg(feature = "gecko")]
+    // acrender: the SVG values parse in servo too (`pointer-events: all` is common on HTML overlays); hit testing
+    // treats every value but `none` like `auto`
     Visiblepainted,
-    #[cfg(feature = "gecko")]
     Visiblefill,
-    #[cfg(feature = "gecko")]
     Visiblestroke,
-    #[cfg(feature = "gecko")]
     Visible,
-    #[cfg(feature = "gecko")]
     Painted,
-    #[cfg(feature = "gecko")]
     Fill,
-    #[cfg(feature = "gecko")]
     Stroke,
-    #[cfg(feature = "gecko")]
     All,
 }
 

@@ -209,3 +209,12 @@ fn element_from_point_follows_the_viewport_scroll() {
     assert_eq!(doc.dom.hit_test(10.0, 110.0), Some(sp));
     assert_eq!(doc.dom.hit_test_all(10.0, 310.0).first(), Some(&far));
 }
+
+#[test]
+fn pointer_events_all_takes_the_hit_back_from_a_none_ancestor() {
+    let doc = page(
+        "<!doctype html><style>body { margin: 0; } #outer { pointer-events: none; } #inner { pointer-events: all; display: block; width: 100px; height: 40px; }</style>
+        <div id=outer><button id=inner>Delete</button></div>",
+    );
+    assert_eq!(doc.dom.hit_test(10.0, 10.0), Some(doc.dom.get_element_by_id("inner")));
+}
