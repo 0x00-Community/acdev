@@ -1998,6 +1998,7 @@ impl BaseDocument {
     /// copied in; files not loaded yet are fetched, and `node_id` is built again when they arrive
     #[cfg(feature = "svg")]
     pub(crate) fn svg_with_sprites(&mut self, node_id: NodeId, source: String) -> String {
+        let source = self.svg_with_document_refs(source);
         let hrefs = crate::node::external_uses(&source);
         if hrefs.is_empty() {
             return source;
@@ -2033,6 +2034,50 @@ impl BaseDocument {
         }
         let sprites = &self.svg_sprites;
         crate::node::inline_external_uses(&source, |path| urls.get(path).and_then(|url| sprites.get(url).cloned().flatten()))
+    }
+
+    /// acrender: usvg resolves `<use href="#id">` and `url(#id)` only inside the SVG it parses, while a page often keeps
+    /// its `<symbol>`s and gradients in another `<svg>` (a hidden sprite sheet): copy each element referred to but not
+    /// defined into a `<defs>`, and what those refer to in turn
+    #[cfg(feature = "svg")]
+    fn svg_with_document_refs(&self, source: String) -> String {
+        let mut defs = String::new();
+        let mut done: Vec<String> = Vec::new();
+        let mut pending = crate::node::missing_local_refs(&source);
+        while let Some(id) = pending.pop() {
+            if done.contains(&id) {
+                continue;
+            }
+            done.push(id.clone());
+            let Some(node) = self.get_element_by_id(&id).and_then(|n| self.get_node(n)) else {
+                continue;
+            };
+            if node.element_data().is_none_or(|e| e.name.ns != markup5ever::ns!(svg)) {
+                continue;
+            }
+            let mut piece = String::new();
+            match node.primary_styles().is_some() {
+                true => {
+                    let mut svg = node.parent;
+                    while let Some(p) = svg.filter(|&p| self.nodes[p].element_data().is_some_and(|e| e.name.local != local_name!("svg"))) {
+                        svg = self.nodes[p].parent;
+                    }
+                    let viewport = svg.map_or((0.0, 0.0), |p| self.nodes[p].svg_viewport());
+                    node.write_svg(&mut piece, false, viewport);
+                }
+                false => node.write_svg_raw(&mut piece),
+            }
+            pending.extend(crate::node::missing_local_refs(&piece));
+            defs.push_str(&piece);
+        }
+        match (defs.is_empty(), source.rfind("</svg>")) {
+            (false, Some(end)) => {
+                let mut out = source;
+                out.insert_str(end, &format!("<defs>{defs}</defs>"));
+                out
+            }
+            _ => source,
+        }
     }
 
     /// Cache a loaded image and apply it to all nodes waiting on it

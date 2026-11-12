@@ -33,5 +33,5 @@ pub use stylo_data::ComputedStyleRef;
 #[cfg(feature = "svg")]
 pub use svg::{SvgImageData, SvgIntrinsicDimensions};
 #[cfg(feature = "svg")]
-pub(crate) use svg::{external_uses, inline_external_uses};
+pub(crate) use svg::{external_uses, inline_external_uses, missing_local_refs};
 pub use text::{TextBrush, TextInputData, TextLayout};

@@ -377,6 +377,39 @@ impl Node {
         }
     }
 
+    /// acrender: an SVG subtree as authored (attributes, no computed style), for one that was never styled (inside a
+    /// `display: none` <svg>, like most sprite sheets); usvg reads the presentation attributes itself
+    pub(crate) fn write_svg_raw(&self, out: &mut String) {
+        match &self.data {
+            NodeData::Text(t) => {
+                encode_text_to_string(&t.content, out);
+            }
+            NodeData::Element(e) => {
+                let tag = &*e.name.local;
+                out.push('<');
+                out.push_str(tag);
+                for attr in e.attrs().iter() {
+                    out.push(' ');
+                    if attr.name.ns == ns!(xlink) {
+                        out.push_str("xlink:");
+                    }
+                    out.push_str(&attr.name.local);
+                    out.push_str("=\"");
+                    encode_quoted_attribute_to_string(&attr.value, out);
+                    out.push('"');
+                }
+                out.push('>');
+                for &child in &self.children {
+                    self.tree()[child].write_svg_raw(out);
+                }
+                out.push_str("</");
+                out.push_str(tag);
+                out.push('>');
+            }
+            _ => {}
+        }
+    }
+
     fn write_svg_node(&self, out: &mut String, root: bool, viewport: (f32, f32), mark: Option<blitz_traits::node_id::NodeId>) {
         match &self.data {
             NodeData::Text(t) => {

@@ -194,3 +194,25 @@ fn oklch_and_color_mix_colors_paint() {
         assert!(red > 300, "{style} {attrs:?}: {red} red pixels");
     }
 }
+
+#[test]
+fn use_and_paint_refer_to_another_svg_in_the_page() {
+    let page = Page::new("html, body { margin: 0; background: #fff; } svg.show { position: absolute; top: 0; width: 100px; height: 100px; }");
+    let sheet = page.svg(0, "svg", &[("style", "display: none")]);
+    let symbol = page.svg(sheet, "symbol", &[("id", "box"), ("viewBox", "0 0 10 10")]);
+    page.svg(symbol, "rect", &[("width", "10"), ("height", "10"), ("fill", "#f00")]);
+    let gradient = page.svg(sheet, "linearGradient", &[("id", "red")]);
+    page.svg(gradient, "stop", &[("offset", "0"), ("stop-color", "#f00")]);
+    page.svg(gradient, "stop", &[("offset", "1"), ("stop-color", "#f00")]);
+
+    let with_use = page.svg(0, "svg", &[("class", "show"), ("viewBox", "0 0 100 100")]);
+    page.svg(with_use, "use", &[("href", "#box"), ("width", "100"), ("height", "100")]);
+    let (_, red) = page.count(0, 0, 100, 100);
+    assert!(red > 9000, "<use href=#box> into a hidden sheet: {red} red pixels");
+
+    page.doc.set_attribute(with_use, "style", "display: none").unwrap();
+    let painted = page.svg(0, "svg", &[("class", "show"), ("viewBox", "0 0 100 100")]);
+    page.svg(painted, "rect", &[("width", "100"), ("height", "100"), ("fill", "url(#red)")]);
+    let (_, red) = page.count(0, 0, 100, 100);
+    assert!(red > 9000, "fill=url(#red) from the sheet: {red} red pixels");
+}
