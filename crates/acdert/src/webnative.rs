@@ -14,6 +14,7 @@ struct State {
     app: Option<String>,
     surface: Option<Surface>,
     waiting: Option<v8::Global<v8::PromiseResolver>>,
+    then: Option<v8::Global<v8::Function>>,
     armed: Arc<AtomicBool>,
     #[cfg(target_os = "linux")]
     imes: bind::Slab<(acde_runtime::Ime, v8::Global<v8::Function>)>,
@@ -87,6 +88,7 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     crate::methods!(scope, obj,
         "pump" => pump,
         "wait" => wait,
+        "waitThen" => wait_then,
         "requestFrame" => request_frame,
         "requestMode" => request_mode,
         "requestState" => request_state,
@@ -219,10 +221,30 @@ fn wait(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::
     rv.set(promise.into());
 }
 
+fn wait_then(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return bind::throw_type_error(scope, "waitThen: a function");
+    };
+    let callback = v8::Global::new(scope, callback);
+    let ready = STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.then = Some(callback);
+        let ready = s.surface.as_ref().is_none_or(Surface::has_events);
+        s.armed.store(!ready, Ordering::SeqCst);
+        ready
+    });
+    if ready {
+        _ = rt::current().sender().send(Msg::Task(Box::new(wake)));
+    }
+}
+
 fn wake(scope: &mut v8::PinScope) {
     if let Some(waiting) = STATE.with(|s| s.borrow_mut().waiting.take()) {
         let undefined = v8::undefined(scope);
         v8::Local::new(scope, waiting).resolve(scope, undefined.into());
+    }
+    if let Some(then) = STATE.with(|s| s.borrow_mut().then.take()) {
+        bind::call(scope, then, &[]);
     }
 }
 

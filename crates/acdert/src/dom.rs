@@ -622,6 +622,10 @@ natives! {
         dom.set_focus(id, visible)
     }
     "setActive" => fn set_active(scope, args, dom) { let id = id(scope, &args, 0); dom.set_active(id) }
+    "setOpenState" => fn set_open_state(scope, args, dom) {
+        let (id, modal, open) = (id(scope, &args, 0), bind::arg_bool(scope, &args, 1), bind::arg_bool(scope, &args, 2));
+        dom.set_open_state(id, modal, open)
+    }
     "setSelection" => fn set_selection(scope, args, dom) {
         let (a, ao, b, bo) = (id(scope, &args, 0), f(scope, &args, 1) as u32, id(scope, &args, 2), f(scope, &args, 3) as u32);
         dom.set_selection(a, ao, b, bo)

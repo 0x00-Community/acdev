@@ -739,6 +739,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   证书、重定向, `acde network` 里是 `image` / `stylesheet` / `font`). 规则按 destination 照浏览器: 图片和样式表 no-cors (不带 `Origin`, body 照用),
   字体 cors; 样式表要 2xx 的 `text/css`, 图片不看状态码; 失败在 console 报 `Failed to load resource: <url>: <原因>`. `<link crossorigin>` 是 CORS
   请求 (空值和别的值不带凭据, `use-credentials` 带), 没过 CORS 检查算失败; 改 `crossorigin` 和改 `href` / `rel` 一样重取.
+  `document.fonts` 列的是各表的 `@font-face` (acde-dom `fontFaceTexts`, 内部读 render 的规则, 跨源 (opaque) 的表也算, 像浏览器), 页面读这种表的 `cssRules` 仍是 `SecurityError`.
   - `<link>` 的 `load` / `error`: acrender 给每个 link 记它当前这一次取 (`SheetLoad`, 连同表里 `@import` 的表, 都答了才算完), render 的
     `take_loaded` 把取完的 link 和图片一起报, `sheetState` 说成败. 成了 (取到并进了 stylist) 派 `load`; 取不到、状态码或类型不对、`@import` 的表有
     一个没取到派 `error` (已取到的规则照样生效, 和 Chrome 一样). `href` 又变了或 link 离开了文档, 先前那次的答复丢掉, 不派事件; 换 `href` 时旧表留到新的
@@ -988,7 +989,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
     返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
     `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`).
+- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`; `blob:` 和 `data:` 模块可以: `compile_graph` 经 `host.setModuleSource` 登记的 acde-dom `moduleSource` 同步取文字, 只认 JavaScript MIME 类型, 和 fetch 走同一个 `inline`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -1419,7 +1420,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
 - web 侧: `claimSurface(token, {frame?})` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
-  一条 `acde-window` 线程管 Wayland 和光栅化) 给出 surface: `pump`、`wait()` (队列非空时落定)、`requestFrame`、`setClipboard`、
+  一条 `acde-window` 线程管 Wayland 和光栅化) 给出 surface: `pump`、`wait()` (队列非空时落定)、`waitThen(cb)` (队列非空时在一个新任务里调 cb, 不在微任务里: acde-host `Host.run` 每轮取一批输入就是一个任务, 输入事件经 acde-dom `Input` 用 `fireFromTask` 派发, 每个监听器后跑微任务检查点, React 的离散事件在下一个按键前就提交; 原先循环 `await wait()` 之后都在微任务里, 检查点不生效, 连按三次只算一次)、`requestFrame`、`setClipboard`、
   `readClipboard()`、`startDrag(data, icon?)`、`setTitle`、`setImeArea`、`window`、`hosted`、`contentOffset`.
 - 事件 (`Event`, 坐标逻辑像素, button / code 是 evdev 码). 给 surface 的: `pointermove` / `pointerdown` / `pointerup` / `wheel` /
   `pointerleave`、`keydown` / `keyup {code, key}`、`imepreedit` / `imecommit` (宿主窗口)、`activate` / `deactivate`、`framebutton {key}`、
@@ -1728,6 +1729,11 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   SVG 几何 (`dom/svg.ts`, `dom/svgbox.ts`): `getBBox` 的基本图形和容器按属性在 JS 里算, 文字、图片、use 这类没有几何的子元素取 render
   画出来的框 (`rect` 经 `svg_box`) 换回元素的用户坐标; `SVGTextContentElement` 的 `getComputedTextLength` / `getSubStringLength` /
   `getNumberOfChars` 按 xml:space 默认规则整理文字, 用计算出的字体 `measureText` 量前进宽度, 加上 letter-spacing.
+  popover 和模态 dialog (`dom/popover.ts`): `showPopover` / `hidePopover` / `togglePopover` 按 HTML 发 `beforetoggle` (打开时可取消) 和排队的
+  `toggle`, auto / hint popover 打开时关掉栈里不是它祖先的 auto popover, manual 不动; 文档上按下 (pointerdown, capture) 关掉不含落点的 auto
+  popover, Escape 关最上面的 auto popover 或请求关闭最上面的模态 dialog (`requestClose`); 按钮和 `input` 的 `popovertarget` /
+  `popovertargetaction` 在激活时做 (表单里的提交 / 重置按钮仍先提交 / 重置), `popoverTargetElement`; 状态经 `dom.setOpenState` 给 render.
+  还没有: popover 的 hint 栈单独管理、焦点回到调用者、`::backdrop`.
   CSS 动画和过渡的事件 (`dom/cssevents.ts`): 页面第一次给这 8 种事件 (或 webkit 前缀的 4 种) 加监听或 on 处理器之后, 每帧 `takeAnimationEvents`
   (render 先把样式算到最新), 在元素上发 `AnimationEvent` / `TransitionEvent` (冒泡, 不可取消, 伪元素的发在宿主元素上带 `pseudoElement`);
   Web Animations 自己的 `acde-animation-<n>` 关键帧不发. 还有动画在跑或刚有事件就再要一帧; 改了 DOM 的任务结束时也要一帧, 好让新开始的动画被看到.
@@ -1807,6 +1813,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `layout/mod.rs` textarea / 文本类 `<input>` 的叶子布局, `field_sized` / `text_field_wrap` / `measure_text_field`, `document.rs` `with_text_input` | textarea 排完版把文字的高度 (加上下内边距) 算进 `scrollable_overflow_rect`, `scrollHeight` 是整段文字 (聊天输入框按它长高; 上游只有 rows 那么高); `field-sizing: content`: textarea 按给的宽度 (或 `width`、可用宽度) 折行后的文字定高, 至少一行, 不看 rows / cols; 文本类 input 按不折行的文字宽度加 1 px 光标; 值是空的时按 placeholder; 文字变了 (`with_text_input`) 清掉布局缓存重排 |
 | `document.rs` `svg_with_document_refs`, `node/svg.rs` `missing_local_refs`, `node/serialize.rs` `write_svg_raw` | usvg 只在它解析的那份 SVG 里找 `<use href="#id">` / `url(#id)`; 页面常把 `<symbol>`、渐变放在另一个 `<svg>` (藏起来的雪碧图): 这份里没定义的 id 按文档找到 SVG 元素, 抄进 `<defs>`, 再找它引用的; 没算过样式的 (在 `display: none` 的 `<svg>` 里) 按原属性写 |
 | `document.rs` `svg_box`, `node/serialize.rs` `write_svg_marked` / `SVG_BOX_ID`, `stylo.rs` SVG 呈现属性 | 内联 SVG 里的元素没有布局盒: `svg_box` 把所在的最外层 `<svg>` 再序列化一次, 目标元素包进 `<g id="__acrender_box">`, 交 usvg 解析 (文字排成路径), 取这个组在画布上的包围盒, 换成 `<svg>` 尺寸的比例; render 的 `rect` / `clientRects` 按 `<svg>` 的内容框换成页面坐标 (getBoundingClientRect, 和 acde-dom 里 getBBox 的文字、图片、use 部分). `font-size="20"` 这样不带单位的呈现属性按用户单位补 `px` (CSS 的 font-size 不收纯数字, 原先这一条被丢掉, 计算样式回到页面字号) |
+| `stylo.rs` `match_non_ts_pseudo_class`, `assets/default.css` | `:popover-open` / `:modal` 看元素状态 (由 render `Dom::set_open_state` 设, 上游一律 false), `:open` 是 `details` / `dialog` 有 `open`; popover 的 UA 样式 (定位、边框) 搬出 Gecko 的 pref, 没有 top layer, `:popover-open` 和 `dialog:modal` 给最大 z-index 代替 |
 | `has.rs` (新), `document.rs` 打开 `layout.css.has-selector.enabled` / `snapshot_node_and`, `mutator.rs` `set_attribute` / `clear_attribute` / `remove_node` / `remove_and_drop_all_children` / `add_children_to_parent`, `stylo.rs` `each_custom_state` | `:has()` (上游在 servo 里关着, 选择器不解析). 快照失效只看元素自己和右边的选择器, `:has()` 的锚在左边 (祖先、前面的兄弟), 所以状态变化、属性变化 (class / id / 其他属性名, 新旧值都算)、插入和移除前各调一次 Stylo 的 `RelativeSelectorInvalidator` (照 Gecko glue 的 `MaybeInvalidateRelativeSelector*`): 改之前调, 不带快照, 找到的锚记 restyle 并把祖先标脏; 样式里没有 `:has()` 时属性那条直接返回. `each_custom_state` 原是 `todo!()` (失效时会走到), 没有自定义状态, 什么也不做 |
 | `animation_events.rs` (新), `stylo.rs` `resolve_stylist_pass`, `document.rs` `take_animation_events` / `has_css_animations` | 推进 CSS 动画和过渡时记事件 (animationstart / iteration / end / cancel, transitionrun / start / end / cancel; elapsedTime 照 Servo 的 `script/animations.rs`, 取到微秒): 上游 Servo 在 script 里发, Blitz 没有. 第一次 `take_animation_events` 之后才记, 最多攒 4096 个; 离开文档的元素上没结束的动画和没结束的过渡记 cancel, 已结束的动画被样式去掉不记 |
 | `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |

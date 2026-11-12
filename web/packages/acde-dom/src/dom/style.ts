@@ -322,6 +322,7 @@ const NO_SERIAL = -2
 
 let ruleCount: (sheet: CSSStyleSheet) => number
 let ruleAt: (sheet: CSSStyleSheet, index: number) => CSSRule
+export let fontFaceTexts: (sheet: CSSStyleSheet) => string[]
 
 function ruleOf(text: string, sheet: CSSStyleSheet): CSSRule {
   return text.startsWith('@') ? new CSSRule(text, sheet) : new CSSStyleRule(text, sheet)
@@ -381,6 +382,12 @@ export class CSSStyleSheet {
       return n >= 0 ? n : sheet.#text().length
     }
     ruleAt = (sheet, index) => ruleOf(sheet.#native() >= 0 ? dom.sheetRule(sheet.#owner![ID], index) : (sheet.#text()[index] ?? ''), sheet)
+    fontFaceTexts = (sheet) => {
+      const owner = sheet.#owner
+      const live = owner !== null && sheet.#serial !== NO_SERIAL && dom.sheetSerial(owner[ID]) === sheet.#serial
+      const texts = live ? Array.from({ length: dom.sheetRuleCount(owner[ID]) }, (_, i) => dom.sheetRule(owner[ID], i)) : sheet.#text()
+      return texts.filter((text) => /^\s*@font-face\b/i.test(text))
+    }
   }
 
   get cssRules(): CSSRuleList {

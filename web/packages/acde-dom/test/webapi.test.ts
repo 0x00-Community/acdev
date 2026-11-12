@@ -323,6 +323,39 @@ test('navigator languages follow the session: languagechange on window', async (
   assert.deepEqual(web.json(`seen`), [['languagechange', false, 'zh-CN', 'zh-CN,zh']])
 })
 
+test('popover: show / hide / toggle with beforetoggle and toggle, auto popovers close each other, light dismiss, popovertarget', async () => {
+  using web = await page('<!doctype html><html><body><div id="a" popover>A<div id="b" popover>B</div></div><div id="c" popover>C</div>'
+    + '<div id="m" popover="manual">M</div><button id="t" popovertarget="c">open c</button><p id="out">x</p><div id="n">plain</div></body></html>')
+  web.run(`globalThis.log = []
+    const $ = (id) => document.getElementById(id)
+    for (const id of ['a', 'b', 'c', 'm']) {
+      $(id).addEventListener('beforetoggle', (e) => log.push(id + ' before ' + e.newState))
+      $(id).addEventListener('toggle', (e) => log.push(id + ' toggle ' + e.oldState + '>' + e.newState))
+    }
+    let threw = ''
+    try { $('n').showPopover() } catch (e) { threw = e.name }
+    $('a').showPopover(); $('b').showPopover(); $('m').showPopover()
+    globalThis.mid = [$('a').matches(':popover-open'), $('b').matches(':popover-open')]
+    $('c').showPopover()
+    globalThis.after = { threw, open: ['a', 'b', 'c', 'm'].filter((id) => $(id).togglePopover !== undefined && log.includes(id + ' before open')) }`)
+  await web.wait(0)
+  const states = (id: string) => web.dom.openStates.get(web.internals.idOf(web.run(`document.getElementById('${id}')`)))?.open
+  assert.equal(web.json<{ threw: string }>('after').threw, 'NotSupportedError')
+  assert.deepEqual(['a', 'b', 'c', 'm'].map(states), [false, false, true, true], 'c closes a and b (not its ancestors); manual m stays')
+  assert.deepEqual(web.json<string[]>('log').slice(0, 6), ['a before open', 'b before open', 'm before open', 'c before open', 'b before closed', 'a before closed'], 'the opening one first, as HTML orders it')
+  web.run(`document.getElementById('t').click()`)
+  assert.equal(states('c'), false, 'popovertarget toggles c closed')
+  web.run(`document.getElementById('c').addEventListener('beforetoggle', (e) => e.preventDefault(), { once: true })`)
+  web.run(`document.getElementById('t').click()`)
+  assert.equal(states('c'), false, 'a canceled beforetoggle keeps it closed')
+  web.run(`document.getElementById('t').click()`)
+  assert.equal(states('c'), true, 'and the next click opens it')
+  web.run(`document.getElementById('out').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`)
+  assert.deepEqual([states('c'), states('m')], [false, true], 'a press outside closes auto popovers, not manual ones')
+  web.run(`document.getElementById('a').showPopover(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  assert.equal(states('a'), false, 'Escape closes the top auto popover')
+})
+
 test('canvas: filter keeps the last valid <filter-value-list>, and save / restore it', async () => {
   using web = await page()
   web.run(`const ctx = document.createElement('canvas').getContext('2d')
@@ -602,6 +635,17 @@ test('document.fonts lists the faces of @font-face rules and the ones added', as
     document.fonts.add(new FontFace('Extra', 'url(/x.woff2)'))
     JSON.stringify({ first, same, size: document.fonts.size, all: faces() })`)
   assert.deepEqual(JSON.parse(out as string), { first: ['Inter:700:loaded'], same: true, size: 2, all: ['Inter:700:loaded', 'Extra:normal:unloaded'] })
+})
+
+test('document.fonts also lists the @font-face rules of a cross-origin stylesheet, whose cssRules the page cannot read', async () => {
+  using web = await page('<!doctype html><html><head><link rel="stylesheet" href="https://fonts.example/css"></head><body></body></html>')
+  const link = web.internals.idOf(web.run(`document.querySelector('link')`))
+  web.dom._sheet(link, 1, true, 'https://fonts.example/css', ['@font-face { font-family: "Lobster"; src: url(https://fonts.example/l.woff2) }', 'p { color: red }'])
+  web.frame()
+  const out = web.run(`let read = 'readable'
+    try { document.styleSheets[0].cssRules } catch (e) { read = e.name }
+    JSON.stringify({ read, fonts: [...document.fonts].map((f) => f.family) })`)
+  assert.deepEqual(JSON.parse(out as string), { read: 'SecurityError', fonts: ['Lobster'] })
 })
 
 test('CSS.supports asks render: a condition text or a property and a value; no argument throws', async () => {

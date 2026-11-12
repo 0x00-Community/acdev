@@ -14,6 +14,7 @@ import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, existing, ID, lifecycle, nodeConstructing, wrap, inner } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
 import { followLink } from './window'
+import { hidePopover, setModal, showPopover, togglePopover } from './popover'
 
 const htmlClasses = new Map<string, new () => Element>()
 
@@ -180,10 +181,14 @@ export class HTMLElement extends Element {
     throw new DOMException('ElementInternals is not supported', 'NotSupportedError')
   }
 
-  showPopover(): void {}
-  hidePopover(): void {}
-  togglePopover(): boolean {
-    return false
+  showPopover(): void {
+    showPopover(this as never)
+  }
+  hidePopover(): void {
+    hidePopover(this as never)
+  }
+  togglePopover(force?: boolean | { force?: boolean }): boolean {
+    return togglePopover(this as never, force)
   }
 }
 mixin(HTMLElement, HTMLOrSVGElementMixin)
@@ -516,6 +521,7 @@ export class HTMLDialogElement extends HTMLElement {
     if (!this.isConnected) throw new DOMException("Failed to execute 'showModal' on 'HTMLDialogElement': The element is not in a Document.", 'InvalidStateError')
     if (dom.hasAttribute(this[ID], 'open')) return
     setAttribute(this, 'open', '')
+    setModal(this as never, true)
     const first = this.querySelector('[autofocus]') ?? this.querySelector('button, input, select, textarea, a[href], [tabindex]')
     if (first) inner(first as HTMLElement, 'focus').call(first as HTMLElement)
   }
@@ -523,6 +529,7 @@ export class HTMLDialogElement extends HTMLElement {
   close(returnValue?: string): void {
     if (!dom.hasAttribute(this[ID], 'open')) return
     setAttribute(this, 'open', null)
+    setModal(this as never, false)
     if (returnValue !== undefined) this.returnValue = String(returnValue)
     queueTask(() => fire(this, new Event('close')))
   }
