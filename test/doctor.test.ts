@@ -250,19 +250,22 @@ describe('acde doctor', () => {
     expect(Doctor.format(checks.slice(0, 2)).split('\n').at(-1)).toBe('acde doctor: no errors, 1 warning')
     expect(Doctor.failed(checks)).toBe(true)
     expect(Doctor.failed(checks.slice(0, 2))).toBe(false)
-    const long = Doctor.warn('display', 'display', 'no display: the host window cannot open, so run acde dev with '
-      + '--headless or start a desktop session first', 'set DISPLAY or WAYLAND_DISPLAY to a running display server')
-    expect(Doctor.format([long], Color.palette(false), 40).split('\n')).toEqual([
-      'warn   display: no display: the host',
-      '       window cannot open, so run acde',
-      '       dev with --headless or start a',
-      '       desktop session first',
-      '       fix: set DISPLAY or',
-      '            WAYLAND_DISPLAY to a running',
-      '            display server',
-      'acde doctor: no errors, 1 warning',
+  })
+
+  test('format: rows are not wrapped, so a path or command in a summary or fix copies whole', () => {
+    const home = '/Users/Jane Doe/Library/Application Support/acde'
+    const checks = [
+      Doctor.warn('path', 'PATH', `acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
+        `add ${home}/bin to PATH (the installer does that unless it is told not to)`),
+      Doctor.warn('latest', 'latest release', 'acde 0.0.10 is out; this is 0.0.9', Doctor.installer({})),
+    ]
+    expect(Doctor.format(checks, Color.palette(false)).split('\n')).toEqual([
+      `warn   PATH: acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
+      `       fix: add ${home}/bin to PATH (the installer does that unless it is told not to)`,
+      'warn   latest release: acde 0.0.10 is out; this is 0.0.9',
+      `       fix: ${Doctor.installer({})}`,
+      'acde doctor: no errors, 2 warnings',
     ])
-    expect(Doctor.format([long], Color.palette(false), null).split('\n')).toHaveLength(3)
   })
 
   test('helpers: versions compare by number; inside is about whole path segments', () => {

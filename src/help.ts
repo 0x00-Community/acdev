@@ -291,16 +291,16 @@ export class Help {
     return stream.isTTY ? Help.width(stream.columns) : null
   }
 
-  static block(text: string, width: number | null, indent: string, first = indent): string[] {
-    if (width === null) return [first + text]
+  static block(text: string | readonly string[], width: number | null, indent: string, first = indent): string[] {
+    if (width === null) return [first + (typeof text === 'string' ? text : text.join(' '))]
     const [head = '', ...rest] = Help.wrap(text, width, indent)
     return [first + head.slice(indent.length), ...rest]
   }
 
-  static wrap(text: string, width: number, indent: string): string[] {
+  static wrap(text: string | readonly string[], width: number, indent: string): string[] {
     const lines: string[] = []
     let line = ''
-    for (const word of text.split(/\s+/).filter(Boolean)) {
+    for (const word of typeof text === 'string' ? Help.words(text) : text) {
       if (line && Color.width(line) + 1 + Color.width(word) > width - indent.length) {
         lines.push(indent + line)
         line = word
@@ -308,6 +308,10 @@ export class Help {
     }
     if (line) lines.push(indent + line)
     return lines
+  }
+
+  static words(text: string): string[] {
+    return text.split(/\s+/).filter(Boolean)
   }
 
   static overview(

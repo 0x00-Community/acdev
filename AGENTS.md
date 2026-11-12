@@ -33,7 +33,11 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 (`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdert does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
 版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 `acde --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
-和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acde doctor` 的输出 (`Doctor.format`, 续行缩进到检查名或 `fix:` 之后)、`acde new` 的 then 提示和 `acde skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读. `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
+和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acde new` 的 then 提示和 `acde skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读.
+要复制的命令、路径、网址不折断 (折在中间, 复制下来就成了两条命令, 比如 `curl -fsSL` 单独一行), 长了交给终端软换行 (复制时仍是一行):
+`acde doctor` (`Doctor.format`) 每项一行 `title: summary`、一行 `fix:`, 都不折, 因为 summary 里随处插着路径 (带空格的也有), fix 是命令,
+文字里分不出哪段能折; `Help.block` / `Help.wrap` 收文字 (按空白拆成词, `Help.words`) 或一组不可拆的片段, `acde skills` 状态表的路径是一个片段,
+带空格也不拆, 只折后面的 agent 名单. `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
 颜色 (`src/color.ts`): 写到的那个流是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色 (`0`、`false` 视为关, 同 Node 和 chalk),
 `TERM=dumb` 不上色. 上色的只有帮助、快速上手、标签 (`ok:` 绿、`warning:` 黄、`error:` 红、`note:`/`hint:` 暗)、`acde doctor` 的状态词
 (ok 绿、warn 黄、error 红、skip 暗), 以及结果行的前缀: `build`/`install` 成功的 `acde:` 绿, `acde doctor:` 和 `acde test:` 汇总按结果

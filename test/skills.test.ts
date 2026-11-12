@@ -5,6 +5,7 @@ import {
 import { join } from 'node:path'
 import { skillProblems } from '../scripts/skill.ts'
 import { Agents } from '../src/agents.ts'
+import { Skills } from '../src/skills.ts'
 import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
@@ -128,6 +129,20 @@ describe('acde skills', () => {
       .toBe(join(home, 'cc', 'skills'))
     expect(skills({ XDG_CONFIG_HOME: join(home, 'cfg') }, 'opencode'))
       .toBe(join(home, 'cfg', 'opencode', 'skills'))
+  })
+
+  test('the status table wraps the agent names, never a path, even one with spaces', () => {
+    const path = '/Users/Jane Doe/Library/Application Support/agents/skills/acde'
+    const rows = [['skill', ['/opt/acde/skills/acde']], ['link, current', [path, '(Claude', 'Code,', 'Codex)']]] as const
+    expect(Skills.table(rows, 40)).toEqual([
+      `${'skill'.padEnd(16)}/opt/acde/skills/acde`,
+      `${'link, current'.padEnd(16)}${path}`,
+      `${' '.repeat(16)}(Claude Code, Codex)`,
+    ])
+    expect(Skills.table(rows, null)).toEqual([
+      `${'skill'.padEnd(16)}/opt/acde/skills/acde`,
+      `${'link, current'.padEnd(16)}${path} (Claude Code, Codex)`,
+    ])
   })
 
   test('install links the skill for the agents found, status and remove follow', async () => {

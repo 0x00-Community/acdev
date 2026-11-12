@@ -137,21 +137,23 @@ export class Skills {
   }
 
   static status(source: string, places: readonly Place[]): number {
-    const rows: [string, string][] = [['skill', source]]
+    const rows: [string, string[]][] = [['skill', [source]]]
     let installed = 0
     for (const place of places) {
       const { state, kind } = Skills.look(source, place)
       if (state === 'missing' && !place.found) continue
       if (state !== 'missing' && state !== 'foreign') installed++
       const what = state === 'missing' ? 'not installed' : state === 'foreign' ? 'another skill' : `${kind}, ${state}`
-      rows.push([what, `${Skills.at(place)}${Skills.who(place)}`])
+      rows.push([what, [Skills.at(place), ...Help.words(Skills.who(place))]])
     }
-    const pad = Math.max(Skills.LABEL, ...rows.map(([what]) => what.length + 2))
-    const width = Help.terminal()
-    const lines = rows.flatMap(([what, where]) => Help.block(where, width, ' '.repeat(pad), what.padEnd(pad)))
-    console.log(lines.join('\n'))
+    console.log(Skills.table(rows).join('\n'))
     if (installed === 0) console.log('acde: the skill is not installed for any agent: acde skills install')
     return 0
+  }
+
+  static table(rows: readonly (readonly [string, readonly string[]])[], width = Help.terminal()): string[] {
+    const pad = Math.max(Skills.LABEL, ...rows.map(([what]) => what.length + 2))
+    return rows.flatMap(([what, where]) => Help.block(where, width, ' '.repeat(pad), what.padEnd(pad)))
   }
 
   static look(source: string, place: Place): Seen {
