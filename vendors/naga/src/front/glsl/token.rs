@@ -38,6 +38,9 @@ pub enum TokenValue {
     Buffer,
     Const,
     Shared,
+    // acde: GLSL ES 1.00 storage qualifiers
+    Attribute,
+    Varying,
 
     Restrict,
     /// A `glsl` memory qualifier such as `writeonly`

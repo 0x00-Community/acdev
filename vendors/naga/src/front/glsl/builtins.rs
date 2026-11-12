@@ -1392,8 +1392,21 @@ fn inject_common_builtin(
                 declaration.overloads.push(module.add_builtin(args, fun))
             }
         }
-        // TODO: https://github.com/gfx-rs/naga/issues/2526
-        // "modf" | "frexp" => { ... }
+        // acde: modf(x, out i) (three.js uses it); frexp is still missing
+        "modf" => {
+            for size in [None, Some(VectorSize::Bi), Some(VectorSize::Tri), Some(VectorSize::Quad)] {
+                let ty = match size {
+                    Some(size) => TypeInner::Vector {
+                        size,
+                        scalar: float_scalar,
+                    },
+                    None => TypeInner::Scalar(float_scalar),
+                };
+                let mut overload = module.add_builtin(vec![ty.clone(), ty], MacroCall::Modf);
+                overload.parameters_info[1].qualifier = ParameterQualifier::Out;
+                declaration.overloads.push(overload)
+            }
+        }
         "cross" => {
             let args = vec![
                 TypeInner::Vector {
@@ -1543,6 +1556,8 @@ pub enum TextureLevelType {
 /// A compiler defined builtin function
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum MacroCall {
+    // acde: modf(x, out i)
+    Modf,
     Sampler,
     SamplerShadow,
     Texture {
@@ -1940,6 +1955,35 @@ impl MacroCall {
                 },
                 Span::default(),
             )?,
+            // acde: i = trunc(x), returns x - i (both keep the sign of x)
+            MacroCall::Modf => {
+                let whole = ctx.add_expression(
+                    Expression::Math {
+                        fun: MathFunction::Trunc,
+                        arg: args[0],
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    },
+                    Span::default(),
+                )?;
+                ctx.emit_restart();
+                ctx.body.push(
+                    crate::Statement::Store {
+                        pointer: args[1],
+                        value: whole,
+                    },
+                    meta,
+                );
+                ctx.add_expression(
+                    Expression::Binary {
+                        op: BinaryOperator::Subtract,
+                        left: args[0],
+                        right: whole,
+                    },
+                    Span::default(),
+                )?
+            }
             MacroCall::Mod(size) => {
                 ctx.implicit_splat(&mut args[1], meta, size)?;
 

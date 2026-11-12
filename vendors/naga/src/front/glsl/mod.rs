@@ -163,6 +163,81 @@ impl Default for ShaderMetadata {
 ///
 /// Calling the [`parse`](Frontend::parse) method multiple times will reset the
 /// `Frontend` so no extra care is needed when reusing.
+// acde: WebGL (GLSL ES 1.00 / 3.00) dialect, see `Frontend::parse_webgl`
+/// Where the WebGL dialect puts a shader's interface and resources.
+#[derive(Debug, Default, Clone)]
+pub struct WebGlOptions {
+    /// Locations of inputs and outputs by name; unnamed ones get the next free location.
+    pub locations: FastHashMap<String, u32>,
+    /// Binding (in group 0) of the default uniform block.
+    pub uniform_binding: u32,
+    /// Group of the samplers, textures and uniform blocks.
+    pub group: u32,
+    /// First binding in `group`.
+    pub first_binding: u32,
+    /// Length of `gl_FragData`.
+    pub draw_buffers: u32,
+    /// Inputs and outputs that become plain globals (an output nothing reads, an input nothing writes).
+    pub dropped: FastHashSet<String>,
+}
+
+/// A shader input or output.
+#[derive(Debug, Clone)]
+pub struct WebGlInterface {
+    pub name: String,
+    pub handle: Handle<crate::GlobalVariable>,
+    pub ty: Handle<Type>,
+    pub location: u32,
+    pub explicit: bool,
+}
+
+/// A sampler uniform (or array of them): an image and a sampler global per element.
+#[derive(Debug, Clone)]
+pub struct WebGlSampler {
+    pub name: String,
+    pub ty: Handle<Type>,
+    pub array: Option<u32>,
+    pub globals: Vec<(Handle<crate::GlobalVariable>, Handle<crate::GlobalVariable>)>,
+    pub bindings: Vec<(u32, u32)>,
+}
+
+/// A uniform block.
+#[derive(Debug, Clone)]
+pub struct WebGlBlock {
+    pub name: String,
+    pub instance: Option<String>,
+    pub handle: Handle<crate::GlobalVariable>,
+    pub binding: u32,
+}
+
+/// What the WebGL dialect found in a shader.
+#[derive(Debug, Default, Clone)]
+pub struct WebGlShader {
+    pub version: u16,
+    pub inputs: Vec<WebGlInterface>,
+    pub outputs: Vec<WebGlInterface>,
+    /// The default uniform block; its members are the loose uniforms (bools stored as uint).
+    pub uniforms: Option<Handle<crate::GlobalVariable>>,
+    /// Declared type of each default block member.
+    pub uniform_types: Vec<Handle<Type>>,
+    pub samplers: Vec<WebGlSampler>,
+    pub blocks: Vec<WebGlBlock>,
+    pub frag_data: Option<Handle<crate::GlobalVariable>>,
+    pub point_size: Option<Handle<crate::GlobalVariable>>,
+}
+
+#[derive(Debug, Default)]
+struct WebGlState {
+    options: WebGlOptions,
+    shader: WebGlShader,
+    next_input: u32,
+    next_output: u32,
+    next_binding: u32,
+    members: Vec<crate::StructMember>,
+    span: u32,
+    block: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct Frontend {
     meta: ShaderMetadata,
@@ -177,6 +252,9 @@ pub struct Frontend {
     layouter: Layouter,
 
     errors: Vec<Error>,
+
+    // acde: WebGL dialect
+    webgl: Option<WebGlState>,
 }
 
 impl Frontend {
@@ -188,6 +266,7 @@ impl Frontend {
         self.global_variables.clear();
         self.entry_args.clear();
         self.layouter.clear();
+        self.webgl = None;
     }
 
     /// Parses a shader either outputting a shader [`Module`] or a list of
@@ -228,6 +307,44 @@ impl Frontend {
     /// Following an unsuccessful parsing the state of the returned information
     /// is undefined, it might contain only partial information about the
     /// current shader, the previous shader or both.
+    // acde: WebGL dialect
+    /// Parses a WebGL shader (GLSL ES 1.00, or 3.00 with `#version 300 es`).
+    ///
+    /// Attributes, varyings and fragment outputs get locations from `webgl.locations` (else in order),
+    /// loose uniforms go into one uniform buffer (group 0, `webgl.uniform_binding`), and each combined
+    /// sampler becomes an image and a sampler (group `webgl.group`, from `webgl.first_binding`).
+    /// The vertex position is flipped in y and its depth mapped to [0, 1].
+    pub fn parse_webgl(
+        &mut self,
+        options: &Options,
+        webgl: WebGlOptions,
+        source: &str,
+    ) -> core::result::Result<(Module, WebGlShader), ParseErrors> {
+        self.reset(options.stage);
+        self.meta.version = 100;
+        self.meta.profile = Profile::Es;
+        self.webgl = Some(WebGlState {
+            next_binding: webgl.first_binding,
+            options: webgl,
+            ..Default::default()
+        });
+
+        let lexer = lex::Lexer::new(source, &options.defines).webgl();
+        let mut ctx = ParsingContext::new(lexer);
+
+        let result = ctx.parse(self);
+        let mut state = self.webgl.take().unwrap_or_default();
+        state.shader.version = self.meta.version;
+        match result {
+            Ok(module) if self.errors.is_empty() => Ok((module, state.shader)),
+            Ok(_) => Err(core::mem::take(&mut self.errors).into()),
+            Err(e) => {
+                self.errors.push(e);
+                Err(core::mem::take(&mut self.errors).into())
+            }
+        }
+    }
+
     pub const fn metadata(&self) -> &ShaderMetadata {
         &self.meta
     }

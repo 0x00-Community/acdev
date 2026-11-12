@@ -514,6 +514,8 @@ impl ParsingContext<'_> {
                             kind: ScalarKind::Float | ScalarKind::Sint,
                             ..
                         }) => {}
+                        // acde: GLSL ES also sets default precisions of sampler types
+                        TypeInner::Image { .. } if frontend.webgl.is_some() => {}
                         _ => frontend.errors.push(Error {
                             kind: ErrorKind::SemanticError(
                                 "Precision statement can only work on floats and ints".into(),
@@ -589,6 +591,15 @@ impl ParsingContext<'_> {
             }
         };
 
+        // acde: a WebGL uniform block, not a loose uniform
+        let block_name = match ctx.module.types[ty].inner {
+            TypeInner::Struct { .. } => ctx.module.types[ty].name.clone(),
+            _ => None,
+        };
+        if let Some(state) = frontend.webgl.as_mut() {
+            state.block = true;
+        }
+        let instance = name.clone();
         let global = frontend.add_global_var(
             ctx,
             VarDeclaration {
@@ -598,7 +609,20 @@ impl ParsingContext<'_> {
                 init: None,
                 meta,
             },
-        )?;
+        );
+        if let Some(state) = frontend.webgl.as_mut() {
+            state.block = false;
+            if let Ok(GlobalOrConstant::Global(handle)) = global {
+                let binding = ctx.module.global_variables[handle].binding.as_ref().map_or(0, |b| b.binding);
+                state.shader.blocks.push(super::super::WebGlBlock {
+                    name: block_name.unwrap_or_default(),
+                    instance,
+                    handle,
+                    binding,
+                });
+            }
+        }
+        let global = global?;
 
         for (i, k, ty) in members.into_iter().enumerate().filter_map(|(i, m)| {
             let ty = m.ty;
@@ -675,6 +699,11 @@ impl ParsingContext<'_> {
             if let TokenValue::RightBrace = self.expect_peek(frontend)?.value {
                 break;
             }
+        }
+
+        // acde: WebGL structs align to 16, as in the default uniform block
+        if layout == StructLayout::WebGl {
+            align = align.max(Alignment::MIN_UNIFORM);
         }
 
         span = align.round_up(span);

@@ -18,27 +18,57 @@ use crate::{
 impl ParsingContext<'_> {
     pub fn peek_parameter_qualifier(&mut self, frontend: &mut Frontend) -> bool {
         self.peek(frontend).is_some_and(|t| match t.value {
-            TokenValue::In | TokenValue::Out | TokenValue::InOut | TokenValue::Const => true,
+            TokenValue::In
+            | TokenValue::Out
+            | TokenValue::InOut
+            | TokenValue::Const
+            | TokenValue::PrecisionQualifier(_) => true,
             _ => false,
         })
     }
 
     /// Returns the parsed `ParameterQualifier` or `ParameterQualifier::In`
+    // acde: `const in` and a precision qualifier can come together (`const in highp float x`)
     pub fn parse_parameter_qualifier(&mut self, frontend: &mut Frontend) -> ParameterQualifier {
-        if self.peek_parameter_qualifier(frontend) {
-            match self.bump(frontend).unwrap().value {
+        let mut qualifier = None;
+        loop {
+            let Some(token) = self.peek(frontend) else { break };
+            let next = match token.value {
                 TokenValue::In => ParameterQualifier::In,
                 TokenValue::Out => ParameterQualifier::Out,
                 TokenValue::InOut => ParameterQualifier::InOut,
                 TokenValue::Const => ParameterQualifier::Const,
-                _ => unreachable!(),
-            }
-        } else {
-            ParameterQualifier::In
+                TokenValue::PrecisionQualifier(_) => {
+                    let _ = self.bump(frontend);
+                    continue;
+                }
+                _ => break,
+            };
+            let _ = self.bump(frontend);
+            qualifier = Some(match (qualifier, next) {
+                (Some(ParameterQualifier::Const), ParameterQualifier::In)
+                | (Some(ParameterQualifier::In), ParameterQualifier::Const) => ParameterQualifier::Const,
+                (_, next) => next,
+            });
         }
+        qualifier.unwrap_or(ParameterQualifier::In)
     }
 
+    // acde: bounded nesting (`MAX_DEPTH`)
     pub fn parse_statement(
+        &mut self,
+        frontend: &mut Frontend,
+        ctx: &mut Context,
+        terminator: &mut Option<usize>,
+        is_inside_loop: bool,
+    ) -> Result<Option<Span>> {
+        let meta = self.last_meta;
+        self.nested(meta, |this| {
+            this.parse_statement_nested(frontend, ctx, terminator, is_inside_loop)
+        })
+    }
+
+    fn parse_statement_nested(
         &mut self,
         frontend: &mut Frontend,
         ctx: &mut Context,

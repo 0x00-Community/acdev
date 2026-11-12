@@ -52,7 +52,14 @@ impl ParsingContext<'_> {
                 ArraySize::Constant(size)
             };
 
-            frontend.layouter.update(ctx.module.to_ctx()).unwrap();
+            // acde: an array too large to lay out is an error in the shader, not a panic
+            frontend
+                .layouter
+                .update(ctx.module.to_ctx())
+                .map_err(|e| Error {
+                    kind: ErrorKind::SemanticError(alloc::format!("{e}").into()),
+                    meta: *span,
+                })?;
             let stride = frontend.layouter[*ty].to_stride();
             *ty = ctx.module.types.insert(
                 Type {
@@ -90,7 +97,11 @@ impl ParsingContext<'_> {
                     frontend,
                     ctx,
                     &mut members,
-                    StructLayout::Std140,
+                    // acde: WebGL structs can be loose uniforms
+                    match frontend.webgl.is_some() {
+                        true => StructLayout::WebGl,
+                        false => StructLayout::Std140,
+                    },
                 )?;
                 let end_meta = self.expect(frontend, TokenValue::RightBrace)?.meta;
                 meta.subsume(end_meta);
@@ -161,6 +172,8 @@ impl ParsingContext<'_> {
             | TokenValue::Buffer
             | TokenValue::Restrict
             | TokenValue::MemoryQualifier(_)
+            | TokenValue::Attribute
+            | TokenValue::Varying
             | TokenValue::Layout => true,
             _ => false,
         })
@@ -246,6 +259,42 @@ impl ParsingContext<'_> {
                         });
                     }
 
+                    qualifiers.storage = (storage, token.meta);
+                }
+                // acde: GLSL ES 1.00 storage qualifiers
+                TokenValue::Attribute | TokenValue::Varying => {
+                    let stage = frontend.meta.stage;
+                    let storage = match token.value {
+                        TokenValue::Attribute if stage == crate::ShaderStage::Vertex => {
+                            Some(StorageQualifier::Input)
+                        }
+                        TokenValue::Varying if stage == crate::ShaderStage::Vertex => {
+                            Some(StorageQualifier::Output)
+                        }
+                        TokenValue::Varying if stage == crate::ShaderStage::Fragment => {
+                            Some(StorageQualifier::Input)
+                        }
+                        _ => None,
+                    };
+                    let Some(storage) = storage.filter(|_| frontend.meta.version == 100) else {
+                        frontend.errors.push(Error {
+                            kind: ErrorKind::SemanticError(
+                                "'attribute' and 'varying' are only for GLSL ES 1.00 vertex (attribute, varying) and fragment (varying) shaders".into(),
+                            ),
+                            meta: token.meta,
+                        });
+                        continue;
+                    };
+                    if StorageQualifier::AddressSpace(AddressSpace::Function)
+                        != qualifiers.storage.0
+                    {
+                        frontend.errors.push(Error {
+                            kind: ErrorKind::SemanticError(
+                                "Cannot use more than one storage qualifier per declaration".into(),
+                            ),
+                            meta: token.meta,
+                        });
+                    }
                     qualifiers.storage = (storage, token.meta);
                 }
                 TokenValue::Sampling(s) => {

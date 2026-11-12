@@ -26,7 +26,13 @@ pub struct ParsingContext<'source> {
     /// Used to store tokens already consumed by the parser but that need to be backtracked
     backtracked_token: Option<Token>,
     last_meta: Span,
+    // acde: nesting of expressions and statements
+    depth: u32,
 }
+
+// acde: shader source can come from anywhere (WebGL pages); nesting is bounded so that deep
+// source is an error instead of a stack overflow in the parser, the lowering or a backend
+pub(crate) const MAX_DEPTH: u32 = 128;
 
 impl<'source> ParsingContext<'source> {
     pub fn new(lexer: Lexer<'source>) -> Self {
@@ -34,6 +40,7 @@ impl<'source> ParsingContext<'source> {
             lexer: lexer.peekable(),
             backtracked_token: None,
             last_meta: Span::default(),
+            depth: 0,
         }
     }
 
@@ -165,6 +172,24 @@ impl<'source> ParsingContext<'source> {
         })
     }
 
+    // acde: see `MAX_DEPTH`
+    pub(crate) fn nested<T>(
+        &mut self,
+        meta: Span,
+        f: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if self.depth >= MAX_DEPTH {
+            return Err(Error {
+                kind: ErrorKind::SemanticError("nesting is too deep".into()),
+                meta,
+            });
+        }
+        self.depth += 1;
+        let result = f(self);
+        self.depth -= 1;
+        result
+    }
+
     pub fn parse(&mut self, frontend: &mut Frontend) -> Result<Module> {
         let mut module = Module::default();
         let mut global_expression_kind_tracker = crate::proc::ExpressionKindTracker::new();
@@ -179,6 +204,19 @@ impl<'source> ParsingContext<'source> {
 
         while self.peek(frontend).is_some() {
             self.parse_external_declaration(frontend, &mut ctx)?;
+        }
+
+        // acde: a WebGL vertex shader always has a position, even one it never writes
+        if frontend.webgl.is_some()
+            && frontend.meta.stage == crate::ShaderStage::Vertex
+            && !frontend.entry_args.iter().any(|a| {
+                matches!(
+                    a.binding,
+                    crate::Binding::BuiltIn(crate::BuiltIn::Position { .. })
+                )
+            })
+        {
+            frontend.lookup_variable(&mut ctx, "gl_Position", Span::default())?;
         }
 
         // Add an `EntryPoint` to `parser.module` for `main`, if a
@@ -264,7 +302,11 @@ impl Frontend {
                         value: PPTokenValue::Integer(int),
                         location,
                     }) => match int.value {
-                        440 | 450 | 460 => self.meta.version = int.value as u16,
+                        440 | 450 | 460 if self.webgl.is_none() => {
+                            self.meta.version = int.value as u16
+                        }
+                        // acde: GLSL ES 1.00 and 3.00 (WebGL)
+                        100 | 300 if self.webgl.is_some() => self.meta.version = int.value as u16,
                         _ => self.errors.push(Error {
                             kind: ErrorKind::InvalidVersion(int.value),
                             meta: location.into(),
@@ -287,7 +329,9 @@ impl Frontend {
                         value: PPTokenValue::Ident(name),
                         location,
                     }) => match name.as_str() {
-                        "core" => self.meta.profile = Profile::Core,
+                        "core" if self.webgl.is_none() => self.meta.profile = Profile::Core,
+                        // acde: GLSL ES (WebGL)
+                        "es" if self.webgl.is_some() => self.meta.profile = Profile::Es,
                         _ => self.errors.push(Error {
                             kind: ErrorKind::InvalidProfile(name),
                             meta: location.into(),

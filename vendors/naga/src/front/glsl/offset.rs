@@ -117,7 +117,10 @@ pub fn calculate_offset(
             let mut align = Alignment::from(rows) * Alignment::from_width(scalar.width);
 
             // See comment at the beginning of the function
-            if StructLayout::Std430 != layout {
+            // acde: WebGL keeps matCx2 at its natural (WGSL) layout
+            if StructLayout::Std430 != layout
+                && !(StructLayout::WebGl == layout && rows == crate::VectorSize::Bi)
+            {
                 align = align.max(Alignment::MIN_UNIFORM);
             }
 
@@ -162,6 +165,11 @@ pub fn calculate_offset(
                 member.offset = span;
 
                 span += info.span;
+            }
+
+            // acde: WebGL structs can sit in the default uniform block, where structs align to 16
+            if StructLayout::WebGl == layout {
+                align = align.max(Alignment::MIN_UNIFORM);
             }
 
             span = align.round_up(span);

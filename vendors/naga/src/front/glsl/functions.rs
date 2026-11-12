@@ -17,7 +17,7 @@ use super::{
 use crate::{
     front::glsl::types::type_power, proc::ensure_block_returns, AddressSpace, Block, EntryPoint,
     Expression, Function, FunctionArgument, FunctionResult, Handle, Literal, LocalVariable, Scalar,
-    ScalarKind, Span, Statement, StructMember, Type, TypeInner,
+    ScalarKind, ShaderStage, Span, Statement, StructMember, Type, TypeInner,
 };
 
 /// Struct detailing a store operation that must happen after a function call
@@ -521,6 +521,23 @@ impl Frontend {
         raw_args: &[Handle<HirExpr>],
         meta: Span,
     ) -> Result<Option<Handle<Expression>>> {
+        // acde: the GLSL ES 1.00 texture functions (and their extension forms) are the GLSL ES 3.00 ones
+        let name = match self.webgl.is_some() {
+            true => match name.as_str() {
+                "texture2D" | "textureCube" | "texture3D" | "shadow2DEXT" => "texture".into(),
+                "texture2DProj" | "texture3DProj" | "shadow2DProjEXT" => "textureProj".into(),
+                "texture2DLod" | "textureCubeLod" | "texture2DLodEXT" | "textureCubeLodEXT"
+                | "texture3DLod" => "textureLod".into(),
+                "texture2DProjLod" | "texture2DProjLodEXT" | "texture3DProjLod" => {
+                    "textureProjLod".into()
+                }
+                "texture2DGradEXT" | "textureCubeGradEXT" => "textureGrad".into(),
+                "texture2DProjGradEXT" => "textureProjGrad".into(),
+                _ => name,
+            },
+            false => name,
+        };
+
         // Grow the typifier to be able to index it later without needing
         // to hold the context mutably
         for &(expr, span) in args.iter() {
@@ -814,6 +831,24 @@ impl Frontend {
             }
 
             arguments.push(handle)
+        }
+
+        // acde: a WebGL sampler argument also passes its sampler
+        if ctx.webgl {
+            if let FunctionKind::Call(_) = kind {
+                let mut with_samplers = Vec::with_capacity(arguments.len());
+                for (argument, parameter) in arguments.into_iter().zip(&parameters) {
+                    with_samplers.push(argument);
+                    if let TypeInner::Image { .. } = ctx.module.types[*parameter].inner {
+                        let sampler = ctx.samplers.get(&argument).copied().ok_or_else(|| Error {
+                            kind: ErrorKind::SemanticError("not a sampler".into()),
+                            meta,
+                        })?;
+                        with_samplers.push(sampler);
+                    }
+                }
+                arguments = with_samplers;
+            }
         }
 
         match kind {
@@ -1246,6 +1281,8 @@ impl Frontend {
 
             let ty = ctx.module.global_variables[arg.handle].ty;
 
+            // acde: WebGL's int builtins come from uint bindings
+            let convert = arg.convert;
             ctx.arg_type_walker(
                 arg.name.clone(),
                 arg.binding.clone(),
@@ -1254,17 +1291,48 @@ impl Frontend {
                 &mut |ctx, name, pointer, ty, binding| {
                     let idx = arguments.len() as u32;
 
+                    let (arg_ty, target) = match convert {
+                        Some(scalar) => (
+                            ctx.module.types.insert(
+                                Type {
+                                    name: None,
+                                    inner: TypeInner::Scalar(scalar),
+                                },
+                                Default::default(),
+                            ),
+                            ctx.module.types[ty].inner.scalar_kind(),
+                        ),
+                        None => (ty, None),
+                    };
+
                     arguments.push(FunctionArgument {
                         name,
-                        ty,
+                        ty: arg_ty,
                         binding: Some(binding),
                     });
 
-                    let value = ctx
+                    let mut value = ctx
                         .expressions
                         .append(Expression::FunctionArgument(idx), Default::default());
                     ctx.local_expression_kind_tracker
                         .insert(value, crate::proc::ExpressionKind::Runtime);
+                    if let Some(kind) = target {
+                        let len = ctx.expressions.len();
+                        value = ctx.expressions.append(
+                            Expression::As {
+                                expr: value,
+                                kind,
+                                convert: Some(4),
+                            },
+                            Default::default(),
+                        );
+                        ctx.local_expression_kind_tracker
+                            .insert(value, crate::proc::ExpressionKind::Runtime);
+                        ctx.body.push(
+                            Statement::Emit(ctx.expressions.range_from(len)),
+                            Default::default(),
+                        );
+                    }
                     ctx.body
                         .push(Statement::Store { pointer, value }, Default::default());
                 },
@@ -1281,6 +1349,78 @@ impl Frontend {
             },
             Default::default(),
         );
+
+        // acde: WebGL clip space to WebGPU's: y flipped (the image is kept with GL's bottom row
+        // first) and z from [-w, w] to [0, w]
+        if self.webgl.is_some() && self.meta.stage == ShaderStage::Vertex {
+            if let Some(arg) = self.entry_args.iter().find(|a| {
+                matches!(a.binding, crate::Binding::BuiltIn(crate::BuiltIn::Position { .. }))
+            }) {
+                let handle = arg.handle;
+                let span = Span::default();
+                let len = ctx.expressions.len();
+                let half = ctx
+                    .expressions
+                    .append(Expression::Literal(Literal::F32(0.5)), span);
+                let pointer = ctx.expressions.append(Expression::GlobalVariable(handle), span);
+                let emit_from = ctx.expressions.len();
+                let value = ctx.expressions.append(Expression::Load { pointer }, span);
+                let component = |ctx: &mut Context, index| {
+                    ctx.expressions
+                        .append(Expression::AccessIndex { base: value, index }, span)
+                };
+                let x = component(&mut ctx, 0);
+                let y = component(&mut ctx, 1);
+                let z = component(&mut ctx, 2);
+                let w = component(&mut ctx, 3);
+                let y = ctx.expressions.append(
+                    Expression::Unary {
+                        op: crate::UnaryOperator::Negate,
+                        expr: y,
+                    },
+                    span,
+                );
+                let sum = ctx.expressions.append(
+                    Expression::Binary {
+                        op: crate::BinaryOperator::Add,
+                        left: z,
+                        right: w,
+                    },
+                    span,
+                );
+                let z = ctx.expressions.append(
+                    Expression::Binary {
+                        op: crate::BinaryOperator::Multiply,
+                        left: sum,
+                        right: half,
+                    },
+                    span,
+                );
+                let ty = ctx.module.global_variables[handle].ty;
+                let flipped = ctx.expressions.append(
+                    Expression::Compose {
+                        ty,
+                        components: vec![x, y, z, w],
+                    },
+                    span,
+                );
+                for h in ctx.expressions.range_from(len).collect::<Vec<_>>() {
+                    ctx.local_expression_kind_tracker
+                        .insert(h, crate::proc::ExpressionKind::Runtime);
+                }
+                ctx.body.push(
+                    Statement::Emit(ctx.expressions.range_from(emit_from)),
+                    span,
+                );
+                ctx.body.push(
+                    Statement::Store {
+                        pointer,
+                        value: flipped,
+                    },
+                    span,
+                );
+            }
+        }
 
         let mut span = 0;
         let mut members = Vec::new();
@@ -1452,6 +1592,47 @@ impl Context<'_> {
                     location += 1;
 
                     self.arg_type_walker(name.clone(), binding, member_pointer, base, f)?
+                }
+            }
+            // acde: WebGL matrix attributes and varyings take a location per column
+            TypeInner::Matrix {
+                columns,
+                rows,
+                scalar,
+            } if self.webgl => {
+                let crate::Binding::Location {
+                    mut location,
+                    interpolation,
+                    sampling,
+                    ..
+                } = binding
+                else {
+                    return Ok(());
+                };
+                let column = self.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Vector { size: rows, scalar },
+                    },
+                    Span::default(),
+                );
+                for index in 0..columns as u32 {
+                    let member_pointer = self.add_expression(
+                        Expression::AccessIndex {
+                            base: pointer,
+                            index,
+                        },
+                        Span::default(),
+                    )?;
+                    let binding = crate::Binding::Location {
+                        location,
+                        interpolation,
+                        sampling,
+                        blend_src: None,
+                        per_primitive: false,
+                    };
+                    location += 1;
+                    self.arg_type_walker(name.clone(), binding, member_pointer, column, f)?
                 }
             }
             TypeInner::Struct { ref members, .. } => {

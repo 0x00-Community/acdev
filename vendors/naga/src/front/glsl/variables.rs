@@ -1,4 +1,4 @@
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 
 use super::{
     ast::*,
@@ -67,11 +67,20 @@ impl Frontend {
         );
 
         let idx = self.entry_args.len();
+        // acde: WebGL's int gl_VertexID / gl_InstanceID come from uint bindings
+        let convert = match (data.builtin, &ctx.module.types[ty].inner) {
+            (
+                BuiltIn::VertexIndex | BuiltIn::InstanceIndex,
+                &TypeInner::Scalar(Scalar::I32),
+            ) => Some(Scalar::U32),
+            _ => None,
+        };
         self.entry_args.push(EntryArg {
             name: Some(name.into()),
             binding: Binding::BuiltIn(data.builtin),
             handle,
             storage: data.storage,
+            convert,
         });
 
         self.global_variables.push((
@@ -106,6 +115,13 @@ impl Frontend {
     ) -> Result<Option<VariableReference>> {
         if let Some(var) = ctx.symbol_table.lookup(name).cloned() {
             return Ok(Some(var));
+        }
+
+        // acde: WebGL builtins
+        if self.webgl.is_some() {
+            if let Some(var) = self.webgl_builtin(ctx, name, meta)? {
+                return Ok(Some(var));
+            }
         }
 
         let data = match name {
@@ -425,16 +441,66 @@ impl Frontend {
     ) -> Result<GlobalOrConstant> {
         let storage = qualifiers.storage.0;
         let (ret, lookup) = match storage {
+            // acde: a dropped WebGL input or output is a plain global
+            StorageQualifier::Input | StorageQualifier::Output
+                if self.webgl.as_ref().is_some_and(|s| {
+                    name.as_ref().is_some_and(|n| s.options.dropped.contains(n))
+                }) =>
+            {
+                qualifiers.interpolation.take();
+                qualifiers.sampling.take();
+                qualifiers.invariant.take();
+                qualifiers.uint_layout_qualifier("location", &mut self.errors);
+                let handle = ctx.module.global_variables.append(
+                    GlobalVariable {
+                        name: name.clone(),
+                        space: AddressSpace::Private,
+                        binding: None,
+                        ty,
+                        init,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    meta,
+                );
+                let lookup = GlobalLookup {
+                    kind: GlobalLookupKind::Variable(handle),
+                    entry_arg: None,
+                    mutable: true,
+                };
+                (GlobalOrConstant::Global(handle), lookup)
+            }
             StorageQualifier::Input | StorageQualifier::Output => {
                 let input = storage == StorageQualifier::Input;
                 // TODO: glslang seems to use a counter for variables without
                 // explicit location (even if that causes collisions)
-                let location = qualifiers
-                    .uint_layout_qualifier("location", &mut self.errors)
-                    .unwrap_or(0);
+                // acde: whether the location was written (WebGL)
+                let explicit_location =
+                    qualifiers.uint_layout_qualifier("location", &mut self.errors);
+                let location = explicit_location.unwrap_or(0);
 
                 let interpolation = qualifiers.interpolation.take().map(|(i, _)| i);
                 let sampling = qualifiers.sampling.take().map(|(s, _)| s);
+
+                // acde: WebGL locations: given by name, else in order
+                let location = match self.webgl.as_mut() {
+                    Some(state) => {
+                        let explicit = explicit_location.is_some();
+                        let slots = interface_slots(&ctx.module.types, ty);
+                        let given = name.as_ref().and_then(|n| state.options.locations.get(n).copied());
+                        let next = match input {
+                            true => &mut state.next_input,
+                            false => &mut state.next_output,
+                        };
+                        let location = match (explicit, given) {
+                            (true, _) => location,
+                            (false, Some(given)) => given,
+                            (false, None) => *next,
+                        };
+                        *next = (*next).max(location + slots);
+                        location
+                    }
+                    None => location,
+                };
 
                 let handle = ctx.module.global_variables.append(
                     GlobalVariable {
@@ -447,6 +513,21 @@ impl Frontend {
                     },
                     meta,
                 );
+
+                if let Some(state) = self.webgl.as_mut() {
+                    let explicit = explicit_location.is_some();
+                    let interface = crate::front::glsl::WebGlInterface {
+                        name: name.clone().unwrap_or_default(),
+                        handle,
+                        ty,
+                        location,
+                        explicit,
+                    };
+                    match input {
+                        true => state.shader.inputs.push(interface),
+                        false => state.shader.outputs.push(interface),
+                    }
+                }
 
                 let blend_src = qualifiers
                     .layout_qualifiers
@@ -472,6 +553,7 @@ impl Frontend {
                     binding,
                     handle,
                     storage,
+                    convert: None,
                 });
 
                 let lookup = GlobalLookup {
@@ -547,6 +629,26 @@ impl Frontend {
                     (GlobalOrConstant::Constant(handle), lookup)
                 }
             }
+            // acde: WebGL loose uniforms and samplers
+            StorageQualifier::AddressSpace(AddressSpace::Uniform)
+                if self.webgl.as_ref().is_some_and(|s| !s.block) =>
+            {
+                let name = name.clone().unwrap_or_default();
+                let kind = self.webgl_uniform(ctx, &name, ty, meta)?;
+                let handle = match kind {
+                    GlobalLookupKind::BlockSelect(h, _)
+                    | GlobalLookupKind::UniformBool(h, _)
+                    | GlobalLookupKind::Sampled(h, _)
+                    | GlobalLookupKind::SampledArray(h, _) => h,
+                    _ => unreachable!(),
+                };
+                let lookup = GlobalLookup {
+                    kind,
+                    entry_arg: None,
+                    mutable: false,
+                };
+                (GlobalOrConstant::Global(handle), lookup)
+            }
             StorageQualifier::AddressSpace(mut space) => {
                 match space {
                     AddressSpace::Storage { ref mut access } => {
@@ -610,6 +712,16 @@ impl Frontend {
                 };
 
                 let binding = match space {
+                    // acde: WebGL uniform blocks take the next binding
+                    AddressSpace::Uniform if self.webgl.is_some() => {
+                        let state = self.webgl.as_mut().unwrap();
+                        let binding = state.next_binding;
+                        state.next_binding += 1;
+                        Some(ResourceBinding {
+                            group: state.options.group,
+                            binding,
+                        })
+                    }
                     AddressSpace::Uniform | AddressSpace::Storage { .. } | AddressSpace::Handle => {
                         let binding = qualifiers.uint_layout_qualifier("binding", &mut self.errors);
                         if binding.is_none() {
@@ -704,5 +816,427 @@ impl Frontend {
         decl.qualifiers.unused_errors(&mut self.errors);
 
         Ok(expr)
+    }
+}
+
+// acde: WebGL dialect
+fn interface_slots(types: &crate::UniqueArena<Type>, ty: Handle<Type>) -> u32 {
+    match types[ty].inner {
+        TypeInner::Matrix { columns, .. } => columns as u32,
+        TypeInner::Array {
+            base,
+            size: crate::ArraySize::Constant(size),
+            ..
+        } => size.get() * interface_slots(types, base),
+        TypeInner::Struct { ref members, .. } => {
+            members.iter().map(|m| interface_slots(types, m.ty)).sum()
+        }
+        _ => 1,
+    }
+}
+
+// acde: WebGL dialect
+fn contains_bool(types: &crate::UniqueArena<Type>, ty: Handle<Type>) -> bool {
+    match types[ty].inner {
+        TypeInner::Scalar(scalar)
+        | TypeInner::Vector { scalar, .. }
+        | TypeInner::Matrix { scalar, .. } => scalar.kind == crate::ScalarKind::Bool,
+        TypeInner::Array { base, .. } => contains_bool(types, base),
+        TypeInner::Struct { ref members, .. } => members.iter().any(|m| contains_bool(types, m.ty)),
+        _ => false,
+    }
+}
+
+// acde: WebGL dialect
+impl Frontend {
+    fn webgl_uniform(
+        &mut self,
+        ctx: &mut Context,
+        name: &str,
+        ty: Handle<Type>,
+        meta: Span,
+    ) -> Result<GlobalLookupKind> {
+        let (base, array) = match ctx.module.types[ty].inner {
+            TypeInner::Array {
+                base,
+                size: crate::ArraySize::Constant(size),
+                ..
+            } if matches!(ctx.module.types[base].inner, TypeInner::Image { .. }) => {
+                (base, Some(size.get()))
+            }
+            _ => (ty, None),
+        };
+        if let TypeInner::Image { class, .. } = ctx.module.types[base].inner {
+            let comparison = matches!(class, crate::ImageClass::Depth { .. });
+            let sampler_ty = ctx.module.types.insert(
+                Type {
+                    name: None,
+                    inner: TypeInner::Sampler { comparison },
+                },
+                meta,
+            );
+            let Some(state) = self.webgl.as_mut() else {
+                unreachable!()
+            };
+            let group = state.options.group;
+            let mut globals = Vec::new();
+            let mut bindings = Vec::new();
+            for i in 0..array.unwrap_or(1) {
+                let binding = state.next_binding;
+                state.next_binding += 2;
+                let element = match array {
+                    Some(_) => format!("{name}_{i}"),
+                    None => name.into(),
+                };
+                let image = ctx.module.global_variables.append(
+                    GlobalVariable {
+                        name: Some(element.clone()),
+                        space: AddressSpace::Handle,
+                        binding: Some(ResourceBinding { group, binding }),
+                        ty: base,
+                        init: None,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    meta,
+                );
+                let sampler = ctx.module.global_variables.append(
+                    GlobalVariable {
+                        name: Some(format!("{element}_sampler")),
+                        space: AddressSpace::Handle,
+                        binding: Some(ResourceBinding {
+                            group,
+                            binding: binding + 1,
+                        }),
+                        ty: sampler_ty,
+                        init: None,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    meta,
+                );
+                globals.push((image, sampler));
+                bindings.push((binding, binding + 1));
+            }
+            let (image, sampler) = globals[0];
+            state.shader.samplers.push(crate::front::glsl::WebGlSampler {
+                name: name.into(),
+                ty: base,
+                array,
+                globals,
+                bindings,
+            });
+            return Ok(match array {
+                Some(len) => GlobalLookupKind::SampledArray(image, len),
+                None => GlobalLookupKind::Sampled(image, sampler),
+            });
+        }
+
+        let (stored, boolean) = match ctx.module.types[ty].inner {
+            TypeInner::Scalar(Scalar::BOOL) => (
+                ctx.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Scalar(Scalar::U32),
+                    },
+                    meta,
+                ),
+                true,
+            ),
+            TypeInner::Vector {
+                size,
+                scalar: Scalar::BOOL,
+            } => (
+                ctx.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Vector {
+                            size,
+                            scalar: Scalar::U32,
+                        },
+                    },
+                    meta,
+                ),
+                true,
+            ),
+            _ => (ty, false),
+        };
+        if !boolean && contains_bool(&ctx.module.types, ty) {
+            self.errors.push(Error {
+                kind: ErrorKind::SemanticError(
+                    format!("uniform '{name}': arrays and structs of bool are not supported").into(),
+                ),
+                meta,
+            });
+        }
+        let info = super::offset::calculate_offset(
+            stored,
+            meta,
+            StructLayout::WebGl,
+            &mut ctx.module.types,
+            &mut self.errors,
+        );
+        let Some(state) = self.webgl.as_mut() else {
+            unreachable!()
+        };
+        let offset = info.align.round_up(state.span);
+        state.span = offset + info.span;
+        state.members.push(crate::StructMember {
+            name: Some(name.into()),
+            ty: info.ty,
+            binding: None,
+            offset,
+        });
+        state.shader.uniform_types.push(ty);
+        let span = crate::proc::Alignment::MIN_UNIFORM.round_up(state.span);
+        let struct_ty = ctx.module.types.insert(
+            Type {
+                name: Some("acde_uniforms".into()),
+                inner: TypeInner::Struct {
+                    members: state.members.clone(),
+                    span,
+                },
+            },
+            meta,
+        );
+        let handle = match state.shader.uniforms {
+            Some(handle) => {
+                ctx.module.global_variables.get_mut(handle).ty = struct_ty;
+                handle
+            }
+            None => {
+                let handle = ctx.module.global_variables.append(
+                    GlobalVariable {
+                        name: Some("acde_uniforms".into()),
+                        space: AddressSpace::Uniform,
+                        binding: Some(ResourceBinding {
+                            group: 0,
+                            binding: state.options.uniform_binding,
+                        }),
+                        ty: struct_ty,
+                        init: None,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    meta,
+                );
+                state.shader.uniforms = Some(handle);
+                handle
+            }
+        };
+        let index = state.members.len() as u32 - 1;
+        Ok(match boolean {
+            true => GlobalLookupKind::UniformBool(handle, index),
+            false => GlobalLookupKind::BlockSelect(handle, index),
+        })
+    }
+
+    fn webgl_global(
+        &mut self,
+        ctx: &mut Context,
+        name: &str,
+        ty: Handle<Type>,
+        meta: Span,
+        entry_arg: Option<Binding>,
+    ) -> Result<(Handle<GlobalVariable>, VariableReference)> {
+        let handle = ctx.module.global_variables.append(
+            GlobalVariable {
+                name: Some(name.into()),
+                space: AddressSpace::Private,
+                binding: None,
+                ty,
+                init: None,
+                memory_decorations: crate::MemoryDecorations::empty(),
+            },
+            meta,
+        );
+        let entry_arg = entry_arg.map(|binding| {
+            self.entry_args.push(EntryArg {
+                name: Some(name.into()),
+                binding,
+                handle,
+                storage: StorageQualifier::Output,
+                convert: None,
+            });
+            self.entry_args.len() - 1
+        });
+        let expr = ctx.add_expression(Expression::GlobalVariable(handle), meta)?;
+        let var = VariableReference {
+            expr,
+            load: true,
+            mutable: true,
+            constant: None,
+            entry_arg,
+        };
+        ctx.symbol_table.add_root(name.into(), var.clone());
+        self.global_variables.push((
+            name.into(),
+            GlobalLookup {
+                kind: GlobalLookupKind::Variable(handle),
+                entry_arg,
+                mutable: true,
+            },
+        ));
+        Ok((handle, var))
+    }
+
+    fn webgl_builtin(
+        &mut self,
+        ctx: &mut Context,
+        name: &str,
+        meta: Span,
+    ) -> Result<Option<VariableReference>> {
+        let fragment = self.meta.stage == ShaderStage::Fragment;
+        let vec4 = TypeInner::Vector {
+            size: VectorSize::Quad,
+            scalar: Scalar::F32,
+        };
+        let limit = match name {
+            "gl_MaxVertexAttribs" => Some(16),
+            "gl_MaxVertexUniformVectors" => Some(1024),
+            "gl_MaxFragmentUniformVectors" => Some(1024),
+            "gl_MaxVaryingVectors" | "gl_MaxVertexOutputVectors" | "gl_MaxFragmentInputVectors" => {
+                Some(15)
+            }
+            "gl_MaxVertexTextureImageUnits" | "gl_MaxTextureImageUnits" => Some(16),
+            "gl_MaxCombinedTextureImageUnits" => Some(32),
+            "gl_MaxDrawBuffers" => Some(8),
+            "gl_MinProgramTexelOffset" => Some(-8),
+            "gl_MaxProgramTexelOffset" => Some(7),
+            _ => None,
+        };
+        if let Some(value) = limit {
+            let expr = ctx.add_expression(Expression::Literal(crate::Literal::I32(value)), meta)?;
+            return Ok(Some(VariableReference {
+                expr,
+                load: false,
+                mutable: false,
+                constant: None,
+                entry_arg: None,
+            }));
+        }
+        // acde: points are one pixel (ALIASED_POINT_SIZE_RANGE is [1, 1]), so gl_PointCoord is the centre
+        if name == "gl_PointCoord" && fragment {
+            let half = ctx.add_expression(Expression::Literal(crate::Literal::F32(0.5)), meta)?;
+            let ty = ctx.module.types.insert(
+                Type {
+                    name: None,
+                    inner: TypeInner::Vector {
+                        size: VectorSize::Bi,
+                        scalar: Scalar::F32,
+                    },
+                },
+                meta,
+            );
+            let expr = ctx.add_expression(
+                Expression::Compose {
+                    ty,
+                    components: vec![half, half],
+                },
+                meta,
+            )?;
+            return Ok(Some(VariableReference {
+                expr,
+                load: false,
+                mutable: false,
+                constant: None,
+                entry_arg: None,
+            }));
+        }
+        let output = |location| Binding::Location {
+            location,
+            interpolation: None,
+            sampling: None,
+            blend_src: None,
+            per_primitive: false,
+        };
+        let data = |inner, builtin, mutable, storage| BuiltInData {
+            inner,
+            builtin,
+            mutable,
+            storage,
+        };
+        match name {
+            "gl_FragColor" if fragment => {
+                let ty = ctx.module.types.insert(Type { name: None, inner: vec4 }, meta);
+                let (handle, var) = self.webgl_global(ctx, name, ty, meta, Some(output(0)))?;
+                if let Some(state) = self.webgl.as_mut() {
+                    state.shader.outputs.push(crate::front::glsl::WebGlInterface {
+                        name: name.into(),
+                        handle,
+                        ty,
+                        location: 0,
+                        explicit: false,
+                    });
+                }
+                Ok(Some(var))
+            }
+            "gl_FragData" if fragment => {
+                let base = ctx.module.types.insert(Type { name: None, inner: vec4 }, meta);
+                let size = self.webgl.as_ref().map_or(1, |s| s.options.draw_buffers.max(1));
+                let ty = ctx.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Array {
+                            base,
+                            size: crate::ArraySize::Constant(
+                                core::num::NonZeroU32::new(size).unwrap_or(core::num::NonZeroU32::MIN),
+                            ),
+                            stride: 16,
+                        },
+                    },
+                    meta,
+                );
+                let (handle, var) = self.webgl_global(ctx, name, ty, meta, Some(output(0)))?;
+                if let Some(state) = self.webgl.as_mut() {
+                    state.shader.frag_data = Some(handle);
+                    state.shader.outputs.push(crate::front::glsl::WebGlInterface {
+                        name: name.into(),
+                        handle,
+                        ty,
+                        location: 0,
+                        explicit: false,
+                    });
+                }
+                Ok(Some(var))
+            }
+            "gl_FragDepthEXT" if fragment => self.add_builtin(
+                ctx,
+                name,
+                data(
+                    TypeInner::Scalar(Scalar::F32),
+                    BuiltIn::FragDepth,
+                    true,
+                    StorageQualifier::Output,
+                ),
+                meta,
+            ),
+            "gl_VertexID" | "gl_InstanceID" if !fragment => self.add_builtin(
+                ctx,
+                name,
+                data(
+                    TypeInner::Scalar(Scalar::I32),
+                    match name {
+                        "gl_VertexID" => BuiltIn::VertexIndex,
+                        _ => BuiltIn::InstanceIndex,
+                    },
+                    false,
+                    StorageQualifier::Input,
+                ),
+                meta,
+            ),
+            "gl_PointSize" if !fragment => {
+                let ty = ctx.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Scalar(Scalar::F32),
+                    },
+                    meta,
+                );
+                let (handle, var) = self.webgl_global(ctx, name, ty, meta, None)?;
+                if let Some(state) = self.webgl.as_mut() {
+                    state.shader.point_size = Some(handle);
+                }
+                Ok(Some(var))
+            }
+            _ => Ok(None),
+        }
     }
 }

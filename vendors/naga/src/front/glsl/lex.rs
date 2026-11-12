@@ -29,6 +29,8 @@ pub enum LexerResultKind {
 
 pub struct Lexer<'a> {
     pp: Preprocessor<'a>,
+    // acde: GLSL ES (WebGL) words
+    webgl: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -37,7 +39,13 @@ impl<'a> Lexer<'a> {
         for (define, value) in defines {
             pp.add_define(define, value).unwrap(); //TODO: handle error
         }
-        Lexer { pp }
+        Lexer { pp, webgl: false }
+    }
+
+    // acde: GLSL ES (WebGL) words
+    pub fn webgl(mut self) -> Self {
+        self.webgl = true;
+        self
     }
 }
 
@@ -111,6 +119,13 @@ impl Iterator for Lexer<'_> {
                     // types
                     "void" => TokenValue::Void,
                     "struct" => TokenValue::Struct,
+                    // acde: GLSL ES (WebGL) words
+                    "attribute" if self.webgl => TokenValue::Attribute,
+                    "varying" if self.webgl => TokenValue::Varying,
+                    word if self.webgl => match super::types::parse_type_webgl(word) {
+                        Some(t) => TokenValue::TypeName(t),
+                        None => TokenValue::Identifier(String::from(word)),
+                    },
                     word => match parse_type(word) {
                         Some(t) => TokenValue::TypeName(t),
                         None => TokenValue::Identifier(String::from(word)),

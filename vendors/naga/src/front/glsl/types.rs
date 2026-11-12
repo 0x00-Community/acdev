@@ -196,6 +196,58 @@ pub fn parse_type(type_name: &str) -> Option<Type> {
     }
 }
 
+// acde: GLSL ES (WebGL) names opaque types by the combined sampler (`sampler2D`); the Vulkan
+// `texture2D` / `sampler` / `image2D` names are plain identifiers there (`texture2D` is a function)
+pub fn parse_type_webgl(type_name: &str) -> Option<Type> {
+    if type_name.starts_with("texture")
+        || type_name.starts_with("image")
+        || type_name.starts_with("iimage")
+        || type_name.starts_with("uimage")
+        || type_name.starts_with("itexture")
+        || type_name.starts_with("utexture")
+        || type_name == "sampler"
+        || type_name == "samplerShadow"
+        || type_name == "double"
+        || type_name.starts_with("dvec")
+        || type_name.starts_with("dmat")
+        || type_name.starts_with("f16")
+        || type_name == "float16_t"
+    {
+        return None;
+    }
+    let (kind, rest) = match type_name.strip_prefix("isampler") {
+        Some(rest) => (ScalarKind::Sint, rest),
+        None => match type_name.strip_prefix("usampler") {
+            Some(rest) => (ScalarKind::Uint, rest),
+            None => match type_name.strip_prefix("sampler") {
+                Some(rest) => (ScalarKind::Float, rest),
+                None => return parse_type(type_name),
+            },
+        },
+    };
+    let sampled = ImageClass::Sampled { kind, multi: false };
+    let depth = ImageClass::Depth { multi: false };
+    let float = kind == ScalarKind::Float;
+    let (dim, arrayed, class) = match rest {
+        "2D" => (ImageDimension::D2, false, sampled),
+        "3D" => (ImageDimension::D3, false, sampled),
+        "Cube" => (ImageDimension::Cube, false, sampled),
+        "2DArray" => (ImageDimension::D2, true, sampled),
+        "2DShadow" if float => (ImageDimension::D2, false, depth),
+        "CubeShadow" if float => (ImageDimension::Cube, false, depth),
+        "2DArrayShadow" if float => (ImageDimension::D2, true, depth),
+        _ => return None,
+    };
+    Some(Type {
+        name: None,
+        inner: TypeInner::Image {
+            dim,
+            arrayed,
+            class,
+        },
+    })
+}
+
 pub const fn scalar_components(ty: &TypeInner) -> Option<Scalar> {
     match *ty {
         TypeInner::Scalar(scalar)

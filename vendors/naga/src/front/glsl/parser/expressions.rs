@@ -285,7 +285,18 @@ impl ParsingContext<'_> {
         Ok(base)
     }
 
+    // acde: bounded nesting (`MAX_DEPTH`)
     pub fn parse_unary(
+        &mut self,
+        frontend: &mut Frontend,
+        ctx: &mut Context,
+        stmt: &mut StmtContext,
+    ) -> Result<Handle<HirExpr>> {
+        let meta = self.last_meta;
+        self.nested(meta, |this| this.parse_unary_nested(frontend, ctx, stmt))
+    }
+
+    fn parse_unary_nested(
         &mut self,
         frontend: &mut Frontend,
         ctx: &mut Context,

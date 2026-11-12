@@ -22,6 +22,8 @@ fslock = { path = "vendors/fslock" }
 ironrdp-server = { path = "vendors/ironrdp-server" }
 # libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendors/libseat-sys)
 libseat-sys = { path = "vendors/libseat-sys" }
+# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendors/naga)
+naga = { path = "vendors/naga" }
 parley = { path = "vendors/parley" }
 stylo = { path = "vendors/stylo" }
 stylo_atoms = { path = "vendors/stylo_atoms" }

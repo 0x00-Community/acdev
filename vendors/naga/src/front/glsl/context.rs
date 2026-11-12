@@ -71,6 +71,13 @@ pub(crate) struct Context<'a> {
 
     pub symbol_table: crate::front::SymbolTable<String, VariableReference>,
     pub samplers: FastHashMap<Handle<Expression>, Handle<Expression>>,
+    // acde: WebGL sampler arrays (their placeholder expression → first image global and length),
+    // and which parameter each argument is (hidden sampler arguments are none)
+    pub sampler_arrays: FastHashMap<Handle<Expression>, (Handle<crate::GlobalVariable>, u32)>,
+    pub webgl: bool,
+    pub argument_parameters: Vec<Option<usize>>,
+    // acde: depth of `lower_inner` (a left-deep `a + a + ...` chain nests without parser nesting)
+    lower_depth: u32,
 
     pub const_typifier: Typifier,
     pub typifier: Typifier,
@@ -103,6 +110,10 @@ impl<'a> Context<'a> {
 
             symbol_table: crate::front::SymbolTable::default(),
             samplers: FastHashMap::default(),
+            sampler_arrays: FastHashMap::default(),
+            webgl: frontend.webgl.is_some(),
+            argument_parameters: Vec::new(),
+            lower_depth: 0,
 
             const_typifier: Typifier::new(),
             typifier: Typifier::new(),
@@ -202,6 +213,35 @@ impl<'a> Context<'a> {
                     },
                     None,
                 )
+            }
+            // acde: WebGL combined samplers and bool uniforms
+            GlobalLookupKind::Sampled(image, sampler) => {
+                let span = self.module.global_variables.get_span(image);
+                let image = self.add_expression(Expression::GlobalVariable(image), span)?;
+                let sampler = self.add_expression(Expression::GlobalVariable(sampler), span)?;
+                self.samplers.insert(image, sampler);
+                (image, false, None)
+            }
+            GlobalLookupKind::SampledArray(first, len) => {
+                let span = self.module.global_variables.get_span(first);
+                let expr = self.add_expression(Expression::GlobalVariable(first), span)?;
+                self.sampler_arrays.insert(expr, (first, len));
+                (expr, false, None)
+            }
+            GlobalLookupKind::UniformBool(handle, index) => {
+                let span = self.module.global_variables.get_span(handle);
+                let base = self.add_expression(Expression::GlobalVariable(handle), span)?;
+                let pointer = self.add_expression(Expression::AccessIndex { base, index }, span)?;
+                let value = self.add_expression(Expression::Load { pointer }, span)?;
+                let value = self.add_expression(
+                    Expression::As {
+                        expr: value,
+                        kind: crate::ScalarKind::Bool,
+                        convert: Some(crate::BOOL_WIDTH),
+                    },
+                    span,
+                )?;
+                (value, false, None)
             }
             GlobalLookupKind::Constant(v, ty) => {
                 let span = self.module.constants.get_span(v);
@@ -325,6 +365,14 @@ impl<'a> Context<'a> {
             ty,
             binding: None,
         };
+        // acde: a WebGL sampler parameter is followed by a hidden sampler argument
+        self.argument_parameters.push(Some(self.parameters.len()));
+        let webgl_sampler = match self.module.types[ty].inner {
+            TypeInner::Image { class, .. } if self.webgl => {
+                Some(matches!(class, crate::ImageClass::Depth { .. }))
+            }
+            _ => None,
+        };
         self.parameters.push(ty);
 
         let opaque = match self.module.types[ty].inner {
@@ -353,8 +401,33 @@ impl<'a> Context<'a> {
             depth: false,
         });
 
+        // acde: the hidden sampler argument of a WebGL sampler parameter
+        let hidden = match webgl_sampler {
+            Some(comparison) => {
+                let ty = self.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Sampler { comparison },
+                    },
+                    Span::default(),
+                );
+                self.arguments.push(FunctionArgument {
+                    name: None,
+                    ty,
+                    binding: None,
+                });
+                self.argument_parameters.push(None);
+                Some(index as u32 + 1)
+            }
+            None => None,
+        };
+
         if let Some((name, meta)) = name_meta {
             let expr = self.add_expression(Expression::FunctionArgument(index as u32), meta)?;
+            if let Some(hidden) = hidden {
+                let sampler = self.add_expression(Expression::FunctionArgument(hidden), meta)?;
+                self.samplers.insert(expr, sampler);
+            }
             let mutable = qualifier != ParameterQualifier::Const && !opaque;
             let load = qualifier.is_lhs();
 
@@ -541,7 +614,27 @@ impl<'a> Context<'a> {
 
     /// Internal implementation of [`lower`](Self::lower)
     #[allow(clippy::large_stack_frames)] // TODO(https://github.com/gfx-rs/wgpu/issues/9456)
+    // acde: bounded nesting (`MAX_DEPTH`)
     fn lower_inner(
+        &mut self,
+        stmt: &StmtContext,
+        frontend: &mut Frontend,
+        expr: Handle<HirExpr>,
+        pos: ExprPos,
+    ) -> Result<(Option<Handle<Expression>>, Span)> {
+        if self.lower_depth >= super::parser::MAX_DEPTH {
+            return Err(Error {
+                kind: ErrorKind::SemanticError("expression is nested too deeply".into()),
+                meta: stmt.hir_exprs[expr].meta,
+            });
+        }
+        self.lower_depth += 1;
+        let result = self.lower_nested(stmt, frontend, expr, pos);
+        self.lower_depth -= 1;
+        result
+    }
+
+    fn lower_nested(
         &mut self,
         stmt: &StmtContext,
         frontend: &mut Frontend,
@@ -574,6 +667,36 @@ impl<'a> Context<'a> {
                         pos.maybe_access_base(maybe_constant_index.is_some()),
                     )?
                     .0;
+
+                // acde: an element of a WebGL sampler array is a pair of globals picked by a constant index
+                if let Some(&(first, len)) = self.sampler_arrays.get(&base) {
+                    let index = self
+                        .module
+                        .to_ctx()
+                        .get_const_val_from::<u32, _>(index, &self.expressions)
+                        .ok()
+                        .filter(|&i| i < len)
+                        .ok_or_else(|| Error {
+                            kind: ErrorKind::SemanticError(
+                                "sampler arrays must be indexed by a constant in range".into(),
+                            ),
+                            meta,
+                        })?;
+                    let mut handles = self
+                        .module
+                        .global_variables
+                        .iter()
+                        .map(|(h, _)| h)
+                        .skip(first.index() + 2 * index as usize);
+                    let (Some(image), Some(sampler)) = (handles.next(), handles.next()) else {
+                        unreachable!()
+                    };
+                    drop(handles);
+                    let image = self.add_expression(Expression::GlobalVariable(image), meta)?;
+                    let sampler = self.add_expression(Expression::GlobalVariable(sampler), meta)?;
+                    self.samplers.insert(image, sampler);
+                    return Ok((Some(image), meta));
+                }
 
                 let pointer = maybe_constant_index
                     .map(|index| self.add_expression(Expression::AccessIndex { base, index }, meta))

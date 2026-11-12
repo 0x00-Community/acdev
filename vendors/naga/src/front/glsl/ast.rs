@@ -13,6 +13,10 @@ pub enum GlobalLookupKind {
     Constant(Handle<Constant>, Handle<Type>),
     Override(Handle<Override>, Handle<Type>),
     BlockSelect(Handle<GlobalVariable>, u32),
+    // acde: WebGL combined samplers, arrays of them and bool members of the default uniform block
+    Sampled(Handle<GlobalVariable>, Handle<GlobalVariable>),
+    SampledArray(Handle<GlobalVariable>, u32),
+    UniformBool(Handle<GlobalVariable>, u32),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +99,8 @@ pub struct EntryArg {
     pub binding: Binding,
     pub handle: Handle<GlobalVariable>,
     pub storage: StorageQualifier,
+    // acde: the WebGL builtins gl_VertexID / gl_InstanceID are int, their bindings uint
+    pub convert: Option<crate::Scalar>,
 }
 
 #[derive(Debug, Clone)]
@@ -338,6 +344,8 @@ impl Default for StorageQualifier {
 pub enum StructLayout {
     Std140,
     Std430,
+    // acde: WebGL structs and the default uniform block: std140, but matCx2 keeps its natural layout and structs align to 16
+    WebGl,
 }
 
 // TODO: Encode precision hints in the IR
@@ -391,4 +399,6 @@ impl ParameterQualifier {
 pub enum Profile {
     /// The `core` profile, default when no profile is specified.
     Core,
+    // acde: GLSL ES (WebGL)
+    Es,
 }
