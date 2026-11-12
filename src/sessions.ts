@@ -234,10 +234,11 @@ export class Sessions {
   static async find(cwd: string, pid?: number, say?: (line: string) => void, dir = Sessions.dir()): Promise<Session> {
     const until = Date.now() + Sessions.SETTLE_MS
     for (;;) {
+      const { sessions, busy } = Sessions.scan(dir)
       try {
-        return Sessions.pick(Sessions.list(dir), cwd, pid, say, dir)
+        return Sessions.pick(sessions, cwd, pid, say, dir)
       } catch (error) {
-        if (Date.now() >= until) throw error
+        if (!busy || Date.now() >= until) throw error
       }
       await new Promise((done) => setTimeout(done, Sessions.RETRY_MS))
     }
