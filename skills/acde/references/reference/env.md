@@ -13,7 +13,7 @@
 | `ACDE_BROWSER` | The browser `acde devtools` and F12 in `acde dev` open DevTools in: a path, or `none` to open nothing and only print the address. Unset: Edge, then Chrome on Windows; Chrome, then Edge on macOS; Chrome, Chromium or Edge on `PATH` on Linux (after 0.0.9) |
 | `CI` | When set, `toHaveScreenshot` does not write new baselines; a missing baseline fails right away |
 | `NO_COLOR` | Set and not empty: no color in acde's output |
-| `FORCE_COLOR` | Set and not `0`: color even when the output is not a terminal |
+| `FORCE_COLOR` | Set and not `0` or `false`: color even when the output is not a terminal |
 
 ## Runtime (acdert)
 
