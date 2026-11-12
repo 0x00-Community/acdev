@@ -614,11 +614,55 @@ export interface ServiceModuleTypes {
   readonly setDefault: AcdeOpenFiles['setDefault']
 }
 
+export interface SystemInfo {
+  readonly hostname: string
+  readonly os: string
+  readonly kernel: string
+  readonly cpu: string
+  readonly cores: number
+  readonly memory: number
+  readonly gpu: readonly string[]
+  readonly npu: string | null
+  readonly uptimeSeconds: number
+  readonly serial: string | null
+}
+
+export interface SystemVolume {
+  readonly path: string
+  readonly label: string
+  readonly size: number
+  readonly free: number
+}
+
+export interface SystemTime {
+  readonly timezone: string
+  readonly ntp: boolean
+  readonly canSetTime: boolean
+}
+
+export interface SystemUser {
+  readonly name: string
+  readonly fullName: string
+  readonly avatar: string | null
+}
+
+export interface AcdeSystem {
+  info(): Promise<SystemInfo>
+  storage(): Promise<SystemVolume[]>
+  time(): Promise<SystemTime>
+  timezones(): Promise<string[]>
+  setTimezone(zone: string): Promise<void>
+  setNtp(on: boolean): Promise<void>
+  setHostname(name: string): Promise<void>
+  user(): Promise<SystemUser>
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice
   readonly terminal?: AcdeTerminals
   readonly network?: AcdeNetwork
+  readonly system?: AcdeSystem
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch

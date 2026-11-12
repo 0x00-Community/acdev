@@ -16,6 +16,7 @@ export interface AppModules {
   readonly office: Page.AcdeOffice
   readonly terminal: Page.AcdeTerminals
   readonly network: Page.AcdeNetwork
+  readonly system: Page.AcdeSystem
   readonly launch: Page.AcdeLaunch
   readonly apps: Page.AcdeAppList
   readonly open: Page.AcdeOpen

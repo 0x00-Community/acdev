@@ -76,6 +76,7 @@ export interface WebGrants {
   readonly fs: true | string[] | { readonly places: string[]; readonly paths: boolean } | null
   readonly terminal: boolean
   readonly network: boolean
+  readonly system: boolean
   readonly office: boolean
   readonly camera: boolean
   readonly microphone: boolean

@@ -28,6 +28,8 @@ mod rt;
 mod storage;
 mod surface;
 mod sys;
+#[cfg(target_os = "linux")]
+mod system;
 mod terminal;
 mod web;
 mod webgl;

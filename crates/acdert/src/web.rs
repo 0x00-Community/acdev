@@ -64,6 +64,8 @@ struct Grants {
     network: Option<acde_runtime::Networks>,
     #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
+    #[cfg(target_os = "linux")]
+    system: bool,
 }
 
 impl Webs {
@@ -80,6 +82,8 @@ impl Webs {
                 network: None,
                 #[cfg(target_os = "linux")]
                 office: None,
+                #[cfg(target_os = "linux")]
+                system: false,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -102,6 +106,8 @@ impl Webs {
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
+        let computer = bind::get(scope, wanted, "system").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -120,6 +126,8 @@ impl Webs {
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
+            #[cfg(target_os = "linux")]
+            system: computer,
         }
     }
 }
@@ -145,6 +153,10 @@ impl Grants {
         #[cfg(target_os = "linux")]
         if let Some(office) = self.office {
             crate::office::install(scope, natives, office);
+        }
+        #[cfg(target_os = "linux")]
+        if self.system {
+            crate::system::install(scope, natives);
         }
     }
 }

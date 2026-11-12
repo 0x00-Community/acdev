@@ -62,6 +62,7 @@ interface WebNatives extends Natives {
   readonly fs?: Parameters<typeof FsModule.typed>[0]
   readonly terminal?: object
   readonly network?: object
+  readonly system?: object
   readonly office?: object
   readonly picker?: FolderPicker
 }
@@ -261,6 +262,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   }
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
+  if (natives.system) bridge.value['system'] = natives.system
   if (natives.office) {
     const editorPage = async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme)
     const office = natives.office as { state(...args: unknown[]): Promise<unknown>; open(path: string, writable: boolean): Promise<unknown> }

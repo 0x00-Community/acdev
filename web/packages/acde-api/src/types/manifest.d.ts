@@ -52,6 +52,7 @@ export interface Capabilities {
   readonly fs?: boolean | { readonly roots: readonly SharedPlace[] }
   readonly terminal?: boolean
   readonly network?: boolean
+  readonly system?: boolean
   readonly office?: boolean
   readonly launch?: boolean
   readonly slots?: boolean
