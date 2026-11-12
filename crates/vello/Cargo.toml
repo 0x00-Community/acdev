@@ -1,0 +1,18 @@
+[package]
+name = "acde-vello"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acde-gpu = { path = "../gpu" }
+acde-model = { path = "../model" }
+kurbo = "0"
+peniko = "0"
+vello = { version = "0", default-features = false, features = ["wgpu"] }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
+pollster = "0"
+log = "0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = "0"
+rustix = { version = "1", features = ["event"] }

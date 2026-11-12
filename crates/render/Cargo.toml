@@ -48,6 +48,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+# tests: render 自己不带合成器, 测试装 vello 的那份
+acde-vello = { path = "../vello" }
 # tests/svg_fixtures.rs 把 SVG 文件读成 DOM 调用
 roxmltree = "0"
 # tests/replay.rs 解压录下的 op 流 (已在依赖树里, 不新增下载)

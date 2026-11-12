@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use acde_gpu::{Backdrop, ColorMatrix, Composer, Effect, Gpu, Op, Shadow, wgpu};
+use acde_gpu::{Backdrop, ColorMatrix, Effect, Gpu, Shadow, wgpu};
+use acde_vello::{Composer, Op};
 
 const W: u32 = 128;
 const H: u32 = 64;

@@ -3,41 +3,9 @@ use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::{Backdrop, Composer, Device, Dmabuf, Effect, Gpu, Overrides, Px, Scene, Shadow, Vello};
+use crate::{Composer, Content, Device, Dmabuf, Gpu, Overrides, Part, Pass, Px, Scene, Submitted, Vello};
 use kurbo::Affine;
 use peniko::Color;
-
-pub trait Content {
-    fn scene_for(&self, region: Px) -> Scene;
-}
-
-pub struct Part<C> {
-    pub content: C,
-    pub backdrop: Option<Backdrop>,
-    pub shadows: Vec<Shadow>,
-    pub effect: Effect,
-    pub bounds: Option<Px>,
-}
-
-impl<C> Part<C> {
-    pub fn plain(content: C, bounds: Option<Px>) -> Self {
-        Self { content, backdrop: None, shadows: Vec::new(), effect: Effect::default(), bounds }
-    }
-}
-
-pub struct Pass<C> {
-    pub plane: usize,
-    pub size: (u32, u32),
-    pub parts: Vec<Part<C>>,
-    pub next: usize,
-    pub targets: Option<Vec<Px>>,
-}
-
-pub struct Submitted {
-    pub fence: Option<OwnedFd>,
-    pub waited: Duration,
-    pub recorded: Duration,
-}
 
 pub struct Raster {
     pub device: Device,
@@ -128,7 +96,7 @@ impl Raster {
     }
 
     fn pieces<C>(part: &Part<C>, targets: &[Px], full: Px) -> Vec<(Px, Px)> {
-        let margin = crate::compose::reach(&part.shadows, &part.effect);
+        let margin = crate::reach(&part.shadows, &part.effect);
         targets
             .iter()
             .filter_map(|t| {

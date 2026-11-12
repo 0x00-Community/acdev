@@ -69,7 +69,14 @@ impl WaitFrame for RenderHandle {
     }
 }
 
+pub fn vello() {
+    if let Some(gpu) = acde_gpu::Gpu::shared() {
+        gpu.set_compositor(std::sync::Arc::new(acde_vello::VelloCompositor));
+    }
+}
+
 pub fn rasterize(scene: acde_gpu::Scene, size: (u32, u32)) -> Vec<u8> {
+    vello();
     acde_render::gpu::rasterize(scene, size)
 }
 
@@ -83,6 +90,7 @@ fn rect([x, y, width, height]: [f64; 4]) -> Rect {
 
 impl Doc {
     pub fn new(width: u32, height: u32, scale: f32, options: &Options) -> Result<Self> {
+        vello();
         let document = Document::new(width, height, scale, options)?;
         let dom = document.dom();
         Ok(Self { document, dom })

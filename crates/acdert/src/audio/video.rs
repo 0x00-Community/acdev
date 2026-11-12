@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use acde_gpu::vello::peniko;
+use acde_gpu::peniko;
 use acde_gpu::{Gpu, GpuImage, wgpu};
 use acde_media::{CHANNELS, Frame, Player};
 

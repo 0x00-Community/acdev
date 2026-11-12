@@ -1,7 +1,8 @@
 use std::os::fd::OwnedFd;
 use std::sync::mpsc;
 
-use acde_gpu::{Device, Dmabuf as GpuDmabuf, Gpu, Overrides, Raster as Pages, Scene};
+use acde_gpu::{Device, Dmabuf as GpuDmabuf, Gpu, Scene};
+use acde_vello::{Overrides, Raster as Pages};
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::ping::Ping;
@@ -40,6 +41,7 @@ impl Raster {
         let device = Device::open()?;
         log::info!("web layer uses {} ({:?})", device.info.name, device.info.device_type);
         let published = Gpu::new(device.device.clone(), device.queue.clone(), device.info.clone());
+        _ = published.set_compositor(std::sync::Arc::new(acde_vello::VelloCompositor));
         let started = std::time::Instant::now();
         let pages = Pages::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
         log::info!("vello warm-up {:.1}ms", acde_log::since_ms(started));

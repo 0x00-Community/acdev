@@ -3,14 +3,14 @@ use std::sync::{Arc, Mutex};
 use acde_gpu::{Gpu, GpuImage, Offscreen, Scene};
 use kurbo::Affine;
 
-static OFFSCREEN: Mutex<Option<Offscreen>> = Mutex::new(None);
+static OFFSCREEN: Mutex<Option<Box<dyn Offscreen>>> = Mutex::new(None);
 
-fn with<T>(f: impl FnOnce(&mut Offscreen) -> Result<T, String>) -> Option<T> {
+fn with<T>(f: impl FnOnce(&mut dyn Offscreen) -> Result<T, String>) -> Option<T> {
     let mut slot = OFFSCREEN.lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_none() {
-        *slot = Some(Offscreen::new(Gpu::shared()?).inspect_err(|e| log::warn!("render: {e}")).ok()?);
+        *slot = Some(Gpu::shared()?.offscreen().inspect_err(|e| log::warn!("render: {e}")).ok()?);
     }
-    f(slot.as_mut()?).inspect_err(|e| log::warn!("render: {e}")).ok()
+    f(slot.as_deref_mut()?).inspect_err(|e| log::warn!("render: {e}")).ok()
 }
 
 pub fn warm() {
@@ -25,7 +25,7 @@ pub fn draw(scene: Scene, size: (u32, u32), place: Affine) -> Option<Arc<GpuImag
 }
 
 pub fn read(image: &GpuImage, rect: [u32; 4]) -> Option<Vec<u8>> {
-    with(|o| o.gpu.read(&image.texture, rect))
+    Gpu::shared()?.read(&image.texture, rect).inspect_err(|e| log::warn!("render: {e}")).ok()
 }
 
 pub fn write(image: &GpuImage, data: &[u8], size: (u32, u32), from: [u32; 2], to: [u32; 4]) {

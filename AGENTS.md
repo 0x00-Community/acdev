@@ -1656,7 +1656,8 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/acdert` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
 | `crates/shell` | Wayland 合成器 (Linux 会话), napi `Shell` |
 | `crates/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
-| `crates/gpu` | `acde-gpu`: 2D 场景和 vello 渲染器, 每个 OS 一个 wgpu 后端 |
+| `crates/gpu` | `acde-gpu`: 合成器接口和 wgpu 设备层. 2D 场景 (`Scene` / `PaintScene` / 滤镜)、页面的 `Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`, 共享设备 `Gpu` (WebGPU / WebGL / video / canvas 图都在它上面) 和 `GpuImage`; 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用). 不依赖 vello |
+| `crates/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acde-dbg 和会话用它. acgpu 实现以后也放本仓库 |
 | `crates/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
 | `crates/paint` | `acde-paint`: 会话里 web 的光栅化线程 (帧 → GBM dmabuf), WebGPU 和 canvas 共用的设备 |
 | `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |

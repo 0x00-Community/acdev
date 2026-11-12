@@ -28,7 +28,7 @@ pub enum Content {
 impl acde_gpu::Content for Content {
     fn scene_for(&self, rect: Px) -> Scene {
         let [x, y, w, h] = rect.xywh().map(f64::from);
-        let rect = acde_gpu::vello::kurbo::Rect::new(x, y, x + w, y + h);
+        let rect = acde_gpu::kurbo::Rect::new(x, y, x + w, y + h);
         match self {
             Self::Plane(plane) => plane.drawing.scene_for(rect),
             Self::Layer(layer) => layer.drawing.scene_for(rect),
@@ -56,7 +56,7 @@ impl Content {
                 FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
             }
         }
-        let cover = |r: &acde_gpu::vello::kurbo::Rect| damaged(&(*r).into());
+        let cover = |r: &acde_gpu::kurbo::Rect| damaged(&(*r).into());
         let bounds = layer.filter.as_ref().map_or_else(|| layer.bounds.as_ref().map_or_else(Px::default, cover), |f| cover(&f.bounds));
         Part { backdrop, shadows, effect, ..Part::plain(Content::Layer(Box::new(layer)), Some(bounds)) }
     }

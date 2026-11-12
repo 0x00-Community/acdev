@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once, OnceLock};
 use std::time::Duration;
 
-use crate::{GpuImage, ImageSet};
+use crate::{Compositor, GpuImage, ImageSet, Offscreen};
 
 type LostListener = Box<dyn Fn(&str) + Send>;
 type Waiter = Box<dyn FnOnce(Option<Arc<Gpu>>) + Send>;
@@ -25,6 +25,7 @@ pub struct Gpu {
     poller: Once,
     lost: Mutex<HashMap<u64, LostListener>>,
     gone: AtomicBool,
+    compositor: OnceLock<Arc<dyn Compositor>>,
 }
 
 enum State {
@@ -47,7 +48,7 @@ thread_local! {
     static SINK: RefCell<Option<ErrorSink>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -177,6 +178,7 @@ impl Gpu {
             poller: Once::new(),
             lost: Mutex::default(),
             gone: AtomicBool::new(false),
+            compositor: OnceLock::new(),
         });
         let weak = Arc::downgrade(&gpu);
         gpu.device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
@@ -205,6 +207,15 @@ impl Gpu {
             }
         });
         gpu
+    }
+
+    pub fn set_compositor(&self, compositor: Arc<dyn Compositor>) -> bool {
+        self.compositor.set(compositor).is_ok()
+    }
+
+    pub fn offscreen(self: &Arc<Self>) -> Result<Box<dyn Offscreen>, String> {
+        let compositor = self.compositor.get().ok_or("this GPU has no compositor")?;
+        compositor.offscreen(self.clone())
     }
 
     pub fn open(label: &str) -> Result<(wgpu::Instance, wgpu::Adapter, Arc<Self>), String> {
