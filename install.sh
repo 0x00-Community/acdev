@@ -15,6 +15,29 @@ die() {
   exit 1
 }
 
+in_use() {
+  for exe in /proc/[0-9]*/exe; do
+    target=$(readlink "$exe" 2>/dev/null) || continue
+    case $target in "$1"/*) return 0 ;; esac
+  done
+  ps -axo command= 2>/dev/null | grep -F "$1/" >/dev/null
+}
+
+prune() {
+  for dir in "$1"/versions/*; do
+    [ -d "$dir" ] && [ ! -h "$dir" ] || continue
+    name=${dir##*/}
+    if [ "$name" = "$2" ] || [ "$name" = "$3" ]; then
+      continue
+    fi
+    if in_use "$dir"; then
+      say "kept acde $name ($dir): a program in it is still running; the next install removes it"
+    elif rm -rf "$dir"; then
+      say "removed acde $name ($dir)"
+    fi
+  done
+}
+
 usage() {
   cat <<EOF
 usage: curl -fsSL $ACDE_DIST/install.sh | sh
@@ -278,6 +301,8 @@ main() {
   fi
   mv "$unpacked" "$root/versions/$version"
 
+  previous=$(readlink "$root/current" 2>/dev/null || true)
+  previous=${previous##*/}
   ln -s "versions/$version" "$root/.current.$$"
   mv -T "$root/.current.$$" "$root/current" 2>/dev/null ||
     mv -h "$root/.current.$$" "$root/current" 2>/dev/null || {
@@ -290,6 +315,7 @@ main() {
     die "$root/bin is in the way (it should be a link to current/bin): move it and run this again"
   fi
   bin=$root/bin
+  prune "$root" "$version" "$previous"
 
   case $bin in
     "$HOME"/*) shown="\$HOME${bin#"$HOME"}" ;;

@@ -212,15 +212,15 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 ## Upgrade and uninstall
 
-To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use.
+To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use. The installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acde dev` started from it) stays until the next install.
 
 `acde uninstall` removes installed apps and desktops, not acde itself (see [Local install](../guide/install.md#uninstall)). To uninstall acde, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
 
-acde and the runtime keep data outside the install directory. Delete these too to remove everything (on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names):
+acde and the runtime keep data outside the install directory. Delete these too to remove everything; otherwise a later install finds the old apps, desktops and their data again. The same paths are used on macOS; on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names (`%USERPROFILE%\.local\share\acde` and so on):
 
 | Directory | What is in it |
 | --- | --- |
-| `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' own data and storage (`apps/`, `storage/`), the skill install record |
+| `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' backend data (`apps/<id>/`) and storage (`storage/app-<id>/`, `storage/desktop-<id>/`), the skill install record (`skills.json`) |
 | `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions, the last desktop, and other session state |
 | `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Approval decisions (`permissions.json`) |
 | `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches (only when `XDG_RUNTIME_DIR` is not set) |
