@@ -54,6 +54,7 @@ export interface Capabilities {
   readonly network?: boolean
   readonly system?: boolean
   readonly bluetooth?: boolean
+  readonly audio?: boolean
   readonly office?: boolean
   readonly launch?: boolean
   readonly slots?: boolean

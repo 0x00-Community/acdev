@@ -27,6 +27,8 @@ mod picker;
 mod platform;
 mod profile;
 mod rt;
+#[cfg(target_os = "linux")]
+mod sound;
 mod storage;
 mod surface;
 mod sys;

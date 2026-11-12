@@ -52,6 +52,8 @@ struct System {
     #[cfg(target_os = "linux")]
     bluetooth: acde_runtime::Bluetooths,
     #[cfg(target_os = "linux")]
+    sounds: acde_runtime::Sounds,
+    #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
 }
 
@@ -70,6 +72,8 @@ struct Grants {
     system: bool,
     #[cfg(target_os = "linux")]
     bluetooth: Option<acde_runtime::Bluetooths>,
+    #[cfg(target_os = "linux")]
+    audio: Option<acde_runtime::Sounds>,
 }
 
 impl Webs {
@@ -90,6 +94,8 @@ impl Webs {
                 system: false,
                 #[cfg(target_os = "linux")]
                 bluetooth: None,
+                #[cfg(target_os = "linux")]
+                audio: None,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -116,6 +122,8 @@ impl Webs {
         let computer = bind::get(scope, wanted, "system").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let bluetooth = bind::get(scope, wanted, "bluetooth").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
+        let audio = bind::get(scope, wanted, "audio").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -138,6 +146,8 @@ impl Webs {
             system: computer,
             #[cfg(target_os = "linux")]
             bluetooth: bluetooth.then(|| system.bluetooth.clone()),
+            #[cfg(target_os = "linux")]
+            audio: audio.then(|| system.sounds.clone()),
         }
     }
 }
@@ -171,6 +181,10 @@ impl Grants {
         #[cfg(target_os = "linux")]
         if let Some(bluetooth) = self.bluetooth {
             crate::bluetooth::install(scope, natives, bluetooth);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(sounds) = self.audio {
+            crate::sound::install(scope, natives, sounds);
         }
     }
 }
@@ -269,6 +283,8 @@ impl Spec {
         crate::webgpu::clear();
         #[cfg(target_os = "linux")]
         crate::bluetooth::clear();
+        #[cfg(target_os = "linux")]
+        crate::sound::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);

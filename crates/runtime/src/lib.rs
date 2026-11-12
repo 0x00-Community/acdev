@@ -27,6 +27,8 @@ mod proxy;
 #[cfg(unix)]
 mod pty;
 mod rt;
+#[cfg(target_os = "linux")]
+mod sound;
 mod sync;
 #[cfg(target_os = "linux")]
 mod system;
@@ -52,6 +54,8 @@ pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
 pub use portal::{Appearance, FileChooser, Filter as PortalFilter, choose_folder, open_files, save_file};
 pub use proxy::backend_variables as backend_proxy_variables;
+#[cfg(target_os = "linux")]
+pub use sound::{SoundCall, Sounds};
 #[cfg(target_os = "linux")]
 pub use system::{SysCall, system_call};
 pub use terminal::Terminals;
