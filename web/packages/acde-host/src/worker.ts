@@ -91,7 +91,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
   host.requestFrame = () => surface.requestFrame()
 
   const htmlEntry = init.kind === 'window' && !!init.app && PageSource.isHtml(init.app.entry)
-  const htmlPage = htmlEntry ? PageSource.htmlFor(init.app!.entry, init.url, init.resources) : null
   if (htmlEntry) {
     const read = host.readAsset.bind(host)
     const entry = `${PageSource.ORIGIN}${init.app!.entry}`
@@ -295,6 +294,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name) : null
   StartupTimeline.mark('page load started')
+  const htmlPage = htmlEntry ? PageSource.htmlFor(init.app!.entry, init.url, init.resources) : null
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html =
     init.kind === 'desktop'
