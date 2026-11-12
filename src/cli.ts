@@ -243,11 +243,10 @@ class Cli {
     }
     const started = performance.now()
     const platform = flags.get('platform')
-    if (platform !== undefined && !Object.hasOwn(AppPackage.PLATFORMS, platform))
-      throw Output.option('check', 'platform', platform, Object.keys(AppPackage.PLATFORMS).join(', '))
+    if (platform !== undefined) AppPackage.platformKey(platform)
     const pkg = new AppPackage(args[0] ?? '.')
     if (command === 'check') return Cli.report(pkg, flags.get('platform') ?? AppPackage.here()) ? 0 : 1
-    const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
+    const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'), { command })
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     const into = pkg.project ? `built ${what} into ${Cli.shown(built.dir)}` : `ok: ${pkg.name} (${what})`
     const done = Color.palette().ok('acde:')

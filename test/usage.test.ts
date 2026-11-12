@@ -1,11 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { Project } from '../src/app.ts'
 import { Color } from '../src/color.ts'
 import { ACTIONS } from '../src/driver/acde.ts'
 import { Help } from '../src/help.ts'
+import { AppPackage } from '../src/package.ts'
 import { Tools } from '../src/tools.ts'
 import { cleanup, collect, env, standIn, tmp } from './helpers.ts'
 
@@ -86,6 +87,25 @@ describe('acde check --platform', () => {
     const unknown = await cli(['check', '--platform', 'beos'], desk)
     expect(unknown.code).toBe(1)
     expect(unknown.stderr).toBe('acde: check: --platform beos: windows, macos, linux (acde check --help)\n')
+    expect(() => new AppPackage(desk).platform('beos')).toThrow(
+      'check: --platform beos: windows, macos, linux (acde check --help)')
+  })
+})
+
+describe('option errors', () => {
+  test('--out that holds the project names the command that was given it', async () => {
+    const dir = realpathSync(tmp())
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'outs' }))
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    const holds = 'a directory that does not hold the project (acde empties it before each build)'
+    for (const command of ['build', 'install']) {
+      const ran = await cli([command, '--out', '.'], dir)
+      expect(ran.code).toBe(1)
+      expect(ran.stderr).toBe(`acde: ${command}: --out ${dir}: ${holds} (acde ${command} --help)\n`)
+    }
+    await expect(new AppPackage(dir).build(dirname(dir), { dev: true })).rejects.toThrow(
+      `dev: --out ${dirname(dir)}: ${holds} (acde dev --help)`)
+    expect(existsSync(join(dir, 'index.html'))).toBe(true)
   })
 })
 

@@ -12,6 +12,7 @@ import { API_LEVEL, Manifest, type ConfiguredService } from '@dopame/acde-api/ma
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
+import { Output as CliOutput } from './output.ts'
 import { Jsonc } from './runtime.ts'
 
 interface BuiltApp {
@@ -53,6 +54,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 export interface BuildOptions {
   readonly dev?: boolean
+  readonly command?: string
 }
 
 export class Project {
@@ -184,7 +186,10 @@ export class Project {
     const errors = this.check()
     if (errors.length > 0) throw new Error(errors.join('\n'))
     const up = relative(out, this.dir)
-    if (up === '' || (!up.startsWith('..') && !isAbsolute(up))) throw new Error(`--out ${out} holds the project`)
+    if (up === '' || (!up.startsWith('..') && !isAbsolute(up))) {
+      throw CliOutput.option(options.command ?? (this.#dev ? 'dev' : 'build'), 'out', out,
+        'a directory that does not hold the project (acde empties it before each build)')
+    }
     rmSync(out, { recursive: true, force: true })
     mkdirSync(out, { recursive: true })
     const assets: Record<string, string[]> = {}

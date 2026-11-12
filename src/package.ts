@@ -10,6 +10,7 @@ import {
 } from '@dopame/acde-api/manifest'
 import { Project, type BuildOptions } from './app.ts'
 import { Imports, type ImportFindings, type ImportOwner } from './imports.ts'
+import { Output } from './output.ts'
 import { Jsonc } from './runtime.ts'
 import { Sdk } from './sdk.ts'
 import { PackageManager } from './pm.ts'
@@ -46,6 +47,12 @@ export interface Built {
 
 export class AppPackage {
   static readonly PLATFORMS: Readonly<Record<string, string>> = { windows: 'win32', macos: 'darwin', linux: 'linux' }
+
+  static platformKey(name: string): string {
+    if (!Object.hasOwn(AppPackage.PLATFORMS, name))
+      throw Output.option('check', 'platform', name, Object.keys(AppPackage.PLATFORMS).join(', '))
+    return AppPackage.PLATFORMS[name]!
+  }
 
   static here(os: string = process.platform): string | null {
     return Object.entries(AppPackage.PLATFORMS).find(([, key]) => key === os)?.[0] ?? null
@@ -196,8 +203,7 @@ export class AppPackage {
   }
 
   platform(name: string): PlatformReport {
-    const key = Object.hasOwn(AppPackage.PLATFORMS, name) ? AppPackage.PLATFORMS[name]! : null
-    if (!key) throw new Error(`--platform ${name}: windows, macos or linux`)
+    const key = AppPackage.platformKey(name)
     const rows = RUNNING_MODES.flatMap((mode) => {
       const row = platformSupport(key, mode)
       return row ? [{ mode, unsupported: row.unsupported }] : []

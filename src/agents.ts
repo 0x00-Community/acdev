@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { Output } from './output.ts'
 
 export interface Agent {
   readonly id: string
@@ -120,8 +121,10 @@ export class Agents {
   static named(ids: readonly string[], all: readonly Agent[]): Agent[] {
     return ids.map((id) => {
       const agent = all.find((known) => known.id === id)
-      if (!agent) throw new Error(`--agent ${id}: not an agent acde knows (${Agents.some(all)}); ` +
-        'for any other, pass its skills directory with --dir')
+      if (!agent) {
+        throw Output.option('skills', 'agent', id, `not an agent acde knows (${Agents.some(all)}); `
+          + 'for any other, pass its skills directory with --dir')
+      }
       return agent
     })
   }

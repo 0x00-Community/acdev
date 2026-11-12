@@ -45,7 +45,8 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 绿/黄/红.
 退出码与报错形状 (`src/output.ts` `Exit` / `Output.option`, acde#85): 0 做完 (空列表也算), 1 出错 (含包正被使用), 2 没做成但不算错
 (`query` / `inspect --find` 没找到、`uninstall` 没装), 3 取消或没确认 (交互 `new` 按 Ctrl+C、`uninstall` 拒绝或非终端没 `--yes`). 选项值错一律
-`acde: <命令>: --<选项> <值>: <要什么> (acde <命令> --help)`. "没找到" 和说明写 stderr, 带 `acde:`; `console` / `network` 没内容时 stderr 打
+`acde: <命令>: --<选项> <值>: <要什么> (acde <命令> --help)` (`Output.option`; 不在 `cli.ts` 里查的也用它: `AppPackage.platformKey`
+的 `check --platform`、`Agents.named` 的 `skills --agent`、`Project.build` 的 `--out`). `dev` 的 `--out is for one project` 在 `src/dev.ts`, 还是旧样子. "没找到" 和说明写 stderr, 带 `acde:`; `console` / `network` 没内容时 stderr 打
 `acde: no console entries` / `acde: no requests` (给了 `--since` 加 ` in that range`, `--follow` 加 ` yet; waiting for new ones`), 退出 0.
 stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
 (`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
@@ -100,7 +101,9 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
 
 `acde check` 读取工程配置和入口。普通工程的 `build` 和 `dev` 默认把运行时包写到工程的 `.acde/`。
 显式的绝对 `--out` 直接指定产物目录。相对 `--out` 从被构建的工程目录解析，例如从父目录运行
-`acde dev ./demo --out artifacts/demo` 时，输出位于 `./demo/artifacts/demo`。
+`acde dev ./demo --out artifacts/demo` 时，输出位于 `./demo/artifacts/demo`。构建前会清空 `--out`，所以它不能是工程目录或其上层
+（`Project.build` 报 `acde: <命令>: --out <绝对路径>: a directory that does not hold the project …`，命令取 `BuildOptions.command`，
+`acde dev` 不传时按 `dev` 选项算 `dev` 或 `build`）。
 
 安装后的可执行文件 `acde` 与运行时 `acdert` 在安装目录的 `bin/`，运行时的宿主文件在 `bin/app/`，模板在 `lib/acde/templates/`，
 软件开发工具包（Software Development Kit, SDK）在 `lib/acde-api/`。应用工程可以保留自己使用的 `bin/`、`templates/` 和 `packages/`。

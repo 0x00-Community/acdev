@@ -246,8 +246,7 @@ describe('acde skills', () => {
     const said = async (...args: string[]) => (await cli(['skills', ...args], home)).stderr
     expect(await said('update')).toContain('skills update: one of status, install, remove, path')
     const nobody = await said('install', '--agent', 'nobody')
-    expect(nobody).toContain('--agent nobody: not an agent acde knows (claude-code, codex, cursor, ')
-    expect(nobody).toMatch(/ and \d+ more\); for any other/)
+    expect(nobody).toMatch(/^acde: skills: --agent nobody: not an agent acde knows \(claude-code, codex, cursor, .* and \d+ more\); for any other, pass its skills directory with --dir \(acde skills --help\)\n$/)
     expect(await said('install', '--agent', 'codex', '--dir', 'x')).toContain('--agent or --dir, not both')
     expect((await cli(['skills', 'remove', '--copy'], home)).stderr).toContain('--copy is for skills install')
   })
