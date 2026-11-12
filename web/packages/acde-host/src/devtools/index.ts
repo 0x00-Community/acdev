@@ -75,7 +75,7 @@ export class DevToolsPage {
       state = { id: session, enabled: new Set() }
       this.#sessions.set(session, state)
     }
-    void this.#answer(state, message)
+    this.#answer(state, message)
   }
 
   listening(domain: string): boolean {
@@ -92,17 +92,27 @@ export class DevToolsPage {
     for (const session of this.#sessions.values()) if (session.enabled.has(domain)) this.send(session.id, text)
   }
 
-  async #answer(session: DevToolsSession, message: Incoming): Promise<void> {
+  #answer(session: DevToolsSession, message: Incoming): void {
     const reply: Record<string, unknown> = { id: message.id }
     if (message.sessionId !== undefined) reply['sessionId'] = message.sessionId
     const params = (message.params && typeof message.params === 'object' ? message.params : {}) as DevToolsParams
-    try {
-      reply['result'] = (await this.#call(String(message.method), params, session)) ?? {}
-    } catch (error) {
+    const done = (result: unknown) => {
+      reply['result'] = result ?? {}
+      this.send(session.id, JSON.stringify(reply))
+    }
+    const failed = (error: unknown) => {
       const message = String((error as Error | null)?.message ?? error)
       reply['error'] = error instanceof DevToolsError ? { code: error.code, message } : { code: -32603, message }
+      this.send(session.id, JSON.stringify(reply))
     }
-    this.send(session.id, JSON.stringify(reply))
+    let result: unknown
+    try {
+      result = this.#call(String(message.method), params, session)
+    } catch (error) {
+      return failed(error)
+    }
+    if (result instanceof Promise) result.then(done, failed)
+    else done(result)
   }
 
   #call(method: string, params: DevToolsParams, session: DevToolsSession): unknown {
