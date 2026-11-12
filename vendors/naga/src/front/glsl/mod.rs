@@ -179,6 +179,11 @@ pub struct WebGlOptions {
     pub draw_buffers: u32,
     /// Inputs and outputs that become plain globals (an output nothing reads, an input nothing writes).
     pub dropped: FastHashSet<String>,
+    /// Points wider than a pixel: a vertex shader draws each point as a quad (six vertices of an
+    /// instance) of `gl_PointSize` pixels, sized by the hidden uniform `webgl_point` (the viewport
+    /// in `xy`), and passes the point coordinate at this location; a fragment shader reads
+    /// `gl_PointCoord` from it.
+    pub points: Option<u32>,
 }
 
 /// A shader input or output.
@@ -236,6 +241,7 @@ struct WebGlState {
     members: Vec<crate::StructMember>,
     span: u32,
     block: bool,
+    point: Option<(Handle<crate::GlobalVariable>, u32)>,
 }
 
 #[derive(Debug, Default)]

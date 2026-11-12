@@ -1350,6 +1350,108 @@ impl Frontend {
             Default::default(),
         );
 
+        // acde: a wide point is a quad of six vertices (one instance); move this corner out by half
+        // gl_PointSize (clamped to [1, 1024]) and pass the point coordinate
+        let points = self.webgl.as_ref().and_then(|s| Some((s.options.points?, s.point?, s.shader.point_size?)));
+        if let (ShaderStage::Vertex, Some((location, (block, member), size))) = (self.meta.stage, points) {
+            let position = self.entry_args.iter().find_map(|a| match a.binding {
+                crate::Binding::BuiltIn(crate::BuiltIn::Position { .. }) => Some(a.handle),
+                _ => None,
+            });
+            if let Some(position) = position {
+                let span = Span::default();
+                let ty_of = |ctx: &mut Context, inner| ctx.module.types.insert(Type { name: None, inner }, span);
+                let u32_ty = ty_of(&mut ctx, TypeInner::Scalar(Scalar::U32));
+                let vec2_ty = ty_of(&mut ctx, TypeInner::Vector { size: crate::VectorSize::Bi, scalar: Scalar::F32 });
+                let corners_ty = ty_of(
+                    &mut ctx,
+                    TypeInner::Array { base: u32_ty, size: crate::ArraySize::Constant(core::num::NonZeroU32::new(6).unwrap_or(core::num::NonZeroU32::MIN)), stride: 4 },
+                );
+                let vertex = arguments.len() as u32;
+                arguments.push(FunctionArgument {
+                    name: Some("webgl_vertex".into()),
+                    ty: u32_ty,
+                    binding: Some(crate::Binding::BuiltIn(crate::BuiltIn::VertexIndex)),
+                });
+                let coord = ctx.module.global_variables.append(
+                    crate::GlobalVariable {
+                        name: Some("webgl_point_coord".into()),
+                        space: AddressSpace::Private,
+                        binding: None,
+                        ty: vec2_ty,
+                        init: None,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    span,
+                );
+                self.entry_args.push(EntryArg {
+                    name: Some("webgl_point_coord".into()),
+                    binding: crate::Binding::Location {
+                        location,
+                        interpolation: Some(crate::Interpolation::Perspective),
+                        sampling: Some(crate::Sampling::Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    },
+                    handle: coord,
+                    storage: StorageQualifier::Output,
+                    convert: None,
+                });
+                let len = ctx.expressions.len();
+                let add = |ctx: &mut Context, e| ctx.expressions.append(e, span);
+                let lit_u = |ctx: &mut Context, v| ctx.expressions.append(Expression::Literal(Literal::U32(v)), span);
+                let lit_f = |ctx: &mut Context, v| ctx.expressions.append(Expression::Literal(Literal::F32(v)), span);
+                let index = add(&mut ctx, Expression::FunctionArgument(vertex));
+                let table: Vec<_> = [0, 1, 2, 2, 1, 3].into_iter().map(|v| lit_u(&mut ctx, v)).collect();
+                let (one_u, half, one, two, max) = (lit_u(&mut ctx, 1), lit_f(&mut ctx, 0.5), lit_f(&mut ctx, 1.0), lit_f(&mut ctx, 2.0), lit_f(&mut ctx, 1024.0));
+                let position_ptr = add(&mut ctx, Expression::GlobalVariable(position));
+                let size_ptr = add(&mut ctx, Expression::GlobalVariable(size));
+                let block_ptr = add(&mut ctx, Expression::GlobalVariable(block));
+                let coord_ptr = add(&mut ctx, Expression::GlobalVariable(coord));
+                let emit_from = ctx.expressions.len();
+                let corners = add(&mut ctx, Expression::Compose { ty: corners_ty, components: table });
+                let corner = add(&mut ctx, Expression::Access { base: corners, index });
+                let bit_x = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::And, left: corner, right: one_u });
+                let bit_y = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::ShiftRight, left: corner, right: one_u });
+                let side = |ctx: &mut Context, bit| {
+                    let f = ctx.expressions.append(Expression::As { expr: bit, kind: ScalarKind::Float, convert: Some(4) }, span);
+                    let twice = ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Multiply, left: f, right: two }, span);
+                    ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Subtract, left: twice, right: one }, span)
+                };
+                let cx = side(&mut ctx, bit_x);
+                let cy = side(&mut ctx, bit_y);
+                let pos = add(&mut ctx, Expression::Load { pointer: position_ptr });
+                let raw_size = add(&mut ctx, Expression::Load { pointer: size_ptr });
+                let point_size = add(&mut ctx, Expression::Math { fun: crate::MathFunction::Clamp, arg: raw_size, arg1: Some(one), arg2: Some(max), arg3: None });
+                let viewport_ptr = add(&mut ctx, Expression::AccessIndex { base: block_ptr, index: member });
+                let viewport = add(&mut ctx, Expression::Load { pointer: viewport_ptr });
+                let component = |ctx: &mut Context, base, index| ctx.expressions.append(Expression::AccessIndex { base, index }, span);
+                let (x, y, z, w) = (component(&mut ctx, pos, 0), component(&mut ctx, pos, 1), component(&mut ctx, pos, 2), component(&mut ctx, pos, 3));
+                let (vw, vh) = (component(&mut ctx, viewport, 0), component(&mut ctx, viewport, 1));
+                let moved = |ctx: &mut Context, at, c, extent| {
+                    let scaled = ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Multiply, left: c, right: point_size }, span);
+                    let over = ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Divide, left: scaled, right: extent }, span);
+                    let clip = ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Multiply, left: over, right: w }, span);
+                    ctx.expressions.append(Expression::Binary { op: crate::BinaryOperator::Add, left: at, right: clip }, span)
+                };
+                let nx = moved(&mut ctx, x, cx, vw);
+                let ny = moved(&mut ctx, y, cy, vh);
+                let pos_ty = ctx.module.global_variables[position].ty;
+                let new_pos = add(&mut ctx, Expression::Compose { ty: pos_ty, components: vec![nx, ny, z, w] });
+                let hx = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::Multiply, left: cx, right: half });
+                let hy = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::Multiply, left: cy, right: half });
+                let s_coord = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::Add, left: half, right: hx });
+                let t_coord = add(&mut ctx, Expression::Binary { op: crate::BinaryOperator::Subtract, left: half, right: hy });
+                let point_coord = add(&mut ctx, Expression::Compose { ty: vec2_ty, components: vec![s_coord, t_coord] });
+                for h in ctx.expressions.range_from(len).collect::<Vec<_>>() {
+                    ctx.local_expression_kind_tracker.insert(h, crate::proc::ExpressionKind::Runtime);
+                }
+                ctx.body.push(Statement::Emit(ctx.expressions.range_from(emit_from)), span);
+                ctx.body.push(Statement::Store { pointer: position_ptr, value: new_pos }, span);
+                ctx.body.push(Statement::Store { pointer: coord_ptr, value: point_coord }, span);
+            }
+        }
+
         // acde: WebGL clip space to WebGPU's: y flipped (the image is kept with GL's bottom row
         // first) and z from [-w, w] to [0, w]
         if self.webgl.is_some() && self.meta.stage == ShaderStage::Vertex {

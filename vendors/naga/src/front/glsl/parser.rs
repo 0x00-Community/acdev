@@ -206,6 +206,30 @@ impl<'source> ParsingContext<'source> {
             self.parse_external_declaration(frontend, &mut ctx)?;
         }
 
+        // acde: a vertex shader drawing wide points reads the viewport from a hidden uniform
+        if frontend.meta.stage == crate::ShaderStage::Vertex
+            && frontend.webgl.as_ref().is_some_and(|s| s.options.points.is_some())
+        {
+            let ty = ctx.module.types.insert(
+                Type {
+                    name: None,
+                    inner: crate::TypeInner::Vector {
+                        size: crate::VectorSize::Quad,
+                        scalar: crate::Scalar::F32,
+                    },
+                },
+                Span::default(),
+            );
+            if let super::ast::GlobalLookupKind::BlockSelect(handle, index) =
+                frontend.webgl_uniform(&mut ctx, "webgl_point", ty, Span::default())?
+            {
+                if let Some(state) = frontend.webgl.as_mut() {
+                    state.point = Some((handle, index));
+                }
+            }
+            frontend.lookup_variable(&mut ctx, "gl_PointSize", Span::default())?;
+        }
+
         // acde: a WebGL vertex shader always has a position, even one it never writes
         if frontend.webgl.is_some()
             && frontend.meta.stage == crate::ShaderStage::Vertex

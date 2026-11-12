@@ -852,7 +852,7 @@ fn contains_bool(types: &crate::UniqueArena<Type>, ty: Handle<Type>) -> bool {
 
 // acde: WebGL dialect
 impl Frontend {
-    fn webgl_uniform(
+    pub(crate) fn webgl_uniform(
         &mut self,
         ctx: &mut Context,
         name: &str,
@@ -1124,7 +1124,65 @@ impl Frontend {
                 entry_arg: None,
             }));
         }
-        // acde: points are one pixel (ALIASED_POINT_SIZE_RANGE is [1, 1]), so gl_PointCoord is the centre
+        // acde: wide points pass the point coordinate in from the vertex shader
+        if name == "gl_PointCoord" && fragment {
+            if let Some(location) = self.webgl.as_ref().and_then(|s| s.options.points) {
+                let ty = ctx.module.types.insert(
+                    Type {
+                        name: None,
+                        inner: TypeInner::Vector {
+                            size: VectorSize::Bi,
+                            scalar: Scalar::F32,
+                        },
+                    },
+                    meta,
+                );
+                let handle = ctx.module.global_variables.append(
+                    GlobalVariable {
+                        name: Some(name.into()),
+                        space: AddressSpace::Private,
+                        binding: None,
+                        ty,
+                        init: None,
+                        memory_decorations: crate::MemoryDecorations::empty(),
+                    },
+                    meta,
+                );
+                self.entry_args.push(EntryArg {
+                    name: Some(name.into()),
+                    binding: Binding::Location {
+                        location,
+                        interpolation: Some(crate::Interpolation::Perspective),
+                        sampling: Some(crate::Sampling::Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    },
+                    handle,
+                    storage: StorageQualifier::Input,
+                    convert: None,
+                });
+                let idx = self.entry_args.len() - 1;
+                let expr = ctx.add_expression(Expression::GlobalVariable(handle), meta)?;
+                let var = VariableReference {
+                    expr,
+                    load: true,
+                    mutable: false,
+                    constant: None,
+                    entry_arg: Some(idx),
+                };
+                ctx.symbol_table.add_root(name.into(), var.clone());
+                self.global_variables.push((
+                    name.into(),
+                    GlobalLookup {
+                        kind: GlobalLookupKind::Variable(handle),
+                        entry_arg: Some(idx),
+                        mutable: false,
+                    },
+                ));
+                return Ok(Some(var));
+            }
+        }
+        // acde: otherwise points are one pixel, so gl_PointCoord is the centre
         if name == "gl_PointCoord" && fragment {
             let half = ctx.add_expression(Expression::Literal(crate::Literal::F32(0.5)), meta)?;
             let ty = ctx.module.types.insert(
@@ -1234,6 +1292,17 @@ impl Frontend {
                 ),
                 meta,
             ),
+            "gl_PointSize" if !fragment && self.webgl.as_ref().is_some_and(|s| s.shader.point_size.is_some()) => {
+                let Some(handle) = self.webgl.as_ref().and_then(|s| s.shader.point_size) else { unreachable!() };
+                let expr = ctx.add_expression(Expression::GlobalVariable(handle), meta)?;
+                Ok(Some(VariableReference {
+                    expr,
+                    load: true,
+                    mutable: true,
+                    constant: None,
+                    entry_arg: None,
+                }))
+            }
             "gl_PointSize" if !fragment => {
                 let ty = ctx.module.types.insert(
                     Type {
