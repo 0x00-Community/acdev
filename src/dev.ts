@@ -27,6 +27,7 @@ export interface DevOptions {
   readonly desktop?: string
   readonly headless?: boolean
   readonly verbose?: boolean
+  readonly force?: boolean
   readonly acdert: string
 }
 
@@ -47,6 +48,7 @@ export interface RuntimeProbe {
 
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
+  static readonly INTERRUPT_MS = 2_000
   static readonly INFO = /^\d+\.\d{3} [IDT] \S+ \S+: /
 
   static quiet(from: Readable, to: Writable): void {
@@ -61,6 +63,7 @@ export class DevSession {
   readonly #acdert: string
   readonly #headless: boolean
   readonly #verbose: boolean
+  readonly #force: boolean
   readonly #endpoint = DevClient.endpoint()
   #link: DevClient | null = null
   readonly #dirty = new Set<Unit>()
@@ -89,6 +92,7 @@ export class DevSession {
     this.#acdert = options.acdert
     this.#headless = options.headless === true
     this.#verbose = options.verbose === true
+    this.#force = options.force === true
   }
 
   get multiple(): boolean {
@@ -204,9 +208,19 @@ export class DevSession {
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
+  #refuseSecond(): void {
+    const dirs = this.#units.map((u) => u.pkg.dir)
+    const other = Sessions.running(Sessions.list(), dirs)
+    if (!other || this.#force) return
+    const dir = other.dirs.find((d) => dirs.some((mine) => Sessions.sameDir(d, mine)))!
+    throw new Error(`acde dev ${other.pid} already runs ${dir}; stop it first (acde stop --session ${other.pid}), `
+      + 'or pass --force to start another')
+  }
+
   async run(): Promise<number> {
     const display = this.#headless ? null : Runtime.noDisplay()
     if (display) throw new Error(`${display}: run acde dev --headless`)
+    this.#refuseSecond()
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)
@@ -242,7 +256,13 @@ export class DevSession {
       void started.exited.finally(() => {
         running = false
       })
-      signals.push(['SIGINT', () => undefined])
+      let interrupted = 0
+      signals.push(['SIGINT', () => {
+        interrupted++
+        if (process.platform !== 'win32') started.kill(interrupted > 1 ? 'SIGKILL' : 'SIGTERM')
+        else if (interrupted > 1) started.kill()
+        else setTimeout(() => started.kill(), DevSession.INTERRUPT_MS).unref()
+      }])
       if (process.platform !== 'win32')
         for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => started.kill(signal)])
       for (const [signal, handler] of signals) process.on(signal, handler)

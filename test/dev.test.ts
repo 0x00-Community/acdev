@@ -551,12 +551,38 @@ describe('acde dev with a stand-in acdert', () => {
     expect(webs.code).toBe(1)
     expect(webs.stderr).toContain('no acde dev is running')
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
+    expect(readdirSync(dev.sessions).filter((f) => f.startsWith(`${dev.child.pid}.`))).toEqual([])
 
     Sessions.write({ ...session, pid: process.pid }, dev.sessions)
     const reused = await dev.tool(['webs'], alpha)
     expect(reused.code).toBe(1)
     expect(reused.stderr).toContain(`acde dev ${process.pid} is gone`)
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
+  }, 30_000)
+
+  test('a second acde dev on the same project is refused; SIGINT to acde dev alone ends it and its files', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([alpha], base)
+    let stopped = false
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const acdert = fakeAcdert(dev.root)
+      const pid = dev.child.pid
+      const second = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
+      expect(second.code).toBe(1)
+      expect(second.stderr).toBe(`acde: acde dev ${pid} already runs ${realpathSync(alpha)}; `
+        + `stop it first (acde stop --session ${pid}), or pass --force to start another\n`)
+      if (!WINDOWS) {
+        dev.child.kill('SIGINT')
+        const ended = await Promise.race([dev.child.exited.then(() => 'ended'), Bun.sleep(3_000).then(() => 'late')])
+        expect(ended).toBe('ended')
+        stopped = true
+        expect(readdirSync(dev.sessions).filter((f) => f.startsWith(`${pid}.`))).toEqual([])
+      }
+    } finally {
+      if (!stopped) await dev.stop()
+    }
   }, 30_000)
 
   test('act w1 close that ends a single-app session exits 0, any other lost connection 1; ' +

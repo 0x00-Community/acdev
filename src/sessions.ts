@@ -100,6 +100,15 @@ export class Sessions {
     }
   }
 
+  static sameDir(a: string, b: string): boolean {
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+  }
+
+  static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session | null {
+    return sessions.find((session) => session.pid !== self
+      && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine)))) ?? null
+  }
+
   static list(dir = Sessions.dir()): Session[] {
     if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return []
     const found: Session[] = []
@@ -111,6 +120,10 @@ export class Sessions {
       const session = Sessions.#read(file) ?? Sessions.#read(file)
       if (session && session.pid === pid && Sessions.alive(pid)) found.push(session)
       else if (!Sessions.alive(pid) || (session !== null && session.pid !== pid)) rmSync(file, { force: true })
+    }
+    for (const name of readdirSync(dir)) {
+      const left = /^(\d+)\.(?:sock|json\.(\d+)\.tmp)$/.exec(name)
+      if (left && !Sessions.alive(Number(left[2] ?? left[1]))) rmSync(join(dir, name), { force: true })
     }
     return found.sort((a, b) => a.started - b.started)
   }

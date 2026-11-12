@@ -128,6 +128,7 @@ export class Help {
           { flag: '--app ID', about: 'With several apps in a project, the one to open' },
           { flag: '--desktop ID|DIR', about: 'Run the projects in that desktop' },
           { flag: '--out DIR', about: 'Where to build (default: .acde; one project only)' },
+          { flag: '--force', about: 'Start even when another acde dev runs the same project' },
         ],
         examples: ['acde dev', 'acde dev --headless', 'acde dev ./app ./desk'],
       },
