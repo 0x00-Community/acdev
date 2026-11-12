@@ -20,6 +20,7 @@ export interface Starter {
   readonly hint: string
   readonly kind: Kind
   readonly scaffold?: (dir: string, pm: PackageManager) => readonly string[]
+  readonly server?: string
 }
 
 export interface CreateOptions {
@@ -57,6 +58,7 @@ export const STARTERS: readonly Starter[] = [
     label: 'Next.js',
     hint: 'server rendering, App Router',
     kind: 'app',
+    server: 'its own server: API routes in app/api',
     scaffold: (dir, pm) =>
       pm.exec('create-next-app@latest', [
         dir,
@@ -74,6 +76,7 @@ export const STARTERS: readonly Starter[] = [
     label: 'Nuxt',
     hint: 'server rendering',
     kind: 'app',
+    server: 'its own server: API routes in server/api',
     scaffold: (dir, pm) =>
       pm.exec('create-nuxt@latest', [
         dir,
@@ -90,6 +93,7 @@ export const STARTERS: readonly Starter[] = [
     label: 'SvelteKit',
     hint: 'server rendering',
     kind: 'app',
+    server: 'its own server: +server.ts endpoints in src/routes',
     scaffold: (dir, pm) =>
       pm.exec('sv@latest', ['create', dir, '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install']),
   },
@@ -98,6 +102,7 @@ export const STARTERS: readonly Starter[] = [
     label: 'Astro',
     hint: 'static pages',
     kind: 'app',
+    server: 'its own server: endpoints in src/pages, with a server adapter',
     scaffold: (dir, pm) =>
       pm.exec('create-astro@latest', [
         dir,
@@ -115,6 +120,7 @@ export const STARTERS: readonly Starter[] = [
     label: 'Desktop',
     hint: 'a full-screen page behind every window, its services and apps',
     kind: 'desktop',
+    server: 'no backend: desktop services run in the runtime',
   },
 ]
 
@@ -128,6 +134,14 @@ export class Creator {
     const found = STARTERS.find((s) => s.name === name)
     if (!found) throw new Error(`template ${JSON.stringify(name)}: one of ${STARTERS.map((s) => s.name).join(', ')}`)
     return found
+  }
+
+  static backs(starter: Starter): boolean {
+    return starter.server === undefined
+  }
+
+  static checkBackend(starter: Starter, backend: boolean | undefined): void {
+    if (backend && !Creator.backs(starter)) throw new Error(`--backend: ${starter.label} has ${starter.server}`)
   }
 
   static idOf(dir: string): string {
@@ -198,7 +212,7 @@ export class Creator {
         ))
       const backend =
         given.backend ??
-        (starter.name === 'html'
+        (Creator.backs(starter)
           ? await answer(
               p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false }),
             )
@@ -225,6 +239,7 @@ export class Creator {
     const starter = Creator.starter(options.template ?? 'html')
     const id = options.id ?? Creator.idOf(dir)
     const label = options.label || id
+    Creator.checkBackend(starter, options.backend)
     const problem = Creator.vacant(dir)
     if (problem) throw new Error(problem)
     if (!Project.ID.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
@@ -237,6 +252,7 @@ export class Creator {
         const [at, name] = target === process.cwd() ? [target, '.'] : [dirname(target), basename(target)]
         await step(`${starter.label}: its own scaffolding`, [starter.scaffold(name, pm)], at, { CI: '1' })
         Creator.adopt(dir, id, label, starter.label)
+        if (options.backend) Creator.serve(dir, id, label)
       } else {
         Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
       }
@@ -297,6 +313,12 @@ export class Creator {
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
     for (const layer of [kind, ...layers]) Creator.#copy(join(Creator.TEMPLATES, layer), dir, { id, label })
     Creator.#wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm === 'bun' ? {} : { vite: Creator.VITE })
+  }
+
+  static serve(dir: string, id: string, label: string): void {
+    const file = 'server.ts'
+    if (existsSync(join(dir, file))) throw new Error(`${file} is there already`)
+    Creator.#copy(join(Creator.TEMPLATES, 'backend'), dir, { id, label }, [file])
   }
 
   static adopt(dir: string, id: string, label: string, framework: string): void {
@@ -384,8 +406,13 @@ export class Creator {
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 
-  static #copy(from: string, to: string, vars: Readonly<Record<string, string>>): void {
-    for (const name of readdirSync(from)) {
+  static #copy(
+    from: string,
+    to: string,
+    vars: Readonly<Record<string, string>>,
+    only?: readonly string[],
+  ): void {
+    for (const name of only ?? readdirSync(from)) {
       const source = join(from, name)
       if (statSync(source).isDirectory()) {
         Creator.#copy(source, join(to, name), vars)

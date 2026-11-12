@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { API_LEVEL, Manifest, SHARED_PLACES, type PackageManifest } from '@dopame/acde-api/manifest'
 import { Creator } from '../src/create.ts'
@@ -145,6 +145,39 @@ describe('templates at contract level 1', () => {
     expect(own['entry']).toBeUndefined()
     expectLevel1App(own, 'made-by-vite')
   })
+
+  test('--backend on a Vite project adds server.ts alone, and acde build bundles it as the backend', async () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'src'))
+    writeFileSync(join(dir, 'src/main.ts'), 'document.title = "vite"\n')
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><script type="module" src="/src/main.ts"></script>\n')
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'with-api', type: 'module' }))
+    Creator.adopt(dir, 'with-api', 'With API', 'Vanilla')
+    Creator.serve(dir, 'with-api', 'With API')
+    expect(readFileSync(join(dir, 'server.ts'), 'utf8')).toContain("'/api/hello'")
+    expect(readdirSync(join(dir, 'src'))).toEqual(['main.ts'])
+    expect(() => Creator.serve(dir, 'with-api', 'With API')).toThrow('server.ts is there already')
+    const out = join(tmp(), 'out')
+    const built = await cli(['build', '--out', out], dir)
+    expect(built.code, built.stderr).toBe(0)
+    expect(readdirSync(join(out, 'backend')).sort()).toEqual(['acde-listen.js', 'package.json', 'server.js'])
+  }, 60_000)
+
+  for (const [template, says] of [
+    ['next', 'Next.js has its own server'],
+    ['nuxt', 'Nuxt has its own server'],
+    ['sveltekit', 'SvelteKit has its own server'],
+    ['astro', 'Astro has its own server'],
+    ['desktop', 'Desktop has no backend'],
+  ] as const) {
+    test(`${template} --backend is refused before anything is made`, async () => {
+      const dir = join(tmp(), 'refused')
+      const made = await cli(['new', dir, '--template', template, '--backend', '--yes', '--no-install'], tmp())
+      expect(made.code).not.toBe(0)
+      expect(made.stderr).toContain(`--backend: ${says}`)
+      expect(existsSync(dir)).toBe(false)
+    })
+  }
 })
 
 describe('templates speak English and carry a small i18n setup', () => {
