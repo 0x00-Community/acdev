@@ -13,6 +13,7 @@ import { TestRunner } from './e2e/runner.ts'
 import { Color } from './color.ts'
 import { Help } from './help.ts'
 import { Mcp } from './mcp.ts'
+import { Output } from './output.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
@@ -237,12 +238,13 @@ class Cli {
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     const into = pkg.project ? `built ${what} into ${Cli.shown(built.dir)}` : `ok: ${pkg.name} (${what})`
+    const done = Color.palette().ok('acde:')
     if (command === 'build') {
-      console.log(`acde: ${into} (${Cli.took(started)})`)
+      console.log(`${done} ${into} (${Cli.took(started)})`)
       return 0
     }
-    console.log(`acde: ${into}`)
-    console.log(`acde: installed ${built.id} in ${pkg.install(built)} (${Cli.took(started)})`)
+    console.log(`${done} ${into}`)
+    console.log(`${done} installed ${built.id} in ${pkg.install(built)} (${Cli.took(started)})`)
     return 0
   }
 
@@ -359,9 +361,10 @@ class Cli {
   }
 }
 
+Output.install()
 try {
   process.exitCode = await Cli.main(process.argv.slice(2))
 } catch (error) {
-  console.error(`acde: ${error instanceof Error ? error.message : String(error)}`)
+  Output.fail(error)
   process.exitCode = 1
 }

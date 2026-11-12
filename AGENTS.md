@@ -34,9 +34,15 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 `acde --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
 和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acde doctor` 的输出 (`Doctor.format`, 续行缩进到检查名或 `fix:` 之后)、`acde new` 的 then 提示和 `acde skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读. `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
-颜色 (`src/color.ts`): stdout 是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色, `TERM=dumb` 不上色;
-写 stderr 的看 stderr 是不是终端. 上色的只有帮助、快速上手、`acde check` 的 `ok:`/`warning:`/`error:`/`note:` 前缀和 `acde doctor` 的状态词
-(ok 绿、warn 黄、error 红、skip 暗).
+颜色 (`src/color.ts`): 写到的那个流是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色 (`0`、`false` 视为关, 同 Node 和 chalk),
+`TERM=dumb` 不上色. 上色的只有帮助、快速上手、标签 (`ok:` 绿、`warning:` 黄、`error:` 红、`note:`/`hint:` 暗)、`acde doctor` 的状态词
+(ok 绿、warn 黄、error 红、skip 暗), 以及结果行的前缀: `build`/`install` 成功的 `acde:` 绿, `acde doctor:` 和 `acde test:` 汇总按结果
+绿/黄/红.
+stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
+(`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
+不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acde: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdert 转来的错误
+带着它); 调用栈只在 `ACDE_DEBUG` 非空且不是 `0` 时接着打. acdert 自己启动失败时打的 broker 调用栈 (acdert `web/packages/acde-host/src/main.ts`
+写的 `acde: ` 加 `error.stack`) 经继承的 stderr 直接出去, 要在 acdert 那边改.
 `acde build`、`acde install`、非交互 `acde new` 的最后一行带耗时 (`(840 ms)`, 1 s 起 `(1.2 s)`; 交互式 `acde new` 从答完问题算起, 写在结尾一行);
 落在当前目录里的路径打相对路径 (`Cli.shown`, 先取真实路径再比, macOS 的 `/var` → `/private/var` 不算在外面), 外面的打绝对路径.
 不带命令打三行快速上手 (版本、`acde new my-app` → `cd my-app` → `acde dev`、指向 `acde --help`), 退出码 0; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.

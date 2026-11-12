@@ -6,7 +6,7 @@ acde <command> [args]
 
 On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde` with no command.
 
-`acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
+`acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color is on when the stream written to is a terminal; `NO_COLOR` turns it off, `FORCE_COLOR` turns it on (`FORCE_COLOR=0` turns it off), and only labels such as `acde:`, `error:` and `warning:` are coloured. An error is one line, `acde: <what went wrong>`; with `ACDE_DEBUG=1` its stack trace follows.
 
 ## Setup
 

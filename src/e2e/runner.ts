@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
+import { Color } from '../color.ts'
 import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { cpus } from 'node:os'
@@ -214,7 +215,9 @@ export class TestRunner {
     const files = `${ran} file${ran === 1 ? '' : 's'}`
     const skipped = filtered.length ? `, ${filtered.length} skipped (no test matches -t)` : ''
     const notRun = unrun ? `, ${unrun} not run (--bail)` : ''
-    const summary = `acde test: ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
+    const c = Color.palette()
+    const label = (failed.length ? c.error : c.ok)('acde test:')
+    const summary = `${label} ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
     const left = kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''
     if (ran) console.log(TestRunner.counted(tallies, uncounted))
     console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
