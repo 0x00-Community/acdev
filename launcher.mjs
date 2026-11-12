@@ -67,7 +67,7 @@ export function findAcdert(root = ROOT, env = process.env) {
     path: null,
     from: null,
     problem: `acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
-      'set ACDERT to an acde-dbg binary, or put acde-dbg on PATH',
+      'set ACDERT to an acdert binary, or put acdert on PATH',
   }
 }
 
