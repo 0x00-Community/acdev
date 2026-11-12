@@ -1765,6 +1765,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `node/svg.rs` `external_uses` / `inline_external_uses`, `document.rs` `svg_with_sprites`, `net.rs` `SvgSpriteHandler` | 内联 SVG 里指向别的文件的 `<use href="icons.svg#id">` (#152; usvg 只认同一文档里的): 文件经 net provider 取一次 (按去掉片段的 URL 记, 取不到不重试), 到了把等它的 `<svg>` 重建; 序列化后把目标元素原样抄进根下的 `<defs>`, 改成 `acde-sprite-<n>-<id>`, `<use>` 指向它. 只抄目标元素本身, 它再引用文件里别的 id 不跟 |
 | `stylo.rs` `synthesize_presentational_hints_for_legacy_attributes`, `SVG_PRESENTATION` | SVG 的呈现属性 (fill / stroke / opacity / font-* 这 18 个, 和序列化写回的一样) 按 CSS 解析成 PresHints: `stroke="var(--x)"` 能解析, `getComputedStyle` 也读得到; 含 `url(` 的值不映射 (照旧原样交给 usvg) |
 | `util.rs` `parse_svg_image` / `parse_svg_with` | 按源文本缓存 usvg 解析 (512 条); 没有 `<text>` 用空字体库 |
+| `net.rs` `ImageHandler::parse` / `best_icon_entry`, `Cargo.toml` image 的 `ico` 特性 | ICO / CUR 图片 (#203; 上游没开 `ico`, favicon 报错): 照浏览器取面积最大的一项, 同样大时取色深最大的 (image crate 自己先比色深), 抄成只有这一项的 ICO 再交给 image 解 (PNG 和 BMP 项都认); `ico` 带上 `bmp`, 单独的 BMP 图片也能解了 |
 | `util.rs` `FONT_DB`, `document.rs` `svg_fonts` | fontdb 的通用字族用 fontique 选的; SVG `<text>` 能用 @font-face |
 | `webkit_compat.rs` (新), `document.rs`, `net.rs`, `node/element.rs`, `cssom.rs` | 解析前改写 `-webkit-line-clamp` / `-webkit-box` / `-webkit-inline-box` |
 | `layout/inline/*.rs`, `node/text.rs` | ellipsis 另排一个 "…"; line-clamp 截到第 N 行 |

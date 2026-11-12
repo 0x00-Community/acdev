@@ -62,6 +62,54 @@ fn remote_stylesheets_apply_when_they_arrive_and_ask_for_their_fonts() {
     assert_eq!(take(&loads, "https://cdn.example.com/fonts/r.woff2").destination, "font");
 }
 
+fn icon(entries: &[(u8, u8, u16, Vec<u8>)]) -> Vec<u8> {
+    let mut out = vec![0, 0, 1, 0];
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * entries.len();
+    for (width, height, bits, data) in entries {
+        out.extend_from_slice(&[*width, *height, 0, 0, 1, 0]);
+        out.extend_from_slice(&bits.to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += data.len();
+    }
+    for (.., data) in entries {
+        out.extend_from_slice(data);
+    }
+    out
+}
+
+fn bmp_entry(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    for value in [40, width, height * 2] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(&[0; 24]);
+    for _ in 0..width * height {
+        out.extend_from_slice(&[0, 0, 255, 255]);
+    }
+    let mask_row = (width.div_ceil(32) * 4) as usize;
+    out.extend(std::iter::repeat_n(0, mask_row * height as usize));
+    out
+}
+
+#[test]
+fn icons_load_from_their_largest_entry_in_png_or_bmp() {
+    let (_doc, dom, loads) = page("<body><img id=png src='https://site.example.com/favicon.ico'><img id=bmp src='https://site.example.com/bmp.ico'></body>");
+    let (png_icon, bmp_icon) = (by_id(&dom, "png"), by_id(&dom, "bmp"));
+    take(&loads, "https://site.example.com/favicon.ico").finish(Some(icon(&[(1, 1, 32, bmp_entry(1, 1)), (2, 3, 32, png())])));
+    take(&loads, "https://site.example.com/bmp.ico").finish(Some(icon(&[(4, 2, 32, bmp_entry(4, 2)), (1, 1, 32, png())])));
+    let mut loaded = dom.take_loaded();
+    loaded.sort();
+    let mut both = vec![png_icon, bmp_icon];
+    both.sort();
+    assert_eq!(loaded, both);
+    assert_eq!(dom.image_state(png_icon).unwrap(), [2.0, 3.0, 1.0], "the 2x3 PNG entry, not the 1x1 bitmap");
+    assert_eq!(dom.image_state(bmp_icon).unwrap(), [4.0, 2.0, 1.0], "the 4x2 bitmap entry, not the 1x1 PNG");
+}
+
 #[test]
 fn local_and_data_urls_never_reach_the_loader() {
     let (_doc, dom, loads) = page(&format!("<body><img id=a src='data:image/png;base64,{PNG}'><img src='file:///nowhere/x.png'></body>"));
