@@ -211,6 +211,24 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(() => Sessions.pick([a], root, 99)).toThrow('no acde dev with pid 99:\n  11')
   })
 
+  test('live: a session whose endpoint nobody answers is dropped, though its pid lives (reused)', async () => {
+    const dir = join(tmp(), 'acde-dev')
+    const acdert = await new FakeAcdert(testEndpoint()).listen()
+    try {
+      const answering = session({ pid: process.pid, endpoint: acdert.endpoint, dirs: ['/a'], started: 1 })
+      const reused = session({ pid: process.ppid, endpoint: testEndpoint(), dirs: ['/a'], started: 2 })
+      Sessions.write(answering, dir)
+      Sessions.write(reused, dir)
+      expect(Sessions.list(dir).map((s) => s.pid)).toEqual([process.pid, process.ppid])
+      expect((await Sessions.live(Sessions.list(dir), dir)).map((s) => s.pid)).toEqual([process.pid])
+      expect(Sessions.list(dir).map((s) => s.pid)).toEqual([process.pid])
+      expect(await Sessions.answers(acdert.endpoint)).toBe(true)
+    } finally {
+      await acdert.close()
+    }
+    expect(await Sessions.answers(testEndpoint())).toBe(false)
+  })
+
   test('sessions of acde test: pick and running pass them by; --session still reaches them', () => {
     const root = realpathSync(tmp())
     const a = session({ pid: 11, dirs: [join(root, 'a')], apps: ['alpha'] })
@@ -225,8 +243,8 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(said).toEqual([expect.stringMatching(/^acde: using acde dev 11 \(app alpha\), the only one running$/)])
     expect(() => Sessions.pick([tested], join(root, 'a')))
       .toThrow(/^no acde dev is running, only sessions of acde test, which are reached only with --session <pid>:\n {2}12 {2}app alpha \(headless, acde test\)/)
-    expect(Sessions.running([tested, elsewhere], [join(root, 'a'), join(root, 'b')])).toBeNull()
-    expect(Sessions.running([tested, a], [join(root, 'a')])?.pid).toBe(11)
+    expect(Sessions.running([tested, elsewhere], [join(root, 'a'), join(root, 'b')])).toEqual([])
+    expect(Sessions.running([tested, a], [join(root, 'a')]).map((s) => s.pid)).toEqual([11])
     const dir = join(tmp(), 'acde-dev')
     Sessions.write({ ...tested, pid: process.pid, started: 1 }, dir)
     Sessions.write({ ...a, pid: process.ppid, started: 2 }, dir)
@@ -627,19 +645,32 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
   }, 30_000)
 
-  test('a second acde dev on the same project is refused; SIGINT to acde dev alone ends it and its files', async () => {
+  test('a second acde dev on the same project is refused; SIGINT to acde dev alone ends it and its files; '
+    + 'a session file whose pid now belongs to another process refuses nothing and is dropped', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
-    const dev = start([alpha], base)
+    const root = tmp()
+    const left: Session = {
+      pid: process.pid, endpoint: testEndpoint(), dirs: [alpha], apps: ['alpha'], desktop: null, started: 1,
+    }
+    Sessions.write(left, join(root, 'acde-dev'))
+    const dev = start([alpha], base, {}, root)
     let stopped = false
     try {
       await until('the session file', () => existsSync(dev.file))
+      expect(existsSync(Sessions.file(process.pid, dev.sessions))).toBe(false)
       const acdert = fakeAcdert(dev.root)
       const pid = dev.child.pid
       const second = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
       expect(second.code).toBe(1)
       expect(second.stderr).toBe(`acde: acde dev ${pid} already runs ${realpathSync(alpha)}; `
         + `stop it first (acde stop --session ${pid}), or pass --force to start another\n`)
+      const reused = { ...JSON.parse(readFileSync(dev.file, 'utf8')) as Session, pid: process.pid, started: 1 }
+      reused.endpoint = testEndpoint()
+      Sessions.write(reused, dev.sessions)
+      const third = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
+      expect(third.stderr).toContain(`acde: acde dev ${pid} already runs`)
+      expect(existsSync(Sessions.file(process.pid, dev.sessions))).toBe(false)
       if (!WINDOWS) {
         dev.child.kill('SIGINT')
         const ended = await Promise.race([dev.child.exited.then(() => 'ended'), Bun.sleep(3_000).then(() => 'late')])

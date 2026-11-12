@@ -378,7 +378,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   第二次 SIGINT 发 SIGKILL; Windows 上 Ctrl+C 同时到 acdert, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
 - 一个工程一个会话 (acde#91, `Sessions.running`): `run()` 开头 (建构之前) 列会话, 另一个活着的 acde dev 的 `dirs` 里有本次的工程
   (Windows 不分大小写) 就报 `acde dev <pid> already runs <目录>; stop it first (acde stop --session <pid>), or pass --force to start another`
-  退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写). `acde test` 的会话 (`Acde.launch({force: true})`) 用
+  退出 1. `--force` 照样起. 判断在 `Sessions.running` (`sameDir` 在 Windows 不分大小写, 返回所有跑着这些工程的会话). 报之前先确认它真活着
+  (`Sessions.live`): `Sessions.list` 只看 pid (`kill(pid, 0)`), pid 被别的进程复用时会话文件留着; 所以连一下各自的 `endpoint`
+  (`Sessions.answers`, 最多 `PROBE_MS` 1 s; 只连上就断开, 不发东西), `ECONNREFUSED` / `ENOENT` 算死, 用 `removeIfCurrent` 删掉它的会话文件再往下看,
+  连上、超时或别的错算活 (拿不准不删). 会话文件是连上 acdert 之后才写的, 活着的会话总连得上. MCP 的 `start` 挑要接的会话也这样确认. `acde test` 的会话 (`Acde.launch({force: true})`) 用
   自己的输出目录, 带 `--force`, 不受影响; 它们还是**测试会话**: `E2eRun.env` 设 `ACDE_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它
   给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdert 的环境去掉这个变量. 一个工程一个会话的判断 (`Sessions.running`)、按目录挑会话
   (`Sessions.pick` 没给 pid 的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acde dev`, `acde eval` 等

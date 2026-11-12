@@ -785,7 +785,7 @@ export class Mcp {
     if (this.#launched && !this.#launched.closed)
       throw new Error(`acde dev ${this.#launched.session.pid} started here is running; stop it first`)
     const dirs = (args.dirs?.length ? args.dirs : ['.']).map((dir) => Mcp.#real(resolve(this.#cwd, dir)))
-    const running = args.force ? null : Sessions.running(Sessions.list(), dirs)
+    const [running] = args.force ? [] : await Sessions.live(Sessions.running(Sessions.list(), dirs))
     if (running) {
       this.#pinned = running.pid
       const acde = await this.#acde()

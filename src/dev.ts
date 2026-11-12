@@ -223,10 +223,11 @@ export class DevSession {
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
-  #refuseSecond(): void {
+  async #refuseSecond(): Promise<void> {
+    if (this.#force) return
     const dirs = this.#units.map((u) => u.pkg.dir)
-    const other = Sessions.running(Sessions.list(), dirs)
-    if (!other || this.#force) return
+    const [other] = await Sessions.live(Sessions.running(Sessions.list(), dirs))
+    if (!other) return
     const dir = other.dirs.find((d) => dirs.some((mine) => Sessions.sameDir(d, mine)))!
     throw new Error(`acde dev ${other.pid} already runs ${dir}; stop it first (acde stop --session ${other.pid}), `
       + 'or pass --force to start another')
@@ -235,7 +236,7 @@ export class DevSession {
   async run(): Promise<number> {
     const display = this.#headless ? null : Runtime.noDisplay()
     if (display) throw new Error(`${display}: run acde dev --headless`)
-    this.#refuseSecond()
+    await this.#refuseSecond()
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)

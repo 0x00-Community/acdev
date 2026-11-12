@@ -2,6 +2,7 @@ import {
   chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
   writeFileSync, type Stats,
 } from 'node:fs'
+import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { CONFIGS } from './configs.ts'
@@ -27,6 +28,7 @@ export interface Reloaded {
 export class Sessions {
   static readonly SETTLE_MS = 1_000
   static readonly RETRY_MS = 50
+  static readonly PROBE_MS = 1_000
   static readonly TEST_ENV = 'ACDE_TEST_SESSION'
 
   static dir(env: NodeJS.ProcessEnv = process.env): string {
@@ -106,9 +108,31 @@ export class Sessions {
     return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
   }
 
-  static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session | null {
-    return sessions.find((session) => session.pid !== self && !session.test
-      && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine)))) ?? null
+  static running(sessions: readonly Session[], dirs: readonly string[], self = process.pid): Session[] {
+    return sessions.filter((session) => session.pid !== self && !session.test
+      && session.dirs.some((dir) => dirs.some((mine) => Sessions.sameDir(dir, mine))))
+  }
+
+  static answers(endpoint: string, timeoutMs = Sessions.PROBE_MS): Promise<boolean> {
+    return new Promise((done) => {
+      const socket = net.connect(endpoint)
+      const finish = (live: boolean) => {
+        clearTimeout(timer)
+        socket.destroy()
+        done(live)
+      }
+      const timer = setTimeout(() => finish(true), timeoutMs)
+      socket.once('connect', () => finish(true))
+      socket.once('error', (error: NodeJS.ErrnoException) =>
+        finish(error.code !== 'ECONNREFUSED' && error.code !== 'ENOENT'))
+    })
+  }
+
+  static async live(sessions: readonly Session[], dir = Sessions.dir()): Promise<Session[]> {
+    const answered = await Promise.all(sessions.map((session) => Sessions.answers(session.endpoint)))
+    const live = sessions.filter((_, at) => answered[at])
+    for (const session of sessions) if (!live.includes(session)) Sessions.removeIfCurrent(session, dir)
+    return live
   }
 
   static list(dir = Sessions.dir()): Session[] {
