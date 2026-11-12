@@ -736,6 +736,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   证书、重定向, `acde network` 里是 `image` / `stylesheet` / `font`). 规则按 destination 照浏览器: 图片和样式表 no-cors (不带 `Origin`, body 照用),
   字体 cors; 样式表要 2xx 的 `text/css`, 图片不看状态码; 失败在 console 报 `Failed to load resource: <url>: <原因>`. `<link crossorigin>` 是 CORS
   请求 (空值和别的值不带凭据, `use-credentials` 带), 没过 CORS 检查算失败; 改 `crossorigin` 和改 `href` / `rel` 一样重取.
+  `document.fonts` 列的是各表的 `@font-face` (acde-dom `fontFaceTexts`, 内部读 render 的规则, 跨源 (opaque) 的表也算, 像浏览器), 页面读这种表的 `cssRules` 仍是 `SecurityError`.
   - `<link>` 的 `load` / `error`: acrender 给每个 link 记它当前这一次取 (`SheetLoad`, 连同表里 `@import` 的表, 都答了才算完), render 的
     `take_loaded` 把取完的 link 和图片一起报, `sheetState` 说成败. 成了 (取到并进了 stylist) 派 `load`; 取不到、状态码或类型不对、`@import` 的表有
     一个没取到派 `error` (已取到的规则照样生效, 和 Chrome 一样). `href` 又变了或 link 离开了文档, 先前那次的答复丢掉, 不派事件; 换 `href` 时旧表留到新的

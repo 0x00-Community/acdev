@@ -16,7 +16,7 @@ import { CDATASection, Comment, cssString, DocumentFragment, elementById, Docume
 import { HTML_NS, KNOWN, SVG_NS, validateAndExtract, validElementLocalName, documents } from './namespaces'
 import { CaretPosition, getSelection, Range, type Selection } from './range'
 import { bodyId, classes, CONNECTED, construct, constructing, documentElementOf, documentId, dom, headId, ID, inner, nodeConstructing, rootElementId, wrap } from './realm'
-import { CSSStyleSheet, StyleSheetList } from './style'
+import { CSSStyleSheet, fontFaceTexts, StyleSheetList } from './style'
 import { NodeIterator, TreeWalker } from './traversal'
 
 export const documentState = {
@@ -226,7 +226,7 @@ export class Document extends Node {
     return documentTimeline
   }
   get fonts(): FontFaceSet {
-    fontFaces.sheets ??= () => this.styleSheets as unknown as Iterable<{ readonly cssRules: ArrayLike<{ readonly type: number; readonly cssText: string }> }>
+    fontFaces.rules ??= () => Array.from(this.styleSheets as unknown as Iterable<CSSStyleSheet>, fontFaceTexts).flat()
     return fontFaces
   }
   get implementation(): DOMImplementation {
@@ -614,7 +614,7 @@ export class FontFaceSet extends EventTarget {
   readonly #faces = new Set<FontFace>()
   readonly #fromCss = new Map<string, FontFace>()
   readonly ready: Promise<FontFaceSet>
-  sheets: (() => Iterable<{ readonly cssRules: ArrayLike<{ readonly type: number; readonly cssText: string }> }>) | null = null
+  rules: (() => readonly string[]) | null = null
 
   constructor() {
     super()
@@ -624,17 +624,13 @@ export class FontFaceSet extends EventTarget {
   #all(): FontFace[] {
     const css: FontFace[] = []
     const seen = new Set<string>()
-    for (const sheet of this.sheets?.() ?? []) {
-      const rules = sheet.cssRules
-      for (let i = 0; i < rules.length; i++) {
-        const rule = rules[i]!
-        if (rule.type !== 5 || seen.has(rule.cssText)) continue
-        seen.add(rule.cssText)
-        const face = this.#fromCss.get(rule.cssText) ?? faceOfRule(rule.cssText)
-        if (!face) continue
-        this.#fromCss.set(rule.cssText, face)
-        css.push(face)
-      }
+    for (const text of this.rules?.() ?? []) {
+      if (seen.has(text)) continue
+      seen.add(text)
+      const face = this.#fromCss.get(text) ?? faceOfRule(text)
+      if (!face) continue
+      this.#fromCss.set(text, face)
+      css.push(face)
     }
     for (const text of [...this.#fromCss.keys()]) if (!seen.has(text)) this.#fromCss.delete(text)
     return [...css, ...this.#faces]

@@ -637,6 +637,17 @@ test('document.fonts lists the faces of @font-face rules and the ones added', as
   assert.deepEqual(JSON.parse(out as string), { first: ['Inter:700:loaded'], same: true, size: 2, all: ['Inter:700:loaded', 'Extra:normal:unloaded'] })
 })
 
+test('document.fonts also lists the @font-face rules of a cross-origin stylesheet, whose cssRules the page cannot read', async () => {
+  using web = await page('<!doctype html><html><head><link rel="stylesheet" href="https://fonts.example/css"></head><body></body></html>')
+  const link = web.internals.idOf(web.run(`document.querySelector('link')`))
+  web.dom._sheet(link, 1, true, 'https://fonts.example/css', ['@font-face { font-family: "Lobster"; src: url(https://fonts.example/l.woff2) }', 'p { color: red }'])
+  web.frame()
+  const out = web.run(`let read = 'readable'
+    try { document.styleSheets[0].cssRules } catch (e) { read = e.name }
+    JSON.stringify({ read, fonts: [...document.fonts].map((f) => f.family) })`)
+  assert.deepEqual(JSON.parse(out as string), { read: 'SecurityError', fonts: ['Lobster'] })
+})
+
 test('CSS.supports asks render: a condition text or a property and a value; no argument throws', async () => {
   using web = await page()
   assert.equal(web.run('CSS.supports("display", "grid")'), true)
