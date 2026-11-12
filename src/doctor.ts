@@ -136,9 +136,10 @@ export class Doctor {
     const count = (status: Status) => checks.filter((check) => check.status === status).length
     const [errors, warnings] = [count('error'), count('warn')]
     const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-    if (errors > 0) lines.push(`acde doctor: ${plural(errors, 'error')}, ${plural(warnings, 'warning')}`)
-    else if (warnings > 0) lines.push(`acde doctor: no errors, ${plural(warnings, 'warning')}`)
-    else lines.push('acde doctor: everything acde needs is here')
+    const label = (errors > 0 ? c.error : warnings > 0 ? c.warn : c.ok)('acde doctor:')
+    if (errors > 0) lines.push(`${label} ${plural(errors, 'error')}, ${plural(warnings, 'warning')}`)
+    else if (warnings > 0) lines.push(`${label} no errors, ${plural(warnings, 'warning')}`)
+    else lines.push(`${label} everything acde needs is here`)
     return lines.join('\n')
   }
 

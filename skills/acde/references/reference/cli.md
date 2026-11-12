@@ -4,9 +4,20 @@
 acde <command> [args]
 ```
 
-On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde` with no command.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; a wrong option value always reads `acde: <command>: --<option> <value>: <what it takes> (acde <command> --help)`. The full usage is printed only by `acde` with no command.
 
-`acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
+Exit codes are the same for every command:
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Done (also an empty list, such as `acde console` with no entries) |
+| 1 | An error: a wrong argument, something that failed, or something that stops it (a package in use) |
+| 2 | Nothing done, but not an error: nothing matched (`acde query`, `acde inspect --find`) or nothing to remove (`acde uninstall`) |
+| 3 | Cancelled or not confirmed: Ctrl+C in a question of `acde new`, a declined `acde uninstall`, or no terminal to ask in and no `--yes` |
+
+What a command found goes to stdout; "nothing found", errors and notes go to stderr with the `acde:` prefix.
+
+`acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color is on when the stream written to is a terminal; `NO_COLOR` turns it off, `FORCE_COLOR` turns it on (`FORCE_COLOR=0` turns it off), and only labels such as `acde:`, `error:` and `warning:` are coloured. An error is one line, `acde: <what went wrong>`; with `ACDE_DEBUG=1` its stack trace follows.
 
 ## Setup
 
@@ -89,8 +100,8 @@ Removes a package that `acde install` put into the packages directory, found by 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | Removed, or listed |
-| 1 | Not installed, or a wrong argument |
-| 2 | In use by an `acde dev` session |
+| 1 | In use by an `acde dev` session, or a wrong argument |
+| 2 | Not installed |
 | 3 | Not confirmed (the question was declined, or no terminal and no `--yes`) |
 
 ### acde sdk
@@ -124,7 +135,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
-| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
+| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acde: no console entries` / `acde: no requests` on stderr and exit 0 |
 | `acde permissions` | The camera and microphone prompts that wait and the decisions made |
 | `acde allow [<prompt id> \| <app> <capability>] [--all]` | Allows a waiting camera or microphone prompt |
 | `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
@@ -140,7 +151,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
 | `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
 
-`acde query` prints `N in <window>:` and one line per element (exit code 0), or `nothing in <window> matches "<selector>"` (exit code 2). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
+`acde query` prints `N in <window>:` and one line per element (exit code 0), or `acde: nothing in <window> matches "<selector>"` on stderr (exit code 2). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
 
 `acde permissions` prints two blocks and exits with code 0:
 
@@ -200,4 +211,4 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
 | `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests; `--video=on` keeps it for every test |
 
-The run ends with a line that counts tests (`acde test: 5 tests ran: 4 passed, 1 failed`) and a last line that counts files (`acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).
+The run ends with one line that counts tests and files and names the failing files (`acde test: 5 tests in 2 files: 4 passed, 1 failed; failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

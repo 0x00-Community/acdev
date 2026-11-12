@@ -4,6 +4,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Color } from '../src/color.ts'
 import { Acde } from '../src/driver/acde.ts'
 import { TestRunner } from '../src/e2e/runner.ts'
 import { E2e } from '../src/e2e/settings.ts'
@@ -84,7 +85,7 @@ describe('acde test', () => {
     expect(run.code).toBe(1)
     expect(run.out).toContain(`acde test: ${BROKEN}\n`)
     expect(run.out).toContain(`acde test: ${TASKS}\n`)
-    expect(run.out).toContain(`acde test: 4 tests ran: 3 passed, 1 failed\nacde test: 2 files, 1 passed, 1 failed: ${BROKEN}`)
+    expect(run.out).toContain(`acde test: 4 tests in 2 files: 3 passed, 1 failed; failed: ${BROKEN}`)
     expect(run.out).not.toContain('acde test ran a unit test')
     expect(run.out)
       .toContain('expected window(app "alpha").getByText("Nowhere") to be visible within 200 ms; saw no element')
@@ -122,17 +123,18 @@ describe('acde test', () => {
     const one = await acdeTest(s, [TASKS, '--headed', '-t', 'adds'])
     expect(one.code).toBe(0)
     expect(one.out).toContain(`acde test: ${TASKS} (headed)`)
-    const selected = 'acde test: 1 test ran: 1 passed, 0 failed, 1 not run (skipped, todo, or not matched by -t)'
-    expect(one.out).toContain(`${selected}\nacde test: 1 file, 1 passed, 0 failed\n`)
+    const selected = 'acde test: 1 test in 1 file: 1 passed, 0 failed, 1 not run (skipped, todo, or not matched by -t)'
+    expect(one.out).toContain(`${selected}\n`)
     expect(one.started.map((e) => e.headless)).toEqual([null])
     const bail = await acdeTest(s, ['--bail'])
-    expect(bail.out).toContain('acde test: 1 test ran: 0 passed, 1 failed\n' +
-      `acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): ${BROKEN}`)
+    expect(bail.out)
+      .toContain(`acde test: 1 test in 1 file: 0 passed, 1 failed; failed: ${BROKEN}; 1 file not run (--bail)`)
     writeFileSync(join(s.project, 'e2e/unloadable.e2e.ts'), "import { test } from 'acde/test'\nthrow new Error('no')\n")
     const unloadable = await acdeTest(s, [TASKS, join('e2e', 'unloadable.e2e.ts')])
-    expect(unloadable.out).toContain('acde test: 2 tests ran: 2 passed, 0 failed; not counted: ' +
-      `${join('e2e', 'unloadable.e2e.ts')} (bun test left no report: the file did not load, or its run was killed)\n` +
-      `acde test: 2 files, 1 passed, 1 failed: ${join('e2e', 'unloadable.e2e.ts')}\n`)
+    const unloaded = join('e2e', 'unloadable.e2e.ts')
+    expect(unloadable.out).toContain(`acde test: 2 tests in 1 file: 2 passed, 0 failed; failed: ${unloaded}; ` +
+      'not counted: ' +
+      `${unloaded} (bun test left no report: the file did not load, or its run was killed)\n`)
     rmSync(join(s.project, 'e2e/unloadable.e2e.ts'))
     expect((await acdeTest(s, ['unit.test.ts'])).out).toContain('unit.test.ts: an e2e test file is named *.e2e.ts')
     expect((await acdeTest(s, ['nope'])).out).toContain('acde: nope: no such file or directory')
@@ -142,15 +144,15 @@ describe('acde test', () => {
     expect(empty.code).toBe(0)
     expect(empty.out).toContain('acde test: no e2e tests (**/*.e2e.{ts,tsx,js,mjs,mts})')
     expect(empty.out).toContain('acde test: write one as e2e/app.e2e.ts')
-    expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('--timeout soon: milliseconds per test')
+    expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('acde: test: --timeout soon: ')
   }, 120_000)
 
   test('-t skips the files where it matches no test; a filter that matches nothing anywhere fails', async () => {
     const s = project()
     const some = await acdeTest(s, ['-t', 'adds'])
     expect(some.out).toContain(`acde test: ${BROKEN}: no test matches -t "adds", skipped`)
-    expect(some.out).toContain('acde test: 1 test ran: 1 passed, 0 failed, 1 not run (skipped, todo, or not ' +
-      'matched by -t)\nacde test: 1 file, 1 passed, 0 failed, 1 skipped (no test matches -t)')
+    expect(some.out).toContain('acde test: 1 test in 1 file: 1 passed, 0 failed, 1 not run (skipped, todo, or not ' +
+      'matched by -t); 1 file skipped (no test matches -t)')
     expect(some.code).toBe(0)
     expect(some.started.length).toBe(1)
     const none = await acdeTest(s, ['-t', 'nothing at all'])
@@ -183,7 +185,7 @@ test('never ends', async ({ app }) => {
     expect(slow.out).toContain(why)
     const saved = 'error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt'
     expect(slow.out).toContain(`acde test: saved ${saved} in ${left}`)
-    expect(slow.out).toContain(`acde test: 2 tests ran: 1 passed, 1 failed\nacde test: 1 file, 0 passed, 1 failed: ${file}\n`)
+    expect(slow.out).toContain(`acde test: 2 tests in 1 file: 1 passed, 1 failed; failed: ${file}\n`)
     expect(slow.out).not.toContain('dangling process')
     expect(readdirSync(left).sort())
       .toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
@@ -223,7 +225,7 @@ test('never ends', async ({ app }) => {
   test(ci, async () => {
     const s = project()
     const run = await acdeTest(s, [TASKS], { CI: '1' })
-    expect(run.out).toContain('acde test: 2 tests ran: 2 passed, 0 failed\nacde test: 1 file, 1 passed, 0 failed')
+    expect(run.out).toContain('acde test: 2 tests in 1 file: 2 passed, 0 failed')
     expect(run.code).toBe(0)
     writeFileSync(join(s.project, 'e2e/look.e2e.ts'), `import { test, expect } from 'acde/test'
 test('looks', async ({ app }) => {
@@ -311,7 +313,7 @@ describe('acde test in a project managed by npm', () => {
     const s = project()
     writeFileSync(join(s.project, 'package-lock.json'), JSON.stringify({ name: 'alpha', lockfileVersion: 3 }))
     const run = await acdeTest(s, [TASKS])
-    expect(run.out).toContain('acde test: 2 tests ran: 2 passed, 0 failed\nacde test: 1 file, 1 passed, 0 failed')
+    expect(run.out).toContain('acde test: 2 tests in 1 file: 2 passed, 0 failed')
     expect(run.code).toBe(0)
   }, 120_000)
 })
@@ -337,11 +339,17 @@ describe('the count of tests comes from the JUnit report bun test writes', () =>
     expect(TestRunner.tally(report)).toBeNull()
     expect(TestRunner.tally(join(dir, 'none.xml'))).toBeNull()
     const one = { ran: 1, passed: 1, failed: 0, skipped: 0 }
-    expect(TestRunner.counted([one], [])).toBe('acde test: 1 test ran: 1 passed, 0 failed')
-    expect(TestRunner.counted([one, { ran: 3, passed: 1, failed: 2, skipped: 2 }], []))
-      .toBe('acde test: 4 tests ran: 2 passed, 2 failed, 2 not run (skipped, todo, or not matched by -t)')
-    expect(TestRunner.counted([], ['a.e2e.ts', 'b.e2e.ts'])).toBe('acde test: not counted: a.e2e.ts, b.e2e.ts ' +
-      '(bun test left no report: the file did not load, or its run was killed)')
+    const run = { tallies: [one], uncounted: [], failed: [], files: 1, filtered: 0, unrun: 0 }
+    expect(TestRunner.summary(run)).toBe('acde test: 1 test in 1 file: 1 passed, 0 failed')
+    const two = { ...run, tallies: [one, { ran: 3, passed: 1, failed: 2, skipped: 2 }], failed: ['b.e2e.ts'], files: 2 }
+    expect(TestRunner.summary(two)).toBe('acde test: 4 tests in 2 files: 2 passed, 2 failed, 2 not run (skipped, todo, '
+      + 'or not matched by -t); failed: b.e2e.ts')
+    const both = ['a.e2e.ts', 'b.e2e.ts']
+    const lost = { ...run, tallies: [], uncounted: both, failed: both, files: 2 }
+    expect(TestRunner.summary(lost)).toBe('acde test: 2 files ran; failed: a.e2e.ts, b.e2e.ts; not counted: a.e2e.ts, '
+      + 'b.e2e.ts (bun test left no report: the file did not load, or its run was killed)')
+    expect(TestRunner.summary({ ...two, unrun: 1, filtered: 2 }, Color.palette(true)))
+      .toStartWith('\x1b[1;31macde test:\x1b[22;39m 4 tests')
   })
 })
 

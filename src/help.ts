@@ -95,7 +95,7 @@ export class Help {
         about: [
           'Removes what acde install put there (a link: only the link). Says what first and asks; stops when '
             + 'an acde dev uses it. No argument: lists the installed packages.',
-          'Exit code 1: not installed or a wrong argument; 2: an acde dev uses it; 3: not confirmed.',
+          'Exit code 1: an acde dev uses it, or a wrong argument; 2: not installed; 3: not confirmed.',
         ],
         options: [{ flag: '--yes', about: 'Remove without asking' }],
         examples: ['acde uninstall', 'acde uninstall com.example.app --yes'],

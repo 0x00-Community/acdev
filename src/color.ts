@@ -14,7 +14,8 @@ export interface Palette {
 export class Color {
   static enabled(stream: { readonly isTTY?: boolean } = process.stdout, env = process.env): boolean {
     if (env['NO_COLOR'] !== undefined && env['NO_COLOR'] !== '') return false
-    if (env['FORCE_COLOR'] !== undefined && env['FORCE_COLOR'] !== '0') return true
+    const forced = env['FORCE_COLOR']
+    if (forced !== undefined) return forced !== '0' && forced !== 'false'
     return stream.isTTY === true && env['TERM'] !== 'dumb'
   }
 

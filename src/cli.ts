@@ -13,6 +13,7 @@ import { TestRunner } from './e2e/runner.ts'
 import { Color } from './color.ts'
 import { Help } from './help.ts'
 import { Mcp } from './mcp.ts'
+import { Exit, Output } from './output.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
@@ -156,7 +157,7 @@ class Cli {
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
     if (command === 'devtools') {
-      const session = Tools.pid(flags.get('session'))
+      const session = Tools.pid(flags.get('session'), command)
       const say = (line: string) => console.error(line)
       const window = args[0] !== undefined ? { window: args[0] } : {}
       return await Devtools.run({ ...window, ...(session !== undefined && { session }), say })
@@ -166,16 +167,17 @@ class Cli {
     if (command === 'test') {
       const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
       if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0))
-        throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
+        throw Output.option('test', 'timeout', flags.get('timeout')!, 'milliseconds per test, 1 or more')
       const workers = flags.has('workers') ? Number(flags.get('workers')) : undefined
       if (workers !== undefined && !(Number.isInteger(workers) && workers > 0))
-        throw new Error(`--workers ${flags.get('workers')}: how many test files run at once (1 or more)`)
+        throw Output.option('test', 'workers', flags.get('workers')!, 'how many test files run at once, 1 or more')
       const retries = flags.has('retries') ? Number(flags.get('retries')) : undefined
       if (retries !== undefined && !(Number.isInteger(retries) && retries >= 0))
-        throw new Error(`--retries ${flags.get('retries')}: how many times to run a failing test again (0 or more)`)
+        throw Output.option('test', 'retries', flags.get('retries')!, 'how often to run a failing test again, '
+          + '0 or more')
       const video = flags.has('video') ? flags.get('video') || 'failed' : undefined
       if (video !== undefined && video !== 'on' && video !== 'failed' && video !== 'off')
-        throw new Error(`--video=${video}: failed (the default: only for failing tests), on or off`)
+        throw Output.option('test', 'video', video, 'failed (the default: only for failing tests), on or off')
       return await TestRunner.run({
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
@@ -198,7 +200,7 @@ class Cli {
     }
     if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')
-      return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
+      return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!, command) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
       const session = new DevSession({
@@ -232,17 +234,21 @@ class Cli {
       return 0
     }
     const started = performance.now()
+    const platform = flags.get('platform')
+    if (platform !== undefined && !Object.hasOwn(AppPackage.PLATFORMS, platform))
+      throw Output.option('check', 'platform', platform, Object.keys(AppPackage.PLATFORMS).join(', '))
     const pkg = new AppPackage(args[0] ?? '.')
     if (command === 'check') return Cli.report(pkg, flags.get('platform') ?? AppPackage.here()) ? 0 : 1
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     const into = pkg.project ? `built ${what} into ${Cli.shown(built.dir)}` : `ok: ${pkg.name} (${what})`
+    const done = Color.palette().ok('acde:')
     if (command === 'build') {
-      console.log(`acde: ${into} (${Cli.took(started)})`)
+      console.log(`${done} ${into} (${Cli.took(started)})`)
       return 0
     }
-    console.log(`acde: ${into}`)
-    console.log(`acde: installed ${built.id} in ${pkg.install(built)} (${Cli.took(started)})`)
+    console.log(`${done} ${into}`)
+    console.log(`${done} installed ${built.id} in ${pkg.install(built)} (${Cli.took(started)})`)
     return 0
   }
 
@@ -324,7 +330,7 @@ class Cli {
       return 0
     }
     const options = await Creator.ask(given)
-    if (!options) return 0
+    if (!options) return Exit.DECLINED
     const answered = performance.now()
     const created = await Creator.create(options, true)
     const { errors, warnings, notes } = created.pkg.check()
@@ -359,9 +365,10 @@ class Cli {
   }
 }
 
+Output.install()
 try {
   process.exitCode = await Cli.main(process.argv.slice(2))
 } catch (error) {
-  console.error(`acde: ${error instanceof Error ? error.message : String(error)}`)
+  Output.fail(error)
   process.exitCode = 1
 }

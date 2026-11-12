@@ -5,6 +5,7 @@ import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
 import { DevClient } from './ipc.ts'
+import { Exit, Output } from './output.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
 import { Sessions } from './sessions.ts'
@@ -20,7 +21,7 @@ export class Tools {
   static readonly FOLLOW_MS = 500
   static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
-  static readonly NOTHING = 2
+  static readonly NOTHING = Exit.NOTHING
   static readonly NEEDS: Readonly<Record<string, string>> = {
     type: 'the text to type', settext: 'the text to set', key: 'the keys to press', select: 'the option to select',
     drag: 'the ref to drop on',
@@ -55,7 +56,7 @@ export class Tools {
   }
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
-    const session = Tools.pid(flags.get('session'))
+    const session = Tools.pid(flags.get('session'), command)
     if (command === 'act' && !ACTIONS.includes(args[1] as InspectAction))
       throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acde act --help)`)
     const needs = command === 'act' && args[2] === undefined ? Tools.NEEDS[args[1]!] : undefined
@@ -64,10 +65,10 @@ export class Tools {
     }
     const level = flags.get('level')
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
-      throw new Error(`console: --level ${level}: one of ${[...Tools.LEVELS].join(', ')} (acde console --help)`)
+      throw Output.option('console', 'level', level, `one of ${[...Tools.LEVELS].join(', ')}`)
     const start = flags.get('since')
     if (start !== undefined && start !== 'reload' && !/^[1-9]\d*$/.test(start))
-      throw new Error(`${command}: --since ${start}: reload, or the number of an entry (acde ${command} --help)`)
+      throw Output.option(command, 'since', start, 'reload, or the number of an entry')
     const limit = command === 'query' ? Tools.#limit(flags.get('limit')) : undefined
     const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
     if (command === 'stop') return await Tools.#stop(session)
@@ -129,8 +130,12 @@ export class Tools {
             ...(flags.has('ref') && { ref: flags.get('ref')! }),
             ...(limit !== undefined && { limit }),
           }))
+          if (!found.count) {
+            console.error(`acde: ${Format.matches(found, args[0]!)}`)
+            return Tools.NOTHING
+          }
           console.log(Format.matches(found, args[0]!))
-          return found.count ? 0 : Tools.NOTHING
+          return 0
         }
         case 'act': {
           const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
@@ -149,7 +154,7 @@ export class Tools {
           }
           const read = (since: number) => acde.console({ ...options, ...(since && { since }) })
           const from = Tools.#since(start, acde.session.reloaded?.console)
-          return await Tools.#follow(flags.has('follow'), from, read, Format.console)
+          return await Tools.#follow(flags.has('follow'), from, read, Format.console, 'console entries')
         }
         case 'network': {
           const options = {
@@ -158,7 +163,7 @@ export class Tools {
           }
           const read = (since: number) => acde.network({ ...options, ...(since && { since }) })
           const from = Tools.#since(start, acde.session.reloaded?.network)
-          return await Tools.#follow(flags.has('follow'), from, read, Format.request)
+          return await Tools.#follow(flags.has('follow'), from, read, Format.request, 'requests')
         }
         case 'screen':
           console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
@@ -212,12 +217,16 @@ export class Tools {
     from: number,
     read: (since: number) => Promise<DevPage<T>>,
     line: (entry: T) => string,
+    what: string,
   ): Promise<number> {
     let since = from
-    for (;;) {
+    for (let first = true; ; first = false) {
       const page = await read(since)
       if (page.dropped) console.log(`… ${page.dropped} older entries were dropped`)
       for (const entry of page.entries) console.log(line(entry))
+      if (first && !page.dropped && !page.entries.length) {
+        console.error(`acde: no ${what}${from ? ' in that range' : ''}${follow ? ' yet; waiting for new ones' : ''}`)
+      }
       since = page.next
       if (!follow) return 0
       await sleep(Tools.FOLLOW_MS)
@@ -249,15 +258,15 @@ export class Tools {
     const most = Tools.QUERY_LIMIT
     const limit = /^\d+$/.test(value) ? Number(value) : NaN
     if (limit >= 1 && limit <= most) return limit
-    throw new Error(`query: --limit ${value}: how many elements to list at most, 1 to ${most} (acde query --help)`)
+    throw Output.option('query', 'limit', value, `how many elements to list at most, 1 to ${most}`)
   }
 
-  static pid(value: string): number
-  static pid(value: string | undefined): number | undefined
-  static pid(value: string | undefined): number | undefined {
+  static pid(value: string, command: string): number
+  static pid(value: string | undefined, command: string): number | undefined
+  static pid(value: string | undefined, command: string): number | undefined {
     if (value === undefined) return undefined
     const pid = Number(value)
-    if (!Number.isInteger(pid) || pid <= 0) throw new Error(`--session ${value}: the process id of an acde dev`)
-    return pid
+    if (Number.isInteger(pid) && pid > 0) return pid
+    throw Output.option(command, 'session', value, 'the process id of an acde dev')
   }
 }
