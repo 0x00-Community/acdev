@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -86,6 +87,37 @@ pub struct Alloc {
     pub mips: u32,
     pub samples: u32,
     pub serial: u64,
+    pub views: RefCell<HashMap<ViewKey, wgpu::TextureView>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ViewKey {
+    pub dim: wgpu::TextureViewDimension,
+    pub depth_only: bool,
+    pub level: u32,
+    pub levels: u32,
+    pub layer: Option<u32>,
+}
+
+impl Alloc {
+    pub fn view(&self, key: ViewKey) -> wgpu::TextureView {
+        self.views
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                self.texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("acde webgl view"),
+                    dimension: Some(key.dim),
+                    aspect: if key.depth_only { wgpu::TextureAspect::DepthOnly } else { wgpu::TextureAspect::All },
+                    base_mip_level: key.level,
+                    mip_level_count: Some(key.levels),
+                    base_array_layer: key.layer.unwrap_or(0),
+                    array_layer_count: key.layer.map(|_| 1),
+                    ..Default::default()
+                })
+            })
+            .clone()
+    }
 }
 
 pub struct Texture {
@@ -138,6 +170,7 @@ pub struct Renderbuffer {
     pub width: u32,
     pub height: u32,
     pub texture: Option<wgpu::Texture>,
+    pub view: Option<wgpu::TextureView>,
     pub version: u64,
     pub used: u64,
 }

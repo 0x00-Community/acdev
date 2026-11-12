@@ -24,7 +24,7 @@ impl Context {
     }
 
     pub fn create_renderbuffer(&mut self) -> Id {
-        self.add(Object::Renderbuffer(Renderbuffer { format: None, samples: 0, width: 0, height: 0, texture: None, version: 0, used: 0 }))
+        self.add(Object::Renderbuffer(Renderbuffer { format: None, samples: 0, width: 0, height: 0, texture: None, view: None, version: 0, used: 0 }))
     }
 
     pub fn bind_framebuffer(&mut self, target: u32, id: Option<Id>) {
@@ -152,6 +152,7 @@ impl Context {
             rb.samples = if samples > 1 { samples } else { 0 };
             rb.width = width as u32;
             rb.height = height as u32;
+            rb.view = texture.as_ref().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
             rb.texture = texture;
             rb.version = serial;
         }
@@ -266,7 +267,7 @@ impl Context {
                 let rb = self.renderbuffer(id)?;
                 let texture = rb.texture.clone()?;
                 Some(View {
-                    view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    view: rb.view.clone()?,
                     format: rb.format?,
                     width: rb.width,
                     height: rb.height,
@@ -288,14 +289,12 @@ impl Context {
                     return None;
                 }
                 let is_3d = t.target == TEXTURE_3D;
-                let view = alloc.texture.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some("acde webgl attachment"),
-                    dimension: Some(if is_3d { wgpu::TextureViewDimension::D3 } else { wgpu::TextureViewDimension::D2 }),
-                    base_mip_level: level,
-                    mip_level_count: Some(1),
-                    base_array_layer: if is_3d { 0 } else { layer },
-                    array_layer_count: Some(1),
-                    ..Default::default()
+                let view = alloc.view(ViewKey {
+                    dim: if is_3d { wgpu::TextureViewDimension::D3 } else { wgpu::TextureViewDimension::D2 },
+                    depth_only: false,
+                    level,
+                    levels: 1,
+                    layer: Some(if is_3d { 0 } else { layer }),
                 });
                 Some(View {
                     view,
@@ -424,7 +423,7 @@ impl Context {
 
     pub(crate) fn default_target(&mut self) -> Target {
         let d = &self.drawing;
-        let color = d.color.as_ref().map(|c| c.create_view(&wgpu::TextureViewDescriptor::default()));
+        let color = d.color_view.clone();
         let draw = self.state.default_draw_buffer != NONE;
         let colors = vec![color.filter(|_| draw).map(|view| ColorTarget {
             view,
@@ -433,12 +432,8 @@ impl Context {
             class: Class::Float,
             depth_slice: None,
         })];
-        let depth = d.depth.as_ref().zip(d.depth_format).map(|(t, format)| DepthTarget {
-            view: t.create_view(&wgpu::TextureViewDescriptor::default()),
-            format,
-            depth: true,
-            stencil: format.has_stencil_aspect(),
-        });
+        let depth =
+            d.depth_view.clone().zip(d.depth_format).map(|(view, format)| DepthTarget { view, format, depth: true, stencil: format.has_stencil_aspect() });
         Target {
             key: TargetKey(vec![0, d.version, u64::from(draw)]),
             colors,

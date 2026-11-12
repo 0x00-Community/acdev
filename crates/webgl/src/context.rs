@@ -72,8 +72,10 @@ pub struct Drawing {
     pub width: u32,
     pub height: u32,
     pub color: Option<wgpu::Texture>,
+    pub color_view: Option<wgpu::TextureView>,
     pub resolve: Option<wgpu::Texture>,
     pub depth: Option<wgpu::Texture>,
+    pub depth_view: Option<wgpu::TextureView>,
     pub depth_format: Option<wgpu::TextureFormat>,
     pub samples: u32,
     pub version: u64,
@@ -126,8 +128,10 @@ impl Context {
                 width: 0,
                 height: 0,
                 color: None,
+                color_view: None,
                 resolve: None,
                 depth: None,
+                depth_view: None,
                 depth_format: None,
                 samples: if attrs.antialias { 4 } else { 1 },
                 version: 0,
@@ -276,9 +280,11 @@ impl Context {
                 return;
             }
         };
+        self.drawing.color_view = Some(color.create_view(&wgpu::TextureViewDescriptor::default()));
         self.drawing.color = Some(color);
         self.drawing.resolve = resolve;
         self.drawing.depth_format = depth_format;
+        self.drawing.depth_view = depth.as_ref().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
         self.drawing.depth = depth;
         self.drawing.width = width;
         self.drawing.height = height;

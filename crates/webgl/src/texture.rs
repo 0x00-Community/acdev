@@ -217,7 +217,7 @@ impl Context {
         let generation = self.generation;
         let serial = self.next_serial();
         if let Some(t) = self.texture_mut(id) {
-            t.alloc = Some(Alloc { texture, format, width, height, layers, mips, samples: 1, serial });
+            t.alloc = Some(Alloc { texture, format, width, height, layers, mips, samples: 1, serial, views: Default::default() });
             t.version += 1;
             t.used = generation;
         }

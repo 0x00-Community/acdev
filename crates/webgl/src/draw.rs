@@ -272,14 +272,7 @@ impl Context {
         } else {
             1
         };
-        let view = alloc.texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("acde webgl sampled"),
-            dimension: Some(dim),
-            aspect: if depth_texture { wgpu::TextureAspect::DepthOnly } else { wgpu::TextureAspect::All },
-            base_mip_level: base,
-            mip_level_count: Some(levels.max(1)),
-            ..Default::default()
-        });
+        let view = alloc.view(ViewKey { dim, depth_only: depth_texture, level: base, levels: levels.max(1), layer: None });
         let nearest = !filterable || matches!(sample, SampleKind::Sint | SampleKind::Uint | SampleKind::Unfilterable);
         let filter = |f: u32| {
             if nearest || matches!(f, NEAREST | NEAREST_MIPMAP_NEAREST | NEAREST_MIPMAP_LINEAR) { wgpu::FilterMode::Nearest } else { wgpu::FilterMode::Linear }
