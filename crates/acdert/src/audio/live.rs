@@ -72,7 +72,7 @@ mod tests {
     use acde_media::capture::{self, fake};
 
     use super::*;
-    use crate::audio::graph::{Graph, Kind, NodeOp};
+    use crate::audio::graph::{Graph, Kind, NodeOp, Shared};
     use crate::audio::mixer::{Cmd, MediaOp, Mixer};
 
     fn microphone() -> Arc<Capture> {
@@ -112,7 +112,7 @@ mod tests {
     fn a_stream_source_node_feeds_the_graph_until_it_is_detached() {
         let capture = microphone();
         let mut graph = Graph::new(f64::from(RATE), 1);
-        graph.add(9, Kind::Stream, Arc::default());
+        graph.add(9, Kind::Stream, Arc::new(Shared::new(Kind::Stream)));
         graph.connect(9, 1, None);
         graph.node(9, NodeOp::Stream(Some(Box::new(LiveTap::new(capture)))));
         assert!(graph.active());

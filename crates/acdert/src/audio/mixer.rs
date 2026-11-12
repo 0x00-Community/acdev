@@ -266,8 +266,8 @@ mod tests {
         let mut m = Mixer::default();
         let clock = Arc::new(Clock::new());
         m.apply(Cmd::CreateContext { ctx: 1, dest: 2, clock: clock.clone() });
-        m.apply(Cmd::CreateNode { ctx: 1, node: 3, kind: Kind::Oscillator, shared: Arc::default() });
-        m.apply(Cmd::CreateNode { ctx: 1, node: 4, kind: Kind::Gain, shared: Arc::default() });
+        m.apply(Cmd::CreateNode { ctx: 1, node: 3, kind: Kind::Oscillator, shared: Arc::new(Shared::new(Kind::Oscillator)) });
+        m.apply(Cmd::CreateNode { ctx: 1, node: 4, kind: Kind::Gain, shared: Arc::new(Shared::new(Kind::Gain)) });
         m.apply(Cmd::Connect { from: 3, to: 4, param: -1 });
         m.apply(Cmd::Connect { from: 4, to: 2, param: -1 });
         m.apply(Cmd::Node { node: 4, op: NodeOp::Param(0, ParamOp::Value(0.25)) });

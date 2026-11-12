@@ -8,6 +8,8 @@ pub const QUANTUM: usize = 128;
 
 pub type Bus = [[f32; QUANTUM]; 2];
 
+pub const MAX_PARAMS: usize = 9;
+
 pub struct AudioData {
     pub rate: f64,
     pub channels: Vec<Vec<f32>>,
@@ -19,12 +21,15 @@ impl AudioData {
     }
 }
 
-#[derive(Default)]
 pub struct Shared {
-    params: [AtomicU32; 2],
+    params: Box<[AtomicU32]>,
 }
 
 impl Shared {
+    pub fn new(kind: Kind) -> Shared {
+        Shared { params: (0..kind.param_count()).map(|_| AtomicU32::new(0)).collect() }
+    }
+
     pub fn param(&self, i: usize) -> f32 {
         self.params.get(i).map_or(0.0, |p| f32::from_bits(p.load(Ordering::Relaxed)))
     }
@@ -60,18 +65,28 @@ impl Kind {
         matches!(self, Kind::Oscillator | Kind::BufferSource | Kind::ConstantSource)
     }
 
-    fn params(self, rate: f64) -> [(f32, f32, f32); 2] {
+    pub fn param_count(self) -> usize {
+        match self {
+            Kind::Oscillator | Kind::BufferSource => 2,
+            Kind::Gain | Kind::StereoPanner | Kind::ConstantSource => 1,
+            Kind::Destination | Kind::Through | Kind::Stream => 0,
+        }
+    }
+
+    fn params(self, rate: f64) -> Vec<(f32, f32, f32)> {
         let nyquist = (rate / 2.0) as f32;
         let detune = 1200.0 * f32::MAX.log2();
-        let none = (0.0, f32::MIN, f32::MAX);
-        match self {
-            Kind::Gain => [(1.0, f32::MIN, f32::MAX), none],
-            Kind::Oscillator => [(440.0, -nyquist, nyquist), (0.0, -detune, detune)],
-            Kind::BufferSource => [(1.0, f32::MIN, f32::MAX), (0.0, f32::MIN, f32::MAX)],
-            Kind::StereoPanner => [(0.0, -1.0, 1.0), none],
-            Kind::ConstantSource => [(1.0, f32::MIN, f32::MAX), none],
-            Kind::Destination | Kind::Through | Kind::Stream => [none, none],
-        }
+        let any = |v: f32| (v, f32::MIN, f32::MAX);
+        let params = match self {
+            Kind::Gain => vec![any(1.0)],
+            Kind::Oscillator => vec![(440.0, -nyquist, nyquist), (0.0, -detune, detune)],
+            Kind::BufferSource => vec![any(1.0), any(0.0)],
+            Kind::StereoPanner => vec![(0.0, -1.0, 1.0)],
+            Kind::ConstantSource => vec![any(1.0)],
+            Kind::Destination | Kind::Through | Kind::Stream => vec![],
+        };
+        debug_assert_eq!(params.len(), self.param_count());
+        params
     }
 }
 
@@ -373,8 +388,8 @@ struct Buffer {
 struct Node {
     kind: Kind,
     inputs: Vec<u32>,
-    param_inputs: [Vec<u32>; 2],
-    params: [Param; 2],
+    param_inputs: Vec<Vec<u32>>,
+    params: Vec<Param>,
     out: Bus,
     mono: bool,
     silent: bool,
@@ -389,15 +404,15 @@ struct Node {
 
 impl Node {
     fn new(kind: Kind, rate: f64, shared: Arc<Shared>) -> Node {
-        let [(d0, lo0, hi0), (d1, lo1, hi1)] = kind.params(rate);
-        for (i, d) in [d0, d1].into_iter().enumerate() {
-            shared.params[i].store(d.to_bits(), Ordering::Relaxed);
+        let specs = kind.params(rate);
+        for (slot, (d, ..)) in shared.params.iter().zip(&specs) {
+            slot.store(d.to_bits(), Ordering::Relaxed);
         }
         Node {
             kind,
             inputs: Vec::new(),
-            param_inputs: [Vec::new(), Vec::new()],
-            params: [Param::new(d0, lo0, hi0), Param::new(d1, lo1, hi1)],
+            param_inputs: vec![Vec::new(); specs.len()],
+            params: specs.into_iter().map(|(d, lo, hi)| Param::new(d, lo, hi)).collect(),
             out: [[0.0; QUANTUM]; 2],
             mono: true,
             silent: true,
@@ -408,14 +423,6 @@ impl Node {
             phase: 0.0,
             buf: Buffer { data: None, pos: None, offset: 0.0, duration: None, played: 0.0, looping: false, loop_start: 0.0, loop_end: 0.0 },
             stream: None,
-        }
-    }
-
-    fn param_count(&self) -> usize {
-        match self.kind {
-            Kind::Oscillator | Kind::BufferSource => 2,
-            Kind::Gain | Kind::StereoPanner | Kind::ConstantSource => 1,
-            Kind::Destination | Kind::Through | Kind::Stream => 0,
         }
     }
 
@@ -441,7 +448,7 @@ pub struct Graph {
     order: Vec<u32>,
     order_dirty: bool,
     input: Bus,
-    values: [[f32; QUANTUM]; 2],
+    values: Box<[[f32; QUANTUM]; MAX_PARAMS]>,
     pub gone: Vec<u32>,
 }
 
@@ -463,8 +470,9 @@ fn up_mix(acc: &mut Bus, acc_mono: &mut bool, empty: &mut bool, out: &Bus, mono:
 impl Graph {
     pub fn new(rate: f64, dest: u32) -> Graph {
         let mut nodes = HashMap::new();
-        nodes.insert(dest, Node::new(Kind::Destination, rate, Arc::default()));
-        Graph { rate, frame: 0, dest, nodes, order: Vec::new(), order_dirty: true, input: [[0.0; QUANTUM]; 2], values: [[0.0; QUANTUM]; 2], gone: Vec::new() }
+        nodes.insert(dest, Node::new(Kind::Destination, rate, Arc::new(Shared::new(Kind::Destination))));
+        let values = Box::new([[0.0; QUANTUM]; MAX_PARAMS]);
+        Graph { rate, frame: 0, dest, nodes, order: Vec::new(), order_dirty: true, input: [[0.0; QUANTUM]; 2], values, gone: Vec::new() }
     }
 
     fn now(&self) -> f64 {
@@ -488,7 +496,7 @@ impl Graph {
         let Some(node) = self.nodes.get_mut(&to) else { return };
         let list = match param {
             None => &mut node.inputs,
-            Some(i) if i < 2 => &mut node.param_inputs[i],
+            Some(i) if i < node.param_inputs.len() => &mut node.param_inputs[i],
             Some(_) => return,
         };
         if !list.contains(&from) {
@@ -503,7 +511,7 @@ impl Graph {
                 continue;
             }
             match (to, param) {
-                (Some(_), Some(i)) if i < 2 => node.param_inputs[i].retain(|&n| n != from),
+                (Some(_), Some(i)) if i < node.param_inputs.len() => node.param_inputs[i].retain(|&n| n != from),
                 (Some(_), Some(_)) => {}
                 (Some(_), None) => node.inputs.retain(|&n| n != from),
                 (None, _) => {
@@ -526,8 +534,8 @@ impl Graph {
         let Some(node) = self.nodes.get_mut(&id) else { return };
         match op {
             NodeOp::Param(i, op) => {
-                if i < node.param_count() {
-                    node.params[i].apply(op, now);
+                if let Some(param) = node.params.get_mut(i) {
+                    param.apply(op, now);
                 }
             }
             NodeOp::Wave(wave) => node.wave = wave,
@@ -672,8 +680,7 @@ impl Graph {
                 up_mix(&mut self.input, &mut mono, &mut empty, &from.out, from.mono);
             }
         }
-        let count = node.param_count();
-        for p in 0..count {
+        for p in 0..node.params.len() {
             let values = &mut self.values[p];
             node.params[p].fill(values, frame, self.rate);
             for input in &node.param_inputs[p] {
@@ -761,7 +768,7 @@ impl Graph {
                 }
             }
             Kind::BufferSource => {
-                if play_buffer(node, from, to, rate, values) {
+                if play_buffer(node, from, to, rate, &values[..]) {
                     node.src.ended = true;
                 }
             }
@@ -811,7 +818,7 @@ pub fn hermite(y0: f32, y1: f32, y2: f32, y3: f32, t: f32) -> f32 {
     ((c3 * t + c2) * t + c1) * t + y1
 }
 
-fn play_buffer(node: &mut Node, from: usize, to: usize, rate: f64, values: &[[f32; QUANTUM]; 2]) -> bool {
+fn play_buffer(node: &mut Node, from: usize, to: usize, rate: f64, values: &[[f32; QUANTUM]]) -> bool {
     let Some(data) = node.buf.data.clone() else {
         node.out[0].fill(0.0);
         node.mono = true;
@@ -908,8 +915,8 @@ mod tests {
     #[test]
     fn oscillator_through_gain_has_its_frequency_and_level() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::Oscillator, Arc::default());
-        g.add(3, Kind::Gain, Arc::default());
+        g.add(2, Kind::Oscillator, Arc::new(Shared::new(Kind::Oscillator)));
+        g.add(3, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
         g.connect(2, 3, None);
         g.connect(3, 1, None);
         g.node(3, NodeOp::Param(0, ParamOp::Value(0.5)));
@@ -939,7 +946,7 @@ mod tests {
     fn square_and_sawtooth_keep_their_frequency() {
         for wave in [Wave::Square, Wave::Sawtooth, Wave::Triangle] {
             let mut g = Graph::new(RATE, 1);
-            g.add(2, Kind::Oscillator, Arc::default());
+            g.add(2, Kind::Oscillator, Arc::new(Shared::new(Kind::Oscillator)));
             g.node(2, NodeOp::Wave(wave));
             g.node(2, NodeOp::Param(0, ParamOp::Value(441.0)));
             g.connect(2, 1, None);
@@ -953,7 +960,7 @@ mod tests {
     #[test]
     fn start_and_stop_are_sample_accurate() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::ConstantSource, Arc::default());
+        g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
         g.connect(2, 1, None);
         g.node(2, NodeOp::Start { when: 100.0 / RATE, offset: 0.0, duration: None });
         g.node(2, NodeOp::Stop(300.0 / RATE));
@@ -1061,8 +1068,8 @@ mod tests {
     #[test]
     fn gain_envelope_shapes_the_output() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::Oscillator, Arc::default());
-        g.add(3, Kind::Gain, Arc::default());
+        g.add(2, Kind::Oscillator, Arc::new(Shared::new(Kind::Oscillator)));
+        g.add(3, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
         g.node(2, NodeOp::Param(0, ParamOp::Value(880.0)));
         g.node(3, NodeOp::Param(0, ParamOp::SetAt(0.0, 0.0)));
         g.node(3, NodeOp::Param(0, ParamOp::Linear(1.0, 0.01)));
@@ -1089,7 +1096,7 @@ mod tests {
         let samples: Vec<f32> = (0..2400).map(|i| (std::f64::consts::TAU * 100.0 * i as f64 / rate).sin() as f32).collect();
         let data = Arc::new(AudioData { rate, channels: vec![samples] });
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::BufferSource, Arc::default());
+        g.add(2, Kind::BufferSource, Arc::new(Shared::new(Kind::BufferSource)));
         g.node(2, NodeOp::Buffer(Some(data.clone())));
         g.connect(2, 1, None);
         g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
@@ -1107,7 +1114,7 @@ mod tests {
         assert!((f - 100.0).abs() < 1.0, "{f}");
 
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::BufferSource, Arc::default());
+        g.add(2, Kind::BufferSource, Arc::new(Shared::new(Kind::BufferSource)));
         g.node(2, NodeOp::Buffer(Some(data)));
         g.node(2, NodeOp::Loop { looping: true, start: 0.0, end: 0.0 });
         g.node(2, NodeOp::Param(0, ParamOp::Value(2.0)));
@@ -1122,8 +1129,8 @@ mod tests {
     #[test]
     fn stereo_panner_pans_mono_with_equal_power() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::ConstantSource, Arc::default());
-        g.add(3, Kind::StereoPanner, Arc::default());
+        g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        g.add(3, Kind::StereoPanner, Arc::new(Shared::new(Kind::StereoPanner)));
         g.connect(2, 3, None);
         g.connect(3, 1, None);
         g.node(3, NodeOp::Param(0, ParamOp::Value(1.0)));
@@ -1141,9 +1148,9 @@ mod tests {
     #[test]
     fn a_node_into_a_param_modulates_it() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::ConstantSource, Arc::default());
-        g.add(3, Kind::ConstantSource, Arc::default());
-        g.add(4, Kind::Gain, Arc::default());
+        g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        g.add(3, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        g.add(4, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
         g.node(3, NodeOp::Param(0, ParamOp::Value(0.25)));
         g.node(4, NodeOp::Param(0, ParamOp::Value(0.5)));
         g.connect(2, 4, None);
@@ -1160,8 +1167,8 @@ mod tests {
     #[test]
     fn released_nodes_go_once_nothing_feeds_them() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::Oscillator, Arc::default());
-        g.add(3, Kind::Gain, Arc::default());
+        g.add(2, Kind::Oscillator, Arc::new(Shared::new(Kind::Oscillator)));
+        g.add(3, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
         g.connect(2, 3, None);
         g.connect(3, 1, None);
         g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
@@ -1177,9 +1184,9 @@ mod tests {
     #[test]
     fn a_cycle_does_not_hang() {
         let mut g = Graph::new(RATE, 1);
-        g.add(2, Kind::Gain, Arc::default());
-        g.add(3, Kind::Gain, Arc::default());
-        g.add(4, Kind::ConstantSource, Arc::default());
+        g.add(2, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
+        g.add(3, Kind::Gain, Arc::new(Shared::new(Kind::Gain)));
+        g.add(4, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
         g.connect(4, 2, None);
         g.connect(2, 3, None);
         g.connect(3, 2, None);

@@ -226,7 +226,7 @@ fn create_node(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     let Some(kind) = Kind::from_code(bind::arg_u32(scope, &args, 2)) else {
         return bind::throw_type_error(scope, "audio.createNode: unknown kind");
     };
-    let shared = Arc::new(Shared::default());
+    let shared = Arc::new(Shared::new(kind));
     with_state(|s| s.nodes.insert(node, shared.clone()));
     send(Cmd::CreateNode { ctx, node, kind, shared });
 }
