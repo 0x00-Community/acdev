@@ -37,7 +37,7 @@ env:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     concurrency:
       group: release-prepare-${{ github.ref }}-plan
@@ -92,9 +92,9 @@ jobs:
         include:
           - { triple: aarch64-apple-darwin, os: macos-15 }
           - { triple: x86_64-apple-darwin, os: macos-15-intel }
-          - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { triple: x86_64-unknown-linux-gnu, os: linux }
           - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
-    runs-on: ${{ contains(format(',{0},', github.event.inputs.skip_targets), format(',{0},', matrix.triple)) && 'ubuntu-24.04' || matrix.os }}
+    runs-on: ${{ (contains(format(',{0},', github.event.inputs.skip_targets), format(',{0},', matrix.triple)) || matrix.os == 'linux') && (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') || matrix.os }}
     timeout-minutes: 120
     env:
       BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
@@ -110,7 +110,7 @@ jobs:
       - name: system libraries
         if: env.BUILD == 'true' && runner.os == 'Linux'
         run: >
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          s=$(command -v sudo || true); $s apt-get update && $s apt-get install -y --no-install-recommends
           clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
           libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
@@ -186,7 +186,7 @@ jobs:
     concurrency:
       group: release-prepare-${{ github.ref }}-host
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -220,7 +220,7 @@ jobs:
     concurrency:
       group: release-prepare-${{ github.ref }}-stage
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
@@ -250,7 +250,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -276,7 +276,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -303,7 +303,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -345,7 +345,7 @@ jobs:
   pkgs:
     needs: [plan, stage]
     if: ${{ needs.plan.result == 'success' && needs.stage.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
@@ -364,7 +364,7 @@ jobs:
         env:
           SHA: ${{ needs.plan.outputs.sha }}
         run: |
-          command -v jq > /dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends jq; }
+          command -v jq > /dev/null || { s=$(command -v sudo || true); $s apt-get update && $s apt-get install -y --no-install-recommends jq; }
           scripts/release/check-stage.sh release-stage "$VERSION"
           mkdir -p "pkgs/$VERSION"
           . scripts/release/targets.sh
@@ -389,7 +389,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -426,7 +426,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -459,7 +459,7 @@ jobs:
     concurrency:
       group: release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
     timeout-minutes: 30
     permissions:
       contents: read

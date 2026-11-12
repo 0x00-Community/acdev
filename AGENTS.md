@@ -1573,7 +1573,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 ## 发版
 
 `.github/workflows/release.yml`, 四个平台各编一个 release 的 `acdert` (`cargo build --profile dist -p acdert --target <triple>`, 产物在 `target/<triple>/dist/`), 按 triple 发:
-`aarch64-apple-darwin` (macos-15)、`x86_64-apple-darwin` (macos-15-intel, 原生编, 不交叉编译)、`x86_64-unknown-linux-gnu` (ubuntu-24.04)、`x86_64-pc-windows-msvc`
+`aarch64-apple-darwin` (macos-15)、`x86_64-apple-darwin` (macos-15-intel, 原生编, 不交叉编译)、`x86_64-unknown-linux-gnu` (Gitea 上 debian12, GitHub 上 ubuntu-24.04)、`x86_64-pc-windows-msvc`
 (windows-2025, 要 NASM 和 `PYTHON3`). 发出去的是压缩包 (0.0.9 起; 0.0.8 及以前是裸文件 `acdert-<triple>[.exe]`, acde 的安装器两种都认):
 `acdert-<triple>.tar.xz` (macOS、Linux, 里面只有 `acdert`) 和 `acdert-x86_64-pc-windows-msvc.tar.gz` (里面只有 `acdert.exe`; 不用 xz, 因为 acde 的
 install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 80 MB 的 macOS 二进制 xz 后约 19.5 MB. `stage.sh` 打包: 成员 755、时间戳 2000-01-01、
@@ -1634,13 +1634,14 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   - Gitea 上一个作业的 needs 里有被跳过的作业时, 它不看自己的 `if` 也跟着跳过 (run 2013: `upload` 跳过, `tag` 没打 `v0.0.9`). 所以 Gitea 要跑的作业不 needs 只在 GitHub 跑的作业:
     标签分两个作业, `tag` (GitHub) 和 `tag-gitea` (Gitea), 都 needs `upload`; `latest` 也分成 `latest` (GitHub, needs `release`) 和 `latest-gitea`.
     `tag-gitea` 在续跑 (`resume`) 时也运行 (不再打标签), 否则 `latest-gitea` 会跟着被跳过.
-  - Gitea 默认的 runner 是 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
+  - Linux 作业的 `runs-on` 按服务器选: Gitea 上 `debian12` (.127 的 runner nixos-127, 镜像 `node:20-bookworm`, 以 root 跑, 没有 sudo: apt 步骤用 `$(command -v sudo)` 前缀;
+    Debian 12 的 glibc 2.36 也让 Linux 二进制要求更低), GitHub 上 `ubuntu-24.04` (用户定, 2026-11-12); `build` 矩阵里的 macOS 和 Windows
     要有对应标签的 runner 才能跑 (内网: Windows 是 110 上的 w110, `windows-2025`; macOS Intel 是 150, `macos-15-intel`; 没有 `macos-15`). 步骤默认 `bash -e -o pipefail`.
   - Gitea 上不能只重跑失败的作业: 重跑时产物按尝试次数隔开, 后面的作业只拿得到这次尝试上传的产物 (run 1993 只重跑 Windows 后,
     `stage` 报 `missing binary artifacts/acdert-x86_64-unknown-linux-gnu/...`). 某个平台失败时整次重新触发 (GitHub 的单作业重跑能拿到前一次的产物).
 - 少出目标: 输入 `skip_targets` (逗号分隔的 triple, 不带空格, 默认空 = 四个都出). `plan` 用 `scripts/release/targets.sh` 的 `targets_without` 去掉它们,
   输出逗号分隔的 `targets`; 写错名字、带空格或全去掉都失败. `build` 仍是写死的四项矩阵 (Gitea 1.27 不能用 `fromJSON(needs…)` 当矩阵):
-  被跳过的一项 `runs-on` 由 `skip_targets` 改成 `ubuntu-24.04` (`runs-on` 在建运行时就求值, 只能看输入, 看不到 `needs`; 否则 Gitea 上
+  被跳过的一项 `runs-on` 由 `skip_targets` 改成 Linux 的标签 (`runs-on` 在建运行时就求值, 只能看输入, 看不到 `needs`; 否则 Gitea 上
   `macos-15` 没有 runner, 这一项会一直排队), 任务级 `env.BUILD` 按 `needs.plan.outputs.targets` 算, 每一步都带 `if: env.BUILD == 'true'`,
   所以这一项空跑成功. 不用任务级 `if` 判断矩阵: Gitea 1.27 支持, GitHub 的任务级 `if` 不认 `matrix`. 之后的作业带
   `RELEASE_TARGETS`, `stage.sh`、`check-stage.sh`、`pkgs` 和 GitHub release 都只要求和收这些目标的压缩包. 缺了某个目标的版本, acde 的安装器

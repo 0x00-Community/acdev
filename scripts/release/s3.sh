@@ -16,7 +16,7 @@ fresh='public, max-age=0, must-revalidate'
 if ! command -v aws > /dev/null; then
   tmp=$(mktemp -d)
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$tmp/awscli.zip"
-  command -v unzip > /dev/null || { sudo apt-get update > /dev/null && sudo apt-get install -y --no-install-recommends unzip > /dev/null; }
+  command -v unzip > /dev/null || { s=$(command -v sudo || true); $s apt-get update > /dev/null && $s apt-get install -y --no-install-recommends unzip > /dev/null; }
   unzip -q "$tmp/awscli.zip" -d "$tmp"
   if [ "$(id -u)" = 0 ]; then "$tmp/aws/install"; else sudo "$tmp/aws/install"; fi
 fi
