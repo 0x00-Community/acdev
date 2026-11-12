@@ -4,7 +4,8 @@ import { NONE, NodeType } from '../native'
 import { Element, HANDLER_TYPES, setAttribute } from './element'
 import { DOMMatrix, DOMPoint, DOMQuad, DOMRect, svgTransform } from './geometry'
 import { HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
-import { metricsOf, rectOf } from './layout'
+import { computedStyleOf, metricsOf, rectOf } from './layout'
+import { DOMException } from '../core/exception'
 import { elementById, mixin } from './node'
 import { dom, ID, wrap } from './realm'
 import { fitViewBox, shapeBox } from './svgbox'
@@ -167,6 +168,16 @@ function screenCTM(id: number): DOMMatrix {
   return m
 }
 
+// the box render drew an element in (text, images, use: what has no geometry here), in its user space
+function drawnBox(id: number): [number, number, number, number] | null {
+  const r = rectOf(id)
+  if (!r[2] && !r[3]) return null
+  const inverse = screenCTM(id).inverse()
+  const p = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(inverse)
+  const b = new DOMQuad(p(r[0]!, r[1]!), p(r[0]! + r[2]!, r[1]!), p(r[0]! + r[2]!, r[1]! + r[3]!), p(r[0]!, r[1]! + r[3]!)).getBounds()
+  return [b.x, b.y, b.x + b.width, b.y + b.height]
+}
+
 export class SVGGraphicsElement extends SVGElement {
   get transform(): SVGAnimatedTransformList {
     return new SVGAnimatedTransformList(this)
@@ -184,14 +195,11 @@ export class SVGGraphicsElement extends SVGElement {
   }
 
   getBBox(): DOMRect {
-    const box = shapeBox(this[ID], ownTransform)
+    const box = shapeBox(this[ID], ownTransform, drawnBox)
     if (box) return new DOMRect(box[0], box[1], box[2] - box[0], box[3] - box[1])
     if (this instanceof SVGGeometryElement) return new DOMRect()
-    const r = rectOf(this[ID])
-    if (!r[2] && !r[3]) return new DOMRect()
-    const inverse = screenCTM(this[ID]).inverse()
-    const p = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(inverse)
-    return new DOMQuad(p(r[0]!, r[1]!), p(r[0]! + r[2]!, r[1]!), p(r[0]! + r[2]!, r[1]! + r[3]!), p(r[0]!, r[1]! + r[3]!)).getBounds()
+    const drawn = drawnBox(this[ID])
+    return drawn ? new DOMRect(drawn[0], drawn[1], drawn[2] - drawn[0], drawn[3] - drawn[1]) : new DOMRect()
   }
 
   get farthestViewportElement(): SVGElement | null {
@@ -305,7 +313,37 @@ export const SVGImageElement = svgClass('SVGImageElement', SVGGraphicsElement, '
 export const SVGForeignObjectElement = svgClass('SVGForeignObjectElement', SVGGraphicsElement, 'foreignObject')
 export const SVGSwitchElement = svgClass('SVGSwitchElement', SVGGraphicsElement, 'switch')
 export const SVGAElement = svgClass('SVGAElement', SVGGraphicsElement, 'a')
-export const SVGTextContentElement = svgClass('SVGTextContentElement', SVGGraphicsElement)
+// an SVG text's characters as it lays them out (xml:space default: no newlines, tabs as spaces, spaces collapsed, trimmed)
+function svgText(id: number): string {
+  return dom.textContent(id).replace(/[\r\n]/g, '').replace(/\t/g, ' ').replace(/ +/g, ' ').trim()
+}
+
+// the advance of `text` in the element's computed font, letter-spacing included
+function advance(id: number, text: string): number {
+  if (!text) return 0
+  const style = (property: string) => computedStyleOf(id, '', property)
+  const font = `${style('font-style')} ${style('font-weight')} ${style('font-size')} ${style('font-family')}`
+  const spacing = parseFloat(style('letter-spacing')) || 0
+  return (dom.measureText(id, font, text)[0] ?? 0) + spacing * text.length
+}
+
+export class SVGTextContentElement extends SVGGraphicsElement {
+  getNumberOfChars(): number {
+    return svgText(this[ID]).length
+  }
+
+  getComputedTextLength(): number {
+    return advance(this[ID], svgText(this[ID]))
+  }
+
+  getSubStringLength(charnum: number, nchars: number): number {
+    const text = svgText(this[ID])
+    const start = charnum >>> 0
+    if (start > text.length) throw new DOMException('getSubStringLength: charnum is past the last character', 'IndexSizeError')
+    return advance(this[ID], text.slice(start, start + (nchars >>> 0)))
+  }
+}
+tag(SVGTextContentElement)
 export const SVGTextElement = svgClass('SVGTextElement', SVGTextContentElement, 'text')
 export const SVGTSpanElement = svgClass('SVGTSpanElement', SVGTextContentElement, 'tspan')
 export const SVGTextPathElement = svgClass('SVGTextPathElement', SVGTextContentElement, 'textPath')

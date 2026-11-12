@@ -4022,3 +4022,41 @@ mod font_face_override_tests {
         assert_eq!(net.0.load(Ordering::Relaxed), 2);
     }
 }
+
+#[cfg(feature = "svg")]
+impl BaseDocument {
+    /// acrender: an element inside an inline `<svg>` has no layout box: the outermost `<svg>` it is drawn in and its
+    /// bounding box there (usvg's, text included), as fractions of that `<svg>`'s size. For getBoundingClientRect and,
+    /// through it, getBBox.
+    pub fn svg_box(&mut self, node_id: NodeId) -> Option<(NodeId, [f32; 4])> {
+        let node = self.get_node(node_id)?;
+        if node.element_data()?.name.ns != markup5ever::ns!(svg) {
+            return None;
+        }
+        let mut root = None;
+        let mut current = node.parent;
+        while let Some(parent) = current {
+            let n = &self.nodes[parent];
+            match n.element_data() {
+                Some(e) if e.name.ns == markup5ever::ns!(svg) => {
+                    if e.name.local == local_name!("svg") {
+                        root = Some(parent);
+                    }
+                    current = n.parent;
+                }
+                _ => break,
+            }
+        }
+        let root = root?;
+        let mut source = String::new();
+        let svg = &self.nodes[root];
+        svg.write_svg_marked(&mut source, true, svg.svg_viewport(), Some(node_id));
+        let source = self.svg_with_sprites(root, source);
+        let fonts = self.has_descendant(root, "text").then(|| self.svg_fonts());
+        let parsed = crate::util::parse_svg_with(source.as_bytes(), fonts).ok()?;
+        let size = parsed.tree.size();
+        let rect = parsed.tree.node_by_id(crate::node::SVG_BOX_ID)?.abs_bounding_box();
+        let (w, h) = (size.width(), size.height());
+        Some((root, [rect.x() / w, rect.y() / h, rect.width() / w, rect.height() / h]))
+    }
+}

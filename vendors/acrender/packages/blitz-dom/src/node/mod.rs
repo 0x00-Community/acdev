@@ -27,6 +27,8 @@ pub use select::{SelectData, SelectItem, SelectItemKind, SelectPicker};
 pub use scrollbar::{ScrollbarColor, ScrollbarRef, ScrollbarWidth};
 #[cfg(feature = "svg")]
 pub use simple_svg::{Rgba, SimpleOp, SimpleSvg};
+#[cfg(feature = "svg")]
+pub(crate) use serialize::SVG_BOX_ID; // acrender
 pub use stylo_data::ComputedStyleRef;
 #[cfg(feature = "svg")]
 pub use svg::{SvgImageData, SvgIntrinsicDimensions};

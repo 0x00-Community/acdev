@@ -359,6 +359,25 @@ impl Node {
 
     #[cfg(feature = "svg")]
     pub(crate) fn write_svg(&self, out: &mut String, root: bool, viewport: (f32, f32)) {
+        self.write_svg_marked(out, root, viewport, None);
+    }
+
+    /// acrender: `write_svg` with the element `mark` wrapped in `<g id="{SVG_BOX_ID}">`, whose box usvg then gives
+    /// (see BaseDocument::svg_box)
+    pub(crate) fn write_svg_marked(&self, out: &mut String, root: bool, viewport: (f32, f32), mark: Option<blitz_traits::node_id::NodeId>) {
+        let marked = !root && mark == Some(self.id);
+        if marked {
+            out.push_str("<g id=\"");
+            out.push_str(SVG_BOX_ID);
+            out.push_str("\">");
+        }
+        self.write_svg_node(out, root, viewport, mark);
+        if marked {
+            out.push_str("</g>");
+        }
+    }
+
+    fn write_svg_node(&self, out: &mut String, root: bool, viewport: (f32, f32), mark: Option<blitz_traits::node_id::NodeId>) {
         match &self.data {
             NodeData::Text(t) => {
                 encode_text_to_string(&t.content, out);
@@ -396,7 +415,7 @@ impl Node {
                 }
                 out.push('>');
                 for &child in &self.children {
-                    self.tree()[child].write_svg(out, false, viewport);
+                    self.tree()[child].write_svg_marked(out, false, viewport, mark);
                 }
                 out.push_str("</");
                 out.push_str(el.tag);
@@ -552,3 +571,6 @@ fn svg_paint_css(paint: &style::values::computed::SVGPaint, style: &style::prope
         _ => paint.to_css_string(),
     }
 }
+
+/// acrender: the id of the group `write_svg_marked` wraps the measured element in
+pub(crate) const SVG_BOX_ID: &str = "__acrender_box";

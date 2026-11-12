@@ -106,14 +106,14 @@ impl Dom {
     pub fn rect(&self, id: u32) -> Result<Quad> {
         self.on(id, |e, n| {
             let rect = Geometry { doc: e.resolved() }.client_rect(n);
-            e.option_row(n).or(rect).map_or([0.0; 4], quad)
+            e.option_row(n).or_else(|| e.svg_rect(n)).or(rect).map_or([0.0; 4], quad)
         })
     }
 
     pub fn client_rects(&self, id: u32) -> Result<Vec<Quad>> {
         self.on(id, |e, node| {
             e.resolved();
-            if let Some(row) = e.option_row(node) {
+            if let Some(row) = e.option_row(node).or_else(|| e.svg_rect(node)) {
                 return vec![quad(row)];
             }
             let Some(geometry) = shown(&e.doc, node) else { return Vec::new() };

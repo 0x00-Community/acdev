@@ -1101,3 +1101,20 @@ fn has_selector_follows_state_attributes_and_tree() {
     dom.remove(z).unwrap();
     assert_eq!(color("y"), black);
 }
+
+#[test]
+fn svg_children_have_client_rects() {
+    let (_doc, dom) = page(
+        "<body style='margin:0'><svg id=s width=200 height=100 viewBox='0 0 100 50' style='padding:5px'>\
+         <rect id=r x=10 y=10 width=40 height=20 /><g transform='translate(50,0)'><circle id=c cx=10 cy=10 r=5 /></g>\
+         <text id=t x=10 y=45 font-size=10>Hello</text></svg></body>",
+    );
+    let rect = |id| dom.rect(by_id(&dom, id)).unwrap().map(|v| (v * 1000.0).round() / 1000.0);
+    let r = rect("r");
+    assert_eq!(r, [25.0, 25.0, 80.0, 40.0], "viewBox scale 2, padding 5");
+    let c = rect("c");
+    assert_eq!(c, [115.0, 15.0, 20.0, 20.0]);
+    let t = rect("t");
+    assert!(t[0] > 20.0 && t[2] > 30.0 && t[3] > 10.0, "text drawn with a box: {t:?}");
+    assert_eq!(dom.computed_style(by_id(&dom, "t"), "", "font-size").unwrap(), "10px", "font-size=10 is in user units");
+}

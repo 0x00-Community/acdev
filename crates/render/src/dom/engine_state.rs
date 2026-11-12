@@ -517,4 +517,22 @@ impl Engine {
         let channel = |v: f32| if v.is_finite() { f64::from(v).clamp(0.0, 1.0) } else { 0.0 };
         Some([channel(r), channel(g), channel(b), channel(color.alpha().unwrap_or(0.0))])
     }
+
+    pub(in crate::dom) fn svg_rect(&mut self, node: NodeId) -> Option<crate::Rect> {
+        let (svg, [fx, fy, fw, fh]) = self.doc.svg_box(node)?;
+        let doc = self.resolved();
+        let geometry = Geometry { doc };
+        let border_box: crate::Rect = doc.get_client_bounding_rect(svg)?.into();
+        let l = doc.get_node(svg)?.final_layout();
+        let (left, top) = (f64::from(l.border.left + l.padding.left), f64::from(l.border.top + l.padding.top));
+        let width = f64::from(l.size.width - l.border.left - l.border.right - l.padding.left - l.padding.right);
+        let height = f64::from(l.size.height - l.border.top - l.border.bottom - l.padding.top - l.padding.bottom);
+        let rect = crate::Rect {
+            x: border_box.x + left + f64::from(fx) * width,
+            y: border_box.y + top + f64::from(fy) * height,
+            width: f64::from(fw) * width,
+            height: f64::from(fh) * height,
+        };
+        Some(geometry.map(svg, rect))
+    }
 }
