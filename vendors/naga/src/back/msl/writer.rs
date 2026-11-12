@@ -3550,6 +3550,11 @@ impl<W: Write> Writer<W> {
             write!(self.out, ".{WRAPPED_ARRAY_FIELD}")?;
         }
 
+        // acde: a padded element holds its value in a field
+        if padded_element(&context.module.types, base_ty).is_some() {
+            write!(self.out, ".{WRAPPED_ARRAY_FIELD}")?;
+        }
+
         Ok(())
     }
 
@@ -4753,6 +4758,27 @@ impl<W: Write> Writer<W> {
                     };
 
                     match size.resolve(module.to_ctx())? {
+                        // acde: an array whose stride is larger than its element (std140 `float a[n]`)
+                        // gets padded elements, each a struct holding the value
+                        proc::IndexableLength::Known(size)
+                            if padded_element(&module.types, &ty.inner).is_some() =>
+                        {
+                            let pad = padded_element(&module.types, &ty.inner).unwrap_or(0);
+                            writeln!(self.out, "struct {name}_padded {{")?;
+                            writeln!(self.out, "{}{} {};", back::INDENT, base_name, WRAPPED_ARRAY_FIELD)?;
+                            writeln!(self.out, "{}char _pad[{}];", back::INDENT, pad)?;
+                            writeln!(self.out, "}};")?;
+                            writeln!(self.out, "struct {name} {{")?;
+                            writeln!(
+                                self.out,
+                                "{}{}_padded {}[{}];",
+                                back::INDENT,
+                                name,
+                                WRAPPED_ARRAY_FIELD,
+                                size
+                            )?;
+                            writeln!(self.out, "}};")?;
+                        }
                         proc::IndexableLength::Known(size) => {
                             writeln!(self.out, "struct {name} {{")?;
                             writeln!(
@@ -8585,4 +8611,26 @@ impl crate::AtomicFunction {
             ))?,
         })
     }
+}
+
+// acde: the padding after each element of an array whose stride is larger than the element's MSL size
+// (scalars and two-component vectors in std140 / WebGL uniform arrays)
+fn padded_element(types: &crate::UniqueArena<crate::Type>, inner: &crate::TypeInner) -> Option<u32> {
+    let crate::TypeInner::Array {
+        base,
+        stride,
+        size: crate::ArraySize::Constant(_),
+    } = *inner
+    else {
+        return None;
+    };
+    let natural = match types[base].inner {
+        crate::TypeInner::Scalar(scalar) => u32::from(scalar.width),
+        crate::TypeInner::Vector {
+            size: crate::VectorSize::Bi,
+            scalar,
+        } => 2 * u32::from(scalar.width),
+        _ => return None,
+    };
+    (stride > natural).then_some(stride - natural)
 }
