@@ -372,15 +372,17 @@ impl Engine {
         for id in ids {
             let Ok(node) = self.ids.node(id) else { continue };
             let (_, _, state, src) = Self::image(&self.doc, node);
+            let loads = self.doc.get_node(node).and_then(|n| n.element_data()).map_or(0, |e| e.image_loads);
             let Some(last) = self.ids.images.get_mut(&id) else { continue };
-            // a newly pending image is reported too, so the page keeps asking until its answer comes from the loader
-            let report = matches!(state, LOADED | FAILED | LOADING) && (last.1 != state || last.0 != src);
-            if report || state != last.1 {
-                if last.0 != src {
-                    last.0 = src.to_owned();
-                }
-                last.1 = state;
+            // every ended attempt is reported once (it fires load or error), and a newly pending image too, so the page keeps
+            // asking until its answer comes from the loader
+            let ended = loads != last.2 && matches!(state, LOADED | FAILED);
+            let report = ended || (state == LOADING && (last.1 != state || last.0 != src));
+            last.2 = loads;
+            if last.0 != src {
+                last.0 = src.to_owned();
             }
+            last.1 = state;
             if report {
                 changed.push(id);
             }

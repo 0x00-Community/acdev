@@ -373,3 +373,29 @@ fn setting_the_same_src_again_after_a_failure_loads_the_image_again() {
     dom.set_attribute(a, "alt", "x").unwrap();
     assert!(loads.lock().unwrap().is_empty(), "other attributes keep the same-value shortcut and load nothing");
 }
+
+#[test]
+fn every_load_attempt_is_reported_once_even_when_its_state_does_not_change() {
+    let (_doc, dom, loads) = page("<body id=body><img id=a src='https://img.example.com/flaky.png'><img id=b src='https://img.example.com/ok.png'></body>");
+    let (a, b) = (by_id(&dom, "a"), by_id(&dom, "b"));
+    dom.take_loaded();
+    drop(take(&loads, "https://img.example.com/flaky.png"));
+    take(&loads, "https://img.example.com/ok.png").finish(Some(png()));
+    assert_eq!(dom.take_loaded(), vec![a, b]);
+
+    dom.set_attribute(a, "src", "https://img.example.com/flaky.png").unwrap();
+    drop(take(&loads, "https://img.example.com/flaky.png"));
+    assert_eq!(dom.take_loaded(), vec![a], "a second failure fires a second error");
+    assert_eq!(dom.image_state(a).unwrap(), [0.0, 0.0, 2.0]);
+
+    dom.set_attribute(b, "src", "https://img.example.com/ok.png").unwrap();
+    assert_eq!(dom.take_loaded(), vec![b], "the same src again, from the cache, fires a second load");
+    assert_eq!(dom.image_state(b).unwrap(), [2.0, 3.0, 1.0]);
+
+    let copy = dom.clone(b, false).unwrap();
+    assert!(dom.take_loaded().is_empty(), "a clone out of the document has not tried yet");
+    dom.insert_before(by_id(&dom, "body"), copy, NONE).unwrap();
+    assert_eq!(dom.take_loaded(), vec![copy], "the clone loads when it is inserted");
+    assert_eq!(dom.image_state(copy).unwrap(), [2.0, 3.0, 1.0]);
+    assert!(dom.take_loaded().is_empty(), "and only once");
+}

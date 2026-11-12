@@ -342,7 +342,7 @@ impl Engine {
                 continue;
             }
             let id = self.ids.id_of(node);
-            self.ids.images.entry(id).or_insert((String::new(), u8::MAX));
+            self.ids.images.entry(id).or_insert((String::new(), u8::MAX, 0));
         }
         self.settle_selects_in(root);
     }

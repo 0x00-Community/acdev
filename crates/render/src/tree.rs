@@ -10,7 +10,7 @@ pub(crate) struct Ids {
     live: u32,
     pub(crate) canvases: HashMap<u32, crate::canvas::Canvas>,
     pub(crate) gpu_canvases: HashSet<u32>,
-    pub(crate) images: HashMap<u32, (String, u8)>,
+    pub(crate) images: HashMap<u32, (String, u8, u32)>,
     pub(crate) templates: HashMap<NodeId, NodeId>,
     pub(crate) doctypes: HashMap<NodeId, Doctype>,
     pub(crate) pis: HashMap<NodeId, String>,
@@ -154,7 +154,7 @@ impl Tree<'_> {
         let node = self.m.create_element(QualName::new(None, ns, tag.as_str().into()), Vec::new());
         let id = self.ids.track(node);
         if html && tag == "img" {
-            self.ids.images.insert(id, (String::new(), u8::MAX));
+            self.ids.images.insert(id, (String::new(), u8::MAX, 0));
         }
         node
     }
@@ -164,7 +164,7 @@ impl Tree<'_> {
         let node = self.m.create_element(name, Vec::new());
         let id = self.ids.track(node);
         if img {
-            self.ids.images.insert(id, (String::new(), u8::MAX));
+            self.ids.images.insert(id, (String::new(), u8::MAX, 0));
         }
         node
     }
