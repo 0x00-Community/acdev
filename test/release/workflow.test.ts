@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Pkgs } from '../../src/pkgs.ts'
 
 const TEXT = readFileSync(join(import.meta.dir, '..', '..', '.github', 'workflows', 'release.yml'), 'utf8')
+const COS = readFileSync(join(import.meta.dir, '..', '..', 'scripts', 'cos.py'), 'utf8')
 const LOCK = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
 type Step = {
   name?: string; id?: string; if?: string; uses?: string; run?: string
@@ -45,14 +47,13 @@ describe('release.yml', () => {
     expect(TEXT).not.toMatch(/^\s*version:\s*$/m)
   })
 
-  test('read-only by default; contents write only on tag; id-token write only on upload and latest', () => {
+  test('read-only by default; contents write only on tag; no id-token anywhere', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     const writers = Object.entries(jobs).filter(([, job]) => Object.values(job.permissions ?? {}).includes('write'))
-    expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([
-      ['upload', { contents: 'read', 'id-token': 'write' }],
-      ['tag', { contents: 'write' }],
-      ['latest', { contents: 'read', 'id-token': 'write' }],
-    ])
+    expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([['tag', { contents: 'write' }]])
+    expect(jobs['upload']!.permissions).toEqual({ contents: 'read' })
+    expect(jobs['latest']!.permissions).toEqual({ contents: 'read' })
+    expect(TEXT).not.toContain('id-token')
   })
 
   test('concurrent releases queue and are never cancelled midway', () => {
@@ -86,19 +87,21 @@ describe('release.yml', () => {
 
   test('the versioned files are uploaded before the tag, and latest.json is updated after the tag', () => {
     const upload = runs('upload')
-    const archive = indexIn(upload, 'publish_once "out/$v/acde-$v.tar.gz"')
-    expect(archive).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
-    expect(upload).toContain('aws s3 cp "s3://$BUCKET/$key" readback.tmp')
-    expect(upload).toContain('does not read back as uploaded')
-    expect(upload).not.toMatch(/put out\/(latest|install)/)
+    const archive = indexIn(upload, '$COS once "out/$v/acde-$v.tar.gz" "$PREFIX/$v/acde-$v.tar.gz"')
+    expect(archive).toBeLessThan(indexIn(upload, '$COS once "out/$v/SHA256SUMS" "$PREFIX/$v/SHA256SUMS"'))
+    expect(COS).toContain('head = remote(client, bucket, name)')
+    expect(COS).toContain('does not read back as uploaded')
+    expect(upload).not.toContain('$COS pointer')
     expect(runs('tag')).toContain('git push origin "refs/tags/$TAG"')
     expect(needs('tag')).toContain('upload')
     const latest = runs('latest')
-    const order = [
-      'put out/install.sh', 'put out/install.ps1', 'put out/install.md', 'put out/latest latest', 'put out/latest.json',
-    ]
+    const order = ['install.sh', 'install.ps1', 'install.md', 'latest "', 'latest.json']
+      .map((file) => `$COS pointer out/${file}`)
     const at = order.map((needle) => indexIn(latest, needle))
     expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(latest).not.toContain('$COS once')
+    expect(latest).toContain("fresh='no-cache'")
+    expect(latest.match(/\$COS pointer [^\n]*"\$fresh"$/gm)).toHaveLength(5)
     expect(needs('latest')).toContain('tag')
   })
 
@@ -138,8 +141,7 @@ describe('release.yml', () => {
     const planCheckout = jobs['plan']!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
     expect(planCheckout?.with?.['fetch-depth']).toBe(0)
     expect(planCheckout?.with?.['ref']).toBeUndefined()
-    for (const job of ['exe', 'pkgs', 'guard', 'upload', 'tag', 'latest']) {
-      if (job === 'upload' || job === 'latest') continue
+    for (const job of ['exe', 'pkgs', 'upload', 'tag', 'latest']) {
       const checkout = jobs[job]!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
       expect(checkout?.with?.['ref']).toBe('${{ needs.plan.outputs.sha }}')
     }
@@ -178,7 +180,7 @@ describe('release.yml', () => {
     }
   })
 
-  test('the SDK is the version of the release, fetched from pkgs.dopame.ai and checked before it is unpacked', () => {
+  test('the SDK is the version of the release, fetched from PKGS and checked before it is unpacked', () => {
     expect(workflow.env['SDK_VERSION']).toBeUndefined()
     expect(jobs['pkgs']!.env?.['SDK_VERSION']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
@@ -197,7 +199,7 @@ describe('release.yml', () => {
 
   test('the SDK is placed where the file: dependency points, and checked before install', () => {
     const steps = jobs['pkgs']!.steps.map((item) => item.name ?? '')
-    const placed = steps.indexOf('the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS')
+    const placed = steps.indexOf('the SDK tarball from PKGS, checked against its SHA256SUMS')
     const check = steps.indexOf('the placed SDK is the pinned one, at the path package.json names')
     const install = steps.indexOf('install')
     expect(placed).toBeGreaterThanOrEqual(0)
@@ -224,7 +226,7 @@ describe('release.yml', () => {
     expect(runs('pkgs')).toContain('bin/acde.exe is missing or not a Windows executable')
   })
 
-  test('the version directory names its acdert in acdert-version, checked, listed, uploaded and invalidated', () => {
+  test('the version directory names its acdert in acdert-version, checked, listed and uploaded', () => {
     const pairing = 'the version directory names the acdert it pairs with, in its SHA256SUMS'
     const pkgs = runs('pkgs')
     expect(pkgs).toContain('--sdk "$SDK_VERSION"')
@@ -235,9 +237,8 @@ describe('release.yml', () => {
     expect(steps.indexOf(pairing)).toBeLessThan(steps.indexOf('latest.json'))
     const upload = runs('upload')
     expect(upload).toContain('echo "$v/acdert-version"')
-    const published = 'publish_once "out/$v/acdert-version" "$v/acdert-version"'
-    expect(indexIn(upload, published)).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
-    expect(runs('latest')).toContain('"/acde/$v/acdert-version"')
+    const published = '$COS once "out/$v/acdert-version" "$PREFIX/$v/acdert-version"'
+    expect(indexIn(upload, published)).toBeLessThan(indexIn(upload, '$COS once "out/$v/SHA256SUMS"'))
   })
 
   test('the guard runs the release guard on the artifact before any upload or tag', () => {
@@ -246,49 +247,66 @@ describe('release.yml', () => {
     expect(jobs['guard']!.permissions).toBeUndefined()
   })
 
-  test('the upload and latest jobs check the allow-list and the checksums before they touch S3', () => {
+  test('the upload and latest jobs check the allow-list and the checksums before they touch COS', () => {
     for (const job of ['upload', 'latest']) {
       expect(runs(job)).toContain('sha256sum -c SHA256SUMS')
     }
     const upload = runs('upload')
     expect(upload).toContain('echo "$v/acde-$v.tar.gz"')
-    expect(indexIn(upload, 'diff "$expected" actual')).toBeLessThan(indexIn(upload, 'publish_once()'))
-    const steps = jobs['upload']!.steps.map((item) => item.name ?? '')
-    expect(steps.indexOf('check the allow-list and the checksums once more')).toBeLessThan(
-      steps.indexOf('credentials from the GitHub OIDC token'),
-    )
+    expect(indexIn(upload, 'diff "$expected" actual')).toBeLessThan(indexIn(upload, '$COS once'))
+    for (const job of ['upload', 'latest']) {
+      const steps = jobs[job]!.steps.map((item) => item.name ?? '')
+      expect(steps.indexOf('check the allow-list and the checksums once more')).toBeLessThan(
+        steps.indexOf('the COS client, with uv when the runner has it, else in a venv'),
+      )
+    }
   })
 
   test('upload is an explicit allow-list with no sync, recursion or globs', () => {
     for (const job of ['upload', 'latest']) {
       const run = runs(job)
       expect(run).not.toMatch(/\bsync\b|--recursive|\bcp -r\b/)
-      expect(run).not.toMatch(/s3 cp [^\n]*out\/[^\n]*\*/)
+      expect(run).not.toMatch(/\$COS [^\n]*\*/)
     }
   })
 
   test('a published version is identical or refused, never overwritten, and a rerun can continue', () => {
-    const upload = runs('upload')
-    expect(upload).toContain('aws s3api head-object')
-    expect(upload).toContain('cmp -s published.tmp "$1"')
-    expect(upload).toContain('already published, identical')
-    expect(upload).toContain('a version is never overwritten')
-    expect(upload).not.toMatch(/already published: a version/)
+    expect(runs('upload').match(/^\$COS once /gm)).toHaveLength(3)
+    expect(COS).toContain('Metadata={"x-cos-meta-sha256": digest}')
+    expect(COS).toContain('have = head.get("x-cos-meta-sha256")')
+    expect(COS).toContain('already published, identical')
+    expect(COS).toContain('a version is never overwritten')
+    expect(indexIn(COS, 'if mode == "once":')).toBeLessThan(indexIn(COS, 'client.put_object('))
   })
 
-  test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
-    expect(TEXT).not.toContain('secrets.')
+  test('the COS client writes only under pkgs/, with uv when there is one and else a venv', () => {
+    expect(COS).toContain('if prefix.strip("/") != "pkgs":')
+    expect(COS).toContain('return f"{prefix.strip(\'/\')}/{key}"')
+    expect(COS).toContain('any(part in ("", ".", "..") for part in parts)')
+    for (const job of ['upload', 'latest']) {
+      const client = step(job, 'the COS client, with uv when the runner has it, else in a venv')?.run ?? ''
+      expect(client).toContain('uv run --no-project --with $COS_SDK python acde/scripts/cos.py')
+      expect(client).toContain('python3 -m venv "$RUNNER_TEMP/cos"')
+    }
+  })
+
+  test('the COS secrets reach only the two upload steps, as env, and are never echoed; no set -x', () => {
+    const named = [...TEXT.matchAll(/secrets\.\w+/g)].map((m) => m[0])
+    const pair = ['secrets.COS_SECRET_ID', 'secrets.COS_SECRET_KEY']
+    expect(named).toEqual([...pair, ...pair])
+    const holders = Object.entries(jobs).flatMap(([id, job]) =>
+      job.steps.filter((item) => item.env?.['COS_SECRET_KEY']).map((item) => `${id}: ${item.name}`))
+    expect(holders).toEqual([
+      'upload: upload the versioned files, each read back; a published version is never overwritten',
+      'latest: update the pointers, latest and latest.json last',
+    ])
     expect(TEXT).not.toMatch(/set -x|bash -x|sh -x/)
-    expect(TEXT.indexOf('::add-mask::$token')).toBeLessThan(TEXT.indexOf('assume-role-with-web-identity'))
-    expect(TEXT.indexOf('::add-mask::$secret')).toBeLessThan(TEXT.indexOf('AWS_SECRET_ACCESS_KEY=$secret'))
-    const printed = TEXT.split('\n').filter((line) => !/add-mask|AWS_/.test(line) && /echo/.test(line))
-    expect(printed.filter((line) => /\$(token|secret|session|creds)\b/.test(line))).toEqual([])
+    expect(TEXT).not.toMatch(/echo[^\n]*COS_SECRET/)
+    expect(COS).not.toMatch(/print\([^\n]*(SECRET|secret)/)
   })
 
-  test('the OIDC exchange is done with the AWS CLI, not a third-party action', () => {
-    expect(TEXT).not.toContain('aws-actions/')
-    expect(runs('upload')).toContain('aws sts assume-role-with-web-identity')
-    expect(runs('latest')).toContain('aws sts assume-role-with-web-identity')
+  test('nothing of AWS or CloudFront is left', () => {
+    expect(TEXT).not.toMatch(/\baws\b|AWS_|cloudfront|CLOUDFRONT|amazonaws|pkgs\.dopame\.ai/i)
   })
 
   test('every action is pinned to a full commit SHA with its version noted', () => {
@@ -298,12 +316,19 @@ describe('release.yml', () => {
     expect(TEXT.match(/@[0-9a-f]{40} # v\d+/g)?.length).toBe(all.length)
   })
 
-  test('the release role, bucket, prefix, region, distribution and PKGS are each stated once', () => {
-    expect(workflow.env['ROLE']).toBe('arn:aws:iam::312030312811:role/dopame-acde-release')
-    expect(workflow.env['AWS_REGION']).toBe('ap-southeast-1')
-    expect(workflow.env['CLOUDFRONT_DISTRIBUTION']).toBe('E3ET3L14ALFOXX')
-    expect(workflow.env['BUCKET']).toBe('dopame-pkgs')
-    expect(workflow.env['PREFIX']).toBe('acde')
-    expect(workflow.env['PKGS']).toBe('https://pkgs.dopame.ai')
+  test('the bucket, region, prefixes, SDK and PKGS are each stated once; PKGS is the address acde uses', () => {
+    expect(workflow.env).toEqual({
+      PKGS: Pkgs.BASE,
+      COS_BUCKET: 'calbin-1318886512',
+      COS_REGION: 'ap-beijing',
+      COS_PREFIX: 'pkgs',
+      COS_SDK: 'cos-python-sdk-v5==1.9.45',
+      PREFIX: 'acde',
+    })
+    expect(Pkgs.BASE).toBe(`https://${workflow.env['COS_BUCKET']}.cos.${workflow.env['COS_REGION']}.myqcloud.com/pkgs`)
+    expect(runs('pkgs')).toContain('--arg base "$PKGS/$PREFIX/$v/"')
+    for (const line of ['curl -fsSL $PKGS/$PREFIX/install.sh | sh', 'irm $PKGS/$PREFIX/install.ps1 | iex']) {
+      expect(runs('latest')).toContain(line)
+    }
   })
 })
