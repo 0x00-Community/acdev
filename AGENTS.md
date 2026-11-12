@@ -276,7 +276,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **工程** (`Doctor.project`): 目录 (参数, 默认当前目录) 里有 `acde.config.jsonc` / `.json` 或 package.json 有 `acde` 字段才算工程; 不是时默认 `skip`,
   给了目录参数就是错误. `project` (`acde check` 的第一个错误或警告加剩几条, fix `acde check lists them`)、`platform` (缺必需能力是错误, 可选的写进内容)、
   `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
-  里提升到上层的也算装了; 装的 `@dopame/acde-api` 和这个 acde 构建所用的 SDK 版本不同是警告, fix 给 `Creator.api(dir)` 的写法)、`gitignore` (在 git 仓库里
+  里提升到上层的也算装了; SDK 版本只报一次 (gitea acde#92): package.json 写的 (`Sdk.state`) 或装的 `@dopame/acde-api` 和这个 acde 构建所用的版本不同时,
+  `dependencies` 报这一行 (排在依赖没装之前), fix 一律是 `Doctor.SDK_FIX` (`run acde sdk update`), 这时 `project` 去掉 `acde check` 里同一条 SDK 警告;
+  运行时不在 PATH 上而轮不到这一行时, SDK 警告是 `project` 唯一一条就用同一个 fix)、`gitignore` (在 git 仓库里
   且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
 - **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acde 一律是重跑安装器 (`curl -fsSL $ACDE_DIST/install.sh | sh`, Windows
   `irm …/install.ps1 | iex`), 检出的 acde 是编 acdert 再设 `ACDERT`; `ACDERT` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
