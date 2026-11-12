@@ -24,6 +24,7 @@ await Bun.write(
   JSON.stringify({
     name: 'dom-perf',
     acde: {
+      apiLevel: 1,
       apps: [{ id: 'dom-perf', label: 'DOM Perf', icon: 'files', entry: '/dom-perf/index.html', capabilities: {} }],
       assets: { '/dom-perf/': ['.'] },
     },
@@ -141,12 +142,14 @@ const summary = Object.fromEntries(
   }),
 )
 const base = summary['base']
-const ratios = base && summary['candidate'] ? { create: summary['candidate'].create / base.create, restyle: summary['candidate'].restyle / base.restyle } : null
+const candidate = summary['candidate']
+const ratios = base && candidate ? { create: candidate.create / base.create, restyle: candidate.restyle / base.restyle } : null
 const slower = ratios ? Object.entries(ratios).filter(([, ratio]) => ratio > limit) : []
 const report = { summary, ratios, limit, rows }
 console.log(JSON.stringify(report, null, 2))
 await Bun.write(join(run, 'summary.json'), JSON.stringify(report, null, 2))
 if (slower.length) {
-  console.error(`DOM perf: candidate is slower than base beyond ${limit}x: ${slower.map(([name, ratio]) => `${name} ${ratio.toFixed(3)}x`).join(', ')}`)
+  const list = slower.map(([name, ratio]) => `${name} ${ratio.toFixed(3)}x`).join(', ')
+  console.error(`DOM perf: candidate is slower than base beyond ${limit}x: ${list}`)
   process.exit(1)
 }
