@@ -581,6 +581,28 @@ impl<'a, 'b, B: Brush> parley_engine::FontSelector for FontSelector<'a, 'b, B> {
             }
         }
 
+        // acrender: characters no font in the stack or the script's fallback has (✕ ✔ ❤ are Common script, whose
+        // fallback is no symbol font): ask the system for a font for these characters, as browsers do per character
+        let complete = best_coverage.is_complete()
+            || selected_font.as_ref().is_some_and(|font| covers_all(cluster, font));
+        if !complete {
+            let text: alloc::string::String = cluster.chars().iter().map(|c| c.ch).collect();
+            if let Some(family) = self.query.text_fallback(&text) {
+                self.query.set_families(core::iter::once(QueryFamily::Id(family)));
+                self.fonts_id = None;
+                self.query_yields_font = None;
+                self.query.matches_with(|font| {
+                    if font.family.0 != family {
+                        return fontique::QueryStatus::Stop;
+                    }
+                    if covers_all(cluster, font) {
+                        selected_font = Some(font.clone());
+                    }
+                    fontique::QueryStatus::Stop
+                });
+            }
+        }
+
         self.last_font = selected_font;
         self.last_font.as_ref().map(|font| FontInstanceRef {
             data: &font.blob,

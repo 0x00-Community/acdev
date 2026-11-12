@@ -71,5 +71,10 @@ mod system {
         pub(crate) fn fallback(&mut self, _key: impl Into<FallbackKey>) -> Option<FamilyId> {
             None
         }
+
+        #[cfg(feature = "system")]
+        pub(crate) fn fallback_for_text(&mut self, _text: &str, _locale: Option<&str>) -> Option<FamilyId> {
+            None
+        }
     }
 }

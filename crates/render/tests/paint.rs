@@ -223,3 +223,14 @@ fn appearance_none_draws_the_element_s_own_boxes() {
     let shown = control(before, "checkbox", true);
     assert!(shown > 350, "::before of an appearance: none checkbox: {shown} red px");
 }
+
+#[test]
+fn symbols_no_font_in_the_stack_has_come_from_the_system_per_character() {
+    use parley::fontique::{Collection, CollectionOptions};
+    let mut fonts = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+    for symbol in ["✕", "✔", "❤", "✖"] {
+        let family = fonts.text_fallback(symbol).unwrap_or_else(|| panic!("no system font for {symbol}"));
+        let name = fonts.family_name(family).unwrap().to_owned();
+        assert!(!name.contains("LastResort"), "{symbol}: {name}");
+    }
+}

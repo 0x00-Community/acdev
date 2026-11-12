@@ -87,6 +87,19 @@ impl SystemFonts {
     }
 }
 
+impl SystemFonts {
+    /// acrender: the family CoreText would draw `text` in (CTFontCreateForString), for characters no family in the
+    /// stack or the script's fallback has; never LastResort, whose boxes stand for any code point
+    pub(crate) fn fallback_for_text(&mut self, text: &str, locale: Option<&str>) -> Option<FamilyId> {
+        let font = create_fallback_font_for_text(text, locale, false)?;
+        let name = unsafe { font.family_name() }.to_string();
+        if name.contains("LastResort") {
+            return None;
+        }
+        self.name_map.get(&name).map(|family| family.id())
+    }
+}
+
 /// Discover system fonts by combining CoreText enumeration with a directory scan of all
 /// Library/Fonts paths, then index them through the shared scan pipeline.
 fn scan_system_fonts() -> Option<scan::ScannedCollection> {

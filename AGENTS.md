@@ -1843,7 +1843,8 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | fontique `backend/fontconfig.rs` `SystemFonts::members` / `family_uncached` | 按第一个族名建表, 不再每族一次 `FcFontSort` |
 | fontique `collection/mod.rs` `System::shared` | 系统字体只扫一次, 所有 `Collection` 共用 |
 | fontique `font.rs` `mod tests` | 关掉 |
-| parley `shape/mod.rs` `FontSelector::select_font` | CJK 标点只有带汉字的字体才算覆盖; Common / Inherited 的 cluster 先试前一个的字体 |
+| fontique `backend/*.rs` `fallback_for_text`, `collection` `text_fallback` (`Collection` / `Query`) | 按文字本身向系统要字族: CoreText `CTFontCreateForString` (不要 LastResort, 它对任何码位都给一个条纹框), fontconfig 按这些字符的 charset 匹配, DirectWrite 的 fallback 映射; Android 没有. 每段文字只问一次 |
+| parley `shape/mod.rs` `FontSelector::select_font` | CJK 标点只有带汉字的字体才算覆盖; Common / Inherited 的 cluster 先试前一个的字体; 字族栈和脚本的回退都盖不全一个 cluster 时 (✕ ✔ ❤ 是 Common 脚本, 它的回退里没有符号字体), 拿这几个字符问系统 (`text_fallback`), 那个字族盖全了就用它, 像浏览器按字符回退 |
 | parley `shape/mod.rs` `CjkVariant` / `shape_text` | 按 locale 换成本地区的 CJK 字族, 缓存键加地区 |
 | parley `shape/mod.rs` `begin_segment` | (script, locale) 没被跟踪时按没有 locale 查 |
 | stylo `stylesheets/rule_parser.rs` | `@container` 去掉 gecko 限定 (pref `layout.container-queries.enabled`) |

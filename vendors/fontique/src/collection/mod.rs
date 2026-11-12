@@ -177,6 +177,11 @@ impl Collection {
         self.inner.fallback_families(key)
     }
 
+    /// acrender: see [`Inner::text_fallback`]
+    pub fn text_fallback(&mut self, text: &str) -> Option<FamilyId> {
+        self.inner.text_fallback(text)
+    }
+
     /// Replaces the set of family identifiers associated with the fallback
     /// key.
     pub fn set_fallbacks(
@@ -252,6 +257,8 @@ struct Inner {
     #[allow(unused)]
     shared_version: CounterInt,
     fallback_cache: FallbackCache,
+    /// acrender: `text_fallback` answers
+    text_fallbacks: HashMap<String, Option<FamilyId>>,
 }
 
 impl Inner {
@@ -265,6 +272,7 @@ impl Inner {
             shared,
             shared_version: 0,
             fallback_cache: FallbackCache::default(),
+            text_fallbacks: HashMap::new(),
         }
     }
 
@@ -428,6 +436,20 @@ impl Inner {
         }
         #[cfg(not(feature = "std"))]
         self.data.generic_families.append(generic, families);
+    }
+
+    /// acrender: the family the system draws `text` in, for characters no family in the stack or the script's fallback
+    /// has (CoreText, fontconfig or DirectWrite asked with the characters themselves); remembered per text
+    pub fn text_fallback(&mut self, text: &str) -> Option<FamilyId> {
+        if let Some(found) = self.text_fallbacks.get(text) {
+            return *found;
+        }
+        #[cfg(feature = "system")]
+        let found = self.system.as_ref().and_then(|system| system.fonts.lock().unwrap().fallback_for_text(text, None));
+        #[cfg(not(feature = "system"))]
+        let found = None;
+        self.text_fallbacks.insert(text.into(), found);
+        found
     }
 
     /// Returns an iterator over the fallback families for the given

@@ -191,6 +191,11 @@ impl SystemFonts {
         self.family_map.get(&id).cloned()
     }
 
+    /// acrender: no per-text fallback on Android
+    pub(crate) fn fallback_for_text(&self, _text: &str, _locale: Option<&str>) -> Option<FamilyId> {
+        None
+    }
+
     pub(crate) fn fallback(&self, key: impl Into<FallbackKey>) -> Option<FamilyId> {
         let key: FallbackKey = key.into();
         let script = key.script();
