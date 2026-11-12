@@ -813,6 +813,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `<audio>` 有 `src` 或 `<source>` 就自己开始加载 (标准: 设了 `src` 就跑加载算法), `preload="none"` 且没有 `autoplay` 时发 `loadstart` 和
     `suspend` 后停在 `NETWORK_IDLE`, 等 `play()` 再取. 还没有: 海报图 (`poster`)、`seeked` 等到新位置的帧画出来再发、文字轨、MSE.
   - 帧现在在 CPU 内存里, 送进 GPU 要上传一次; 硬解的零拷贝 (Linux dmabuf、macOS IOSurface) 还没有.
+- **设备的标准接口** (acde-dom `src/device/`, crates/acdert `device.rs`, 每个 web 都有的原生 `device`): 系统的状态只经 web 标准接口给网页,
+  改设置的不在这里 (标准里没有, 那些归 `acde:power` 等模块). `navigator.getBattery()` (Battery Status): Linux 上读 UPower 的 DisplayDevice
+  (runtime `battery.rs`), 属性变了经 PropertiesChanged 推给同一个 `BatteryManager` 并发 `chargingchange` / `levelchange` / `chargingtimechange` /
+  `dischargingtimechange`; 没有电池、没有 UPower 或别的平台按规范给接着电源的默认值 (charging true, level 1, chargingTime 0, dischargingTime Infinity).
+  每个 navigator 只有一个 BatteryManager, `getBattery()` 回同一个 promise.
 - **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/acdert `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
     `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、

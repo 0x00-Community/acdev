@@ -8,6 +8,7 @@ mod bluetooth;
 mod caches;
 mod capture;
 mod child;
+mod device;
 #[cfg(target_os = "linux")]
 mod devices;
 mod dom;

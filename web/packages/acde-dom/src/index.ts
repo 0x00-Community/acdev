@@ -23,6 +23,7 @@ import {
 } from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
 import type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
+import { installDevice, type DeviceNative } from './device'
 import { installStorage, Storage } from './storage/webstorage'
 import { idbTaskEnded, installIndexedDB } from './storage/idb/idb'
 import { StorageManager } from './storage/manager'
@@ -96,6 +97,7 @@ import { clockHandle, isInstalled as isClockInstalled, now as clockNow, type Clo
 import { adoptTimers } from './core/timers'
 
 export { hostTime, type ClockRequest, type ClockState } from './core/clock'
+export type { DeviceNative } from './device'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export type { WebglNative } from './webgl/index'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
@@ -123,6 +125,7 @@ export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly webgl?: WebglNative
   readonly audio?: AudioNative
   readonly capture?: CaptureNative
+  readonly device?: DeviceNative
   readonly screen?: { width: number; height: number }
 }
 
@@ -232,6 +235,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (options.webgl) globals(global, installWebgl(options.webgl, () => frames.request()))
   if (options.audio) globals(global, installAudio(options.audio))
   installCapture(options.capture)
+  installDevice(global, options.device)
   globals(global, { MediaStream, MediaStreamTrack, MediaDeviceInfo, InputDeviceInfo, OverconstrainedError, Permissions, PermissionStatus })
   inspectHooks.node = (value) => {
     if (!(value instanceof Node)) return null

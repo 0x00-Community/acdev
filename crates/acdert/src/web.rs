@@ -175,6 +175,7 @@ impl Webs {
 impl Grants {
     fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         crate::capture::install(scope, natives, self.capture, self.app.as_deref());
+        crate::device::install(scope, natives);
         crate::webnative::bind_app(self.app);
         if let Some(place) = self.storage {
             crate::storage::install(scope, natives, place);
@@ -306,6 +307,7 @@ impl Spec {
         crate::host::clear();
         crate::audio::clear();
         crate::capture::clear();
+        crate::device::clear();
         crate::webgl::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();
