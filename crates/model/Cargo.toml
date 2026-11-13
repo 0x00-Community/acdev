@@ -7,6 +7,6 @@ edition.workspace = true
 napi = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
-acde-log = { path = "../log" }
+acde-log.workspace = true
 napi = { version = "3", default-features = false, features = ["napi8"], optional = true }
 napi-derive = { version = "3", optional = true }

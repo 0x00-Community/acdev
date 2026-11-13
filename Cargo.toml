@@ -7,7 +7,24 @@ exclude = ["vendor"]
 version = "0.0.9"
 edition = "2024"
 repository = "https://github.com/dopame-org/acdert"
-publish = false
+publish = ["ac"]
+
+[workspace.dependencies]
+acde-log = { path = "crates/log", version = "0.0.9", registry = "ac" }
+acde-model = { path = "crates/model", version = "0.0.9", registry = "ac" }
+acde-gpu = { path = "crates/gpu", version = "0.0.9", registry = "ac" }
+acde-vello = { path = "crates/vello", version = "0.0.9", registry = "ac" }
+acde-render = { path = "crates/render", version = "0.0.9", registry = "ac" }
+acde-runtime = { path = "crates/runtime", version = "0.0.9", registry = "ac" }
+acde-storage = { path = "crates/storage", version = "0.0.9", registry = "ac" }
+acde-media = { path = "crates/media", version = "0.0.9", registry = "ac" }
+acde-napi = { path = "crates/acde-napi", version = "0.0.9", registry = "ac" }
+acde-webgl = { path = "crates/webgl", version = "0.0.9", registry = "ac" }
+acde-host = { path = "crates/host", version = "0.0.9", registry = "ac" }
+# blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz), published to ac with the same names
+blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
+blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
+blitz-traits = { path = "vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
 
 # 对外唯一的包: 平铺导出 crates/* (Rust 用 rlib), 并以 cdylib 出 libacdert.so (C 接口在 src/ffi.rs, 头文件 include/acdert.h 由 build.rs 经 cbindgen 生成)
 [package]
@@ -19,29 +36,23 @@ edition.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-acde-host = { path = "crates/host" }
-acde-gpu = { path = "crates/gpu" }
-acde-log = { path = "crates/log" }
-acde-media = { path = "crates/media" }
-acde-model = { path = "crates/model" }
-acde-napi = { path = "crates/acde-napi" }
-acde-render = { path = "crates/render" }
-acde-runtime = { path = "crates/runtime" }
-acde-storage = { path = "crates/storage" }
-acde-vello = { path = "crates/vello" }
-acde-webgl = { path = "crates/webgl" }
+acde-host.workspace = true
+acde-gpu.workspace = true
+acde-log.workspace = true
+acde-media.workspace = true
+acde-model.workspace = true
+acde-napi.workspace = true
+acde-render.workspace = true
+acde-runtime.workspace = true
+acde-storage.workspace = true
+acde-vello.workspace = true
+acde-webgl.workspace = true
 
 [features]
 napi = ["acde-model/napi"]
 
 [build-dependencies]
 cbindgen = { version = "0", default-features = false }
-
-[patch.crates-io]
-# blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz)
-blitz-dom = { path = "vendor/blitz/packages/blitz-dom" }
-blitz-paint = { path = "vendor/blitz/packages/blitz-paint" }
-blitz-traits = { path = "vendor/blitz/packages/blitz-traits" }
 
 [profile.release]
 opt-level = "s"

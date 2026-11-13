@@ -8,17 +8,17 @@ path = "src/lib.rs"
 
 [dependencies]
 v8 = "152"
-acde-napi = { path = "../acde-napi" }
-acde-render = { path = "../render" }
-acde-gpu = { path = "../gpu" }
+acde-napi.workspace = true
+acde-render.workspace = true
+acde-gpu.workspace = true
 # WebGL (webgl.rs): the GL state machine on the shared wgpu device
-acde-webgl = { path = "../webgl" }
-acde-model = { path = "../model" }
-acde-runtime = { path = "../runtime" }
+acde-webgl.workspace = true
+acde-model.workspace = true
+acde-runtime.workspace = true
 # web storage (storage.rs): localStorage shared by the webs of one app or desktop, kept in SQLite
-acde-storage = { path = "../storage" }
+acde-storage.workspace = true
 # <video> (audio/video.rs): decoding through GStreamer (Linux) or AVFoundation (macOS)
-acde-media = { path = "../media" }
+acde-media.workspace = true
 url = "2"
 encoding_rs = "0"
 getrandom = "0"
@@ -31,7 +31,7 @@ signal-hook = "0"
 # sound (audio/): files decoded in pure Rust; the output is PipeWire on Linux, cpal elsewhere
 symphonia = { version = "0", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
 # logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain
-acde-log = { path = "../log" }
+acde-log.workspace = true
 log = "0"
 # hostnative.rs: the dev IPC's shot carries the PNG as base64
 base64 = "0"

@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acde-gpu = { path = "../gpu" }
-acde-model = { path = "../model" }
+acde-gpu.workspace = true
+acde-model.workspace = true
 kurbo = "0"
 peniko = "0"
 vello = { version = "0", default-features = false, features = ["wgpu"] }

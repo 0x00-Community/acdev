@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acde-gpu = { path = "../gpu" }
+acde-gpu.workspace = true
 # shaders: GLSL ES through src/glsl (naga's GLSL frontend with the WebGL dialect), handed to wgpu as IR
 naga = "30"
 pp-rs = "0"

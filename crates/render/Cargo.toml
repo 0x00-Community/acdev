@@ -8,7 +8,7 @@ base64 = "0"
 data-url = "0"
 # blitz 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
 # complex-scripts: 中文/日文断行 (ICU4X 分词模型); floats: CSS float
-blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = [
+blitz-dom = { workspace = true, features = [
     "svg",
     "woff",
     "system-fonts",
@@ -17,11 +17,11 @@ blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = [
     "complex-scripts",
     "floats",
 ] }
-blitz-paint = { version = "=0.3.0-beta.4", features = ["scrollbars"] }
-blitz-traits = "=0.3.0-beta.4"
+blitz-paint = { workspace = true, default-features = true, features = ["scrollbars"] }
+blitz-traits = { workspace = true, default-features = true }
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
-acde-gpu = { path = "../gpu" }
+acde-gpu.workspace = true
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # 2D 场景用的 kurbo, 算脏区域的包围盒
@@ -35,7 +35,7 @@ bytemuck = "1"
 # 文档锁: JS 线程和 render 线程共用文档 (MutexGuard::bump 让锁给等着的线程)
 parking_lot = "0"
 # 日志和全链路计时: 帧的耗时, 输入到上屏的 Trace 跟着 Frame 走
-acde-log = { path = "../log" }
+acde-log.workspace = true
 log = "0"
 # Dom 的 HTML 解析 (和 stylo 的 web_atoms 同版本; 自己的 TreeSink: scripting 开着、留 doctype、片段不挂到文档上)
 html5ever = "=0.40.1"
@@ -49,7 +49,7 @@ serde_json = "1"
 
 [dev-dependencies]
 # tests: render 自己不带合成器, 测试装 vello 的那份
-acde-vello = { path = "../vello" }
+acde-vello.workspace = true
 # tests/svg_fixtures.rs 把 SVG 文件读成 DOM 调用
 roxmltree = "0"
 # tests/replay.rs 解压录下的 op 流 (已在依赖树里, 不新增下载)
