@@ -16,7 +16,7 @@ acde-napi = { path = "../acde-napi" }
 acde-render = { path = "../render" }
 url = "2"
 encoding_rs = "0"
-getrandom = "0"
+getrandom = "0.4"
 # sys.rs: package.json of node_modules packages; webgpu/: descriptors
 serde_json = "1"
 # sys.rs, child.rs, main.rs, supervise.rs: the socket lock, kill, uid, pre_exec of spawned children, waiting for acde runtime
