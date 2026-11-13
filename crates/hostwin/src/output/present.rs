@@ -391,7 +391,7 @@ impl Presenter {
             .iter()
             .map(|(_, (_, shadows, effect, bounds))| {
                 let clip = bounds.intersection(target)?;
-                Some((clip, bounds.intersection(target.grown(acdert::gpu::reach(shadows, effect)))?.intersection(full)?))
+                Some((clip, bounds.intersection(target.grown(effect.reach(shadows)))?.intersection(full)?))
             })
             .collect();
         let mut scenes: Vec<Option<Scene>> = parts
