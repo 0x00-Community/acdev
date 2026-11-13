@@ -60,7 +60,6 @@ const consoleLog: object[] = [
 ]
 const requests: object[] = []
 let dark = false
-let reduced = false
 
 function page<T extends { seq: number; web: string; app: string | null }>(
   all: T[], m: Record<string, unknown>, keep: (e: T) => boolean = () => true,
@@ -384,7 +383,7 @@ if (process.env['FAKE_ACDERT_FAILS']) {
 
 const ISOLATION = [
   'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
-  'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART', 'ACDE_TEST_SESSION',
+  'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_AUTOSTART', 'ACDE_TEST_SESSION',
 ]
 record({
   argv: process.argv.slice(2),
@@ -522,11 +521,9 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     }
     case 'emulate':
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
-      if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true
       return void ok({
         colorScheme: dark ? 'dark' : 'light',
         emulated: m['colorScheme'] !== null && m['colorScheme'] !== undefined,
-        reducedMotion: reduced,
       })
     case 'route': {
       const regex = typeof (m['url'] as { regex?: unknown } | undefined)?.regex === 'string'

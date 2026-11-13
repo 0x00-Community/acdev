@@ -111,7 +111,6 @@ export interface NetworkOptions {
 
 export interface Emulation {
   readonly colorScheme?: 'light' | 'dark' | null
-  readonly reducedMotion?: boolean | null
 }
 
 export interface Snapshot {

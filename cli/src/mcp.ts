@@ -36,7 +36,7 @@ const INSTRUCTIONS = [
     + `wait_for waits for a text to appear or go.`,
   `- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource `
     + `requests and the images, stylesheets and fonts they load (status, size, time, error); both answer next, pass it `
-    + `as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw `
+    + `as since to read only newer entries. emulate switches the colour scheme. logs is the raw `
     + `output of an acde dev that start ran.`,
   `- act drag moves an element onto another ref (pointer drags and HTML5 drag and drop, also into another window); act `
     + `select picks options of a <select> by value or text.`,
@@ -481,11 +481,10 @@ export class Mcp {
     s.registerTool(
       'emulate',
       {
-        description: 'Switch the colour scheme (prefers-color-scheme) or reduced motion (prefers-reduced-motion) for '
-          + 'every page; system goes back to what the system says.',
+        description: 'Switch the colour scheme (prefers-color-scheme) for every page; system goes back to what the '
+          + 'system says.',
         inputSchema: z.object({
           colorScheme: z.enum(['light', 'dark', 'system']).optional(),
-          reducedMotion: z.enum(['reduce', 'no-preference', 'system']).optional(),
         }),
         annotations: drive,
       },
@@ -494,11 +493,9 @@ export class Mcp {
           const state = await (await this.#acde()).emulate({
             ...(args.colorScheme !== undefined
               && { colorScheme: args.colorScheme === 'system' ? null : args.colorScheme }),
-            ...(args.reducedMotion !== undefined
-              && { reducedMotion: args.reducedMotion === 'system' ? null : args.reducedMotion === 'reduce' }),
           })
           const scheme = `${state.colorScheme}${state.emulated ? ' (emulated)' : ''}`
-          return Mcp.#text(`colour scheme ${scheme}, reduced motion ${state.reducedMotion ? 'on' : 'off'}`)
+          return Mcp.#text(`colour scheme ${scheme}`)
         }),
     )
 

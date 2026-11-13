@@ -71,7 +71,6 @@ export class E2eRun {
       ACDE_STORAGE: '',
       ACDE_SIZE: E2e.SIZE,
       ACDE_COLOR_SCHEME: 'light',
-      ACDE_REDUCED_MOTION: '1',
       ACDE_AUTOSTART: '0',
       [Sessions.TEST_ENV]: '1',
     }

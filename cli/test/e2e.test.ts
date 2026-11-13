@@ -94,7 +94,7 @@ describe('acde test', () => {
     for (const started of run.started) {
       expect(started.headless).toBe('1')
       expect(started.env).toMatchObject({
-        ACDE_STORAGE: '', ACDE_SIZE: E2e.SIZE, ACDE_COLOR_SCHEME: 'light', ACDE_REDUCED_MOTION: '1',
+        ACDE_STORAGE: '', ACDE_SIZE: E2e.SIZE, ACDE_COLOR_SCHEME: 'light',
         ACDE_AUTOSTART: '0', ACDE_TEST_SESSION: null,
       })
       expect(started.env!['XDG_CONFIG_HOME']).toMatch(/acde-test-[^/\\]+[/\\]config$/)

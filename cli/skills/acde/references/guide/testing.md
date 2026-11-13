@@ -43,7 +43,7 @@ The test function receives:
 Each test gets:
 
 - Temporary `HOME` and `XDG_*` directories, and in-memory storage only;
-- A 1280 × 800 screen, light mode, reduced motion, and no autostart items;
+- A 1280 × 800 screen, light mode, and no autostart items;
 - Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`); the time the session takes to start counts. Headless still needs a GPU, so Linux CI machines without one can't run tests; see [Platform support](../reference/platforms.md).
 
 Builds go into `.acde/test`, results into `.acde/test-results`.

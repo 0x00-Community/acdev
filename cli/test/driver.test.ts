@@ -236,7 +236,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       check(await acde.chooseFiles([]).then(() => 'resolved', (e: Error) => e.message)).toContain('choose: open')
       await acde.chooseSaveFile('out.txt')
       await acde.chooseSaveFile(null)
-      check(await acde.emulate({ colorScheme: 'dark', reducedMotion: true })).toEqual({ colorScheme: 'dark', emulated: true, reducedMotion: true })
+      check(await acde.emulate({ colorScheme: 'dark' })).toEqual({ colorScheme: 'dark', emulated: true })
 
       check(acde.trace.text()).toContain('window(app "alpha").getByRole("textbox", { name: "New task" }).fill("Buy")')
       check(acde.trace.steps.find((step) => step.title.startsWith('expect window(app "alpha").getByText("Nothing here") to be visible'))?.ok).toBe(false)

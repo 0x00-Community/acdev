@@ -39,7 +39,6 @@ interface Unrouted {
 interface Emulated {
   colorScheme: 'light' | 'dark'
   emulated: boolean
-  reducedMotion: boolean
 }
 
 export class Acde {

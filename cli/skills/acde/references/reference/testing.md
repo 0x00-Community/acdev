@@ -74,7 +74,7 @@ class Acde {
   waitForRequest(url: string | RegExp, options?: { method?; web?; timeout? }): Promise<RequestEntry>
   waitForConsole(text: string | RegExp, options?: { level?; web?; timeout? }): Promise<ConsoleEntry>
 
-  emulate(options: { colorScheme?: 'light' | 'dark' | null; reducedMotion?: boolean | null }): Promise<...>
+  emulate(options: { colorScheme?: 'light' | 'dark' | null }): Promise<...>
   chooseFolder(folder: string | null): Promise<void>
   chooseFiles(files: string | string[] | null): Promise<void>
   chooseSaveFile(file: string | null): Promise<void>

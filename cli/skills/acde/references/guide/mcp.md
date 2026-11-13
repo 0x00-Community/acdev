@@ -32,7 +32,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `screenshot` | Screenshot of one window or the whole screen |
 | `eval` | Runs JS in a page |
 | `console` / `network` | The pages' logs and requests |
-| `emulate` | Switches light/dark mode and reduced motion |
+| `emulate` | Switches light/dark mode |
 | `choose_folder` / `choose_files` / `choose_save_file` | Answers the page's next file picker in advance |
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
 | `pointer` | Moves the pointer to a screen point, as a real move (hover, screen edges) |

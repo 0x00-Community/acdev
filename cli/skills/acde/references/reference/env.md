@@ -27,7 +27,6 @@
 | `ACDE_SIZE` | Screen size, such as `1280x800` |
 | `ACDE_SCALE` | Scale factor when headless (0.5–4) |
 | `ACDE_COLOR_SCHEME` | `light` / `dark` |
-| `ACDE_REDUCED_MOTION` | `1` / `0` |
 | `ACDE_STORAGE` | Root directory for web storage; set it to empty to keep storage in memory only |
 | `ACDE_AUTOSTART` | Autostart items run by default only in a Dopame OS session: `1` runs them in the host window too, `0` skips them |
 | `ACDE_AUDIO=null` | No sound |

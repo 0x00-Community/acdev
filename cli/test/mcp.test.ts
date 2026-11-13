@@ -124,8 +124,8 @@ describe('acde mcp', () => {
       expect((await call('clipboard', { system: true })).text).toBe('"hi"')
       expect(tools.find((t) => t.name === 'clipboard')!.annotations).toMatchObject({ destructiveHint: true, openWorldHint: true })
       expect((await call('act', { ref: 'w1.6', action: 'select', arg: ['high'] })).text).toContain('selected ["high"]')
-      expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated), reduced motion off')
-      expect((await call('emulate', { colorScheme: 'system', reducedMotion: 'reduce' })).text).toBe('colour scheme light, reduced motion on')
+      expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated)')
+      expect((await call('emulate', { colorScheme: 'system' })).text).toBe('colour scheme light')
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })
 
       const logs = await call('logs', { grep: 'fake acdert' })
