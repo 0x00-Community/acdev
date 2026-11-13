@@ -369,7 +369,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdert; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
 - acdert 的 stderr: 默认经管道逐行转出, 只丢运行时自己的 info 及以下日志, 开发者的代码打的和关于应用的事都留下 (`DevSession.keeps`).
-  运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (acdert `crates/log`). 留下: 不是这种格式的行 (panic、多行消息
+  运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (acdert `src/log`). 留下: 不是这种格式的行 (panic、多行消息
   的后续行)、任何目标的 `W` / `E`、目标 `js` 的任何级别 (页面的 `console.*`, 消息里没有页面名)、目标 `acdert::child` / `acdert::backends`
   里消息以 `[` 开头的 `I` 行 (后端和桌面服务进程的输出 `[<app>#backend] …` / `[<服务>] …`; 走 `spawnBackend` 的是 `acdert::backends`,
   走 `spawn` 的是 `acdert::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by an acdert that is gone`)、目标 `acde_host` 的 `I` 行

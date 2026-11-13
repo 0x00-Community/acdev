@@ -46,8 +46,8 @@ ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
 ## 宿主窗口
 
 `acde-hostwin` 是调试模式的「合成器」: **一个**宿主原生窗口, 里面按窗口表合成桌面、应用窗口和面板. 对 acde-host 的接口和会话一样
-(Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell`, crates/host `hostnative.rs`; web 的 `claimSurface` 拿到 hostwin 的
-`Surface`, crates/host `surface.rs` 是两种的 enum).
+(Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell`, src/host `hostnative.rs`; web 的 `claimSurface` 拿到 hostwin 的
+`Surface`, src/host `surface.rs` 是两种的 enum).
 
 - **结构**: `src/` 顶层是 `lib.rs`、`app.rs`、`shell.rs`、`dev.rs`、`keys.rs`、`platform.rs` (加 `platform/`); `output/` 是出帧到合成
   (`surface.rs`、`present.rs`、`compose.rs`、`gpu.rs`), `system/` 是交给宿主系统的事 (`chooser.rs`、`notify.rs`、`handoff.rs`). 下面只写文件名.
@@ -94,7 +94,7 @@ ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
   显示, Broker 发出 grant 后才改. 没设 `size` 的照旧. headless 不改 (屏幕只看 `ACDE_SIZE`). 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改 (`State::resize`), 工作区跟着重算: 变了就把 `workarea` 和 `output` 一起交给 Broker
   (`Inbox::push_all`, 同一批取走; 以前只发 `output`, 按 `size` 改过尺寸的单应用窗口 `output.workArea` 还是开窗时的 1361 × 835). Broker (`Outputs.take`) 把一批事件里对输出的改动
   合成一条 `screen` 再发给 web, 页面的 `on('output')` 只收到一次、尺寸和工作区对得上. web 的文档先按 Broker 给的 800 × 600 建, `claimSurface` 时
-  (crates/host `webnative.rs`, hostwin `Surface::size`) 立刻换成窗口表里这个窗口的内容尺寸, 在页面脚本运行之前; 不然加载期间
+  (src/host `webnative.rs`, hostwin `Surface::size`) 立刻换成窗口表里这个窗口的内容尺寸, 在页面脚本运行之前; 不然加载期间
   (`Host.run` 开始 pump 之前) 页面一直是 800 × 600. 出帧线程起来后照常发一次 `resize`.
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner; 窗口有模态子窗口时 `Hit.blocked`, 只激活模态子窗口, 指针、滚轮、拖放都不给它), 给它焦点、提前,
   之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
@@ -126,7 +126,7 @@ ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
   (这一下不给页面); 指针移到另一个菜单名上换过去; 上下键在可选的项间移动 (跳过分隔线和禁用项, 首尾相接), 左右键换菜单, 回车 / 空格选中, Esc 关上;
   开着时键、滚轮、指针移动都不给页面; 宿主窗口失焦时关上. `Shell::menus(window)` 是给 inspect 的 JSON (菜单名和打开的列表, 窗口坐标).
   **双击标题栏**: 左键按在最上面的 hint 是「没有 edges」的地方 (运行时的标题栏, 或 `frame: false` 页面自己给的标题区) 时由 `State::press` 数次数
-  (crates/model `Clicks`: 同一个窗口、平台双击时间内、平台双击矩形内; Windows 是 `GetDoubleClickTime` / `SM_CXDOUBLECLK`, headless 和 winit 是
+  (src/model `Clicks`: 同一个窗口、平台双击时间内、平台双击矩形内; Windows 是 `GetDoubleClickTime` / `SM_CXDOUBLECLK`, headless 和 winit 是
   500 ms、4 × 4); 第二下按照桌面声明的动作 (`State.double_click`, model `DoubleClick`: `fill` 铺满 / 还原, `minimize`, `none`; 默认 `fill`)
   请求状态, 这一下不开始拖动, 计数归零. 只有 `free` 窗口照做, `fixed` 吃掉这一下不动, `pinned`、桌面、面板不算. 按住拖动照常移动.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
