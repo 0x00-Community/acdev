@@ -18,6 +18,10 @@ declare module 'acde:input' {
   const input: import('@dopame/acde-api').AcdeModules['input']
   export { input, input as default }
 }
+declare module 'acde:display' {
+  const display: import('@dopame/acde-api').AcdeModules['display']
+  export { display, display as default }
+}
 
 declare module 'acde:devices' {
   const devices: import('@dopame/acde-api').AcdeModules['devices']

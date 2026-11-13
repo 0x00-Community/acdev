@@ -22,6 +22,7 @@ export interface AppModules {
   readonly devices: Page.AcdeDevices
   readonly power: Page.AcdePower
   readonly input: Page.AcdeInput
+  readonly display: Page.AcdeDisplay
   readonly launch: Page.AcdeLaunch
   readonly apps: Page.AcdeAppList
   readonly open: Page.AcdeOpen

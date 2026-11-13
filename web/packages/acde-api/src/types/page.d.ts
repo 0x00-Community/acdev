@@ -1000,6 +1000,50 @@ export interface AcdeInput {
   on(type: 'changed', handler: (state: InputState) => void): () => boolean
 }
 
+export interface DisplayMode {
+  readonly width: number
+  readonly height: number
+  readonly refresh: number
+  readonly preferred?: boolean
+}
+
+export interface DisplayInfo {
+  readonly id: string
+  readonly name: string
+  readonly builtin: boolean
+  readonly primary: boolean
+  readonly enabled: boolean
+  readonly mode: DisplayMode
+  readonly modes: readonly DisplayMode[]
+  readonly scale: number
+  readonly scales: readonly number[]
+  readonly brightness: number | null
+  readonly rotation: 0 | 90 | 180 | 270
+}
+
+export interface NightLight {
+  readonly on: boolean
+  readonly warmth: number
+  readonly schedule: 'manual' | 'sunset'
+}
+
+export interface DisplayState {
+  readonly displays: readonly DisplayInfo[]
+  readonly nightLight: NightLight | null
+}
+
+export interface DisplayPatch {
+  readonly scale?: number
+}
+
+export interface AcdeDisplay {
+  state(): Promise<DisplayState>
+  configure(id: string, patch: DisplayPatch): Promise<void>
+  setBrightness(id: string, value: number): Promise<void>
+  setNightLight(patch: Partial<NightLight>): Promise<void>
+  on(type: 'changed', handler: (state: DisplayState) => void): () => boolean
+}
+
 export interface AcdePower {
   state(): Promise<PowerState>
   setProfile(profile: PowerProfile): Promise<void>
@@ -1026,6 +1070,7 @@ export interface AcdePage {
   readonly devices?: AcdeDevices
   readonly power?: AcdePower
   readonly input?: AcdeInput
+  readonly display?: AcdeDisplay
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch

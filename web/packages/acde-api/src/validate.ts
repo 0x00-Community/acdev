@@ -49,11 +49,11 @@ export const APP_MODULES = ['launch', 'apps', 'open', 'openPath', 'handlers', 'w
 
 export type ShellModule = (typeof SHELL_MODULES)[number]
 
-export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone', 'idleDetection'] as const
+export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'display', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone', 'idleDetection'] as const
 
 export const WEB_CAPABILITIES = ['notifications'] as const
 
-export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'office'] as const
+export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'display', 'office'] as const
 
 export const APPROVAL_CAPABILITIES = ['camera', 'microphone', 'idleDetection'] as const
 

@@ -17,6 +17,8 @@ mod engine;
 mod fs;
 mod host;
 mod idb;
+#[cfg(target_os = "linux")]
+mod display;
 mod input;
 mod inspector;
 mod languages;
@@ -49,7 +51,7 @@ mod webnative;
 
 pub use bind::*;
 pub use offload::{failure, run as offload};
-pub use platform::{Headless, Input, InputSink, Platform, Portal, Shared, Window};
+pub use platform::{Display, Headless, Input, InputSink, Platform, Portal, Shared, Window};
 pub use rt::{Msg, current};
 pub use sys::Entry;
 pub use web::app_dir;

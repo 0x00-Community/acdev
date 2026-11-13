@@ -83,6 +83,8 @@ struct Grants {
     #[cfg(target_os = "linux")]
     power: Option<acde_runtime::Power>,
     input: Option<Option<Arc<dyn crate::Input>>>,
+    #[cfg(target_os = "linux")]
+    display: Option<(Option<Arc<dyn crate::Display>>, acde_runtime::Power)>,
 }
 
 impl Webs {
@@ -110,6 +112,8 @@ impl Webs {
                 #[cfg(target_os = "linux")]
                 power: None,
                 input: None,
+                #[cfg(target_os = "linux")]
+                display: None,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -143,6 +147,8 @@ impl Webs {
         #[cfg(target_os = "linux")]
         let power = bind::get(scope, wanted, "power").is_some_and(|v| v.is_true());
         let input = bind::get(scope, wanted, "input").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
+        let display = bind::get(scope, wanted, "display").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -172,6 +178,8 @@ impl Webs {
             #[cfg(target_os = "linux")]
             power: power.then(|| system.power.clone()),
             input: input.then(|| rt::current().platform().input()),
+            #[cfg(target_os = "linux")]
+            display: display.then(|| (rt::current().platform().display(), system.power.clone())),
         }
     }
 }
@@ -221,6 +229,10 @@ impl Grants {
         }
         if let Some(input) = self.input {
             crate::input::install(scope, natives, input);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some((display, power)) = self.display {
+            crate::display::install(scope, natives, display, power);
         }
     }
 }
@@ -327,6 +339,8 @@ impl Spec {
         #[cfg(target_os = "linux")]
         crate::power::clear();
         crate::input::clear();
+        #[cfg(target_os = "linux")]
+        crate::display::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);

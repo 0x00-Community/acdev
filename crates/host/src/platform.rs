@@ -38,6 +38,13 @@ pub trait Input: Send + Sync {
     fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
+pub trait Display: Send + Sync {
+    fn state(&self) -> Result<serde_json::Value, String>;
+    fn configure(&self, id: &str, patch: &serde_json::Value) -> Result<(), String>;
+    fn listen(&self, sink: InputSink);
+    fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+}
+
 pub trait Platform: Send + Sync {
     fn claim(&self, token: u64, render: RenderHandle, frame: u32, app: Option<String>) -> Result<Box<dyn Window>, String>;
 
@@ -64,6 +71,10 @@ pub trait Platform: Send + Sync {
     }
 
     fn input(&self) -> Option<Arc<dyn Input>> {
+        None
+    }
+
+    fn display(&self) -> Option<Arc<dyn Display>> {
         None
     }
 }

@@ -18,6 +18,10 @@ declare module 'acde:input' {
   const input: import('../types/page').AcdeInput
   export { input, input as default }
 }
+declare module 'acde:display' {
+  const display: import('../types/page').AcdeDisplay
+  export { display, display as default }
+}
 
 declare module 'acde:devices' {
   const devices: import('../types/page').AcdeDevices

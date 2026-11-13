@@ -288,6 +288,20 @@ impl WindowTable {
         id
     }
 
+    pub fn replace_canvas(&mut self, old: CanvasId, rect: Rect, scale: f64) -> Result<CanvasId, Error> {
+        let before = self.canvases.remove(&old).ok_or(Error::UnknownCanvas)?;
+        self.next_canvas += 1;
+        let id = CanvasId(self.next_canvas);
+        for w in self.windows.values_mut().filter(|w| w.canvas == old) {
+            w.canvas = id;
+            if w.mode == Mode::Fullscreen {
+                w.rect = rect;
+            }
+        }
+        self.canvases.insert(id, Canvas { id, rect, scale, z: before.z, focus: before.focus });
+        Ok(id)
+    }
+
     pub fn canvas(&self, id: CanvasId) -> Option<&Canvas> {
         self.canvases.get(&id)
     }
