@@ -1447,7 +1447,7 @@ WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 
   对象包装和扩展对象; 状态、校验和 GL 错误都在 acde-webgl 的 `Context` (Rust, 不依赖 V8, 能单测); acdert `webgl.rs` 把它绑成 `natives.webgl`
   (每个 canvas 一个 `Context`, 调用的第一个参数是上下文编号). `getError` 同步, 所以每个调用自己校验; 会失败的 wgpu 调用 (建纹理 / 渲染缓冲 /
   绘制缓冲 / 管线 / 绑定组、提交) 都在错误范围 (`Context::scoped`) 里, 失败时报 GL 错误 (`OUT_OF_MEMORY` / `INVALID_OPERATION`) 并记日志.
-- **着色器**: GLSL ES 1.00 / 3.00 经 vendor/naga 的 WebGL 方言 (`Frontend::parse_webgl`, 见「vendor」) 变成 naga IR, 直接交给 wgpu
+- **着色器**: GLSL ES 1.00 / 3.00 经 `src/glsl` 的 WebGL 方言 (`Frontend::parse_webgl`, 见「vendor」一节末尾) 变成 naga IR, 直接交给 wgpu
   (`ShaderSource::Naga`). `compileShader` 只解析校验, `linkProgram` 按两个着色器重新解析一遍: attribute 位置 (`bindAttribLocation` / layout / 依次)、
   varying 按名字配位置、不活跃的 attribute 和对面没有的 varying 降成普通全局. 活跃与否 (`getActiveUniform` 等) 按 `live.rs` 从语句往回追的表达式算.
   每个阶段的散 uniform 是一个 uniform 块 (第 0 组, 顶点 0、片元 1, 动态偏移; std140, 但 matCx2 按 WGSL 的自然布局, bool 存成 uint);
@@ -1774,7 +1774,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 ## vendor
 
 依赖来自 crates.io, 加上两处 git: `vendor/blitz` 是子模块 (GitHub `Jabberwocky238/blitz`, fork 自 DioxusLabs/blitz), blitz 的 taffy
-照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. `vendor/naga`、`vendor/ironrdp-server` 是直接放进仓库的源码 (改动处加 `acde:` 注释并同步
+照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. `vendor/ironrdp-server` 是直接放进仓库的源码 (改动处加 `acde:` 注释并同步
 下表). 根 `Cargo.toml` 用 `[patch.crates-io]` 替换上游. 克隆后 `git submodule update --init`; 打包 (acdebin-system 的 PKGBUILD) 和 CI 也取子模块.
 小补丁不留: stylo、parley、fontique、vello、taffy、libseat-sys、fslock、async-dnssd 都用 crates.io 原版 (servo 版 stylo 没有的 `@container`、
 `accent-color`、`field-sizing`、`prefers-reduced-motion` 和 SVG 的 `pointer-events` 取值随之没有).
@@ -1782,7 +1782,6 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 | 目录 | 上游 |
 | --- | --- |
 | `blitz` (子模块) | DioxusLabs/blitz main `fb297a38` 上接我们的提交: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
-| `naga` | crates.io 30.0.1 (wgpu 用的同一版, 整个换掉): GLSL 前端加 WebGL 方言 (`front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界; MSL 后端给跨度大于元素的数组元素加填充 (`back/msl/writer.rs` `padded_element`) |
 | `ironrdp-server` | Devolutions/IronRDP |
 
 blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
@@ -1873,6 +1872,11 @@ blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html
 | `layout/damage.rs` `propagate_damage_flags`, `document.rs` `rebuild_select` | select 下面有损伤 (option 的文字、属性、状态) 时重建它; 样式看不出的变化 (selectedness) 由嵌入方 `rebuild_select` |
 | `assets/default.css`, `node/node.rs` `has_native_appearance`, `layout/construct.rs`, `layout/mod.rs`, `layout/damage.rs` | 复选框和单选框默认 `appearance: auto`, 不带 input 的边框、内边距和背景 (控件的边框盒仍是 20px / 18px); `appearance: none` 时是普通的盒子: 不当叶子、`::before` / `::after` 照常构造和排版, `appearance` 变了重建盒子 |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
+
+**crates/webgl `src/glsl`**: naga 30.0.1 的 GLSL 前端整个搬进来 (原 `front/glsl`, MIT OR Apache-2.0), 跑在 crates.io 原版 naga 的公开接口上
+(naga 私有的几样在 `glsl/compat.rs` 重写); 改动处加 `acde:` 注释. 加的是 WebGL 方言 (`Frontend::parse_webgl`、`WebGlOptions`: `front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界.
+std140 下比步长窄的 scalar / vec2 数组元素包进 16 字节的结构体 `acde_padded { value }` (`offset::PADDED`), 取元素时自动接上 `.value`,
+webgl 枚举 uniform 时 (`shader.rs` `unpadded`) 解开这层; 这样各后端 (MSL 没有自己的数组步长) 都保持 std140 布局, 不用改 naga 后端.
 
 **其余**
 

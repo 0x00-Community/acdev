@@ -1,9 +1,13 @@
+extern crate alloc;
+
 mod buffers;
 pub mod consts;
 mod context;
 mod draw;
 pub mod format;
 mod framebuffer;
+#[allow(dead_code, unused_imports, clippy::all, reason = "naga's GLSL frontend kept whole and in its own style: what WebGL does not take stays")]
+mod glsl;
 mod helpers;
 mod live;
 pub mod objects;

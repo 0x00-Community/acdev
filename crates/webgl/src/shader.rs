@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use naga::front::glsl::{Frontend, Options, WebGlOptions, WebGlShader};
+use crate::glsl::{Frontend, Options, WebGlOptions, WebGlShader};
 use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 use naga::{Handle, ImageClass, ImageDimension, Module, ScalarKind, ShaderStage, Type, TypeInner, VectorSize};
 
@@ -50,7 +50,7 @@ fn options(stage: ShaderStage, version: u16, extensions: &[&str]) -> Options {
     options
 }
 
-fn log(source: &str, errors: naga::front::glsl::ParseErrors) -> String {
+fn log(source: &str, errors: crate::glsl::ParseErrors) -> String {
     let mut out = String::new();
     for error in errors.errors {
         let line = error.location(source).map_or(0, |l| l.line_number);
@@ -202,7 +202,15 @@ pub struct Limits {
     pub textures: u32,
 }
 
+fn unpadded(types: &naga::UniqueArena<Type>, ty: Handle<Type>) -> Handle<Type> {
+    match types[ty].inner {
+        TypeInner::Struct { ref members, .. } if types[ty].name.as_deref() == Some(crate::glsl::PADDED) => members[0].ty,
+        _ => ty,
+    }
+}
+
 fn slots(types: &naga::UniqueArena<Type>, ty: Handle<Type>) -> u32 {
+    let ty = unpadded(types, ty);
     match types[ty].inner {
         TypeInner::Matrix { columns, .. } => columns as u32,
         TypeInner::Array { base, size: naga::ArraySize::Constant(n), .. } => n.get().saturating_mul(slots(types, base)),
@@ -212,7 +220,7 @@ fn slots(types: &naga::UniqueArena<Type>, ty: Handle<Type>) -> u32 {
 }
 
 fn scalar_kind(types: &naga::UniqueArena<Type>, ty: Handle<Type>) -> Kind {
-    match types[ty].inner {
+    match types[unpadded(types, ty)].inner {
         TypeInner::Scalar(s) | TypeInner::Vector { scalar: s, .. } | TypeInner::Matrix { scalar: s, .. } => Kind::of(s.kind),
         TypeInner::Array { base, .. } => scalar_kind(types, base),
         _ => Kind::Float,
@@ -220,6 +228,7 @@ fn scalar_kind(types: &naga::UniqueArena<Type>, ty: Handle<Type>) -> Kind {
 }
 
 fn same_type(a: &naga::UniqueArena<Type>, x: Handle<Type>, b: &naga::UniqueArena<Type>, y: Handle<Type>) -> bool {
+    let (x, y) = (unpadded(a, x), unpadded(b, y));
     match (&a[x].inner, &b[y].inner) {
         (&TypeInner::Array { base: p, size: m, .. }, &TypeInner::Array { base: q, size: n, .. }) => m == n && same_type(a, p, b, q),
         (TypeInner::Struct { members: m, .. }, TypeInner::Struct { members: n, .. }) => {
@@ -302,6 +311,7 @@ fn leaves(
             }
         }
         (&TypeInner::Array { base: db, size, .. }, &TypeInner::Array { base: sb, stride, .. }) => {
+            let sb = unpadded(types, sb);
             let n = match size {
                 naga::ArraySize::Constant(n) => n.get(),
                 _ => 1,
@@ -377,6 +387,7 @@ fn block_members(types: &naga::UniqueArena<Type>, ty: Handle<Type>, prefix: &str
         match types[m.ty].inner {
             TypeInner::Struct { .. } => block_members(types, m.ty, &name, offset, out),
             TypeInner::Array { base: element, size, stride } => {
+                let element = unpadded(types, element);
                 let n = match size {
                     naga::ArraySize::Constant(n) => n.get(),
                     _ => 1,
@@ -467,7 +478,7 @@ pub fn link(vs: &Compiled, fs: &Compiled, bound: &HashMap<String, u32>, limits: 
     let mut varyings: u32 = 0;
     let mut dropped_vs: HashSet<String> = vs.info.inputs.iter().filter(|i| !vs.live.globals.contains(&i.handle)).map(|i| i.name.clone()).collect();
     let mut dropped_fs = HashSet::new();
-    let fs_inputs: HashMap<&str, &naga::front::glsl::WebGlInterface> = fs.info.inputs.iter().map(|i| (i.name.as_str(), i)).collect();
+    let fs_inputs: HashMap<&str, &crate::glsl::WebGlInterface> = fs.info.inputs.iter().map(|i| (i.name.as_str(), i)).collect();
     let mut varying_locations = HashMap::new();
     for output in &vs.info.outputs {
         let Some(input) = fs_inputs.get(output.name.as_str()) else {

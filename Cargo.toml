@@ -43,7 +43,6 @@ blitz-dom = { path = "vendor/blitz/packages/blitz-dom" }
 blitz-paint = { path = "vendor/blitz/packages/blitz-paint" }
 blitz-traits = { path = "vendor/blitz/packages/blitz-traits" }
 ironrdp-server = { path = "vendor/ironrdp-server" }
-naga = { path = "vendor/naga" }
 
 [profile.release]
 opt-level = "s"
