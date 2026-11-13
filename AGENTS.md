@@ -52,7 +52,7 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 - 这次不发布到 registry: `[patch.crates-io]` 换成 vendor/ 的分叉不会随包走, 要先把分叉发出去或改名依赖.
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
-会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (blitz 子模块、naga、ironrdp-server) 仍在本仓库, 两个前端都用 `../acdert/vendor`.
+会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 两个前端的 `[patch]` 都指 `../acdert/vendor/blitz`.
 
 acdert 和开发者 CLI `acde` ([acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 的 `cli/`)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
@@ -1774,15 +1774,13 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 ## vendor
 
 依赖来自 crates.io, 加上两处 git: `vendor/blitz` 是子模块 (GitHub `Jabberwocky238/blitz`, fork 自 DioxusLabs/blitz), blitz 的 taffy
-照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. `vendor/ironrdp-server` 是直接放进仓库的源码 (改动处加 `acde:` 注释并同步
-下表). 根 `Cargo.toml` 用 `[patch.crates-io]` 替换上游. 克隆后 `git submodule update --init`; 打包 (acdebin-system 的 PKGBUILD) 和 CI 也取子模块.
+照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. 根 `Cargo.toml` 用 `[patch.crates-io]` 把 blitz-* 换成子模块里的. 克隆后 `git submodule update --init`; 打包 (acdebin-system 的 PKGBUILD) 和 CI 也取子模块.
 小补丁不留: stylo、parley、fontique、vello、taffy、libseat-sys、fslock、async-dnssd 都用 crates.io 原版 (servo 版 stylo 没有的 `@container`、
 `accent-color`、`field-sizing`、`prefers-reduced-motion` 和 SVG 的 `pointer-events` 取值随之没有).
 
 | 目录 | 上游 |
 | --- | --- |
 | `blitz` (子模块) | DioxusLabs/blitz main `fb297a38` 上接我们的提交: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
-| `ironrdp-server` | Devolutions/IronRDP |
 
 blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
 先录进 acde-gpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
@@ -1877,14 +1875,6 @@ blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html
 (naga 私有的几样在 `glsl/compat.rs` 重写); 改动处加 `acde:` 注释. 加的是 WebGL 方言 (`Frontend::parse_webgl`、`WebGlOptions`: `front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界.
 std140 下比步长窄的 scalar / vec2 数组元素包进 16 字节的结构体 `acde_padded { value }` (`offset::PADDED`), 取元素时自动接上 `.value`,
 webgl 枚举 uniform 时 (`shader.rs` `unpadded`) 解开这层; 这样各后端 (MSL 没有自己的数组步长) 都保持 std140 布局, 不用改 naga 后端.
-
-**其余**
-
-| 文件 | 改了什么 |
-| --- | --- |
-| ironrdp-server `transport.rs` (新), `server.rs`, `helper.rs` | tokio → ntex (FramedRead / Write、TLS 握手、`ironrdp-accept` 监听线程), TLS 用 OpenSSL; async-channel; TLS 握手 5 秒超时; 只用 NTLM |
-
-验证: ironrdp-server 用 FreeRDP 以 tls / nla 连.
 
 ## crates/render 的已知问题和测试数据
 
