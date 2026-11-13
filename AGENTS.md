@@ -1309,9 +1309,9 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU 拷像素、不允许 GPU 回读**. 例外: RDP 后端 (每帧回读损坏区域)、
 截屏、标准接口要同步给像素的 (canvas 的 `getImageData` / `toDataURL`, 见「组件契约」的 render).
 
-**网页只在 GPU 上画, 不支持 CPU 光栅化** (用户定, 2026-11-02): 没有 vello_cpu, CPU 类型的 Vulkan 设备 (lavapipe) 不认. 没有 GPU
-(虚拟机的 virtio-gpu 没有 3D、nomodeset) 时网页图层不可用 (日志 `网页图层不可用: 没有 GPU (Vulkan)`), 页面不出帧. 合成器自己 (GLES)
-不在此列.
+**网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定, 2026-11-13, 取代 11-02 的「不认 lavapipe」): 没有 vello_cpu; 设备由 acgpu 的回退选,
+真 GPU 优先, 只有 CPU 类型的 Vulkan 设备 (lavapipe, 虚拟机的 virtio-gpu 没有 3D、VNC、nomodeset) 时用它. 什么 Vulkan 设备都没有时网页图层
+不可用 (日志 `网页图层不可用: 没有 GPU (Vulkan)`), 页面不出帧. 合成器自己 (GLES) 不在此列.
 
 - 其他程序 (OpenGL / GLES / Vulkan, 例如 Minecraft): 客户端在 GPU 上渲染, 经 linux-dmabuf v4 (带 feedback) 零拷贝交给合成器
   (旧 EGL 客户端走 wl_drm); 全屏且格式/修饰符合适时直接扫描输出 (上 DRM plane), 否则用 GPU 合成.
@@ -1708,7 +1708,7 @@ input-method-v2, IBus 不支持它); 网页里的输入框走 runtime 的 `Ime` 
 包从 PKGBUILD 所在仓库的 `HEAD` 构建 (`git archive`), acgpu 取并排检出的 `../acgpu` 的 `HEAD` (也是 `git archive`, 那里要是 git 检出), 未提交的改动不会进包. x86_64 和 aarch64 都能打; 版本从 `v*` tag 来
 (`v1.2.3` 即 `1.2.3`, 之后的提交是 `1.2.3.r<数>.g<hash>`). 可选依赖: acde-dopame、greetd、Document Server (docker)、
 `plasma-workspace` (装了登录页里就有 KDE Plasma)、GPU 自己的 Vulkan 驱动 (`vulkan-intel`、`vulkan-radeon`、`nvidia-utils`):
-依赖里的 `vulkan-driver` 要由其中一个满足 (lavapipe 不算, 网页不在 CPU 上画), 镜像要在包列表里列上它们.
+依赖里的 `vulkan-driver` 要由其中一个满足; lavapipe (`vulkan-swrast`) 也满足, 没有 GPU 时网页画在它上面 (慢), 镜像要在包列表里列上它们.
 
 构建: Arch / CachyOS 上 `cd packaging/arch && makepkg -s`; 没有 Arch 的机器用 `packaging/arch/podman-build.sh out/`
 (一次性的 archlinux 容器). `check()` 不要显示器跑一次 `acde desktops --package <greet>`, 要列出登录页 `greet`.

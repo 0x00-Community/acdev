@@ -39,8 +39,8 @@ depends=(
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
   # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA; acde-rdp makes its certificate with it
   'openssl'
-  # the page layer is drawn on the GPU through Vulkan (vello), and only there: CPU devices (lavapipe) are refused, so the
-  # GPU's own driver is required (vulkan-intel, vulkan-radeon, nvidia-utils; the Dopame ISO lists them)
+  # the page layer is drawn through Vulkan (vello): on the GPU's own driver (vulkan-intel, vulkan-radeon, nvidia-utils), or
+  # on a CPU device (vulkan-swrast, lavapipe) when there is no GPU; the Dopame ISO lists them
   'vulkan-icd-loader' 'vulkan-driver'
   # text: fontconfig and fonts for Latin and CJK
   'fontconfig' 'noto-fonts' 'noto-fonts-cjk' 'noto-fonts-emoji'

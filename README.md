@@ -10,7 +10,7 @@ acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE Pla
 
 ## 跑起来
 
-要 Linux、有 Vulkan 驱动的显卡 (lavapipe 这类 CPU 实现不行)、Rust 和 bun. GPU 驱动 acgpu 是路径依赖:
+要 Linux、Vulkan 驱动 (显卡优先; 没有显卡时 lavapipe 这类 CPU 实现也能画, 慢)、Rust 和 bun. GPU 驱动 acgpu 是路径依赖:
 要和本仓库并排检出 (`../acgpu`).
 
 ```sh
