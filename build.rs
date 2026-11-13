@@ -37,7 +37,8 @@ fn main() {
     for watched in ["src/lib.rs", FFI, "cbindgen.toml"] {
         println!("cargo:rerun-if-changed={watched}");
     }
-    cbindgen::generate(&dir).expect("cbindgen: src/ffi.rs").write_to_file(dir.join(HEADER));
+    let config = cbindgen::Config::from_file(dir.join("cbindgen.toml")).expect("cbindgen.toml");
+    cbindgen::Builder::new().with_config(config).with_src(dir.join(FFI)).generate().expect("cbindgen: src/ffi.rs").write_to_file(dir.join(HEADER));
     let source = std::fs::read_to_string(dir.join(FFI)).expect("src/ffi.rs");
     let names: Vec<String> = source
         .lines()
@@ -46,4 +47,7 @@ fn main() {
         .map(|rest| rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect())
         .collect();
     Linker::current().exports(&names, &out);
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+    }
 }

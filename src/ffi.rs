@@ -2,9 +2,9 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::{null, null_mut};
 use std::sync::Arc;
 
-use acde_host::{API_LEVEL, Entry, Headless, Platform, Portal, Shared, Window};
-use acde_model::{Event, FileFilter, OpenRequest, SaveRequest, Waker};
-use acde_render::{RenderHandle, SurfaceCommand};
+use crate::host::{API_LEVEL, Entry, Headless, Platform, Portal, Shared, Window};
+use crate::model::{Event, FileFilter, OpenRequest, SaveRequest, Waker};
+use crate::render::{RenderHandle, SurfaceCommand};
 
 #[derive(Clone, Copy)]
 struct Text(*const c_char);
@@ -558,7 +558,7 @@ pub extern "C" fn acdert_api_level() -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acdert_version(program: *const c_char) -> *mut c_char {
     let program = Option::from(Text(program)).unwrap_or_else(|| String::from("acdert"));
-    CString::new(acde_host::version(&program)).map_or(null_mut(), CString::into_raw)
+    CString::new(crate::host::version(&program)).map_or(null_mut(), CString::into_raw)
 }
 
 #[unsafe(no_mangle)]
@@ -572,13 +572,13 @@ pub unsafe extern "C" fn acdert_string_free(text: *mut c_char) {
 pub unsafe extern "C" fn acdert_start(script: *const c_char, argc: usize, argv: *const *const c_char, platform: *const AcdertPlatform) -> i32 {
     let Launch { args, platform } = unsafe { Launch::new(argc, argv, platform) };
     let entry = Option::from(Text(script)).map_or(Entry::Broker, Entry::Script);
-    acde_host::start(entry, &args, platform)
+    crate::host::start(entry, &args, platform)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acdert_common(argc: usize, argv: *const *const c_char, platform: *const AcdertPlatform, code: *mut i32) -> bool {
     let Launch { args, platform } = unsafe { Launch::new(argc, argv, platform) };
-    let Some(exit) = acde_host::common(&args, &platform) else {
+    let Some(exit) = crate::host::common(&args, &platform) else {
         return false;
     };
     if let Some(code) = unsafe { code.as_mut() } {
@@ -589,7 +589,7 @@ pub unsafe extern "C" fn acdert_common(argc: usize, argv: *const *const c_char, 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn acdert_exit(code: i32) -> ! {
-    acde_host::exit(code)
+    crate::host::exit(code)
 }
 
 #[unsafe(no_mangle)]

@@ -1,0 +1,61 @@
+use std::cell::RefCell;
+
+use crate::runtime::Terminals;
+
+use crate::host::{bind, offload};
+
+thread_local! {
+    static TERMINALS: RefCell<Option<Terminals>> = const { RefCell::new(None) };
+}
+
+pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, terminals: Terminals) {
+    TERMINALS.with(|t| *t.borrow_mut() = Some(terminals));
+    let terminal = v8::Object::new(scope);
+    crate::methods!(scope, terminal,
+        "open" => open,
+        "subscribe" => subscribe,
+        "input" => input,
+        "resize" => resize,
+        "close" => close,
+    );
+    bind::set(scope, natives, "terminal", terminal.into());
+}
+
+fn with_terminals(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, f: impl FnOnce(&Terminals) -> Result<serde_json::Value, String>) {
+    let Some(terminals) = TERMINALS.with(|t| t.borrow().as_ref().map(Terminals::shared)) else {
+        return bind::throw_error(scope, "acde.terminal: not given to this web");
+    };
+    let Some(resolver) = v8::PromiseResolver::new(scope) else { return };
+    offload::settle_json::<false>(scope, resolver, f(&terminals));
+    rv.set(resolver.get_promise(scope).into());
+}
+
+fn open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let (cols, rows) = (bind::arg_f64(scope, &args, 0), bind::arg_f64(scope, &args, 1));
+    with_terminals(scope, &mut rv, |t| t.open(cols, rows));
+}
+
+fn input(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let (id, data) = (bind::arg_string(scope, &args, 0), bind::arg_string(scope, &args, 1));
+    with_terminals(scope, &mut rv, |t| t.input(id, data));
+}
+
+fn resize(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    let (cols, rows) = (bind::arg_f64(scope, &args, 1), bind::arg_f64(scope, &args, 2));
+    with_terminals(scope, &mut rv, |t| t.resize(id, cols, rows));
+}
+
+fn close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    with_terminals(scope, &mut rv, |t| Ok(t.close(id)));
+}
+
+fn subscribe(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(1)) else {
+        return bind::throw_type_error(scope, "acde.terminal.subscribe: the callback is not a function");
+    };
+    let sink = offload::json_sink(scope, callback);
+    with_terminals(scope, &mut rv, move |t| t.listen(&id, sink).map(|()| serde_json::Value::Null));
+}

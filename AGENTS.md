@@ -22,17 +22,19 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
-| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`crates/host/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
+| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`src/host/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
 | [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acdebin-dbg` |
 | [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acdebin-system` |
 | acdebin-dbg 的 `npm/` | 开发者 CLI `acde` (bun) | `acde` |
 
 平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
-根包 `acdert` (仓库根的 `Cargo.toml` + `src/`) 是对外唯一的包, 前端只依赖它 (`acdert = { path = "../../../acdert" }`), 不直接依赖 crates/*:
-`src/lib.rs` 平铺导出 crates/host (包名 `acde-host`, 原 crates/acdert) 的一切, 其余 crate 挂成模块 (`acdert::gpu` / `log` / `media` / `model` / `napi` /
-`render` / `runtime` / `storage` / `vello` / `webgl`); feature `napi` 转给 `acde-model/napi`. crate-type 是 rlib + cdylib, cdylib 即 `libacdert.so`.
-`src/ffi.rs` 是 C 接口, `build.rs` 用 cbindgen (`cbindgen.toml`) 每次构建重写 `include/acdert.h` (进 git, 随 so 发):
+根包 `acdert` (仓库根的 `Cargo.toml` + `src/`) 是对外唯一的包, 前端只依赖它 (`acdert = { path = "../../../acdert" }`). 代码都在这一个包里:
+`src/host` 的公开项由 `src/lib.rs` 平铺导出, 其余是公开模块 `acdert::log` / `media` / `model` / `napi` / `render` / `runtime` / `storage` / `vello` /
+`webgl` (模块内互相引用写 `crate::render::…`); `acdert::gpu` 是独立 crate `crates/gpu` (acde-gpu) 的重导出: blitz fork 的 blitz-paint 画进它的场景,
+acdert 又依赖 blitz, 所以它不能并进来. feature `napi` 打开 model 的 `#[napi(object)]`. 测试在根 `tests/` (`<原模块>_<名字>.rs`, 夹具 `tests/fixtures`,
+runtime 的手动检查脚本 `tests/runtime/`), Wayland 协议在 `protocol/`. crate-type 是 rlib + cdylib, cdylib 即 `libacdert.so`.
+`src/ffi.rs` 是 C 接口, `build.rs` 用 cbindgen (`cbindgen.toml`, 只解析 `src/ffi.rs`) 每次构建重写 `include/acdert.h` (进 git, 随 so 发):
 
 - 入口: `acdert_start(script, argc, argv, platform)` (script 为 NULL 即 Broker; argv 是 script 之后的参数) / `acdert_common(argc, argv, platform, &code)`
   (argv 是整条命令行, 返回是否处理了) / `acdert_version(program)` (用 `acdert_string_free` 释放) / `acdert_api_level()` / `acdert_exit(code)`.
@@ -48,13 +50,12 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
   `acdert_reply_send` 或 `acdert_reply_free`. 还没进 C 的: `FRAME_THEME` 只有 kind, `START_DRAG` 不带拖拽图像, 帧本身 (`RenderHandle::frame`
   是 GPU scene) 拿不到, `Platform::exports` 收 V8 scope 只在 Rust 里.
 - 导出表: `build.rs` 从 `src/ffi.rs` 收 `acdert_*`, so 只导出它们 (Linux `--exclude-libs,ALL` + 版本脚本, macOS `-exported_symbols_list`, MSVC `.def`);
-  V8 / napi / temporal 等依赖的符号都不导出 (acde-napi 的 napi_* 只给静态链接的内置模块用, 不 dlopen 外部 .node).
+  V8 / napi / temporal 等依赖的符号都不导出 (napi 模块的 napi_* 只给静态链接的内置模块用, 不 dlopen 外部 .node).
 - 发布到 gitea.dopamine AC 组织的 cargo 源 `ac` (`.cargo/config.toml`; 读也要令牌, 匿名 401):
-  `CARGO_REGISTRIES_AC_TOKEN="Bearer <令牌>" cargo publish -p <包> --registry ac`. 内部 crate 和 blitz fork 都是 `[workspace.dependencies]` 里带
-  `version` + `registry = "ac"` 的 path 依赖; blitz fork 的包 (blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer) 以原名发到 ac,
-  它的 taffy 是上游 Blitz 钉的 git 提交, 以 `0.15.0-git.4e59968` 发到 ac. 顺序: acde-log、acde-model、acde-gpu → blitz 那五个 (在 `vendor/blitz` 里
-  发) → acde-vello、acde-render、acde-runtime、acde-storage、acde-media、acde-napi、acde-webgl、acde-host → acdert. 升版本时改
-  `[workspace.package] version` 和 `[workspace.dependencies]` 里的 `version` (blitz fork 里 acde-gpu 的也要改).
+  `CARGO_REGISTRIES_AC_TOKEN="Bearer <令牌>" cargo publish -p <包> --registry ac`. ac 上除了 acdert 只有它不得不单独发的依赖: acde-gpu
+  (blitz 要用), blitz fork 的包 (blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer, 原名), blitz 的 taffy (上游 Blitz 钉的 git 提交,
+  `0.15.0-git.4e59968`). 顺序: acde-gpu → blitz 那五个 (在 `vendor/blitz` 里发) → acdert. 升版本时改 `[workspace.package] version` 和
+  `[workspace.dependencies]` 里 acde-gpu 的 `version` (blitz fork 里 acde-gpu 的也要改).
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 两个前端的 `[patch]` 都指 `../acdert/vendor/blitz`.
@@ -87,9 +88,9 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 
 ```
 会话:
-acdert (主进程, crates/host supervise.rs)   合成器线程 (crates/shell, smithay): canvas / 窗口表 / 输入 / 外设. 没有 V8
+acdert (主进程, src/host supervise.rs)   合成器线程 (crates/shell, smithay): canvas / 窗口表 / 输入 / 外设. 没有 V8
  └─ acdert runtime (子进程, 自己的进程组)      一个 V8. 主线程: Broker isolate (web/packages/acde-host): 会话、桌面服务、窗口记录;
-     │                                          经 napi `Shell` (acde_shell 连接) 管合成器; 系统接口 crates/runtime (napi)
+     │                                          经 napi `Shell` (acde_shell 连接) 管合成器; 系统接口 src/runtime (napi)
      ├─ web desktop (线程 `acde` + isolate)     桌面页面: render 文档 + 光栅化 (crates/paint) + Wayland 客户端 (crates/window)
      └─ web <app>#<窗口> (线程 + isolate)        每个应用窗口一个, 只拿清单允许的 `acde:` 模块
 原生程序                                        普通 Wayland 客户端
@@ -103,14 +104,14 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   那头, napi `Shell.broker()` 接过去; 没有这个变量时在自己进程里起合成器). 合成器等 runtime 发来第一条消息才起 (`desktops`、交出会话
   这些不碰 DRM 的路径不起). SIGINT / SIGTERM / SIGHUP 转给 runtime; runtime 正常退出时主进程停合成器、用它的退出码退出; 被别的信号
   杀掉 (崩溃) 时新建一条 `acde_shell` 连接重起它, 60 秒内最多 3 次. runtime 设了 PDEATHSIG.
-- **web** (crates/host `web.rs` `spawnWeb`): runtime 里的一条 JS 线程 `acde` (栈 8 MiB), 自己的 isolate (堆上限 `heapMb`) 和事件循环.
+- **web** (src/host `web.rs` `spawnWeb`): runtime 里的一条 JS 线程 `acde` (栈 8 MiB), 自己的 isolate (堆上限 `heapMb`) 和事件循环.
   和 Broker 之间是结构化克隆的字节, 投进对方事件循环 (没有 socket). `terminate` 置停止并 `terminate_execution` (退出码 137);
   线程 panic 只结束这个 web (134, `panic: …`). 句柄带 `busyMs` (当前任务跑了多久, 判卡死) 和 `cpuMs` (`/proc/self/task/<tid>/schedstat`).
   段错误、abort 带掉整个 runtime (主进程重起它), 所以共享的 Rust 状态里不写 `unsafe`, 绑定层不 `unwrap`, 每个绑定在边界上
   `catch_unwind`.
 - **一个 V8, 每个窗口一个 isolate**: 内存 (各自的堆上限)、生死 (一个死了只掉它的窗口)、CPU (每个 isolate 一个线程, 同一优先级) 各管各的.
 - **注入的系统能力** (`spawnWeb` 第 7 个参数 `{app, fs, terminal, network, system, office}`, Broker `#grants`: 桌面全给, 应用按清单): fs、terminal、
-  network、office 和选文件夹在各 web 里绑定同一份 Rust 对象 (crates/host `fs.rs` / `terminal.rs` / `network.rs` / `office.rs` /
+  network、office 和选文件夹在各 web 里绑定同一份 Rust 对象 (src/host `fs.rs` / `terminal.rs` / `network.rs` / `office.rs` /
   `picker.rs`; 阻塞的活经 `offload.rs` 交给别的线程, promise 在这个 web 的事件循环上落定; `acde:fs` 的改动 (mkdir、copy、rename、delete、
   writeFile、revoke) 在每个 web 一条的有序队列 `acde-fs-changes` 上按调用顺序跑, 读在全进程 4 条线程的 `acde-fs-<n>` 池里跑, 这个 web 还有改动
   没做完时读也排进有序队列, 所以没等的写之后的读看得到写的结果). 限制 (fs 的 roots) 在注入时绑进去, 没给的
@@ -121,27 +122,27 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   任何句柄, 整棵进程树放进一个关句柄即结束的作业对象: 关终端时先关伪控制台 (shell 收到 `CTRL_CLOSE_EVENT`), 3 秒后还在就结束整个作业, 会话
   线程退出时作业句柄关闭, 后台留下的进程一并结束; 没有 `cwd` 事件, `exit` 的 `signal` 总是 null.
   network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
-  `sys.openOffice()` 开 (network / office / system 只在 Linux). `acde:system` (清单能力 `system`, crates/host `system.rs` → runtime `system.rs`):
+  `sys.openOffice()` 开 (network / office / system 只在 Linux). `acde:system` (清单能力 `system`, src/host `system.rs` → runtime `system.rs`):
   这台电脑的信息 (主机名、系统、CPU、GPU、NPU、内存、开机时长、序列号)、各卷容量、时区和 NTP (经 timedated)、改时区 /
   NTP / 主机名 (经 hostnamed, 要 polkit 授权)、当前用户; 每次调用在 offload 线程上现读, 没有变化事件.
-  `acde:bluetooth` (能力 `bluetooth`, crates/host `bluetooth.rs` → runtime `bluetooth.rs`): BlueZ 的适配器和设备 (开关、可见、改名、
+  `acde:bluetooth` (能力 `bluetooth`, src/host `bluetooth.rs` → runtime `bluetooth.rs`): BlueZ 的适配器和设备 (开关、可见、改名、
   扫描、配对 / 应答、连接、信任、屏蔽、忘记), 自己注册配对代理; `on('changed' | 'pairing')` 由 acde-host `bluetooth.ts` 包在原生 `watch` / `pairing` 上.
   登录时的开关 (`setOnLogin`: remember / on / off, 存在 `$XDG_CONFIG_HOME`) 只在自己的会话里由 Broker 调 `sys.restoreBluetooth()` 应用, 宿主窗口和登录页不碰.
-  `acde:audio` (能力 `audio`, 原生名 `sound`, crates/host `sound.rs` → runtime `sound.rs`): PipeWire 上的输出 / 输入设备、端口、
+  `acde:audio` (能力 `audio`, 原生名 `sound`, src/host `sound.rs` → runtime `sound.rs`): PipeWire 上的输出 / 输入设备、端口、
   声卡配置和各应用的流 (默认设备、音量、静音、平衡、端口、配置、把流挪到别的设备); `on('changed')` 由 acde-host `watched.ts` (`Watched.module`,
   只有 changed 事件的模块共用) 包在原生 `watch` 上.
-  `acde:devices` (能力 `devices`, crates/host `devices.rs` → runtime `devices/`): UDisks2 上的可移动驱动器 (挂载、卸载、弹出)、
+  `acde:devices` (能力 `devices`, src/host `devices.rs` → runtime `devices/`): UDisks2 上的可移动驱动器 (挂载、卸载、弹出)、
   CUPS 打印机 (经 IPP: 默认打印机、暂停 / 恢复、任务和取消)、自动挂载设置 (登录时 / 插入时 / 未知设备, 每个设备单独设); 事件 `changed` / `added`
   (新插入的驱动器) 由 acde-host `devices.ts` 包在原生 `watch(type)` / `unwatch(id)` 上. 自动挂载的监视只在自己的会话里由 Broker 调
   `sys.startDevices()` 起.
-  `acde:power` (能力 `power`, crates/host `power.rs` → runtime `power/`): UPower 的电池、power-profiles-daemon 的模式、
+  `acde:power` (能力 `power`, src/host `power.rs` → runtime `power/`): UPower 的电池、power-profiles-daemon 的模式、
   按交流 / 电池 / 低电量分组的策略设置 (空闲动作、熄屏、合盖、电源键、亮度), logind 挂起 / 休眠, 背光亮度, 充电上限; 事件 `changed` / `prompt` /
   `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上. 会话里的执行 (空闲计时、熄屏、
   合盖和电源键) 要合成器配合, 见 acdebin-system.
-  `acde:input` (能力 `input`, crates/host `input.rs`): 合成器的 xkb 布局 / 型号 / 选项、按键重复、NumLock 和鼠标 / 触控板的 libinput 设置;
+  `acde:input` (能力 `input`, src/host `input.rs`): 合成器的 xkb 布局 / 型号 / 选项、按键重复、NumLock 和鼠标 / 触控板的 libinput 设置;
   `state()` / `set(patch)` / `on('changed')` 走前端 `Platform::input()` 给的 `Input` (acdebin-system 的会话经 acde_shell `set_input` / `input` 事件;
   acdebin-dbg 没有, 调用就抛), `catalog()` 读 xkeyboard-config 的 `rules/evdev.xml` (runtime `XkbCatalog`).
-  `acde:display` (能力 `display`, crates/host `display.rs`): `state()` 是前端 `Platform::display()` 给的输出表 (acde_shell `display` 事件),
+  `acde:display` (能力 `display`, src/host `display.rs`): `state()` 是前端 `Platform::display()` 给的输出表 (acde_shell `display` 事件),
   内置屏的 `brightness` 由这里用 `acde:power` 的背光补上; `configure(id, {scale})` 经 acde_shell `set_scale` (只认 1..3 的整数, 别的键还没有),
   `setBrightness(id, v)` 只对内置屏 (logind 背光), `setNightLight` 还没有. 两者都是进程内模块, 不经 Broker; Linux only. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
@@ -153,7 +154,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 
 ## 窗口模型
 
-框架只有两个抽象: **canvas** (工作区) 和 **window**. 都是 Rust 的表项 (crates/model), 不映射到 DOM / JS 对象; 窗口的内容只是客户端交的
+框架只有两个抽象: **canvas** (工作区) 和 **window**. 都是 Rust 的表项 (src/model), 不映射到 DOM / JS 对象; 窗口的内容只是客户端交的
 一块缓冲, 框架不跑 JS、不持有文档. 桌面、面板、菜单都是窗口.
 
 - **canvas**: 屏幕只有一块, canvas 可以有多个, 同时只显示一个. `rect` 是屏幕的逻辑尺寸 (也是裁剪范围), `scale` 是 HiDPI 缩放, 创建后都
@@ -162,7 +163,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   四种模式: `fullscreen` (铺满 canvas), `free` (位置尺寸都能变), `fixed` (只能挪), `pinned` (都不变). 桌面是 z 最低的 `fullscreen`
   窗口; 面板和菜单是 `pinned`, 永远在 `free` / `fixed` 上面. 标题栏、边框、阴影是客户端的内容 (客户端画), 不是框架的概念.
   第 1 级契约里模式只管能不能挪、改尺寸 (`free` / `fixed` / `pinned`, SDK `WindowMode` 不再有 `fullscreen`); 全屏是**窗口状态**.
-- **窗口状态** (crates/model `state.rs`: `WindowState` + `Restore`, 宿主窗口的 `Entry.state` / `restore`, `State::change_state`): `normal`、`minimized`、
+- **窗口状态** (src/model `state.rs`: `WindowState` + `Restore`, 宿主窗口的 `Entry.state` / `restore`, `State::change_state`): `normal`、`minimized`、
   `filled` (铺满工作区)、`fullscreen` (铺满输出); 隐藏仍是框架另一个状态. 每次变化都由运行时裁决:
   `fixed` 只能最小化, `pinned`、桌面和面板一律拒绝, 同一状态不算变化. 离开 `normal` 时记下原来的 rect, 进全屏时记下之前的状态 (`normal` 或 `filled`),
   最小化时记下之前的状态; 「回去」(`Restore::back`) 用它们, 所以 normal → filled → 全屏 → 回到 filled → normal 还是原来的 rect. 最小化的窗口不画、不命中,
@@ -177,7 +178,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   会话里 `filled`、给页面发 `minimized` 的 `state` 和 `acde:windows.requestState` 还没有 (Broker 回 501).
 - **分层**: 客户端出缓冲 (dmabuf / shm + damage + opaque 区域); 合成只出计划; 呈现 (GPU / DRM / RDP) 执行. 只传句柄、只报脏区,
   框架不读像素; 客户端慢就用上一次的缓冲.
-- **`CompositePlan`** (crates/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
+- **`CompositePlan`** (src/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
   [{window, dst, clip, look, effect, redraw}]}`, 不透明的上层剔除下面. backdrop (`set_backdrop`) 只在下面的损伤碰到时重算, 呈现层 (shell
   `effects.rs`, GLES) 双 Kawase 模糊 + 圆角 + 饱和度 + 亮度, 按窗口缓存, 着色器编不出时降级. `Direct` 现在只计数, 上 plane 由 smithay 判断.
 - **窗口管理** (框架裁决, 客户端只能请求): 新窗口居中、按窗口数错开 32 像素, 有父窗口的居中在父窗口上方 (不错开). 只有 `free` 改尺寸. 点进一个窗口: 拿焦点
@@ -187,7 +188,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   改给最上层的模态子窗口, 子窗口关掉焦点回父窗口. 指针也不发给有模态子窗口的窗口: 在它上面没有指针焦点, 按下只把焦点给模态子窗口 (不开始拖动).
 - **grab** (shell `grabs.rs`): `request_grab(kind)` 在被别人拿着或框架在移窗时拒绝; 键盘 grab 同时给焦点. 收回 (发一次 `grab_lost`): 在别的窗口
   按下 (`other_window`)、Esc (`esc`, 这次 Esc 不发)、焦点被给别人 (`focus_lost`)、客户端死掉.
-- **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合; `mod` 在 macOS 上是 `super` (⌘), 别处是 `ctrl`, 同 Dopame 桌面的写法). 作用域 session /
+- **全局快捷键** (src/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合; `mod` 在 macOS 上是 `super` (⌘), 别处是 `ctrl`, 同 Dopame 桌面的写法). 作用域 session /
   desktop / app / menu, 先到先得, 冲突拒绝, session 级不可覆盖; 匹配顺序 session → 焦点窗口的 menu 级 → 焦点窗口的 app 级 → desktop. 命中的键 (连同松开) 不发给窗口, 发
   `shortcut {window: owner, key, title: 作用域}`, `key` 是这一条绑定注册时写的文字 (同一组合的 app 级和 menu 级各记各的). keyboard-shortcuts-inhibit 生效时只有 session 级还拦.
   menu 级是窗口菜单项的快捷键 (acde-host `broker/menukeys.ts`), 只在没有桌面、菜单画在窗框上时 (`framesMenus`): 应用 `setMenus` 时 Broker 给有 `onSelect`、没禁用、带 `shortcut` 的项注册
@@ -195,7 +196,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   调应用窗口的 `menu` (同桌面的 `invokeMenu`), 所以应用另用 `self.shortcut()` 注册了同一组合也只跑一次 (菜单项赢). 有桌面时不绑:
   菜单归桌面管 (Dopame 的编辑器给「编辑」菜单配了 `mod+C` / `mod+V` 等, 页面自己也处理这些键, 运行时抢走它们会改变编辑器的行为).
 
-### 协议 `acde_window` (客户端 ↔ 框架, `crates/model/protocol/acde-window.xml`)
+### 协议 `acde_window` (客户端 ↔ 框架, `src/model/protocol/acde-window.xml`)
 
 只有一种窗口角色 `xdg_toplevel` (菜单、面板、桌面都是). 标准协议管缓冲、damage、opaque / input 区域、configure、parent / modal、激活、
 输入、data-device、fifo、presentation、syncobj、pointer-constraints、text-input. 扩展只带框架才能做的:
@@ -208,7 +209,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 | `request_grab(kind)` / `release_grab(kind)` → `grab(granted, kind)` / `grab_lost(reason)` | 见上面 grab |
 | `request_activate` | 提到最前并请求焦点 |
 
-### 协议 `acde_shell` (Broker ↔ 合成器, `crates/model/protocol/acde-shell.xml`)
+### 协议 `acde_shell` (Broker ↔ 合成器, `src/model/protocol/acde-shell.xml`)
 
 只对 runtime 那条连接可见 (`can_view`). 合成器侧 shell `compositor/acde_shell.rs` (Broker 没绑上时攒最多 256 条事件), Broker 侧 shell
 `link.rs` 包成 napi `Shell`, 请求和事件和下面「shell」一节的方法 / 事件一一对应 (坐标是 canvas 逻辑像素, int -1 是没有, 小数走 wl_fixed).
@@ -265,7 +266,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   - `choose {folder | open | save}` (恰好给一个) → 原样回: 事先答复页面下一次的这种选择器, 不弹窗, 三种各排各的队列, null 当作用户取消.
     `folder: 绝对路径` 答 `showDirectoryPicker`; `open: [绝对路径, …]` (不空) 答 `showOpenFilePicker` / `<input type=file>`, 多于一个而这次
     不许多选时这次回错; `save: 绝对路径` 答 `showSaveFilePicker`. napi `Shell.answerFolder` / `answerOpen` / `answerSave` → hostwin 的队列,
-    crates/host `chooser.rs` 先取队列再弹窗, 有窗口、headless、Linux 的 portal 都一样; 会话没有这个, 回错.
+    src/host `chooser.rs` 先取队列再弹窗, 有窗口、headless、Linux 的 portal 都一样; 会话没有这个, 回错.
   - `route {url, method?, web?, times?, status?, statusText?, headers?, body?, abort?}` → `{id}`: 让页面的 fetch / XHR 拿到假的回应, 不到应用的
     文件、后端或网络 (`devroutes.ts`). `url` 是 glob (`**` 任意, `*` 不含 `/`; `/` 开头的比路径加查询, 否则比整个 URL) 或 `{regex, flags}`;
     `body` 是 base64; `status` 200–599 (默认 200), `statusText` 默认按状态码; `abort: true | 文字` 让请求失败 (不能和回应一起给); `times` 用完就删.
@@ -301,7 +302,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   - `resize {web, width, height}` → `{width, height}`: 页面 (不含标题栏) 改成这么大. `free` 窗口经 `Shell.place`; 铺满的 (单应用的 acde dev、
     桌面) 改宿主窗口 (`Shell.resizeScreen` → hostwin `Cmd::Resize`: headless 直接换输出尺寸, winit `request_inner_size`, Windows 还没有);
     会话里回错.
-- **DevTools 端点** (只在有 `ACDE_DEV` 时, Chrome DevTools Protocol, #172): acde-runtime `devtools/` (napi `DevTools.open()` /
+- **DevTools 端点** (只在有 `ACDE_DEV` 时, Chrome DevTools Protocol, #172): runtime 模块 `devtools/` (napi `DevTools.open()` /
   `DevTools.targets(list)`), 宿主窗口和 Linux 会话一样. Broker 建 `DevRequests` 时 `open()`: 在 `127.0.0.1` 上听系统挑的端口,
   线程 `acde-devtools`, 每条连接一条 `acde-devtools-conn`; 没有 `ACDE_DEV` 时 `open()` 回 null, 不开任何端口. 没有令牌 (#199, 同 Chrome 自己的
   调试端口): 防护见下面的 `Host` 和 `Origin`. `GET /json/version` (`Browser`、`Protocol-Version`、
@@ -322,7 +323,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   127.0.0.1; 同一台机器上的其他本地用户能连到, 和 Chrome、Node 的调试端口一样; 同时最多 32 条连接, 多的接下就关; 请求头从建连起 10 秒内读完, 否则断开. `Client::send` 只把帧放进
   这个客户端的有界队列 (256 帧) 就返回, 不阻塞调用方 (页面线程也能调); 每个客户端一条 `acde-devtools-send` 线程按序写出, 套接字写超时
   10 秒; 队列满、写失败或超时都断开这个客户端.
-  页面目标接到页面的 V8 inspector (#184, crates/host `inspector/devtools.rs` 的 `Pages`, 第一次登记时经 `forward` 装上): dev 模式下每个 isolate
+  页面目标接到页面的 V8 inspector (#184, src/host `inspector/devtools.rs` 的 `Pages`, 第一次登记时经 `forward` 装上): dev 模式下每个 isolate
   `inspector::start` 后把 `inspector::remote()` 按 web 名登记 (`devtools::opened`), `inspector::stop` 时 `closed`. 客户端 `attach` 时在
   它的目标页面上开一个 inspector session (`Remote::connect`), 回复和通知直接 `Client::send` 回去; `message` 原样投给这个 session
   (目标还没登记时回 false, 端点答 -32601), `detach` 断开. 页面关了: 给它的客户端发 `Inspector.detached {reason: "target_closed"}` 再关
@@ -387,7 +388,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   连不上是 `webSocketFrameError` 再 closed, 不发 requestWillBeSent), EventSource (类型 `EventSource`, 每条消息 `eventSourceMessageReceived`,
   响应体不留), 页面加载的图片、样式表、字体 (类型 `Image` / `Stylesheet` / `Font`; 应用包里的文件经 `Tracked.network` 只报给 DevTools,
   dev 日志不变; 渲染器自己从应用包读的 (`<img>`、`<link rel=stylesheet>`、CSS 里的字体: render `net.rs` `LocalNet` 直接读文件, 不经 JS 加载器)
-  在 dev 模式下也给加载器发一个 `served: true` 的 `Load` (没有 `done`), crates/host `dom.rs` 以 `(-1, url, destination, cors, true)` 调页面的
+  在 dev 模式下也给加载器发一个 `served: true` 的 `Load` (没有 `done`), src/host `dom.rs` 以 `(-1, url, destination, cors, true)` 调页面的
   加载回调, acde-dom `reportServed` 在有客户端录制时按路径读出文件补报; 非 dev 模式不发). 图片取自文档的图片缓存或并入进行中的请求时不再取,
   blitz fork 经 `NetProvider::reused` 报成 served 且 `cached` (`Load.cached`, 加载回调第 6 个参数): 只报状态和按扩展名的类型, 不读文件,
   `responseReceived` 带 `fromMemoryCache: true`. `<img>` 插入文档时, 当前 `src` 已经开始取过 (成功、失败或还在取, 记在 `ElementData.image_tried`) 就不再取, 和规范一样不重发请求、
@@ -402,7 +403,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   `Overlay` (#192, `devtools/overlay.ts`): `highlightNode` (`nodeId` / `backendNodeId`) 调 DomNative `highlight(id)` (`-1` 去掉), 同一节点不重画;
   `hideHighlight`、`disable` 和画它的客户端断开时去掉 (别的客户端的 `hideHighlight` 也去掉页面经 objectId 画的). 只给 `objectId` 时
   `inspector/page.rs` `rewrite` 改成这个客户端 V8 session 里的 `Runtime.callFunctionOn`, 在那个对象上调页面的 `Symbol.for('acde.devtools.highlight')`
-  (只在 dev 时装, 不是本页节点回 false → -32000). `setInspectMode`、`setShowViewportSizeOnResize` 等开关回 `{}` 不做事. crates/host `dom.rs` 的
+  (只在 dev 时装, 不是本页节点回 false → -32000). `setInspectMode`、`setShowViewportSizeOnResize` 等开关回 `{}` 不做事. src/host `dom.rs` 的
   `highlight` 只在有 `ACDE_DEV` 时转给 render, 别时不做事.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
@@ -410,7 +411,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   V8 的 console 不打日志, 所以 dev 日志不重复; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认; 栈和 console 文字里 `http(s)://…/x.js:行:列` 的帧, 包里有这个文件的 source map 时
   换成源码位置, 如 `src/main.js:8:9`: acde-host `devlog.ts` `SourceMaps` 读文件末尾的 `sourceMappingURL` (同源文件或 data: URL), 按文件缓存,
-  map 经 host 的 `readSourceMap` 读 (crates/host `dom.rs`: 页面的 `readAsset` / fetch 仍拿不到 `.map`); 没有 map 的帧原样留. 交给
+  map 经 host 的 `readSourceMap` 读 (src/host `dom.rs`: 页面的 `readAsset` / fetch 仍拿不到 `.map`); 没有 map 的帧原样留. 交给
   `host.reportError` 的 "page error" 日志也用换过的栈, #45); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
   和 WebSocket 报 `request`: start → response (WebSocket 是 101) → end (收到的字节) 或 error (中止是 `aborted`; 够不着时说清是「应用里没有这个
   文件, 也没有后端」还是「不是这个应用的地址」). 页面 (`worker.ts`) 把它们单向 `port.post` 成 `{devlog, time, …}` 给 Broker (不是 rpc,
@@ -422,7 +423,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 都能热替换才动手, 否则整页重载:
 
 1. 样式: 新旧 HTML 的 `<style>` / `<link rel=stylesheet>` 按顺序和页面里的对上, 换文字或 `href` (加 `acde-dev=<n>` 让 render 重读).
-2. JS 函数体: 内容变了的 module 脚本经 V8 inspector 的 `Debugger.setScriptSource` 换源码 (crates/host `inspector/`: 有 `ACDE_DEV` 时每个
+2. JS 函数体: 内容变了的 module 脚本经 V8 inspector 的 `Debugger.setScriptSource` 换源码 (src/host `inspector/`: 有 `ACDE_DEV` 时每个
    isolate 一个 inspector session, V8 带 `--inspector-live-edit`; 性能采样 `profile.rs` 也用这个 session, 同步 `inspector::send`).
    同一个 inspector 还能开别的 session (#182, 给开发者工具用): 页面线程上 `inspector::remote()` 拿到可跨线程的 `Remote`,
    `connect(sink)` → session 号, `send(session, 协议消息 JSON)`, `disconnect(session)`. 投递进一个队列 (`Pending`, 带 Condvar,
@@ -802,10 +803,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `standalone` 的 unsupported 里有 `notifications` (SDK `WEB_CAPABILITIES`: 不用在清单里声明的网页能力, `acde:capabilities` 照样列出, 不能当服务名),
   这时页面的 `Notification.permission` 是 `denied`、构造后发 `error` (`PageCalls` 不装 `env.notify`), Broker 的 `notify` 回 501 `unsupported`.
   Windows 完整桌面照常转给桌面.
-- **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/host `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
+- **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, src/host `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
-  - **空间化** (`PannerNode` / `AudioListener`, crates/host `audio/spatial.rs`): 方位角、仰角、三种距离模型、声锥和 `equalpower` 照规范
+  - **空间化** (`PannerNode` / `AudioListener`, src/host `audio/spatial.rs`): 方位角、仰角、三种距离模型、声锥和 `equalpower` 照规范
     §6 的算法 (参数在一个 quantum 里变时逐样本算, 不变时每 quantum 算一次), 单元测试对着 Chrome 的 `OfflineAudioContext` 输出 (2e-5 内).
     和规范伪代码不同、照 Chrome 的一处: 声锥用「声源指向听者」的方向 (正对听者的声源增益是 1). 监听者是每个 context 一个隐藏的图节点
     (`Kind::Listener`, 9 个参数, 第一次读 `context.listener` 时建), 排序时每个 panner 排在它后面; 还没建时用规范的默认值.
@@ -815,7 +816,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     每 quantum 算一次, 增益、延迟和滤波系数在 quantum 内线性过渡 (不出拉链声); 立体声输入左进左耳、右进右耳 (和 Chrome 一样不交叉).
     输入变静时清掉延迟线和滤波器状态. `BiquadFilterNode`、`ConvolverNode`、`DynamicsCompressorNode`、`WaveShaperNode`、`DelayNode` 还没渲染
     (输入原样通过, 第一次用时 warn 一次).
-- **视频** (crates/media `acde-media`): 用系统的框架解码, 不随包带编解码器 (用户定, 2026-11-09; acdert 闭源, 不链接 GPL 的 ffmpeg).
+- **视频** (src/media `acde-media`): 用系统的框架解码, 不随包带编解码器 (用户定, 2026-11-09; acdert 闭源, 不链接 GPL 的 ffmpeg).
   - `Player::open(bytes)` 探出 `Info {duration, width, height, audio, video}`, 每个轨一条读线程 (`acde-video` / `acde-video-audio`) 各自往
     有界队列里解: 视频 RGBA 帧 (领先 4 帧), 音频 48 kHz 立体声 f32 交错 (领先半秒). 两个轨分开读, 不会一个轨满了卡住解封装器让另一个轨饿死.
     `seek(t)`: 清队列, 两条线程都停下后由最后一条重启解码器. 消费方拉: `take_audio` (混音器线程)、`frame_at(t)` (取到时间的最后一帧,
@@ -832,7 +833,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     网络; 数据由 `AVAssetResourceLoader` 代理 (`AcdeMediaLoader`) 从内存按字节范围给, `AVAssetReader` 解出
     BGRA 帧 (拷出时换成 RGBA, 按轨道的 `preferredTransform` 转 90 / 180 / 270 度) 和 LPCM; 每个输出各自一把锁; seek 是取消旧的
     reader 按时间范围新建. AVFoundation 只认 MP4 / QuickTime: WebM 在 macOS 上打不开 (Safari 自己解析 WebM, 这里没有).
-  - `<video>` (acde-dom `dom/media.ts` `HTMLVideoElement`, crates/host `audio/mod.rs` `openVideo` / `present`, `audio/video.rs`): 和
+  - `<video>` (acde-dom `dom/media.ts` `HTMLVideoElement`, src/host `audio/mod.rs` `openVideo` / `present`, `audio/video.rs`): 和
     `<audio>` 共用 `HTMLMediaElement` 和混音器. `openVideo` 在线程 `acde-video` 里开 `Player`、等第一帧, 再把 `VideoSound` 交给这个 web 的
     混音器 (`Cmd::AddMedia`, 混音器的 `MediaSource`): 有声音时媒体时间跟着放出去的声音走 (解码跟不上就停在那里等), 没声音或声音轨先完了
     按混音器的时间走, 到 `duration` 就结束 (`ended`). 帧在页面的动画帧里交 (`presentVideos`, 在播或刚 seek 的视频才要帧): `present`
@@ -845,7 +846,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `<audio>` 有 `src` 或 `<source>` 就自己开始加载 (标准: 设了 `src` 就跑加载算法), `preload="none"` 且没有 `autoplay` 时发 `loadstart` 和
     `suspend` 后停在 `NETWORK_IDLE`, 等 `play()` 再取. 还没有: 海报图 (`poster`)、`seeked` 等到新位置的帧画出来再发、文字轨、MSE.
   - 帧现在在 CPU 内存里, 送进 GPU 要上传一次; 硬解的零拷贝 (Linux dmabuf、macOS IOSurface) 还没有.
-- **设备的标准接口** (acde-dom `src/device/`, crates/host `device.rs`, 每个 web 都有的原生 `device`): 系统的状态只经 web 标准接口给网页,
+- **设备的标准接口** (acde-dom `src/device/`, src/host `device.rs`, 每个 web 都有的原生 `device`): 系统的状态只经 web 标准接口给网页,
   改设置的不在这里 (标准里没有, 那些归 `acde:power` 等模块). `navigator.getBattery()` (Battery Status): Linux 上读 UPower 的 DisplayDevice
   (runtime `battery.rs`), 属性变了经 PropertiesChanged 推给同一个 `BatteryManager` 并发 `chargingchange` / `levelchange` / `chargingtimechange` /
   `dischargingtimechange`; 没有电池、没有 UPower 或别的平台按规范给接着电源的默认值 (charging true, level 1, chargingTime 0, dischargingTime Infinity).
@@ -857,7 +858,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   PropertiesChanged; `userState` 是 idle 当且仅当会话标了空闲且已空闲到 threshold (不到就定时补算), `screenState` 看 LockedHint. 空闲提示由桌面写给
   logind (acdebin-system 的合成器、宿主桌面的会话管理器), 所以比 threshold 更早的空闲要等桌面先标. 授权是审批能力 `idleDetection` (清单声明,
   `IdleDetector.requestPermission()` 弹 acde 的批准提示, `permissions.query({name: 'idle-detection'})` 看它); threshold 小于 1 分钟 TypeError.
-- **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/host `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
+- **摄像头和麦克风** (`getUserMedia`; src/media `capture/`, src/host `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
     `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、
     `navigator.permissions.query` 是 `denied`. 写了的第三方应用还要用户批准 (见「批准」), **标准接口照浏览器的样子带出这一步**
@@ -875,7 +876,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
       `code` / `capability`.
     - 还没有: 撤销之后已经在用的轨道不会 `ended` (它开着的设备照常出数据), 只是不能再开新的.
     批准之后还有系统的询问: macOS TCC (`AVCaptureDevice requestAccess`, 第一次 `getUserMedia`
-    时弹; acdert 二进制的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`, 见 crates/host
+    时弹; acdert 二进制的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`, 见 src/host
     `build.rs`; 从终端起时 TCC 记在终端名下); Linux 本机程序直接读 PipeWire / V4L2, 没有系统询问. acde 自己不画询问框 (批准提示由桌面或 `acde allow` 答).
     `navigator.permissions` 是真的 `Permissions` / `PermissionStatus`.
   - 设备 (`acde_media::capture`): Linux 用 GStreamer `DeviceMonitor` (`Audio/Source`、`Video/Source`, PipeWire / V4L2 提供者, 去掉
@@ -900,7 +901,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     "stream-properties=props,media.class=Video/Source,media.role=Camera"` 做一个 PipeWire 摄像头.
   - 还没有: `devicechange` (不监视插拔)、`getDisplayMedia` (录屏)、`MediaRecorder`、`createMediaStreamDestination`、回声消除等处理、
     `resizeMode: crop-and-scale`、轨道的 `mute` / `unmute` (系统暂停时).
-- **网页存储** (crates/storage `acde-storage`, crates/host `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
+- **网页存储** (src/storage `acde-storage`, src/host `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
   **分区**放在进程里共享: 每个应用一个 (`app-<id>`), 每个桌面一个 (`desktop-<id>`), 登录页 `greeter` (只在内存). Broker 在 `#spawn` 时把
   `{key, dir, legacy}` 作为 grant 交给 web (acde-host `storage.ts` `StoragePlaces`), Rust 用 `Lease` 引用分区, 最后一个 web 退出时写盘并放掉;
   进程退出前 `acde_storage::flush_all()`. 目录 `$ACDE_STORAGE/<key>/` (默认 `$XDG_DATA_HOME/acde/storage`), 文件是 SQLite (rusqlite 自带的,
@@ -911,7 +912,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `localStorage`), 改的窗口自己不收. 命名属性照 WebIDL: 原型上有的名字 (`key`、`length` …) 不当成条目, 赋值一律存. 老版本的
     `$XDG_CONFIG_HOME/acde/storage/app-<id>.json` / `<desktop>.json` 在第一次建库时导入, 改名成 `.json.imported` (只在没设 `ACDE_STORAGE` 时).
   - `sessionStorage`: 每个 web 自己的, 只在内存, 配额同上; `location.reload()` 重起 web, 不保留 (标准里同一个浏览上下文要保留, 是缺口).
-  - **IndexedDB** (crates/storage `idb/`, crates/host `idb.rs`, acde-dom `src/storage/idb/`): 分工是 Rust 管「谁先谁后」和数据, JS 管
+  - **IndexedDB** (src/storage `idb/`, src/host `idb.rs`, acde-dom `src/storage/idb/`): 分工是 Rust 管「谁先谁后」和数据, JS 管
     标准的语义.
     - Rust: 每个分区一条 `acde-idb` 线程 (`mod.rs` `serve`), 上面每个数据库一个 `Worker` (`database.rs`), 一个 SQLite 文件
       `indexeddb/<n>.sqlite3` (没有连接、事务和排着的请求时关掉文件, 内存分区的不关), 名字和版本在
@@ -955,9 +956,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - **配额**: IndexedDB 和私有文件系统现在不按 `estimate()` 的 quota 拒绝写入 (不会抛 `QuotaExceededError`), 是缺口; 页面本来就能经
     `sys` 写任意文件 (见「沙箱」), 所以这不是安全边界的问题, 是和浏览器行为的差别.
   - **cookie** (`document.cookie`, 同源请求的 `Cookie` / `Set-Cookie`): 解析在 acde-dom `core/backend.ts`, 存在分区的 `CookieJar`
-    (crates/storage `cookies.rs`): 同一应用的窗口共用; 有 `Expires` / `Max-Age` 的写进 `cookies.sqlite3`, 会话 cookie 只在进程里
+    (src/storage `cookies.rs`): 同一应用的窗口共用; 有 `Expires` / `Max-Age` 的写进 `cookies.sqlite3`, 会话 cookie 只在进程里
     (acdert 退出就没了, 和浏览器关掉一样); 按路径长、再按创建先后排; 脚本碰不到 `HttpOnly`.
-  - **Cache API** (`caches`, `Cache` / `CacheStorage`, acde-dom `storage/cache.ts`, crates/storage `caches.rs`, crates/host `caches.rs`):
+  - **Cache API** (`caches`, `Cache` / `CacheStorage`, acde-dom `storage/cache.ts`, src/storage `caches.rs`, src/host `caches.rs`):
     `caches.sqlite3`, 每个缓存一行 (按创建先后), 条目存请求的 URL (含 `#片段`)、方法、请求头, 回应的 status / statusText / type / url /
     redirected (JSON)、回应头和整段 body. 匹配在 Rust 里照规范的「request matches cached item」: 比的时候去掉片段, `ignoreSearch` 再去掉
     查询串; `Vary` 逐个头比请求头 (`*` 不匹配); 非 GET 除非 `ignoreMethod`. `put` / `add` / `addAll` / `delete` 是一批原子操作 (先删同一请求
@@ -991,7 +992,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   Windows 的 `<local>` 和 macOS 的“排除简单主机名”没有对应写法, 不给. 配置脚本和自动发现 (Windows 设了配置脚本, macOS 开了自动配置或
   自动发现) 是按 URL 回答的, 变量表达不了, 这时后端不得到系统代理; Windows 只开“自动检测设置”时照样给手动代理 (和页面在 WPAD 没找到时一致).
   每次起后端时读, 改了系统设置后新起的后端生效. Linux 没有系统来源, 只有会话的变量.
-- **Windows 后端契约** (2026-11-09 定, 运行时实现在 crates/host `backends/` 和 runtime `channel/`; acde 的「和 acdert 的契约」写同一份, 两边一起发版). 不变量: 后端运行期间没有 TCP 监听、没有命名管道,
+- **Windows 后端契约** (2026-11-09 定, 运行时实现在 src/host `backends/` 和 runtime `channel/`; acde 的「和 acdert 的契约」写同一份, 两边一起发版). 不变量: 后端运行期间没有 TCP 监听、没有命名管道,
   套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变. argv、`ACDE_RUNTIME` 选 bun / node、环境从零建、一分钟 4 次崩溃上限、首窗起末窗停都同上.
   - **两种模式**: node 走**通道模式** (Node 在 Windows 上不能用文件系统 AF_UNIX, 命名管道的默认安全描述符给 Everyone / 匿名读、也接受远端打开);
     bun 走**套接字模式** (和 unix 一样, `Bun.serve` 语义完整). 环境: 通道模式 `ACDE_APP_CHANNEL=fd`, 不设 `ACDE_APP_SOCKETS`; 套接字模式
@@ -1030,7 +1031,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     (通道: 还没注册; 套接字: `NotFound` / `ConnectionRefused`, 后者也是残留套接字的错误 10061), 新一代起来后接上.
   - **停止**: 两种模式都在 fd 3 上发 SHUTDOWN (预加载停止接受新连接、让在途请求做完、关 server 后退出), 等 3 秒 (`STOP_MS`), 然后终止作业对象
     (旧预加载不读控制帧, 就是等满 3 秒再终止). 后端退出时注销这一代的通道 / 目录, 上面还没完的流失败.
-- **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 都由这个 web 自己的线程发 (crates/host `backend.rs` 的 `natives.backend`,
+- **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 都由这个 web 自己的线程发 (src/host `backend.rs` 的 `natives.backend`,
   每个 web 都有 → runtime `fetch.rs` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net/index.ts` 的 `route`). 去哪:
   - 同源非资源路径、有后端时的 `localhost:<port>` (和 127.0.0.1、[::1]、0.0.0.0) → 自己应用的 unix socket (`Dial::Socket`, `init.sockets`; 没出现或
     拒绝连接时重试 10 秒). 没有后端的 web 同源非资源路径失败, `localhost` 走下面的网络.
@@ -1060,7 +1061,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 
 ## 文件 (`acde:fs`)
 
-页面的 `acde:fs` 是 crates/host `fs.rs` 绑的 `natives.fs`, 实现在 runtime `fs/` (`Workspace` → `WorkspaceFs`), 类型 acde-api `AcdeFs`.
+页面的 `acde:fs` 是 src/host `fs.rs` 绑的 `natives.fs`, 实现在 runtime `fs/` (`Workspace` → `WorkspaceFs`), 类型 acde-api `AcdeFs`.
 第一个参数是 root (`roots()` 里某项的 `id`; 下面按路径的根 `id` 就是 `path`), 第二个是相对路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`),
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
 这个应用的文件夹. 根列表每个 web 缓存 (#143, runtime `fs/access/cache.rs` `RootCache`, 存在 `Workspace` 上): `roots()` 每次重建并刷新缓存; 别的调用用缓存,
@@ -1077,7 +1078,7 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 `{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
 `locate` / `openPath` 报 403 `EACCES`. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
 把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹, `acde:permissions` 也列出和收回它 (见「批准」). Broker 交给 web 的授权是
-`fs: {places, paths}` (crates/host `web.rs` → `Workspace::files`). 下面按路径的根只给桌面页面.
+`fs: {places, paths}` (src/host `web.rs` → `Workspace::files`). 下面按路径的根只给桌面页面.
 
 **拖放和打开请求的句柄** (#68): 用户交给应用的文件和文件夹是标准的 `FileSystemHandle`, 页面拿不到路径.
 - 系统拖放: `dnddrop` 的 `files` 里每个路径 (acde-host `dnd.ts` `DragDrop`, 链接和别的类型跳过): 不超过 64 MiB 的普通文件进 `dataTransfer.files` (内容在 drop 时读进来),
@@ -1095,7 +1096,7 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
   按路径的 `{root, path, file}` 加 `handle` 只给桌面页面.
 - 选择器: `showOpenFilePicker` 的文件只读 (只读属性) 时句柄是只读的, 别的可写; `showSaveFilePicker` 可写; `showDirectoryPicker` 照 `mode`.
 - 句柄怎么登记: 文件记在这个页面的 `PageCalls` (和打开选择器选中的文件一起; 整读整写走 acde-host `sys/fs`, 同时经 `natives.picker.allowFile` 记进
-  这个 web 的 `PickedFolders`, 只认这一个路径, 大文件的按需读和分块写走它), 文件夹经 `natives.picker.adopt` (crates/host
+  这个 web 的 `PickedFolders`, 只认这一个路径, 大文件的按需读和分块写走它), 文件夹经 `natives.picker.adopt` (src/host
   `picker.rs` `adopt`) 进这个 web 的 `PickedFolders`, 读写和选的文件夹一样不出这个文件夹、不跟随链接. acde-dom 经 `WebInternals.handles` (`of` / `picked` /
   `transfer`) 造句柄、认句柄、往 `DataTransfer` 里放; 页面自己 `new FileSystemFileHandle(...)` 造不出能读的句柄 (`PageCalls` 只认登记过的路径).
 - 交出去: 应用的 `acde.apps.open({kind: 'open-file', handle})` (或 `open(appId, …)`) 在 web 里把 `handle` 换成 `held: {path, kind, writable}`, 只认这个页面登记过的句柄
@@ -1181,8 +1182,8 @@ Linux 会话 (`crates/window` `drop_performed`) 有本地文件时同样去掉�
 
 **选文件夹和授权**: 标准的 `showDirectoryPicker(options?)` → `FileSystemDirectoryHandle` (acde-dom `dom/picker.ts`, 参数校验和错误照 Chromium,
 取消或没有选择器是 `AbortError`, `requestPermission` 不弹窗; handle 只活到页面结束). 链路: acde-dom 的
-`env.files` → crates/host `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开, 先取 `choose` 事先给的答复
-(crates/host `chooser.rs`, 三种选择器都在这里定去哪): Linux 是 portal
+`env.files` → src/host `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开, 先取 `choose` 事先给的答复
+(src/host `chooser.rs`, 三种选择器都在这里定去哪): Linux 是 portal
 FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel` sheet, Windows 是 `SHBrowseForFolderW`. handle 的读写在 runtime
 `fs/picked.rs` `PickedFolders` (每个 web 一份, 只在内存, 选中的文件夹当 root; 新建 `O_EXCL | O_NOFOLLOW`; 整读整写一个文件最多 64 MiB, 更大的见「大文件」).
 Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权使用同一路径规则. `bash scripts/check-directory-picker.sh` 用预设选择结果验收.
@@ -1198,7 +1199,7 @@ Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权�
 directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, globs, mimes}` (页面的 `types` / `accept` 换来的), 回路径列表 / 路径
 或 null (取消). 选中的文件只给这个页面读写 (`pagecalls.ts` 记着). 没有 `FileChooser` 时打一行 warn, 页面得到 `AbortError` / `cancel`.
 - 会话: runtime `portal.rs` 的 napi `FileChooser` (portal 的 `OpenFile` / `SaveFile`).
-- 宿主窗口: crates/host `hostnative.rs` 换上自己的 `FileChooser`, 在 `acde-chooser` 线程上走 `chooser.rs`: 先取 `choose` 的答复; Linux 有窗口时
+- 宿主窗口: src/host `hostnative.rs` 换上自己的 `FileChooser`, 在 `acde-chooser` 线程上走 `chooser.rs`: 先取 `choose` 的答复; Linux 有窗口时
   是 portal (runtime `open_files` / `save_file`, 和 napi 同一段); 别的交给 hostwin 主线程: macOS 是挂在宿主窗口上的 `NSOpenPanel` /
   `NSSavePanel` sheet; Windows 是 `platform/win32/dialog.rs` 的 `IFileOpenDialog` / `IFileSaveDialog`, 以宿主窗口为 owner (`multiple` 是
   `FOS_ALLOWMULTISELECT`, `directory` 是 `FOS_PICKFOLDERS`, 总是 `FOS_FORCEFILESYSTEM`, 返回盘符或 UNC 绝对路径, 取消回 `None`); headless 回错.
@@ -1296,7 +1297,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id, 所以 ref 跟着 DOM 节点走: 节点活着 (连在文档上, 或断开了但页面还拿着) 就不变, 移动、改文字、改属性、列表重排都不变,
   不按遍历顺序编号; 重绘时换成了新节点 (`innerHTML`、不带 key 的列表重建) 才是新 ref (节点 id 不复用), 旧 ref 回 `element N is gone`.
-  测试 `crates/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签 (HTML-AAM: 有名字的 `<section>` 是 `region`, `<output>` 是 `status`), 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label (可被 label 的元素: input、select、textarea、button、meter、output、progress, `<label for>` 或外面套的 `<label>`, 先于子元素文字) / alt / 文字, 最多
+  测试 `src/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签 (HTML-AAM: 有名字的 `<section>` 是 `region`, `<output>` 是 `status`), 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label (可被 label 的元素: input、select、textarea、button、meter、output、progress, `<label for>` 或外面套的 `<label>`, 先于子元素文字) / alt / 文字, 最多
   120 字 (同一元素里相邻的文字节点按原文接起来, 只在原文边界有空白时隔一个空格: JSX 的 `{n}%` 是 `100%`); 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
   没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `semantics(root, limit, offscreen, invisible)`: `invisible`
   时留下透明和 `visibility: hidden` 的元素, 自己或祖先 `opacity: 0` 的标 `transparent`, `visibility` 不可见的标 `invisible` (透明的照样能点,
@@ -1341,13 +1342,13 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   先取消隐藏再给焦点, 两条路离开屏幕的窗口都回来.
 - **原生窗口** (runtime `atspi.rs`, napi `Accessibility`, Linux 会话): 读 AT-SPI2. 起服务时把 `org.a11y.Status.IsEnabled` 设成 true; GTK3 总上报,
   Qt 要开关为 true 且在真的显示平台上. `tree(pid, title, limit)` 按 pid 找应用、按标题挑顶层窗口, 角色规范成 ARIA 风格; act 先试 AT-SPI 的
-  Action / EditableText / GrabFocus, 不行按坐标. 检查 `crates/runtime/tests/atspi-check.sh`.
+  Action / EditableText / GrabFocus, 不行按坐标. 检查 `src/runtime/tests/atspi-check.sh`.
 
 ## 组件契约
 
 改接口先改这里.
 
-### render (`crates/render`, Rust 接口)
+### render (`src/render`, Rust 接口)
 
 - `Document::new(width, height, scale, &Options {base_url, resources: [Resource {prefix, dirs}], default_lang, verify_paint, svg_text_path,
   dark, name})`: 尺寸是物理像素. 同源资源按最长前缀在 dirs 里找, `file:` 直接读盘, 不联网, 读不到回空. `Document` 发句柄:
@@ -1410,7 +1411,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   客户端在 `acde_window.bind` 里交回一次; `parent` / `modal` 在窗口绑上时写进窗口表, 客户端自己的 xdg parent 优先); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
-- web 侧: `claimSurface(token, {frame?})` (crates/host `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
+- web 侧: `claimSurface(token, {frame?})` (src/host `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
   一条 `acde-window` 线程管 Wayland 和光栅化) 给出 surface: `pump`、`wait()` (队列非空时落定)、`waitThen(cb)` (队列非空时在一个新任务里调 cb, 不在微任务里: acde-host `Host.run` 每轮取一批输入就是一个任务, 输入事件经 acde-dom `Input` 用 `fireFromTask` 派发, 每个监听器后跑微任务检查点, React 的离散事件在下一个按键前就提交; 原先循环 `await wait()` 之后都在微任务里, 检查点不生效, 连按三次只算一次)、`requestFrame`、`setClipboard`、
   `readClipboard()`、`startDrag(data, icon?)`、`setTitle`、`setImeArea`、`window`、`hosted`、`contentOffset`.
 - 事件 (`Event`, 坐标逻辑像素, button / code 是 evdev 码). 给 surface 的: `pointermove` / `pointerdown` / `pointerup` / `wheel` /
@@ -1443,14 +1444,14 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   不是硬件时间戳, 没有 tearing-control 和 VRR.
 - 网页图层 (会话): vello 画进 web 自己 GBM 分配的 linear dmabuf, sync_file 落定后 commit. 光栅化线程 `acde-web` 一次一帧, CPU 编码和 GPU 执行
   重叠, 挪窗口不重新光栅化, 闲 2 秒放掉中间纹理. 两套 vello 着色器都在会话开始时编好 (#109): 光栅化线程自己的 (`vello warm-up`) 和
-  页面画布、阴影、截图用的进程级 `Offscreen` (crates/render `gpu.rs`, 进程里第一个光栅化线程起来时 (`Once`, 进程里可能有多个 `Raster`) 在 `acde-warm` 线程里 `gpu::warm()`, 日志 `offscreen vello warm-up`),
+  页面画布、阴影、截图用的进程级 `Offscreen` (src/render `gpu.rs`, 进程里第一个光栅化线程起来时 (`Once`, 进程里可能有多个 `Raster`) 在 `acde-warm` 线程里 `gpu::warm()`, 日志 `offscreen vello warm-up`),
   不再等第一个用到画布或阴影的窗口打开时才编, 编的时候还拿着全进程一把 `Offscreen` 锁. 宿主窗口 (Windows、macOS、Linux 宿主) 同样在
   `hostwin/src/app.rs` 的 `run` 里 `Gpu::publish` 之后起 `acde-warm` 线程预编这套 `Offscreen` 着色器.
 - 帧预算: 120 fps 下每帧 8 ms. 盯 acde-dom `test/cost.test.ts` / `test/caches.test.ts`、shell / DomNative 的 `stats`、`drive.sh perf`; 提交里写测到的数.
-- WebGPU (`navigator.gpu`, 只在 Linux): crates/host `webgpu/`, 跑在光栅化线程的设备上; 回调由 `acde-gpu-poll` 线程非阻塞轮询 (每帧路径上不用
+- WebGPU (`navigator.gpu`, 只在 Linux): src/host `webgpu/`, 跑在光栅化线程的设备上; 回调由 `acde-gpu-poll` 线程非阻塞轮询 (每帧路径上不用
   `poll(Wait)`, 它拿着 snatch 读锁会卡住别的线程的提交). WebGL 也只经 wgpu, 见下一节.
 
-### WebGL (`crates/webgl` `acde-webgl`, acdert `webgl.rs`, acde-dom `webgl/`)
+### WebGL (`src/webgl` `acde-webgl`, acdert `webgl.rs`, acde-dom `webgl/`)
 
 WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 GL 状态机, 用 `Gpu::shared()` 那台设备 (和画布、页面共用), 不用 ANGLE、不用系统 OpenGL.
 
@@ -1659,11 +1660,11 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   一起改 (再 `bun install` 刷新 `web/bun.lock`), acdebin-dbg 根 `Cargo.toml` 的 `workspace.package.version` 也改成同一个 (`plan` 核对), tag 是 `v0.0.N`.
 - Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire、GLib 和 GStreamer (`libgstreamer1.0`、
   `gst-plugins-base` 的库, 没有就起不来); 放 `<video>` 还要 gst-plugins-base / good 的插件 (VA-API 硬解要 `gst-plugin-va`), 同 Arch 包的 depends.
-  CI 的 Linux 构建装对应的 `-dev` 包 (`libglib2.0-dev`、`libgstreamer1.0-dev`、`libgstreamer-plugins-base1.0-dev`, crates/media 经 pkg-config 找它们).
+  CI 的 Linux 构建装对应的 `-dev` 包 (`libglib2.0-dev`、`libgstreamer1.0-dev`、`libgstreamer-plugins-base1.0-dev`, src/media 经 pkg-config 找它们).
 
 ## 日志和计时
 
-Rust 一律 `log` 的宏, `crates/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追加在默认的 `warn,acde=info,…` 后面; 每行
+Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追加在默认的 `warn,acde=info,…` 后面; 每行
 `<进程启动以来的毫秒> <级别> <线程名> <target>: <内容>`; 写 stderr 在 `acde-log` 线程上 (积压超过 8 MB 丢掉并记数), 退出和 panic 时
 `acde_log::flush()`. smithay 的 tracing 进同一个 logger. JS 的 `console.*` 是 target `js`; acde-host 用 `log.ts` 的 `Log` (`Log.clock()` 和
 `acde_log::now_ms()` 同一个零点).
@@ -1676,7 +1677,7 @@ Rust 一律 `log` 的宏, `crates/log` (`acde-log`) 装 env_logger: `RUST_LOG` �
 | target | 哪里 | 一行是 |
 | --- | --- | --- |
 | `perf::latency` | crates/window | 输入到上屏: `<kind> owner= ms=`, 分段 `queue` `js` `render` `raster` `present` |
-| `perf::task` | crates/host | 事件循环里超过 8 ms 的任务: `task ms= hook=`, V8 自己的 `v8` |
+| `perf::task` | src/host | 事件循环里超过 8 ms 的任务: `task ms= hook=`, V8 自己的 `v8` |
 | `perf::frame` | render | `<web> commit= resolve= paint= finish= ms=`, 面板的 `panel <id> commands= damage ms=` |
 | `perf::raster` | crates/paint、crates/window、hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
 | `perf::layers` | hostwin `present.rs` | 有 layers 的页面 / 面板: `window= region= layers=重画的/全部 ms=` |
@@ -1691,8 +1692,8 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 ## 协作规则
 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
-  (都 `publish = false`), 不发 npm 包 (SDK 只以 pkgs 上的归档发布), 仓库和 release 不公开. `vendor/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
-- Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (crates/acde-napi 的 Deno 版权)、工具指令 (`/// <reference>`,
+  (都 `publish = false`), 不发 npm 包 (SDK 只以 pkgs 上的归档发布), 仓库和 release 不公开. `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
+- Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (src/napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
   和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
@@ -1702,7 +1703,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   发版仍在 GitHub Actions 上跑 (见「发版」); Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
-- 改 `crates/shell`、`crates/render`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
+- 改 `crates/shell`、`src/render`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
   什么、没验什么. 汇报时分开写「已验证 / 未验证」.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
@@ -1719,18 +1720,18 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 
 | 路径 | 职责 |
 | --- | --- |
-| `crates/host` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
+| `src/host` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
 | `crates/shell` / `crates/window` / `crates/paint` | 会话 (Wayland 合成器、会话里 web 的 Wayland 客户端和光栅化) 已搬到 [acdebin-system](http://gitea.dopamine/AC/acdebin-system), 说明在它的 AGENTS.md |
-| `crates/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
+| `src/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
 | `crates/gpu` | `acde-gpu`: 合成器接口和 wgpu 设备层. 2D 场景 (`Scene` / `PaintScene` / 滤镜)、页面的 `Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`, 共享设备 `Gpu` (WebGPU / WebGL / video / canvas 图都在它上面) 和 `GpuImage`; 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用). 不依赖 vello |
-| `crates/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acdebin-dbg 和会话用它. acgpu 实现以后也放本仓库 |
-| `crates/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
-| `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
-| `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
-| `crates/log` | `acde-log`: 日志和计时 |
-| `crates/media` | `acde-media`: 解码音视频, 读摄像头和麦克风 (Linux GStreamer, macOS AVFoundation; 见「视频」「摄像头和麦克风」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段; `tests/capture.rs` 用假设备; `tests/devices.rs` 里 `--ignored` 的列出 / 读真设备、在 macOS 上问权限) |
-| `crates/storage` | `acde-storage`: 网页存储的分区和 SQLite (见「网页存储」). 检查: `cargo test --release -p acde-storage` |
-| `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
+| `src/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acdebin-dbg 和会话用它. acgpu 实现以后也放本仓库 |
+| `src/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
+| `src/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
+| `src/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
+| `src/log` | `acde-log`: 日志和计时 |
+| `src/media` | `acde-media`: 解码音视频, 读摄像头和麦克风 (Linux GStreamer, macOS AVFoundation; 见「视频」「摄像头和麦克风」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段; `tests/capture.rs` 用假设备; `tests/devices.rs` 里 `--ignored` 的列出 / 读真设备、在 macOS 上问权限) |
+| `src/storage` | `acde-storage`: 网页存储的分区和 SQLite (见「网页存储」). 检查: `cargo test --release -p acde-storage` |
+| `src/napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
 | `web/packages/acde-dom` | web 里的浏览器全局对象和 DOM |
 | `web/packages/acde-api` | `@dopame/acde-api`: SDK (唯一对外发布的 JS 包) |
@@ -1749,7 +1750,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   `config.schema.json` 原样拷贝 (对外接口); 去掉 `private` / `scripts` / `devDependencies`; `LICENSE` 是根目录 `LICENSE` 的版权段
   (不含第三方那段). 构建最后检查 `dist/`: 有 `.map`、非 `.d.ts` 的 `.ts`、`sourceMappingURL` / `sourcesContent` 或意料外的文件就失败.
   esbuild 装在 web 根的 devDependencies: 放在 acde-api 自己的 devDependencies 里, bun 会把它装进用 `file:` 引用它的 acde.
-- **acde-dom**: 经 `DomNative` / `GpuNative` / `AudioNative` / `HostNative` (`src/native.ts`) 调 crates/host, 打进 acde-host 的 `dist/web.js`.
+- **acde-dom**: 经 `DomNative` / `GpuNative` / `AudioNative` / `HostNative` (`src/native.ts`) 调 src/host, 打进 acde-host 的 `dist/web.js`.
   编辑只有 `dom/editing.ts` 一份. 文本框 (`<input>` 文本类型和 `<textarea>`) 各有一份编辑历史 (`dom/history.ts`): 键盘、粘贴、剪切、输入法提交和 execCommand 的改动
   记成一步, 连续打字 (含换行) 和连续的同向删除合成一步, 选区或值在中间变过就另起一步; 快捷键 Ctrl / Cmd+Z 撤销, Ctrl / Cmd+Shift+Z 和 Ctrl / Cmd+Y
   重做, 先发可取消的 `beforeinput`, 再发 `input` (inputType `historyUndo` / `historyRedo`, data 为 null), 恢复值和那一步的选区; execCommand('undo' / 'redo')
@@ -1798,7 +1799,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 | --- | --- |
 | `blitz` (子模块) | DioxusLabs/blitz main `fb297a38` 上接我们的提交: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
 
-blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
+blitz fork 和上游结构的不同: HTML 解析用 src/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
 先录进 acde-gpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
 `vendor/blitz` 里 `cargo clippy --workspace --all-targets`、`cargo check -p blitz-dom --no-default-features`、
 `cargo test -p blitz-dom -p blitz-paint`、`cargo clippy -p blitz-paint --all-targets --features scrollbars`; 再 `cargo test --release -p acde-render`
@@ -1843,7 +1844,7 @@ blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html
 | `stylo.rs` `match_non_ts_pseudo_class`, `assets/default.css` | `:popover-open` / `:modal` 看元素状态 (由 render `Dom::set_open_state` 设, 上游一律 false), `:open` 是 `details` / `dialog` 有 `open`; popover 的 UA 样式 (定位、边框) 搬出 Gecko 的 pref, 没有 top layer, `:popover-open` 和 `dialog:modal` 给最大 z-index 代替 |
 | `has.rs` (新), `document.rs` 打开 `layout.css.has-selector.enabled` / `snapshot_node_and`, `mutator.rs` `set_attribute` / `clear_attribute` / `remove_node` / `remove_and_drop_all_children` / `add_children_to_parent`, `stylo.rs` `each_custom_state` | `:has()` (上游在 servo 里关着, 选择器不解析). 快照失效只看元素自己和右边的选择器, `:has()` 的锚在左边 (祖先、前面的兄弟), 所以状态变化、属性变化 (class / id / 其他属性名, 新旧值都算)、插入和移除前各调一次 Stylo 的 `RelativeSelectorInvalidator` (照 Gecko glue 的 `MaybeInvalidateRelativeSelector*`): 改之前调, 不带快照, 找到的锚记 restyle 并把祖先标脏; 样式里没有 `:has()` 时属性那条直接返回. `each_custom_state` 原是 `todo!()` (失效时会走到), 没有自定义状态, 什么也不做 |
 | `animation_events.rs` (新), `stylo.rs` `resolve_stylist_pass`, `document.rs` `take_animation_events` / `has_css_animations` | 推进 CSS 动画和过渡时记事件 (animationstart / iteration / end / cancel, transitionrun / start / end / cancel; elapsedTime 照 Servo 的 `script/animations.rs`, 取到微秒): 上游 Servo 在 script 里发, Blitz 没有. 第一次 `take_animation_events` 之后才记, 最多攒 4096 个; 离开文档的元素上没结束的动画和没结束的过渡记 cancel, 已结束的动画被样式去掉不记 |
-| `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
+| `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 src/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |
 | `mutator.rs` `set_attribute` / `clear_attribute` / `restyle_for_attribute`, `document.rs` `snapshot_attribute` | 只影响选择器的属性只重算元素自己 (快照让后代失效; 有 `:has()` / nth-of 时重算父子树); 值没变直接返回 (`value`、`style` 和 `<img>` 的 `src` / `srcset` 除外: 同值也照常处理, `<img>` 会重新加载) |
 | `mutator.rs` `set_attribute` / `load_image` / `process_added_subtree`, `node/element.rs` `ElementData.image_tried` / `image_loads`, `document.rs` 取图失败和 `apply_loaded_image`, blitz-traits `net.rs` `NetProvider::reused` | `<img>` 不在文档里时设 `src` 也加载 (上游只在文档里加载); 插入文档时当前 `src` 已经开始取过 (成功、失败或还在取) 就不再取 (克隆体没取过, 插入时取); 取自图片缓存或并入进行中的请求时调 `reused` 让提供者照样上报; 每次取图结束 (取到、失败、取自缓存) `image_loads` 加一, render `take_loaded` 按它每次结束报一次 (页面各触发一次 load / error, 和浏览器一样), 不再只在状态变了时报 |
@@ -1887,12 +1888,12 @@ blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html
 | `assets/default.css`, `node/node.rs` `has_native_appearance`, `layout/construct.rs`, `layout/mod.rs`, `layout/damage.rs` | 复选框和单选框默认 `appearance: auto`, 不带 input 的边框、内边距和背景 (控件的边框盒仍是 20px / 18px); `appearance: none` 时是普通的盒子: 不当叶子、`::before` / `::after` 照常构造和排版, `appearance` 变了重建盒子 |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
-**crates/webgl `src/glsl`**: naga 30.0.1 的 GLSL 前端整个搬进来 (原 `front/glsl`, MIT OR Apache-2.0), 跑在 crates.io 原版 naga 的公开接口上
+**src/webgl `src/glsl`**: naga 30.0.1 的 GLSL 前端整个搬进来 (原 `front/glsl`, MIT OR Apache-2.0), 跑在 crates.io 原版 naga 的公开接口上
 (naga 私有的几样在 `glsl/compat.rs` 重写); 改动处加 `acde:` 注释. 加的是 WebGL 方言 (`Frontend::parse_webgl`、`WebGlOptions`: `front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界.
 std140 下比步长窄的 scalar / vec2 数组元素包进 16 字节的结构体 `acde_padded { value }` (`offset::PADDED`), 取元素时自动接上 `.value`,
 webgl 枚举 uniform 时 (`shader.rs` `unpadded`) 解开这层; 这样各后端 (MSL 没有自己的数组步长) 都保持 std140 布局, 不用改 naga 后端.
 
-## crates/render 的已知问题和测试数据
+## src/render 的已知问题和测试数据
 
 - canvas 的 `createPattern` 在第一次用时才取来源的位图 (规范是创建那一刻).
 - vello 0.11 没有图片的场景把图集当 1x1 重建、已上传的图片画空; 每个场景垫一块 1x1 渐变绕开 (acde-gpu `Vello::render`), 升级 vello 时看

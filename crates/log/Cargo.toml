@@ -1,8 +1,0 @@
-[package]
-name = "acde-log"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-log = { version = "0", features = ["std"] }
-env_logger = { version = "0", default-features = false }
