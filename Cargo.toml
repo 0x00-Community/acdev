@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.9"
 edition = "2024"
-repository = "http://gitea.dopamine/AC/acde-dbg"
+repository = "http://gitea.dopamine/AC/acdebin-dbg"
 publish = false
 
 # acdert 和本仓库并排检出 (../acdert); vendors 用 acdert 的那份

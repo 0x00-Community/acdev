@@ -1,4 +1,4 @@
-# acde-dbg
+# acdebin-dbg
 
 > 第一原则同 [acdert](http://gitea.dopamine/AC/acdert) 的 AGENTS.md: 不许在任何层次上魔改 web 接口; 运行时的一切 (清单、`acde:` 模块、窗口模型、
 > dev IPC) 以 acdert 的 AGENTS.md 为准, 这里只写调试运行时自己的部分.
@@ -7,16 +7,16 @@
 
 ## 是什么
 
-acde 分四个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通用运行时 lib)、acde-dbg (本仓库, 跨平台调试运行时)、acde-system
-(Dopame OS 特化运行时)、acde-cli (开发者 CLI). acde-dbg 产出二进制 `acde-dbg`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
-跑一个应用 (`acde-dbg app <id>`) 或一个桌面 (`acde-dbg desktop <id|包目录>`); `acde dev` 拉起的就是它 (acde-cli 先找 `ACDERT`,
-再找装在旁边的、PATH 上的 `acde-dbg`, 最后才是旧的 `acdert`).
+acde 分四个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通用运行时 lib)、acdebin-dbg (本仓库, 跨平台调试运行时)、acdebin-system
+(Dopame OS 特化运行时)、acde-cli (开发者 CLI). acdebin-dbg 产出二进制 `acdebin-dbg`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
+跑一个应用 (`acdebin-dbg app <id>`) 或一个桌面 (`acdebin-dbg desktop <id|包目录>`); `acde dev` 拉起的就是它 (acde-cli 先找 `ACDERT`,
+再找装在旁边的、PATH 上的 `acdebin-dbg`, 最后才是旧的 `acdert`).
 
-- `crates/acde-dbg`: 可执行文件. `main.rs` 分命令 (`doctor` 自己做, `run` / `desktops` / `sessions` / `applications` / `open` 交给
+- `crates/acdebin-dbg`: 可执行文件. `main.rs` 分命令 (`doctor` 自己做, `run` / `desktops` / `sessions` / `applications` / `open` 交给
   `acdert::common`, 其余在 `acde_hostwin::run` 里起 Broker); `platform.rs` 的 `Host` 是 acdert `Platform` 的宿主窗口实现
   (surface 认领给 hostwin、`native` 上加 hostnative 的导出、Windows 的内容类型、文件选择器); `hostnative.rs` 是 `native.Shell` 等宿主窗口
   的 JS 绑定 (用 acdert lib 根上平铺导出的绑定工具); `chooser.rs` 先用 `acde dev` 预设的答案, Linux 上不是无头时走 portal
-  (`acdert::Portal`), 否则用宿主窗口的原生对话框; `doctor.rs` 是 `acde-dbg doctor [--json]`.
+  (`acdert::Portal`), 否则用宿主窗口的原生对话框; `doctor.rs` 是 `acdebin-dbg doctor [--json]`.
 - `crates/hostwin`: 宿主窗口和合成 (见下「宿主窗口」).
 - 合成器: 现在直接用 acdert 的 acde-gpu (wgpu: Vulkan / OpenGL / Metal / DX12); acdert 抽出合成器接口后, wgpu (vello) 实现搬到本仓库,
   另加 acgpu 实现 (feature `acgpu`).
@@ -27,18 +27,18 @@ acdert 要和本仓库并排检出 (`../acdert`): crate 都是 path 依赖, `[pa
 拉取之后先 `cargo update`.
 
 ```sh
-cargo build -p acde-dbg                              # target/debug/acde-dbg
+cargo build -p acdebin-dbg                              # target/debug/acdebin-dbg
 (cd ../acdert/web && bun install && bun run build)   # acde-host 的 dist
-ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acde-dbg doctor
+ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
 ```
 
-不在安装目录里跑时要用 `ACDE_APP` 指向 acdert 的 `web/packages/acde-host/dist`. 用 acde-cli: `ACDERT=<本仓库>/target/debug/acde-dbg acde dev`.
+不在安装目录里跑时要用 `ACDE_APP` 指向 acdert 的 `web/packages/acde-host/dist`. 用 acde-cli: `ACDERT=<本仓库>/target/debug/acdebin-dbg acde dev`.
 
 ## 协作规则
 
-- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acde-dbg.git`). 不 force push, 不开分支、不开 worktree.
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`). 不 force push, 不开分支、不开 worktree.
 - 提交一律 `git commit -- <自己的路径>`, 英文 Conventional Commits, 不加 Co-Authored-By; 提交前 `cargo fmt --all`、clippy 要过.
-- 改 `crates/hostwin` 的提交先在这棵树编出来的 acde-dbg 上起一次 (`ACDE_HEADLESS=1` 也行), 写清已验证 / 未验证.
+- 改 `crates/hostwin` 的提交先在这棵树编出来的 acdebin-dbg 上起一次 (`ACDE_HEADLESS=1` 也行), 写清已验证 / 未验证.
 
 ## 宿主窗口
 

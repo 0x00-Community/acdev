@@ -1,10 +1,10 @@
 [package]
-name = "acde-dbg"
+name = "acdebin-dbg"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "acde-dbg"
+name = "acdebin-dbg"
 path = "src/main.rs"
 
 [dependencies]
