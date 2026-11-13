@@ -10,6 +10,23 @@ edition = "2024"
 repository = "http://gitea.dopamine/AC/acdebin-dbg"
 publish = false
 
+[package]
+name = "acdebin-dbg"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+acdert = { path = "../acdert" }
+acde-hostwin = { path = "crates/hostwin" }
+# doctor.rs: draws a test frame on the GPU
+log = "0"
+serde_json = "1"
+# hostnative.rs: the dev IPC's shot carries the PNG as base64
+base64 = "0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = "0"
+
 [patch.crates-io]
 # blitz: our fork (submodule ../acdert/vendor/blitz, GitHub Jabberwocky238/blitz)
 blitz-dom = { path = "../acdert/vendor/blitz/packages/blitz-dom" }

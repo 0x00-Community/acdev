@@ -12,7 +12,7 @@ acde 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通�
 跑一个应用 (`acdebin-dbg app <id>`) 或一个桌面 (`acdebin-dbg desktop <id|包目录>`); `acde dev` 拉起的就是它 (`acde` 先找 `ACDERT`,
 再找装在旁边的、PATH 上的 `acdebin-dbg`, 最后才是旧的 `acdert`).
 
-- `crates/acdebin-dbg`: 可执行文件. `main.rs` 分命令 (`doctor` 自己做, `run` / `desktops` / `sessions` / `applications` / `open` 交给
+- 仓库根的包 `acdebin-dbg` (`src/`): 可执行文件. `main.rs` 分命令 (`doctor` 自己做, `run` / `desktops` / `sessions` / `applications` / `open` 交给
   `acdert::common`, 其余在 `acde_hostwin::run` 里起 Broker); `platform.rs` 的 `Host` 是 acdert `Platform` 的宿主窗口实现
   (surface 认领给 hostwin、`native` 上加 hostnative 的导出、Windows 的内容类型、文件选择器); `hostnative.rs` 是 `native.Shell` 等宿主窗口
   的 JS 绑定 (用 acdert lib 根上平铺导出的绑定工具); `chooser.rs` 先用 `acde dev` 预设的答案, Linux 上不是无头时走 portal
