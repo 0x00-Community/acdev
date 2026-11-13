@@ -172,6 +172,15 @@
       <arg name="callback" type="new_id" interface="acde_shell_result"/>
     </request>
 
+    <request name="set_input">
+      <description summary="keyboard, mouse and touchpad settings; the compositor applies and saves them">
+        config is JSON: a partial configuration ({keyboard, mouse, touchpad}); null resets a key to its default.
+        The new state follows as an input event.
+      </description>
+      <arg name="config" type="string"/>
+      <arg name="callback" type="new_id" interface="acde_shell_result"/>
+    </request>
+
     <request name="quit">
       <description summary="the compositor stops; the connection closes when it has"/>
     </request>
@@ -254,6 +263,11 @@
       <arg name="output" type="string"/>
       <arg name="edge" type="uint"/>
       <arg name="entered" type="uint"/>
+    </event>
+
+    <event name="input">
+      <description summary="the input settings in effect and the pointing devices (JSON); on bind and when they change"/>
+      <arg name="state" type="string"/>
     </event>
   </interface>
 
