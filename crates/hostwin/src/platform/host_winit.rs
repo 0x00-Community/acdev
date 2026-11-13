@@ -1,8 +1,8 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use acde_gpu::wgpu;
-use acde_model::Combo;
+use acdert::gpu::wgpu;
+use acdert::model::Combo;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
@@ -81,8 +81,8 @@ pub(crate) fn clipboard_get() -> String {
     arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default()
 }
 
-pub(crate) fn click_settings() -> acde_model::ClickSettings {
-    acde_model::ClickSettings::default()
+pub(crate) fn click_settings() -> acdert::model::ClickSettings {
+    acdert::model::ClickSettings::default()
 }
 
 struct Loop {

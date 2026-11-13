@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::sync::{Arc, Mutex};
 
-use acde_model::Event;
+use acdert::model::Event;
 
 use crate::app::server;
 use crate::platform::{Cmd, Proxy};
@@ -323,7 +323,7 @@ fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
 #[cfg(test)]
 mod tests {
     use super::{DevtoolsKey, DevtoolsPress};
-    use acde_model::Combo;
+    use acdert::model::Combo;
 
     const F12: u32 = DevtoolsKey::F12;
 

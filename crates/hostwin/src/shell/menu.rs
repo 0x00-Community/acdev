@@ -1,4 +1,4 @@
-use acde_render::{MenuList, MenuPlace, MenuRow};
+use acdert::render::{MenuList, MenuPlace, MenuRow};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

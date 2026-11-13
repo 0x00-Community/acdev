@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use acde_gpu::kurbo::{Affine, Rect};
-use acde_gpu::peniko::{Color, Fill};
-use acde_gpu::{Gpu, PaintRef, PaintScene, Scene, wgpu};
-use acde_vello::Offscreen;
+use acdert::gpu::kurbo::{Affine, Rect};
+use acdert::gpu::peniko::{Color, Fill};
+use acdert::gpu::{Gpu, PaintRef, PaintScene, Scene, wgpu};
+use acdert::vello::Offscreen;
 
 pub const USAGE: &str = "usage: acdebin-dbg doctor [--json]";
 const GPU_WAIT: Duration = Duration::from_secs(30);

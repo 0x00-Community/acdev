@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use acde_model::{
+use acdert::model::{
     Binding, Change, Clicks, Combo, DoubleClick, Easing, Event, Inbox, Injected, Look, Mode, Restore, Scope, Shortcuts, Transition, Waker, WindowState,
 };
 
@@ -81,11 +81,11 @@ pub(crate) struct Entry {
     pub menus: Vec<menu::Menu>,
     pub menu_open: Option<menu::Open>,
     pub menu_labels: Vec<[f64; 4]>,
-    pub menu_place: Option<acde_render::MenuPlace>,
+    pub menu_place: Option<acdert::render::MenuPlace>,
 }
 
 impl Entry {
-    pub fn grab_hints(&self, theme: &acde_render::FrameTheme) -> Vec<([f64; 4], u32)> {
+    pub fn grab_hints(&self, theme: &acdert::render::FrameTheme) -> Vec<([f64; 4], u32)> {
         let top = self.frame;
         let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
         if top > 0.0 {
@@ -116,13 +116,13 @@ impl Entry {
         self.opened && !self.hidden && self.state.shown()
     }
 
-    pub fn bar(&self, theme: acde_render::FrameTheme, active: bool) -> acde_render::Bar {
-        acde_render::Bar {
+    pub fn bar(&self, theme: acdert::render::FrameTheme, active: bool) -> acdert::render::Bar {
+        acdert::render::Bar {
             title: self.title.clone(),
             width: self.rect[2],
             height: self.frame,
             scale: 1.0,
-            style: acde_render::FrameStyle::current(),
+            style: acdert::render::FrameStyle::current(),
             fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
             theme,
             active,
@@ -158,7 +158,7 @@ pub(crate) struct State {
     pub work: Option<[f64; 4]>,
     pub double_click: DoubleClick,
     pub clicks: Clicks,
-    pub theme: acde_render::FrameTheme,
+    pub theme: acdert::render::FrameTheme,
     pub controls: bool,
     pub standalone: bool,
     pub looks: HashMap<u32, Look>,
@@ -326,7 +326,7 @@ impl State {
         entry.primary |= grant.host && !grant.desktop && !self.standalone;
         self.standalone |= grant.host;
         if grant.desktop {
-            acde_render::FrameStyle::follow_session();
+            acdert::render::FrameStyle::follow_session();
         }
         let entry = self.entries.get_mut(&id).expect("granted");
         entry.minimize = grant.host || !self.standalone;
@@ -397,10 +397,10 @@ impl State {
         for e in self.entries.values().filter(|e| e.panel && e.shown()) {
             let Some((edge, t)) = e.reserve else { continue };
             match edge {
-                acde_model::edge::TOP => (y, h) = (y + t, h - t),
-                acde_model::edge::BOTTOM => h -= t,
-                acde_model::edge::LEFT => (x, w) = (x + t, w - t),
-                acde_model::edge::RIGHT => w -= t,
+                acdert::model::edge::TOP => (y, h) = (y + t, h - t),
+                acdert::model::edge::BOTTOM => h -= t,
+                acdert::model::edge::LEFT => (x, w) = (x + t, w - t),
+                acdert::model::edge::RIGHT => w -= t,
                 _ => {}
             }
         }
@@ -451,7 +451,7 @@ impl State {
     fn token() -> u64 {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::collections::hash_map::RandomState::new().hash_one((n, acde_log::now_ms().to_bits())) | 1
+        std::collections::hash_map::RandomState::new().hash_one((n, acdert::log::now_ms().to_bits())) | 1
     }
 
     fn centered(&self, [w, h]: [f64; 2]) -> [f64; 4] {
@@ -857,8 +857,8 @@ pub(crate) mod tests {
         for id in [top, dock, plain] {
             s.entries.get_mut(&id).expect("panel").panel = true;
         }
-        s.entries.get_mut(&top).expect("top").reserve = Some((acde_model::edge::TOP, 30.0));
-        s.entries.get_mut(&dock).expect("dock").reserve = Some((acde_model::edge::LEFT, 80.0));
+        s.entries.get_mut(&top).expect("top").reserve = Some((acdert::model::edge::TOP, 30.0));
+        s.entries.get_mut(&dock).expect("dock").reserve = Some((acdert::model::edge::LEFT, 80.0));
         assert_eq!(s.work_area(), [80.0, 30.0, 920.0, 770.0]);
         let w = open(&mut s, Grant { rect: Some([200.0, 200.0, 300.0, 200.0]), ..Grant::default() });
         assert_eq!(apply(&mut s, w, Some(WindowState::Filled)), Some(WindowState::Filled));
@@ -867,7 +867,7 @@ pub(crate) mod tests {
         s.entries.get_mut(&dock).expect("dock").hidden = true;
         assert_eq!(s.refill(), (Some([0.0, 30.0, 1000.0, 770.0]), vec![w]));
         s.entries.get_mut(&dock).expect("dock").hidden = false;
-        s.entries.get_mut(&top).expect("top").reserve = Some((acde_model::edge::TOP, 50.0));
+        s.entries.get_mut(&top).expect("top").reserve = Some((acdert::model::edge::TOP, 50.0));
         assert_eq!(s.refill(), (Some([80.0, 50.0, 920.0, 750.0]), vec![w]));
         assert!(apply(&mut s, w, Some(WindowState::Fullscreen)).is_some());
         assert_eq!(s.entries[&w].rect, [0.0, 0.0, 1000.0, 800.0]);
@@ -892,7 +892,7 @@ pub(crate) mod tests {
         assert_eq!(again.work, None);
         let dock = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 80.0, 300.0]), ..Grant::default() });
         s.entries.get_mut(&dock).expect("dock").panel = true;
-        s.entries.get_mut(&dock).expect("dock").reserve = Some((acde_model::edge::LEFT, 80.0));
+        s.entries.get_mut(&dock).expect("dock").reserve = Some((acdert::model::edge::LEFT, 80.0));
         assert_eq!(s.resize([900.0, 600.0], 2.0).work, Some([80.0, 0.0, 820.0, 600.0]));
     }
 

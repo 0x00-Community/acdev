@@ -6,8 +6,8 @@ use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use acde_gpu::wgpu;
-use acde_model::Combo;
+use acdert::gpu::wgpu;
+use acdert::model::Combo;
 use wgpu::rwh;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, ValidateRect};
@@ -97,7 +97,7 @@ impl super::Host for Host {
         true
     }
 
-    fn set_state(&self, state: Option<acde_model::WindowState>) {
+    fn set_state(&self, state: Option<acdert::model::WindowState>) {
         self.frame.set(self.hwnd, state);
     }
 
@@ -244,9 +244,9 @@ pub(crate) fn clipboard_get() -> String {
     text
 }
 
-pub(crate) fn click_settings() -> acde_model::ClickSettings {
+pub(crate) fn click_settings() -> acdert::model::ClickSettings {
     let (time, x, y) = unsafe { (GetDoubleClickTime(), GetSystemMetrics(SM_CXDOUBLECLK), GetSystemMetrics(SM_CYDOUBLECLK)) };
-    acde_model::ClickSettings { time_ms: f64::from(time), distance: [f64::from(x.max(1)), f64::from(y.max(1))] }
+    acdert::model::ClickSettings { time_ms: f64::from(time), distance: [f64::from(x.max(1)), f64::from(y.max(1))] }
 }
 
 struct Win {

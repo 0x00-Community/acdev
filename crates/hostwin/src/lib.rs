@@ -6,7 +6,7 @@ mod platform;
 mod shell;
 mod system;
 
-pub use acde_model::{DoubleClick, Event, FileFilter, Inbox, InjectEvent, Injected, Mode, OpenRequest, SaveRequest, Waker, WindowState};
+pub use acdert::model::{DoubleClick, Event, FileFilter, Inbox, InjectEvent, Injected, Mode, OpenRequest, SaveRequest, Waker, WindowState};
 pub use dev::event as dev_event;
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};

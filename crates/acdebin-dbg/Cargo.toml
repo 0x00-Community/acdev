@@ -8,12 +8,9 @@ name = "acdebin-dbg"
 path = "src/main.rs"
 
 [dependencies]
-acdert = { path = "../../../acdert/crates/acdert" }
+acdert = { path = "../../../acdert" }
 acde-hostwin = { path = "../hostwin" }
-acde-log = { path = "../../../acdert/crates/log" }
 # doctor.rs: draws a test frame on the GPU
-acde-gpu = { path = "../../../acdert/crates/gpu" }
-acde-vello = { path = "../../../acdert/crates/vello" }
 log = "0"
 serde_json = "1"
 # hostnative.rs: the dev IPC's shot carries the PNG as base64

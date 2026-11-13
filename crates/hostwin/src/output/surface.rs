@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
-use acde_model::{DoubleClick, Event, Inbox, Mode, Waker, WindowState};
-use acde_render::{RenderHandle, SurfaceCommand};
+use acdert::model::{DoubleClick, Event, Inbox, Mode, Waker, WindowState};
+use acdert::render::{RenderHandle, SurfaceCommand};
 
 use crate::app::server;
 use crate::output::gpu::guarded;
@@ -19,10 +19,10 @@ pub(crate) enum Msg {
     Panel(u32, Option<u32>),
     Title(String),
     Fullscreen(bool),
-    Theme(acde_render::FrameTheme),
+    Theme(acdert::render::FrameTheme),
     Active(bool),
     PageDark(bool),
-    Menu(Vec<String>, Option<(usize, acde_render::MenuList)>),
+    Menu(Vec<String>, Option<(usize, acdert::render::MenuList)>),
     Refresh(Option<f64>),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,

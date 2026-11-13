@@ -40,7 +40,7 @@ fn hosted(args: &[String], platform: acdert::Shared) -> i32 {
 }
 
 fn main() {
-    acde_log::init();
+    acdert::log::init();
     let args: Vec<String> = std::env::args().collect();
     let platform: acdert::Shared = std::sync::Arc::new(platform::Host);
     let code = match args.get(1).map(String::as_str) {

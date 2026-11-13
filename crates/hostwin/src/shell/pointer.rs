@@ -1,4 +1,4 @@
-use acde_model::{ClickSettings, Mode, WindowState};
+use acdert::model::{ClickSettings, Mode, WindowState};
 
 use super::State;
 
@@ -21,7 +21,7 @@ impl State {
         self.layers().into_iter().rev().find_map(|layer| {
             let e = self.entries.get(&layer.id)?;
             let [rx, ry, rw, rh] = e.rect;
-            let (x, y) = layer.look.unmap(&acde_model::Rect::new(rx, ry, rw, rh), 1.0, x, y);
+            let (x, y) = layer.look.unmap(&acdert::model::Rect::new(rx, ry, rw, rh), 1.0, x, y);
             let inside = |[ax, ay, aw, ah]: [f64; 4]| x >= ax && y >= ay && x < ax + aw && y < ay + ah;
             let area = match e.input {
                 Some([ix, iy, iw, ih]) => [rx + ix, ry + iy, iw, ih],
@@ -73,7 +73,7 @@ mod tests {
     use super::*;
     use crate::shell::Grant;
     use crate::shell::tests::{apply, open, screen};
-    use acde_model::DoubleClick;
+    use acdert::model::DoubleClick;
 
     #[test]
     fn a_double_click_on_a_title_area_acts_without_starting_a_move() {
@@ -101,13 +101,13 @@ mod tests {
         let mut s = screen();
         let settings = ClickSettings::default();
         let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
-        s.entries.get_mut(&w).expect("frameless").hints = vec![([0.0, 0.0, 400.0, 40.0], 0), ([0.0, 0.0, 400.0, 4.0], acde_model::edge::TOP)];
+        s.entries.get_mut(&w).expect("frameless").hints = vec![([0.0, 0.0, 400.0, 40.0], 0), ([0.0, 0.0, 400.0, 4.0], acdert::model::edge::TOP)];
         let caption = [200.0, 120.0];
         assert!(matches!(s.press(w, caption, 0.0, settings), Press::Drag(0, _)));
         assert!(matches!(s.press(w, caption, 100.0, settings), Press::Double(Some(WindowState::Filled))));
         let edge = [200.0, 101.0];
-        assert!(matches!(s.press(w, edge, 1000.0, settings), Press::Drag(acde_model::edge::TOP, _)));
-        assert!(matches!(s.press(w, edge, 1100.0, settings), Press::Drag(acde_model::edge::TOP, _)), "resize edges never double-click");
+        assert!(matches!(s.press(w, edge, 1000.0, settings), Press::Drag(acdert::model::edge::TOP, _)));
+        assert!(matches!(s.press(w, edge, 1100.0, settings), Press::Drag(acdert::model::edge::TOP, _)), "resize edges never double-click");
     }
 
     #[test]
@@ -142,14 +142,18 @@ mod tests {
         let settings = ClickSettings::default();
         let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
         s.entries.get_mut(&w).expect("framed").frame = 32.0;
-        s.theme = acde_render::FrameTheme { style: Some(acde_render::FrameStyle::Windows), side: Some(acde_render::ButtonSide::Right), ..Default::default() };
+        s.theme = acdert::render::FrameTheme {
+            style: Some(acdert::render::FrameStyle::Windows),
+            side: Some(acdert::render::ButtonSide::Right),
+            ..Default::default()
+        };
         assert!(matches!(s.press(w, [120.0, 115.0], 0.0, settings), Press::Drag(0, _)));
         assert!(matches!(s.press(w, [480.0, 115.0], 1000.0, settings), Press::Plain), "the close button");
-        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(380.0, 15.0), Some(acde_render::FrameButton::Close));
-        s.theme.side = Some(acde_render::ButtonSide::Left);
+        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(380.0, 15.0), Some(acdert::render::FrameButton::Close));
+        s.theme.side = Some(acdert::render::ButtonSide::Left);
         assert!(matches!(s.press(w, [120.0, 115.0], 2000.0, settings), Press::Plain), "the buttons moved left");
         assert!(matches!(s.press(w, [480.0, 115.0], 3000.0, settings), Press::Drag(0, _)));
-        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(100.0, 15.0), Some(acde_render::FrameButton::Close));
+        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(100.0, 15.0), Some(acdert::render::FrameButton::Close));
     }
 
     #[test]
@@ -173,8 +177,8 @@ mod tests {
         let primary = open(&mut s, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
         let other = open(&mut s, Grant { rect: Some([10.0, 10.0, 100.0, 100.0]), ..Grant::default() });
         assert_eq!((s.host_entry(), s.entries[&other].host), (Some(primary), false));
-        s.entries.get_mut(&primary).expect("primary").hints = vec![([0.0, 0.0, 1000.0, 40.0], 0), ([0.0, 0.0, 1000.0, 4.0], acde_model::edge::TOP)];
+        s.entries.get_mut(&primary).expect("primary").hints = vec![([0.0, 0.0, 1000.0, 40.0], 0), ([0.0, 0.0, 1000.0, 4.0], acdert::model::edge::TOP)];
         let hints = s.entries[&primary].grab_hints(&s.theme);
-        assert_eq!([20.0, 2.0, 200.0].map(|y| edges_at(&hints, 500.0, y)), [Some(0), Some(acde_model::edge::TOP), None]);
+        assert_eq!([20.0, 2.0, 200.0].map(|y| edges_at(&hints, 500.0, y)), [Some(0), Some(acdert::model::edge::TOP), None]);
     }
 }

@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# cli/: the developer CLI (bun); cli/exe is its own small crate (the Windows acde.exe)
+exclude = ["cli"]
 
 [workspace.package]
 version = "0.0.9"
@@ -8,25 +10,25 @@ edition = "2024"
 repository = "http://gitea.dopamine/AC/acdebin-dbg"
 publish = false
 
-# acdert 和本仓库并排检出 (../acdert); vendors 用 acdert 的那份
+# acdert 和本仓库并排检出 (../acdert); vendor 用 acdert 的那份
 [patch.crates-io]
-async-dnssd = { path = "../acdert/vendors/async-dnssd" }
-blitz-dom = { path = "../acdert/vendors/acrender/packages/blitz-dom" }
-blitz-paint = { path = "../acdert/vendors/acrender/packages/blitz-paint" }
-blitz-traits = { path = "../acdert/vendors/acrender/packages/blitz-traits" }
-fontique = { path = "../acdert/vendors/fontique" }
-# 不依赖 winapi (见 AGENTS.md 的 vendors/fslock、vendors/async-dnssd)
-fslock = { path = "../acdert/vendors/fslock" }
-# RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendors/ironrdp-server)
-ironrdp-server = { path = "../acdert/vendors/ironrdp-server" }
-# libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendors/libseat-sys)
-libseat-sys = { path = "../acdert/vendors/libseat-sys" }
-# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendors/naga)
-naga = { path = "../acdert/vendors/naga" }
-parley = { path = "../acdert/vendors/parley" }
-stylo = { path = "../acdert/vendors/stylo" }
-stylo_atoms = { path = "../acdert/vendors/stylo_atoms" }
-vello = { path = "../acdert/vendors/vello" }
+async-dnssd = { path = "../acdert/vendor/async-dnssd" }
+blitz-dom = { path = "../acdert/vendor/acrender/packages/blitz-dom" }
+blitz-paint = { path = "../acdert/vendor/acrender/packages/blitz-paint" }
+blitz-traits = { path = "../acdert/vendor/acrender/packages/blitz-traits" }
+fontique = { path = "../acdert/vendor/fontique" }
+# 不依赖 winapi (见 AGENTS.md 的 vendor/fslock、vendor/async-dnssd)
+fslock = { path = "../acdert/vendor/fslock" }
+# RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendor/ironrdp-server)
+ironrdp-server = { path = "../acdert/vendor/ironrdp-server" }
+# libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendor/libseat-sys)
+libseat-sys = { path = "../acdert/vendor/libseat-sys" }
+# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendor/naga)
+naga = { path = "../acdert/vendor/naga" }
+parley = { path = "../acdert/vendor/parley" }
+stylo = { path = "../acdert/vendor/stylo" }
+stylo_atoms = { path = "../acdert/vendor/stylo_atoms" }
+vello = { path = "../acdert/vendor/vello" }
 
 [profile.release]
 opt-level = "s"

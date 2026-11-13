@@ -4,11 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acde-model = { path = "../../../acdert/crates/model" }
-acde-render = { path = "../../../acdert/crates/render" }
-acde-gpu = { path = "../../../acdert/crates/gpu" }
-acde-vello = { path = "../../../acdert/crates/vello" }
-acde-log = { path = "../../../acdert/crates/log" }
+acdert = { path = "../../../acdert" }
 serde_json = "1"
 log = "0"
 pollster = "0"

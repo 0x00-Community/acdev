@@ -4,7 +4,7 @@ use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use acde_gpu::wgpu;
+use acdert::gpu::wgpu;
 
 use crate::app::server;
 use crate::output::gpu::{Gpu, guarded};
@@ -57,7 +57,7 @@ pub(crate) struct Layer {
     pub id: u32,
     pub rect: [f64; 4],
     pub backdrop: Option<([f64; 4], [f64; 4])>,
-    pub look: acde_model::Look,
+    pub look: acdert::model::Look,
 }
 
 struct Canvas {
@@ -163,7 +163,7 @@ struct Thread {
     dump: Option<PathBuf>,
     dump_at: Option<Instant>,
     pages: HashMap<u32, Bound>,
-    composer: acde_vello::Composer,
+    composer: acdert::vello::Composer,
     canvas: Option<Canvas>,
     retry_at: Option<Instant>,
     fault: Option<Fault>,
@@ -242,7 +242,7 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let dump = std::env::var_os("ACDE_HOST_DUMP").map(PathBuf::from);
     let (tx, rx) = mpsc::channel();
     let size = (size.0.max(1), size.1.max(1));
-    let composer = acde_vello::Composer::new(device, &gpu.shared.queue);
+    let composer = acdert::vello::Composer::new(device, &gpu.shared.queue);
     let pages = HashMap::new();
     let fault = Fault::from_env();
     let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, draws: 0 };
@@ -327,7 +327,7 @@ impl Thread {
         Bound { page, place, bind }
     }
 
-    fn prepare(&mut self) -> Option<Vec<(u32, Option<acde_gpu::Backdrop>)>> {
+    fn prepare(&mut self) -> Option<Vec<(u32, Option<acdert::gpu::Backdrop>)>> {
         let server = server()?;
         let (layers, scale, done, moving) = {
             let mut state = server.state();
@@ -335,7 +335,7 @@ impl Thread {
             (state.layers(), state.screen[2], done, !state.transitions.is_empty())
         };
         for window in done {
-            server.broker.push(acde_model::Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
+            server.broker.push(acdert::model::Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
         }
         if moving {
             self.retry_at = Some(Instant::now() + MOTION_TICK);
@@ -345,7 +345,7 @@ impl Thread {
         for layer in &shown {
             let bound = &self.pages[&layer.id];
             let (w, h) = (f64::from(bound.page.size.0), f64::from(bound.page.size.1));
-            let at = acde_model::Rect::new((layer.rect[0] * scale).round(), (layer.rect[1] * scale).round(), w, h);
+            let at = acdert::model::Rect::new((layer.rect[0] * scale).round(), (layer.rect[1] * scale).round(), w, h);
             let shown = layer.look.map(&at, scale, &at);
             let straight = f32::from(u8::from(bound.page.straight.load(std::sync::atomic::Ordering::Relaxed)));
             let look = [layer.look.scale.max(1e-6) as f32, layer.look.opacity];
@@ -357,15 +357,15 @@ impl Thread {
             let ([x, y, w, h], [radius, blur, saturate, brightness]) = layer.backdrop?;
             let origin = [(layer.rect[0] * scale).round(), (layer.rect[1] * scale).round()];
             let rect = [(origin[0] + x) as f32, (origin[1] + y) as f32, w as f32, h as f32];
-            let mut effect = acde_gpu::Effect::default();
+            let mut effect = acdert::gpu::Effect::default();
             effect.blur(blur as f32);
             if saturate != 1.0 {
-                effect.matrix(acde_gpu::ColorMatrix::saturate(saturate as f32).0);
+                effect.matrix(acdert::gpu::ColorMatrix::saturate(saturate as f32).0);
             }
             if brightness != 1.0 {
-                effect.matrix(acde_gpu::ColorMatrix::brightness(brightness as f32).0);
+                effect.matrix(acdert::gpu::ColorMatrix::brightness(brightness as f32).0);
             }
-            (!effect.is_none()).then_some(acde_gpu::Backdrop { rect, radius: radius as f32, effect })
+            (!effect.is_none()).then_some(acdert::gpu::Backdrop { rect, radius: radius as f32, effect })
         };
         Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
     }
@@ -404,7 +404,7 @@ impl Thread {
             let device = &self.gpu.shared.device;
             let usage =
                 wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
-            let texture = acde_gpu::texture(device, size, usage, "acde compose canvas");
+            let texture = acdert::gpu::texture(device, size, usage, "acde compose canvas");
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             let place = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("acde compose canvas place"),
@@ -430,7 +430,7 @@ impl Thread {
         canvas.texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Option<acde_gpu::Backdrop>)]) -> wgpu::TextureView {
+    fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Option<acdert::gpu::Backdrop>)]) -> wgpu::TextureView {
         let canvas = self.canvas();
         let mut from = 0;
         let mut clear = true;
@@ -530,7 +530,7 @@ impl Thread {
         self.composer.end_frame();
         let texture = &self.canvas.as_ref().ok_or("no canvas")?.texture;
         let rgba = gpu.shared.read(texture, [0, 0, w, h])?;
-        let png = acde_render::encode_png(w, h, &rgba).ok_or("png encoding failed")?;
+        let png = acdert::render::encode_png(w, h, &rgba).ok_or("png encoding failed")?;
         Ok((w, h, png, ids.len()))
     }
 
