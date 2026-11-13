@@ -1398,7 +1398,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **整条链路不许 CPU 拷像素、不许 GPU 回读**. 例外: RDP 后端 (回读损坏区域)、截屏 / capture、标准接口要同步给像素的 (`getImageData` /
   `toDataURL`).
-- **网页只在 GPU 上画**: 没有 CPU 光栅化, 不认 CPU 类型的设备 (lavapipe). 没有 GPU 时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
+- **网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定 2026-11-13): 没有 vello_cpu; `acde_gpu::adapters` 真 GPU 排前, CPU 类型的设备 (lavapipe)
+  排最后, 只有它时用它 (虚拟机 / VNC, 慢). 什么设备都没有时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
   合成器自己 (GLES) 不在此列.
 - **不依赖 acgpu, 不带专用驱动**: 只经标准图形接口 (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal
   (`acde_gpu::BACKEND`). crates/gpu (`acde-gpu`) 是 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` / `Filter`, blitz-paint 和 render 直接
@@ -1903,7 +1904,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 
 会话入口: 子命令直接 exec acdert; 否则跑 acdert, 异常退出重新拉起, 60 秒内第 3 次放弃 (登录页改成 `exec agreety --cmd /usr/bin/acdert`); 退出码 3 且有
 交接文件时 exec 它. 输入法是 fcitx5 (原生应用走 text-input-v3, 网页走 runtime 的 `Ime`). 包从 `HEAD` 构建 (`git archive`), 版本来自 `v*` tag;
-`vulkan-driver` 依赖由 GPU 自己的驱动满足 (lavapipe 不算). 构建 `makepkg -s` 或 `podman-build.sh out/`; 发版在 x86_64 Arch 和 Arch Linux ARM 上各跑
+`vulkan-driver` 依赖由 GPU 自己的驱动满足, 没有 GPU 时 lavapipe (`vulkan-swrast`) 也行. 构建 `makepkg -s` 或 `podman-build.sh out/`; 发版在 x86_64 Arch 和 Arch Linux ARM 上各跑
 `release.sh <tag>`, agentos 仓库的 `scripts/components` 钉 tag.
 
 ## packaging/qemu

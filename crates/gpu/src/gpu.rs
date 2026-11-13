@@ -55,10 +55,11 @@ pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub fn adapters() -> (wgpu::Instance, Vec<wgpu::Adapter>) {
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
-    let mut adapters: Vec<_> =
-        pollster::block_on(instance.enumerate_adapters(crate::BACKEND)).into_iter().filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu).collect();
+    // real GPUs first; a CPU device (lavapipe) only when there is nothing else (VMs without a GPU, VNC)
+    let mut adapters: Vec<_> = pollster::block_on(instance.enumerate_adapters(crate::BACKEND)).into_iter().collect();
     adapters.sort_by_key(|a| match a.get_info().device_type {
         wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu => 0,
+        wgpu::DeviceType::Cpu => 2,
         _ => 1,
     });
     (instance, adapters)
