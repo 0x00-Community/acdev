@@ -15,7 +15,6 @@ publish = false
 blitz-dom = { path = "../acdert/vendor/blitz/packages/blitz-dom" }
 blitz-paint = { path = "../acdert/vendor/blitz/packages/blitz-paint" }
 blitz-traits = { path = "../acdert/vendor/blitz/packages/blitz-traits" }
-ironrdp-server = { path = "../acdert/vendor/ironrdp-server" }
 
 [profile.release]
 opt-level = "s"
