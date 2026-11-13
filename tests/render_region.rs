@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use acde_gpu::Scene;
+use acdert::gpu::Scene;
 use acdert::render::{Frame, Options};
 use kurbo::Rect;
 

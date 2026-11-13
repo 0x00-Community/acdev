@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use acde_gpu::RenderCommand;
+use crate::gpu::RenderCommand;
 use blitz_dom::NodeId;
 use blitz_paint::{Change, PaintCache, Run};
 use kurbo::{Affine, Rect, Shape};
@@ -371,7 +371,7 @@ impl Damage {
 
 impl Damage {
     pub(crate) fn plane(&mut self, commands: Commands, rects: Vec<Rect>, scale: f64, viewport: Rect) -> Plane {
-        let tolerance = acde_gpu::Scene::TOLERANCE;
+        let tolerance = crate::gpu::Scene::TOLERANCE;
         let union = rects.iter().copied().reduce(|x, y| x.union(y)).unwrap_or(Rect::ZERO);
         let bounds = Damage::content_bounds(self.kinds(), self.draw(), viewport).map(crate::render::Rect::from);
         let (commands, layers, draw) = match Split::layers(commands, tolerance, self.kinds(), self.draw(), scale, viewport) {
@@ -459,7 +459,7 @@ pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use acde_gpu::{FillCommand, Paint};
+    use crate::gpu::{FillCommand, Paint};
     use peniko::{Color, Fill};
 
     fn square(x: f64, color: Color) -> RenderCommand {

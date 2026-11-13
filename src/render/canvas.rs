@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
-use acde_gpu::{GpuImage, PaintScene, Scene};
+use crate::gpu::{GpuImage, PaintScene, Scene};
 use blitz_dom::BaseDocument;
 use kurbo::{Affine, BezPath, Cap, Join, PathEl, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2};
 use peniko::{BlendMode, Color, Compose, Fill, Gradient, Mix, StyleRef};
@@ -95,7 +95,7 @@ struct State {
     rtl: bool,
     clips: Vec<(BezPath, Fill)>,
     own: usize,
-    filter: Option<Arc<acde_gpu::Filter>>,
+    filter: Option<Arc<crate::gpu::Filter>>,
 }
 
 impl Default for State {
@@ -174,7 +174,7 @@ impl<'a> Reader<'a> {
     fn paint(&mut self) -> Result<Painted> {
         let kind = self.u8()?;
         let gradient = match kind {
-            0 => return Ok(Painted::Paint(acde_gpu::Paint::from(self.color()?))),
+            0 => return Ok(Painted::Paint(crate::gpu::Paint::from(self.color()?))),
             3 => {
                 let (kind, id, repeat) = (self.u8()?, self.u32()?, self.u8()?);
                 let [a, b, c, d, e, f] = self.fs::<6>()?;
@@ -196,30 +196,30 @@ impl<'a> Reader<'a> {
             let offset = self.f()? as f32;
             stops.push((offset, self.color()?));
         }
-        Ok(Painted::Paint(acde_gpu::Paint::Gradient(gradient.with_stops(stops.as_slice()))))
+        Ok(Painted::Paint(crate::gpu::Paint::Gradient(gradient.with_stops(stops.as_slice()))))
     }
 }
 
 enum Painted {
-    Paint(acde_gpu::Paint),
+    Paint(crate::gpu::Paint),
     Pattern { kind: u8, id: u32, repeat: u8, matrix: Affine },
 }
 
 #[derive(Clone)]
 struct Style {
-    paint: acde_gpu::Paint,
+    paint: crate::gpu::Paint,
     pattern: Option<Pattern>,
 }
 
 impl Style {
     fn solid(color: Color) -> Self {
-        Self { paint: acde_gpu::Paint::from(color), pattern: None }
+        Self { paint: crate::gpu::Paint::from(color), pattern: None }
     }
 
     fn brush(&self, user: Affine) -> Option<Affine> {
         match (&self.paint, &self.pattern) {
             (_, Some(p)) => Some(user * p.matrix),
-            (acde_gpu::Paint::Gradient(_), None) => Some(user),
+            (crate::gpu::Paint::Gradient(_), None) => Some(user),
             _ => None,
         }
     }
@@ -288,7 +288,7 @@ impl Canvas {
             return self.scene.clone();
         }
         let mut commands = self.scene.commands[..self.scene.commands.len() - self.closed].to_vec();
-        commands.extend((0..open).map(|_| acde_gpu::RenderCommand::PopLayer));
+        commands.extend((0..open).map(|_| crate::gpu::RenderCommand::PopLayer));
         Arc::new(Scene { tolerance: self.scene.tolerance, commands })
     }
 
@@ -333,7 +333,7 @@ impl Canvas {
         }
         let result = self.record(doc, ops, source);
         let open = self.state.clips.len();
-        self.scene().commands.extend((0..open).map(|_| acde_gpu::RenderCommand::PopLayer));
+        self.scene().commands.extend((0..open).map(|_| crate::gpu::RenderCommand::PopLayer));
         self.closed = open;
         result
     }
@@ -672,8 +672,8 @@ impl Canvas {
         self.ellipse(center, (radius, radius), 0.0, a0, a1, ccw);
     }
 
-    fn filter(r: &mut Reader) -> Result<Option<Arc<acde_gpu::Filter>>> {
-        use acde_gpu::{ColorMatrix, DropShadow, FilterEffect, GaussianBlur};
+    fn filter(r: &mut Reader) -> Result<Option<Arc<crate::gpu::Filter>>> {
+        use crate::gpu::{ColorMatrix, DropShadow, FilterEffect, GaussianBlur};
         let n = r.u32()?;
         let mut effects = Vec::with_capacity(n as usize);
         for _ in 0..n {
@@ -800,7 +800,7 @@ impl Canvas {
         brush.sampler.x_extend = extend(matches!(repeat, 0 | 1));
         brush.sampler.y_extend = extend(matches!(repeat, 0 | 2));
         Some(Style {
-            paint: acde_gpu::Paint::Image(brush),
+            paint: crate::gpu::Paint::Image(brush),
             pattern: Some(Pattern { size, matrix: if matrix.is_finite() { matrix } else { Default::default() }, repeat }),
         })
     }
@@ -892,7 +892,7 @@ impl Canvas {
             Self::clipped(s, clip.as_ref(), |s| {
                 for item in line.items() {
                     let parley::PositionedLayoutItem::GlyphRun(run) = item else { continue };
-                    let glyphs = run.positioned_glyphs().map(|g| acde_gpu::Glyph { id: g.id as _, x: g.x, y: g.y });
+                    let glyphs = run.positioned_glyphs().map(|g| crate::gpu::Glyph { id: g.id as _, x: g.x, y: g.y });
                     let r = run.run();
                     let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
                     s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, glyph_style, &paint, 1.0, transform, brush, glyphs);

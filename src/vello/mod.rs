@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use acde_gpu::acgpu::fallback;
-use acde_gpu::{Filter, Gpu, GpuImage, Scene};
+use crate::gpu::acgpu::fallback;
+use crate::gpu::{Filter, Gpu, GpuImage, Scene};
 use kurbo::Affine;
 
 #[cfg(target_os = "linux")]
 pub use fallback::Raster;
 pub use fallback::{Composer, Op, Overrides, Vello};
-pub use {acde_gpu, vello};
+pub use {crate::gpu, vello};
 
 pub struct Offscreen(fallback::Offscreen);
 
@@ -31,7 +31,7 @@ impl std::ops::DerefMut for Offscreen {
     }
 }
 
-impl acde_gpu::Offscreen for Offscreen {
+impl crate::gpu::Offscreen for Offscreen {
     fn draw(&mut self, scene: Scene, size: (u32, u32), place: Affine) -> Result<Arc<GpuImage>, String> {
         self.0.draw(scene, size, place)
     }
@@ -51,8 +51,8 @@ impl acde_gpu::Offscreen for Offscreen {
 
 pub struct VelloCompositor;
 
-impl acde_gpu::Compositor for VelloCompositor {
-    fn offscreen(&self, gpu: Arc<Gpu>) -> Result<Box<dyn acde_gpu::Offscreen>, String> {
-        Offscreen::new(gpu).map(|o| Box::new(o) as Box<dyn acde_gpu::Offscreen>)
+impl crate::gpu::Compositor for VelloCompositor {
+    fn offscreen(&self, gpu: Arc<Gpu>) -> Result<Box<dyn crate::gpu::Offscreen>, String> {
+        Offscreen::new(gpu).map(|o| Box::new(o) as Box<dyn crate::gpu::Offscreen>)
     }
 }

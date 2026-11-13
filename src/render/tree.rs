@@ -192,7 +192,7 @@ impl Tree<'_> {
     }
 
     pub(crate) fn canvas_image(&mut self, id: u32, image: Option<peniko::ImageData>) -> Result<()> {
-        use acde_gpu::PaintScene;
+        use crate::gpu::PaintScene;
         let node = self.canvas_node(id)?;
         self.ids.canvases.remove(&id);
         let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) else {
@@ -202,16 +202,16 @@ impl Tree<'_> {
         };
         let (width, height) = crate::render::canvas::Canvas::size_of(self.m.doc, node);
         let fit = kurbo::Affine::scale_non_uniform(width / f64::from(image.width), height / f64::from(image.height));
-        let mut picture = acde_gpu::Scene::new();
+        let mut picture = crate::gpu::Scene::new();
         let brush = peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() };
-        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &acde_gpu::Paint::Image(brush), Some(fit), &kurbo::Rect::new(0.0, 0.0, width, height));
+        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &crate::gpu::Paint::Image(brush), Some(fit), &kurbo::Rect::new(0.0, 0.0, width, height));
         self.ids.gpu_canvases.insert(id);
         self.m.doc.set_canvas_picture(node, Some(std::sync::Arc::new(picture)));
         Ok(())
     }
 
     pub(crate) fn video_image(&mut self, id: u32, image: Option<peniko::ImageData>) -> Result<bool> {
-        use acde_gpu::PaintScene;
+        use crate::gpu::PaintScene;
         let node = self.ids.node(id)?;
         if !self.m.doc.get_node(node).and_then(|n| n.element_data()).is_some_and(|e| &*e.name.local == "video") {
             return Err(Error::new(format!("node {id} is not a <video>")));
@@ -224,9 +224,9 @@ impl Tree<'_> {
         };
         let size = (image.width as f32, image.height as f32);
         let rect = kurbo::Rect::new(0.0, 0.0, f64::from(image.width), f64::from(image.height));
-        let mut picture = acde_gpu::Scene::new();
+        let mut picture = crate::gpu::Scene::new();
         let brush = peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() };
-        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &acde_gpu::Paint::Image(brush), None, &rect);
+        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &crate::gpu::Paint::Image(brush), None, &rect);
         self.m.doc.set_canvas_picture(node, Some(std::sync::Arc::new(picture)));
         self.m.doc.set_video_size(node, Some(size));
         Ok(before != Some(size))

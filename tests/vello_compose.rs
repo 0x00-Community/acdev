@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use acde_gpu::{Backdrop, ColorMatrix, Effect, Gpu, Shadow, wgpu};
+use acdert::gpu::{Backdrop, ColorMatrix, Effect, Gpu, Shadow, wgpu};
 use acdert::vello::{Composer, Op};
 
 const W: u32 = 128;
@@ -19,7 +19,7 @@ impl Bench {
         let composer = Composer::new(&gpu.device, &gpu.queue);
         let usage =
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
-        let canvas = acde_gpu::texture(&gpu.device, (W, H), usage, "test canvas");
+        let canvas = acdert::gpu::texture(&gpu.device, (W, H), usage, "test canvas");
         Self { gpu, composer, canvas }
     }
 

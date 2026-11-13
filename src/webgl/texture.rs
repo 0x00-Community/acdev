@@ -9,7 +9,7 @@ use crate::webgl::objects::*;
 
 pub enum TexSource {
     Cpu { width: u32, height: u32, rgba: Vec<u8> },
-    Gpu(Arc<acde_gpu::GpuImage>),
+    Gpu(Arc<crate::gpu::GpuImage>),
 }
 
 pub(crate) fn mip_count(width: u32, height: u32, depth: u32) -> u32 {
@@ -716,7 +716,7 @@ impl Context {
     }
 
     #[allow(clippy::too_many_arguments, reason = "mirrors the GL entry point")]
-    fn tex_image_gpu(&mut self, target: u32, level: i32, internal: u32, format: u32, ty: u32, image: &Arc<acde_gpu::GpuImage>, sub: Option<[i32; 3]>) {
+    fn tex_image_gpu(&mut self, target: u32, level: i32, internal: u32, format: u32, ty: u32, image: &Arc<crate::gpu::GpuImage>, sub: Option<[i32; 3]>) {
         let (w, h) = (image.texture.width(), image.texture.height());
         let Some((id, face)) = self.bound_texture(target) else { return };
         let (fmt, origin) = match sub {

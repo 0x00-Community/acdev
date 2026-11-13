@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
-use acde_gpu::FilterEffect;
-use acde_gpu::{ColorMatrix, Effect};
-use acde_gpu::{PaintScene, Scene};
+use acdert::gpu::FilterEffect;
+use acdert::gpu::{ColorMatrix, Effect};
+use acdert::gpu::{PaintScene, Scene};
 use acdert::render::{Frame, Options};
 
 mod common;

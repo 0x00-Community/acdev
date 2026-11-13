@@ -15,7 +15,7 @@ struct Entry {
 struct State {
     contexts: bind::Slab<Entry>,
     lost: Option<v8::Global<v8::Function>>,
-    listener: Option<(std::sync::Arc<acde_gpu::Gpu>, u64)>,
+    listener: Option<(std::sync::Arc<crate::gpu::Gpu>, u64)>,
 }
 
 thread_local! {
@@ -319,7 +319,7 @@ fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
         preserve_drawing_buffer: flag(scope, "preserveDrawingBuffer", false),
     };
     let (width, height) = (bind::arg_u32(scope, &args, 3), bind::arg_u32(scope, &args, 4));
-    let Some(gpu) = acde_gpu::Gpu::shared() else {
+    let Some(gpu) = crate::gpu::Gpu::shared() else {
         rv.set_null();
         return;
     };

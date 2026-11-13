@@ -1,4 +1,4 @@
-use acde_gpu::{Glyph, PaintScene, Scene};
+use crate::gpu::{Glyph, PaintScene, Scene};
 use kurbo::{Affine, BezPath, Circle, Line, Rect, RoundedRect, Shape, Stroke, Vec2};
 use parley::fontique::{Collection, CollectionOptions, SourceCache};
 use parley::{FontContext, FontFamily, FontWeight, Layout, LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty};

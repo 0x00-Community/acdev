@@ -31,8 +31,8 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
 根包 `acdert` (仓库根的 `Cargo.toml` + `src/`) 是对外唯一的包, 前端只依赖它 (`acdert = { path = "../../../acdert" }`). 代码都在这一个包里:
 `src/host` 的公开项由 `src/lib.rs` 平铺导出, 其余是公开模块 `acdert::log` / `media` / `model` / `napi` / `render` / `runtime` / `storage` / `vello` /
-`webgl` (模块内互相引用写 `crate::render::…`); `acdert::gpu` 是独立 crate `crates/gpu` (acde-gpu) 的重导出: blitz fork 的 blitz-paint 画进它的场景,
-acdert 又依赖 blitz, 所以它不能并进来. feature `napi` 打开 model 的 `#[napi(object)]`. 测试在根 `tests/` (`<原模块>_<名字>.rs`, 夹具 `tests/fixtures`,
+`webgl` / `gpu` (模块内互相引用写 `crate::render::…`); `acdert::gpu` (src/gpu) 是 acgpu 之上的设备登记 (`Gpu`) 和合成器接口, 平铺导出
+acgpu 的 2D 场景类型; blitz fork 直接画进 acgpu 的场景 (用户定 2026-11-14: acgpu 接管 acde-gpu, 这个 crate 已删). feature `napi` 打开 model 的 `#[napi(object)]`. 测试在根 `tests/` (`<原模块>_<名字>.rs`, 夹具 `tests/fixtures`,
 runtime 的手动检查脚本 `tests/runtime/`), Wayland 协议在 `protocol/`. crate-type 是 rlib + cdylib, cdylib 即 `libacdert.so`.
 `src/ffi.rs` 是 C 接口, `build.rs` 用 cbindgen (`cbindgen.toml`, 只解析 `src/ffi.rs`) 每次构建重写 `include/acdert.h` (进 git, 随 so 发):
 
@@ -52,10 +52,10 @@ runtime 的手动检查脚本 `tests/runtime/`), Wayland 协议在 `protocol/`. 
 - 导出表: `build.rs` 从 `src/ffi.rs` 收 `acdert_*`, so 只导出它们 (Linux `--exclude-libs,ALL` + 版本脚本, macOS `-exported_symbols_list`, MSVC `.def`);
   V8 / napi / temporal 等依赖的符号都不导出 (napi 模块的 napi_* 只给静态链接的内置模块用, 不 dlopen 外部 .node).
 - 发布到 gitea.dopamine AC 组织的 cargo 源 `ac` (`.cargo/config.toml`; 读也要令牌, 匿名 401):
-  `CARGO_REGISTRIES_AC_TOKEN="Bearer <令牌>" cargo publish -p <包> --registry ac`. ac 上除了 acdert 只有它不得不单独发的依赖: acde-gpu
-  (blitz 要用), blitz fork 的包 (blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer, 原名), blitz 的 taffy (上游 Blitz 钉的 git 提交,
-  `0.15.0-git.4e59968`). 顺序: acde-gpu → blitz 那五个 (在 `vendor/blitz` 里发) → acdert. 升版本时改 `[workspace.package] version` 和
-  `[workspace.dependencies]` 里 acde-gpu 的 `version` (blitz fork 里 acde-gpu 的也要改).
+  `CARGO_REGISTRIES_AC_TOKEN="Bearer <令牌>" cargo publish -p <包> --registry ac`. ac 上除了 acdert 只有它不得不单独发的依赖: blitz fork 的包
+  (blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer, 原名), blitz 的 taffy (上游 Blitz 钉的 git 提交, `0.15.0-git.4e59968`);
+  2D 场景是 acgpu 的 (acgpu 仓库自己发, 不开 `compiler`), acde-gpu 已并进 `src/gpu`. 顺序: acgpu → blitz 那五个 (在 `vendor/blitz` 里发) → acdert.
+  升版本时改 `[workspace.package] version`; blitz 升版本时它自己的 `[workspace.package]`、`[workspace.dependencies]` 和这里的 `=0.3.0-beta.N` 一起改.
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 两个前端的 `[patch]` 都指 `../acdert/vendor/blitz`.
@@ -1368,21 +1368,21 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   tick 只对齐到 vblank. `Frame {plane, panels, size, animating, commit, trace}`: plane 是整页 (含画布背景, 不含面板); `panels` 是
   `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;
   layers 是有 backdrop-filter / filter 时切成的段, 每段 `{drawing, bounds, backdrop, filter}` (`Drawing` 出 `scene` / `scene_for`): backdrop 先处理画布上已画的那块再画这段, filter
-  先画进临时纹理再合成. 光栅化方 (acde-gpu) 做 filter 的 drop-shadow、模糊、颜色矩阵, backdrop 的模糊和所有颜色函数 (`Backdrop::effect`:
+  先画进临时纹理再合成. 光栅化方 (acgpu 的回退) 做 filter 的 drop-shadow、模糊、颜色矩阵, backdrop 的模糊和所有颜色函数 (`Backdrop::effect`:
   按顺序合成一个颜色矩阵, 几个 blur 按平方和开方合并); backdrop-filter 里的 drop-shadow 不做; 只切最外层: 已有 filter 的元素里面再有 filter / backdrop-filter 时不做 (#46);
   这两种同一组滤镜只记一次 warn (最多记 64 组).
   窗口之间的毛玻璃 (`setBackdrop`、面板的 `backdrops`) 仍只带 blur / saturate / brightness.
-- 模糊 (acde-gpu `Composer`、shell `effects.rs`) 是降采样 / 升采样链, 几层、采样偏移多大由 acde-model `Blur::of(sigma)` 一处决定
+- 模糊 (acgpu `Composer`、shell `effects.rs`) 是降采样 / 升采样链, 几层、采样偏移多大由 acde-model `Blur::of(sigma)` 一处决定
   (也给出窗口之间毛玻璃的取样外扩 `margin`): 偏移在约 0.5–1.3 之间连续调 (一层时从 0 起, 五层时最多到 2), 强度随 sigma 连续变,
-  近似同 sigma 的高斯 (`SPREAD` 是 DX12 上量出的每档方差, `crates/gpu/tests/compose.rs` 按相位平均量边缘的展宽对照); sigma 小于约
+  近似同 sigma 的高斯 (`SPREAD` 是 DX12 上量出的每档方差, `tests/vello_compose.rs` 按相位平均量边缘的展宽对照); sigma 小于约
   0.96 px 时一层不偏移, 再按 `mix` 和原图混合. sigma 为 0 不模糊 (drop-shadow、backdrop 只拷一份). shell 的 GLES 链不做 `mix`.
 - `Dom::capture(id, scale)`: 单独录一个元素 (拖动图标), 单边超过 2048 缩小; JS 拿 `picture` 编号 (`dom.rs`, 每个 web 留最后一个).
-- canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
+- canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acdert::gpu::Gpu::publish` 登记的设备):
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
   `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`. `drawImage` 一张 SVG 的 `<img>` 时按它的自然尺寸画成场景
   (blitz-paint `svg_picture`, 和 `<img>` 同一画法). `ctx.filter`: acde-dom 解析 `<filter-value-list>` (无效的值不改, 长度只认 px),
   命令 14 送效果 (blur、brightness、contrast、grayscale、hue-rotate、invert、opacity、saturate、sepia、drop-shadow; url() 不支持);
-  有滤镜时每次绘制先把它的范围 (加上效果外扩, 裁到画布) 画进一张图, acde-gpu `Offscreen::filtered` 依次做 (`blur.wgsl` 的
+  有滤镜时每次绘制先把它的范围 (加上效果外扩, 裁到画布) 画进一张图, acgpu `Offscreen::filtered` 依次做 (`blur.wgsl` 的
   `blur_rgba` 全通道模糊、`matrix.wgsl` 颜色矩阵、drop-shadow 是 alpha 模糊再垫在下面), 再画回去; 阴影还按没滤过的形状算.
 - `createImageBitmap` / `ImageBitmap` (acde-dom `dom/bitmap.ts`): 把 `<img>`、`Blob`、`ImageData`、canvas、`ImageBitmap` 画进一个不挂在文档上的
   2D 画布, 支持裁剪矩形、`resizeWidth` / `resizeHeight`、`imageOrientation: 'flipY'`、`premultiplyAlpha` (WebGL 上传时按它, 不看
@@ -1431,12 +1431,13 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **整条链路不许 CPU 拷像素、不许 GPU 回读**. 例外: RDP 后端 (回读损坏区域)、截屏 / capture、标准接口要同步给像素的 (`getImageData` /
   `toDataURL`).
-- **网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定 2026-11-13): 没有 vello_cpu; `acde_gpu::adapters` 真 GPU 排前, CPU 类型的设备 (lavapipe)
+- **网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定 2026-11-13): 没有 vello_cpu; `acdert::gpu::adapters` 真 GPU 排前, CPU 类型的设备 (lavapipe)
   排最后, 只有它时用它 (虚拟机 / VNC, 慢). 什么设备都没有时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
   合成器自己 (GLES) 不在此列.
-- **不依赖 acgpu, 不带专用驱动**: 只经标准图形接口 (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal
-  (`acde_gpu::BACKEND`). crates/gpu (`acde-gpu`) 是 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` / `Filter`, blitz-paint 和 render 直接
-  画进它) 和渲染器 (vello: `Vello` / `Raster` / `Composer` / `Device` / `Offscreen`, `Gpu` (设备登记, 唯一一份), `GpuImage`, Linux 上 dma-buf 画布导入和 sync_file); crates/paint
+- **用 acgpu 的类型和回退, 不带专用驱动** (用户定 2026-11-14): 依赖 acgpu 不开 `compiler` (没有 MLIR / 驱动), 只开 `fallback-vulkan`, 即只经标准图形接口
+  (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal (`acdert::gpu::BACKEND`). 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` /
+  `Filter`, blitz-paint 和 render 直接画进它) 和渲染器 (`Vello` / `Raster` / `Composer` / `Device` / `Offscreen` / `GpuImage`, Linux 上 dma-buf 画布导入和
+  sync_file) 都是 acgpu 的; src/gpu 的 `Gpu` (设备登记, 唯一一份) 包着 acgpu 的 `Shared`; Xe3 驱动只在 acdebin-system 的 paint 里用 (`PageRaster`); crates/paint
   只剩线程、GBM 画布、损伤和区域、把帧拆成 `Part` (`plane.rs`).
 - Windows DX12 的着色器编译器是静态链接的 DXC (wgpu `static-dxc`, mach-dxcompiler 的预编译库): 不用 FXC (FXC 编的 vello 着色器约 10 秒后
   `DXGI_ERROR_DEVICE_REMOVED`), 不用 dxcompiler.dll.
@@ -1544,7 +1545,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 **`acdert doctor`** (`doctor.rs`, main.rs 直接分派, 不起 V8 也不起 Broker): 查这台机器上 `acdert app` / `acdert desktop` 起得来要的东西,
 给 `acde doctor` 用 (acde 看 `acdert --help` 里有没有 `acdert doctor` 判断支不支持, 不按版本号). 每项 `ok` / `warn` / `error`, 可带一条 `fix`:
 - `host` (宿主文件): `web::app_dir()` (和起 Broker 同一个函数) 里有没有 `broker.js` 和 `web.js`; 缺了是错误, fix 按设没设 `ACDE_APP` 分两种.
-- `gpu`: 和宿主窗口同一条路打开设备 (`acde_gpu::Gpu::open`, 不认 CPU 适配器, 找不到时的原因和提示就是 `no_adapter` 那句), 再用 `Offscreen` 经 vello
+- `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`, 不认 CPU 适配器, 找不到时的原因和提示就是 `no_adapter` 那句), 再用 `Offscreen` 经 vello
   画一张 16x16 的纯色图、回读中心像素和画的颜色比 (每通道差 ≤ 2). 所以着色器编译 (Metal / DXC / Vulkan)、提交、回读都走过一遍. 在 `acde-doctor`
   线程上做, 30 s 没结果算错误 (驱动挂住时不卡死), 回读是 doctor 自己要的像素, 不在 GPU 硬约束的禁止之列.
 - `display` (只在 Linux): 和 `session()` 同一个判断 (`main.rs` 的 `outer()`: `WAYLAND_DISPLAY` / `DISPLAY` / `ACDE_HEADLESS`); 都没有时是警告:
@@ -1723,7 +1724,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `src/host` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
 | `crates/shell` / `crates/window` / `crates/paint` | 会话 (Wayland 合成器、会话里 web 的 Wayland 客户端和光栅化) 已搬到 [acdebin-system](http://gitea.dopamine/AC/acdebin-system), 说明在它的 AGENTS.md |
 | `src/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
-| `crates/gpu` | `acde-gpu`: 合成器接口和 wgpu 设备层. 2D 场景 (`Scene` / `PaintScene` / 滤镜)、页面的 `Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`, 共享设备 `Gpu` (WebGPU / WebGL / video / canvas 图都在它上面) 和 `GpuImage`; 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用). 不依赖 vello |
+| `src/gpu` | 设备层: 共享设备 `Gpu` (包着 acgpu 的 `Shared`; WebGPU / WebGL / video / canvas 图都在它上面), 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用); 平铺导出 acgpu 的 2D 场景 (`Scene` / `PaintScene` / 滤镜)、`Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`、`GpuImage` |
 | `src/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acdebin-dbg 和会话用它. acgpu 实现以后也放本仓库 |
 | `src/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
 | `src/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
@@ -1800,7 +1801,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 | `blitz` (子模块) | DioxusLabs/blitz main `fb297a38` 上接我们的提交: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
 
 blitz fork 和上游结构的不同: HTML 解析用 src/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
-先录进 acde-gpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
+先录进 acgpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
 `vendor/blitz` 里 `cargo clippy --workspace --all-targets`、`cargo check -p blitz-dom --no-default-features`、
 `cargo test -p blitz-dom -p blitz-paint`、`cargo clippy -p blitz-paint --all-targets --features scrollbars`; 再 `cargo test --release -p acde-render`
 (加 `ACDE_PAINT_VERIFY=1` 再一遍).
@@ -1896,7 +1897,7 @@ webgl 枚举 uniform 时 (`shader.rs` `unpadded`) 解开这层; 这样各后端 
 ## src/render 的已知问题和测试数据
 
 - canvas 的 `createPattern` 在第一次用时才取来源的位图 (规范是创建那一刻).
-- vello 0.11 没有图片的场景把图集当 1x1 重建、已上传的图片画空; 每个场景垫一块 1x1 渐变绕开 (acde-gpu `Vello::render`), 升级 vello 时看
+- vello 0.11 没有图片的场景把图集当 1x1 重建、已上传的图片画空; 每个场景垫一块 1x1 渐变绕开 (acgpu `Vello::render`), 升级 vello 时看
   上游修了没有.
 - `ACDE_PAINT_VERIFY=1` 下机器忙时 `tests/damage.rs` 偶发等帧超时, 单独重跑都过.
 - `tests/fixtures/replay/*.ops.gz` 是旧 acde-host 的 DOM 操作流 (`tests/replay.rs` 回放, 格式见它), `svg/*.svg` 是简单 SVG 的对比用例, 元素的特殊渲染

@@ -1,11 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use acde_gpu::ColorMatrix;
-use acde_gpu::Effect;
-use acde_gpu::Filter;
-use acde_gpu::FilterEffect;
-use acde_gpu::Scene;
-use acde_gpu::{LayerCommand, RenderCommand};
+use crate::gpu::ColorMatrix;
+use crate::gpu::Effect;
+use crate::gpu::Filter;
+use crate::gpu::FilterEffect;
+use crate::gpu::Scene;
+use crate::gpu::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
 use crate::render::commands::{Builder, Commands};

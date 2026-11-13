@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use acde_gpu::wgpu;
-use acde_gpu::{Gpu, GpuImage};
+use crate::gpu::wgpu;
+use crate::gpu::{Gpu, GpuImage};
 
 use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};
 use crate::host::bind;

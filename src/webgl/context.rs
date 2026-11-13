@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use acde_gpu::Gpu;
+use crate::gpu::Gpu;
 
 use crate::webgl::consts::*;
 use crate::webgl::objects::*;
@@ -82,8 +82,8 @@ pub struct Drawing {
     pub dirty: bool,
     pub cleared: bool,
     pub unresolved: bool,
-    pub images: Vec<Arc<acde_gpu::GpuImage>>,
-    pub front: Option<Arc<acde_gpu::GpuImage>>,
+    pub images: Vec<Arc<crate::gpu::GpuImage>>,
+    pub front: Option<Arc<crate::gpu::GpuImage>>,
 }
 
 pub struct Context {

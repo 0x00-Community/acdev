@@ -1,4 +1,4 @@
-use acde_gpu::PaintScene;
+use crate::gpu::PaintScene;
 use kurbo::{Affine, BezPath, Shape};
 use peniko::{Color, Fill};
 
@@ -46,7 +46,7 @@ impl BoxModel {
 }
 
 impl Engine {
-    pub(crate) fn overlay(&mut self, scale: f64) -> Option<Vec<acde_gpu::RenderCommand>> {
+    pub(crate) fn overlay(&mut self, scale: f64) -> Option<Vec<crate::gpu::RenderCommand>> {
         let picker = self.picker_scene(scale).map(|p| p.commands);
         let highlight = self.highlight_scene(scale).map(|h| h.commands);
         match (picker, highlight) {
@@ -55,7 +55,7 @@ impl Engine {
         }
     }
 
-    fn highlight_scene(&mut self, scale: f64) -> Option<acde_gpu::Scene> {
+    fn highlight_scene(&mut self, scale: f64) -> Option<crate::gpu::Scene> {
         let node = self.highlight?;
         let doc = self.resolved();
         let geometry = Geometry { doc };
@@ -67,7 +67,7 @@ impl Engine {
         let padding = [l.padding.left, l.padding.top, l.padding.right, l.padding.bottom].map(f64::from);
         let border = kurbo::Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
         let model = BoxModel::of(border, margin, borders, padding);
-        let mut scene = acde_gpu::Scene::new();
+        let mut scene = crate::gpu::Scene::new();
         model.paint(&mut scene, scale);
         Some(scene)
     }
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn painting_fills_four_shapes() {
         let model = BoxModel::of(kurbo::Rect::new(0.0, 0.0, 40.0, 20.0), [4.0; 4], [1.0; 4], [2.0; 4]);
-        let mut scene = acde_gpu::Scene::new();
+        let mut scene = crate::gpu::Scene::new();
         model.paint(&mut scene, 2.0);
         assert!(scene.commands.len() >= 4, "{} commands", scene.commands.len());
     }

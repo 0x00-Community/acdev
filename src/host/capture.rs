@@ -206,7 +206,7 @@ fn open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
             if capture.first_frame(Duration::from_secs(5)).is_none() {
                 return Err(format!("NotReadableError: {} gives no picture", device.label));
             }
-            _ = acde_gpu::Gpu::shared();
+            _ = crate::gpu::Gpu::shared();
         }
         Ok(Opened { salt, capture })
     };

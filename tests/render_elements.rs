@@ -1,4 +1,4 @@
-use acde_gpu::RenderCommand;
+use acdert::gpu::RenderCommand;
 use acdert::render::{Options, Rect};
 
 mod common;

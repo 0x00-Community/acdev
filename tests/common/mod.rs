@@ -70,12 +70,12 @@ impl WaitFrame for RenderHandle {
 }
 
 pub fn vello() {
-    if let Some(gpu) = acde_gpu::Gpu::shared() {
+    if let Some(gpu) = acdert::gpu::Gpu::shared() {
         gpu.set_compositor(std::sync::Arc::new(acdert::vello::VelloCompositor));
     }
 }
 
-pub fn rasterize(scene: acde_gpu::Scene, size: (u32, u32)) -> Vec<u8> {
+pub fn rasterize(scene: acdert::gpu::Scene, size: (u32, u32)) -> Vec<u8> {
     vello();
     acdert::render::gpu::rasterize(scene, size)
 }
@@ -108,7 +108,7 @@ impl Doc {
         self.document.sync()
     }
 
-    pub fn scene(&self) -> acde_gpu::Scene {
+    pub fn scene(&self) -> acdert::gpu::Scene {
         self.document.scene()
     }
 

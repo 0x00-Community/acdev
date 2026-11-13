@@ -1,4 +1,4 @@
-use acde_gpu::wgpu;
+use crate::gpu::wgpu;
 use wgpu::util::RenderEncoder;
 
 use super::{Id, Kind, State, desc, maybe, report};
@@ -329,7 +329,7 @@ pub fn compute(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d:
     }
 }
 
-pub fn bundle(s: &State, gpu: &acde_gpu::Gpu, device: Id, d: &desc::RenderBundleDesc, commands: &[f64], strings: &[String]) -> Option<wgpu::RenderBundle> {
+pub fn bundle(s: &State, gpu: &crate::gpu::Gpu, device: Id, d: &desc::RenderBundleDesc, commands: &[f64], strings: &[String]) -> Option<wgpu::RenderBundle> {
     let mut encoder = gpu.device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
         label: desc::label(&d.label),
         color_formats: &d.color_formats,

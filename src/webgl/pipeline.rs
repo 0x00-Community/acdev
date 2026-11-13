@@ -103,7 +103,7 @@ pub struct GroupKey {
 }
 
 impl Caches {
-    pub fn new(gpu: &acde_gpu::Gpu) -> Self {
+    pub fn new(gpu: &crate::gpu::Gpu) -> Self {
         let device = &gpu.device;
         let entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,

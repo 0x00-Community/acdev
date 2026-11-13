@@ -286,10 +286,10 @@ impl<'s> IntoJs<'s> for crate::render::Viewport {
 }
 
 thread_local! {
-    static PICTURE: RefCell<(u32, Option<(u32, acde_gpu::Scene)>)> = const { RefCell::new((0, None)) };
+    static PICTURE: RefCell<(u32, Option<(u32, crate::gpu::Scene)>)> = const { RefCell::new((0, None)) };
 }
 
-fn keep_picture(scene: acde_gpu::Scene) -> u32 {
+fn keep_picture(scene: crate::gpu::Scene) -> u32 {
     PICTURE.with(|p| {
         let mut p = p.borrow_mut();
         p.0 = p.0.wrapping_add(1).max(1);
@@ -299,7 +299,7 @@ fn keep_picture(scene: acde_gpu::Scene) -> u32 {
     })
 }
 
-pub fn take_picture(id: u32) -> Option<acde_gpu::Scene> {
+pub fn take_picture(id: u32) -> Option<crate::gpu::Scene> {
     PICTURE.with(|p| {
         let mut p = p.borrow_mut();
         match p.1.take() {

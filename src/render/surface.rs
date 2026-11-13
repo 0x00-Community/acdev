@@ -3,7 +3,7 @@ use std::collections::HashMap;
 pub struct DragImage {
     pub width: u32,
     pub height: u32,
-    pub scene: acde_gpu::Scene,
+    pub scene: crate::gpu::Scene,
     pub hotspot: (i32, i32),
 }
 

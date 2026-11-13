@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use kurbo::Affine;
 
-use crate::{Filter, Gpu, GpuImage, Scene};
+use super::{Filter, Gpu, GpuImage, Scene};
 
 pub trait Compositor: Send + Sync {
     fn offscreen(&self, gpu: Arc<Gpu>) -> Result<Box<dyn Offscreen>, String>;

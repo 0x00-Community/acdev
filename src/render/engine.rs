@@ -136,8 +136,8 @@ impl Engine {
             _ => {
                 let picture = self.doc.canvas_picture(node)?;
                 picture.commands.iter().find_map(|c| match c {
-                    acde_gpu::RenderCommand::Fill(f) => match &f.brush {
-                        acde_gpu::Paint::Image(brush) => match acde_gpu::Gpu::shared().and_then(|g| g.images.find(brush.image.data.id())) {
+                    crate::gpu::RenderCommand::Fill(f) => match &f.brush {
+                        crate::gpu::Paint::Image(brush) => match crate::gpu::Gpu::shared().and_then(|g| g.images.find(brush.image.data.id())) {
                             Some(image) => Some(crate::render::Pixels::Gpu(image)),
                             None => Some(crate::render::Pixels::Cpu {
                                 width: brush.image.width,
@@ -219,17 +219,17 @@ impl Engine {
         }
     }
 
-    pub(crate) fn scene(&mut self) -> acde_gpu::Scene {
+    pub(crate) fn scene(&mut self) -> crate::gpu::Scene {
         self.resolved();
-        self.paint().0.to_scene(acde_gpu::Scene::TOLERANCE)
+        self.paint().0.to_scene(crate::gpu::Scene::TOLERANCE)
     }
 
-    fn picker_scene(&mut self, scale: f64) -> Option<acde_gpu::Scene> {
+    fn picker_scene(&mut self, scale: f64) -> Option<crate::gpu::Scene> {
         self.picker.as_ref()?;
         if !self.place_picker() {
             return None;
         }
-        let mut scene = acde_gpu::Scene::new();
+        let mut scene = crate::gpu::Scene::new();
         blitz_paint::paint_select_picker(&mut scene, &self.doc, self.picker.as_ref()?, scale);
         Some(scene)
     }
@@ -239,7 +239,7 @@ impl Engine {
         let (width, height) = viewport.window_size;
         let scale = viewport.scale_f64();
         let start = Instant::now();
-        let mut loose = acde_gpu::Scene::new();
+        let mut loose = crate::gpu::Scene::new();
         let mut pieces = Vec::new();
         let pinned: std::collections::HashSet<NodeId> = self.panels.iter().map(|p| p.0).collect();
         let painted = blitz_paint::paint_scene_cached(&mut loose, &mut pieces, &mut self.doc, (scale, width, height), &mut self.paint_cache, true, &pinned);
@@ -270,7 +270,7 @@ impl Engine {
         self.stats.paint_ms = crate::log::since_ms(start);
         let mut from_cache = true;
         if self.verify {
-            let mut reference = acde_gpu::Scene::new();
+            let mut reference = crate::gpu::Scene::new();
             blitz_paint::paint_scene_reference(&mut reference, &mut self.doc, (scale, width, height), true, &pinned);
             if let Some(picker) = picker {
                 reference.commands.extend(picker);
@@ -368,7 +368,7 @@ impl Engine {
     fn plane(&mut self, commands: Commands, scale: f64, viewport: kurbo::Rect) -> Plane {
         let start = Instant::now();
         let (rects, by_fragment, missed) =
-            self.damage.update(&commands, acde_gpu::Scene::TOLERANCE, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
+            self.damage.update(&commands, crate::gpu::Scene::TOLERANCE, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
         self.stats.damage_mismatches += u32::from(missed);
         self.stats.damage_by_fragment += u32::from(by_fragment);
         self.stats.damage_ms = crate::log::since_ms(start);
@@ -383,7 +383,7 @@ impl Engine {
         let viewport = kurbo::Rect::new(0.0, 0.0, size.0.into(), size.1.into());
         let damage = self.panel_damage.entry(id).or_default();
         let started = std::time::Instant::now();
-        let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::TOLERANCE, viewport, None, true);
+        let (rects, _, _) = damage.update(&commands, crate::gpu::Scene::TOLERANCE, viewport, None, true);
         log::debug!(target: "perf::frame", "panel {id} commands={} damage ms={:.3}", commands.len(), crate::log::since_ms(started));
         let extent = damage
             .kinds()

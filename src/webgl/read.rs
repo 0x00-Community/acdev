@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use acde_gpu::GpuImage;
+use crate::gpu::GpuImage;
 
 use crate::webgl::consts::*;
 use crate::webgl::context::Context;
@@ -8,7 +8,7 @@ use crate::webgl::format::{self, Class};
 
 const MAX_IMAGES: usize = 4;
 
-pub(crate) fn map(gpu: &acde_gpu::Gpu, buffer: &wgpu::Buffer, index: wgpu::SubmissionIndex) -> Option<Vec<u8>> {
+pub(crate) fn map(gpu: &crate::gpu::Gpu, buffer: &wgpu::Buffer, index: wgpu::SubmissionIndex) -> Option<Vec<u8>> {
     let (tx, rx) = std::sync::mpsc::channel();
     let slice = buffer.slice(..);
     slice.map_async(wgpu::MapMode::Read, move |r| _ = tx.send(r));

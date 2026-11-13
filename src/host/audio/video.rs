@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use crate::gpu::peniko;
+use crate::gpu::{Gpu, GpuImage, wgpu};
 use crate::media::{CHANNELS, Frame, Player};
-use acde_gpu::peniko;
-use acde_gpu::{Gpu, GpuImage, wgpu};
 
 use super::graph::{Bus, QUANTUM, hermite};
 use super::mixer::{MediaSource, RATE};
@@ -132,7 +132,7 @@ impl Picture {
                 let image = match &self.image {
                     Some(image) if (image.texture.width(), image.texture.height()) == size => image.clone(),
                     _ => {
-                        let texture = acde_gpu::texture(&gpu.device, size, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC, "acde video");
+                        let texture = crate::gpu::texture(&gpu.device, size, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC, "acde video");
                         GpuImage::new(texture, &gpu.images)
                     }
                 };

@@ -1,23 +1,20 @@
 [workspace]
 resolver = "3"
-# crates/gpu stays a crate of its own: the blitz fork paints into its scene (blitz-paint depends on acde-gpu), and acdert depends on blitz
-members = ["crates/gpu"]
 exclude = ["vendor"]
 
 [workspace.package]
-version = "0.0.10"
+version = "0.0.11"
 edition = "2024"
 repository = "https://github.com/dopame-org/acdert"
 publish = ["ac"]
 
 [workspace.dependencies]
-acde-gpu = { path = "crates/gpu", version = "0.0.10", registry = "ac" }
 # blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz), published to ac with the same names
-blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
-blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
-blitz-traits = { path = "vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
+blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
+blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
+blitz-traits = { path = "vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
 
-# 对外唯一的包: src/ 下的模块 (host / render / runtime / webgl / …) 和 acde-gpu 平铺导出 (Rust 用 rlib), 并以 cdylib 出 libacdert.so
+# 对外唯一的包: src/ 下的模块 (host / render / runtime / webgl / …) (gpu 是 acgpu 之上的设备注册表和合成器接口) 平铺导出 (Rust 用 rlib), 并以 cdylib 出 libacdert.so
 # (C 接口在 src/ffi.rs, 头文件 include/acdert.h 由 build.rs 经 cbindgen 生成)
 [package]
 name = "acdert"
@@ -31,7 +28,9 @@ include = ["/src/**", "/build.rs", "/cbindgen.toml", "/include/**", "/protocol/*
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-acde-gpu.workspace = true
+# the 2D scene, filters, compose types, GPU images, the compositor and the page rasterizer are acgpu's (src/gpu, src/vello);
+# no `compiler`, so no MLIR and no jemalloc; its Vulkan fallback is plain wgpu off Linux
+acgpu = { version = "0.1.4", registry = "ac", default-features = false, features = ["fallback-vulkan"] }
 v8 = "152"
 log = { version = "0.4", features = ["std"] }
 # log: env_logger behind the log module (written on its own thread)
@@ -57,7 +56,7 @@ png = "0.18"
 bytemuck = "1"
 kurbo = "0.13"
 peniko = "0.6"
-# vello / webgl: wgpu on the same device as acde-gpu
+# vello / webgl: wgpu on the same device as src/gpu
 vello = { version = "0.12", default-features = false, features = ["wgpu"] }
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "naga-ir"] }
 pollster = "0.4"
@@ -119,6 +118,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 rustls-native-certs = "0.8"
 
 [target.'cfg(windows)'.dependencies]
+# src/gpu: Direct3D 12 for the device WebGPU and the compositor share
+wgpu = { version = "30", default-features = false, features = ["dx12", "static-dxc"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -137,6 +138,8 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# src/gpu: Metal for the device WebGPU and the compositor share
+wgpu = { version = "30", default-features = false, features = ["metal"] }
 objc2 = "0.6"
 block2 = "0.6"
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use acde_gpu::{Gpu, GpuImage, Offscreen, Scene};
+use crate::gpu::{Gpu, GpuImage, Offscreen, Scene};
 use kurbo::Affine;
 
 static OFFSCREEN: Mutex<Option<Box<dyn Offscreen>>> = Mutex::new(None);
@@ -38,7 +38,7 @@ pub fn shadow(scene: Scene, size: (u32, u32), place: Affine, sigma: f64, color: 
     with(|o| o.shadow(scene, size, place, sigma, color))
 }
 
-pub fn filtered(scene: Scene, size: (u32, u32), place: Affine, filter: &acde_gpu::Filter) -> Option<Arc<GpuImage>> {
+pub fn filtered(scene: Scene, size: (u32, u32), place: Affine, filter: &crate::gpu::Filter) -> Option<Arc<GpuImage>> {
     with(|o| o.filtered(scene, size, place, filter))
 }
 

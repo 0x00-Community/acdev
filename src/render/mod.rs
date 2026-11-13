@@ -172,13 +172,13 @@ impl Frame {
         self.trace = crate::log::Trace::earliest(old.trace, self.trace);
     }
 
-    pub fn whole(&self) -> acde_gpu::Scene {
+    pub fn whole(&self) -> crate::gpu::Scene {
         let plane = &self.plane;
         let commands = match plane.layers.is_empty() {
             true => plane.drawing.commands.to_vec(),
             false => plane.layers.iter().flat_map(|l| l.drawing.scene().commands).collect(),
         };
-        acde_gpu::Scene { tolerance: plane.drawing.tolerance, commands }
+        crate::gpu::Scene { tolerance: plane.drawing.tolerance, commands }
     }
 }
 
@@ -367,10 +367,10 @@ impl Document {
         _ = done.recv_timeout(Duration::from_secs(10));
     }
 
-    pub fn scene(&self) -> acde_gpu::Scene {
+    pub fn scene(&self) -> crate::gpu::Scene {
         self.shared.call(&self.wake, |engine| Ok(engine.scene())).unwrap_or_else(|e| {
             log::error!("{e}");
-            acde_gpu::Scene::new()
+            crate::gpu::Scene::new()
         })
     }
 }
@@ -537,5 +537,5 @@ impl Engine {
 
 pub enum Pixels {
     Cpu { width: u32, height: u32, rgba: Vec<u8> },
-    Gpu(std::sync::Arc<acde_gpu::GpuImage>),
+    Gpu(std::sync::Arc<crate::gpu::GpuImage>),
 }

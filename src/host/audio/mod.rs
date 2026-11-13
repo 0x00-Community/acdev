@@ -413,7 +413,7 @@ struct Open {
     media: u32,
     node: u32,
     player: Arc<crate::media::Player>,
-    gpu: Option<Arc<acde_gpu::Gpu>>,
+    gpu: Option<Arc<crate::gpu::Gpu>>,
     first: Option<crate::media::Frame>,
     epoch: u64,
 }
@@ -437,7 +437,7 @@ fn open_video(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
         if let Some(e) = player.error() {
             return Err(e);
         }
-        let gpu = if video { acde_gpu::Gpu::shared() } else { None };
+        let gpu = if video { crate::gpu::Gpu::shared() } else { None };
         output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(VideoSound::new(player.clone())), time }));
         Ok(Open { media, node, player, gpu, first, epoch })
     };
@@ -538,7 +538,7 @@ fn open_stream(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mu
     output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(live::LiveSound::new(audio)), time }));
     let (mut width, mut height) = (0, 0);
     if let Some(capture) = video {
-        let mut picture = Picture::new(node, acde_gpu::Gpu::shared());
+        let mut picture = Picture::new(node, crate::gpu::Gpu::shared());
         let mut seq = 0;
         if let Some((latest, frame)) = capture.frame() {
             picture.show(&frame);

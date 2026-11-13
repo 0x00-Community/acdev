@@ -1,5 +1,5 @@
-use acde_gpu::RenderCommand;
-use acde_gpu::Scene;
+use crate::gpu::RenderCommand;
+use crate::gpu::Scene;
 use blitz_dom::NodeId;
 use blitz_paint::PaintCache;
 use kurbo::Affine;
@@ -82,7 +82,7 @@ impl Mismatch {
 
 #[cfg(test)]
 mod tests {
-    use acde_gpu::{LayerCommand, RenderCommand};
+    use crate::gpu::{LayerCommand, RenderCommand};
     use kurbo::{Affine, Rect, Shape};
     use peniko::{BlendMode, Fill};
 
