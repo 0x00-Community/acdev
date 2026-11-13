@@ -122,7 +122,7 @@ class Cli {
     const { said, failed } = await Runtime.level(acdert)
     if (failed) return [...lines, `acdert does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
-      .find((line) => /^(?:acde-dbg|acdert) \S+ \(contract level \d+\)$/.test(line))
+      .find((line) => /^(?:acdebin-dbg|acdert) \S+ \(contract level \d+\)$/.test(line))
     return [...lines, named ? `${named}: ${acdert}` : `acdert without a contract level (older, level 0): ${acdert}`]
   }
 

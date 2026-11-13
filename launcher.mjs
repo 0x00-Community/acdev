@@ -42,7 +42,7 @@ export function which(name, env = process.env) {
   return null
 }
 
-export const RUNTIMES = ['acde-dbg', 'acdert']
+export const RUNTIMES = ['acdebin-dbg', 'acdert']
 
 export function acdertBeside(root = ROOT) {
   if (!installed(root)) return null
