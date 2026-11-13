@@ -18,7 +18,6 @@ function Install-Acde {
     $ProgressPreference = 'SilentlyContinue'
 
     $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
-    $runtimeDist = if ($env:ACDERT_DIST) { $env:ACDERT_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acdert' }
     $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
 
     $shell = $PSVersionTable.PSVersion
@@ -221,62 +220,29 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$name.tar.gz" $tarball -Shown
 
         Confirm-Download $sums "$name.tar.gz" $tarball
-        $pairing = Join-Path -Path $work -ChildPath 'acdert-version'
-        $paired = $true
-        try {
-            Save-Remote "$dist/$Version/acdert-version" $pairing
-        } catch {
-            $paired = $false
-        }
-        $runtime = $null
-        if ($paired) {
-            Assert-Sum $sums 'acdert-version' $pairing
-            $runtime = (Get-Content -LiteralPath $pairing -Raw).Trim()
-        } else {
-            $index = Join-Path -Path $work -ChildPath 'latest.json'
-            $info = $null
-            try {
-                Save-Remote "$dist/latest.json" $index
-                $info = Get-Content -LiteralPath $index -Raw | ConvertFrom-Json
-            } catch {
-                $info = $null
+        $binary = "acdebin-dbg-$triple.tar.gz"
+        if (-not (Get-Listed $sums $binary)) {
+            if (Get-Listed $sums 'acdert-version') {
+                throw ("acde: acde $Version comes from before acde and its runtime were released together: " +
+                    'leave out -Version and ACDE_VERSION for the latest')
             }
-            if ($info -and [string]$info.version -eq $Version -and $info.sdk) {
-                $runtime = [string]$info.sdk
-                Write-Host "acde: acde $Version names no acdert of its own; latest.json pairs it with acdert $runtime"
-            } else {
-                throw ("acde: acde $Version does not name the acdert it runs with, so it cannot be installed " +
-                    '(acde names it from 0.0.8 on): leave out -Version and ACDE_VERSION for the latest')
-            }
-        }
-        if ($runtime -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
-            throw "acde: acdert-version of acde $Version is not a version: '$runtime'"
-        }
-
-        Write-Host "acde: installing acdert $runtime for $triple from $runtimeDist"
-        $runtimeSums = Join-Path -Path $work -ChildPath 'acdert.sums'
-        Save-Remote "$runtimeDist/$runtime/SHA256SUMS" $runtimeSums
-        $binary = "acdert-$triple.tar.gz"
-        if (-not (Get-Listed $runtimeSums $binary)) {
-            $binary = "acdert-$triple.exe"
-        }
-        if (-not (Get-Listed $runtimeSums $binary)) {
-            $supported = @(Get-Content -LiteralPath $runtimeSums | ForEach-Object {
+            $supported = @(Get-Content -LiteralPath $sums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
-            } | Where-Object { $_ -like 'acdert-*' -and $_ -notlike 'acdert-host-*' } | ForEach-Object {
-                (($_ -replace '^acdert-', '') -replace '\.tar\.[gx]z$', '') -replace '\.exe$', ''
+            } | Where-Object { $_ -like 'acdebin-dbg-*' } | ForEach-Object {
+                ($_ -replace '^acdebin-dbg-', '') -replace '\.tar\.[gx]z$', ''
             } | Sort-Object -Unique)
-            throw ("acde: acdert $runtime has no build for this platform ($triple); " +
+            throw ("acde: acde $Version has no acdebin-dbg for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
-        $bundle = "acdert-host-$runtime.tar.gz"
+        $bundle = "acde-host-$Version.tar.gz"
+        Write-Host "acde: getting acdebin-dbg $Version for $triple"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
         $bundleFile = Join-Path -Path $work -ChildPath $bundle
-        Save-Remote "$runtimeDist/$runtime/$binary" $binaryFile -Shown
-        Confirm-Download $runtimeSums $binary $binaryFile
-        Save-Remote "$runtimeDist/$runtime/$bundle" $bundleFile -Shown
-        Confirm-Download $runtimeSums $bundle $bundleFile
+        Save-Remote "$dist/$Version/$binary" $binaryFile -Shown
+        Confirm-Download $sums $binary $binaryFile
+        Save-Remote "$dist/$Version/$bundle" $bundleFile -Shown
+        Confirm-Download $sums $bundle $bundleFile
 
         Write-Host "acde: unpacking"
         $unpacked = Join-Path -Path $work -ChildPath 'x'
@@ -286,20 +252,17 @@ function Install-Acde {
             throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
         }
         $staged = Join-Path -Path $unpacked -ChildPath $name
-        $runtimeExe = $binaryFile
-        if ($binary -like '*.tar.gz') {
-            $runtimeDir = Join-Path -Path $work -ChildPath 'runtime'
-            New-Item -ItemType Directory -Path $runtimeDir | Out-Null
-            & $tar -xzf $binaryFile -C $runtimeDir
-            if ($LASTEXITCODE -ne 0) {
-                throw "acde: could not unpack $binary (tar exit $LASTEXITCODE)"
-            }
-            $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdert.exe'
-            if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
-                throw "acde: $binary does not hold acdert.exe"
-            }
+        $runtimeDir = Join-Path -Path $work -ChildPath 'runtime'
+        New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+        & $tar -xzf $binaryFile -C $runtimeDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "acde: could not unpack $binary (tar exit $LASTEXITCODE)"
         }
-        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
+        $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdebin-dbg.exe'
+        if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
+            throw "acde: $binary does not hold acdebin-dbg.exe"
+        }
+        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdebin-dbg.exe')
         $bundleDir = Join-Path -Path $work -ChildPath 'host'
         New-Item -ItemType Directory -Path $bundleDir | Out-Null
         & $tar -xzf $bundleFile -C $bundleDir
@@ -330,7 +293,7 @@ function Install-Acde {
                 Rename-Item -LiteralPath $target -NewName $aside
             } catch {
                 throw ("acde: could not replace $target, a program in it is still running: " +
-                    'stop acde dev (and acdert) and run the installer again')
+                    'stop acde dev (and acdebin-dbg) and run the installer again')
             }
         }
         Move-Item -LiteralPath $staged -Destination $target
@@ -409,9 +372,9 @@ function Install-Acde {
         }
     }
 
-    Write-Host "acde: installed acde $Version with acdert $runtime into $install"
+    Write-Host "acde: installed acde $Version with acdebin-dbg $Version into $install"
     Write-Host "  acde     $(Join-Path -Path $bin -ChildPath 'acde.cmd')"
-    Write-Host "  acdert   $(Join-Path -Path $bin -ChildPath 'acdert.exe')"
+    Write-Host "  acdebin-dbg  $(Join-Path -Path $bin -ChildPath 'acdebin-dbg.exe')"
     Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
     Write-Host '  acde skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acde'
 

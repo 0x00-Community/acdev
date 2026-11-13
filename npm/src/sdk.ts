@@ -18,7 +18,7 @@ export interface SdkState {
 export class Sdk {
   static readonly NAME = '@dopame/acde-api'
   static readonly SECTIONS = ['devDependencies', 'dependencies'] as const
-  static readonly DIST = Pkgs.ACDERT
+  static readonly DIST = Pkgs.ACDE
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly NPMRC = 'allow-remote=root'
   static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
@@ -34,7 +34,7 @@ export class Sdk {
   }
 
   static url(version = Sdk.paired()): string {
-    const base = (process.env['ACDERT_DIST'] || Sdk.DIST).replace(/\/+$/, '')
+    const base = (process.env['ACDE_DIST'] || Sdk.DIST).replace(/\/+$/, '')
     return `${base}/${version}/acde-api-${version}.tar.gz`
   }
 

@@ -23,8 +23,6 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   repository: object
   engines: object
 }
-const SDK_PIN = '0.0.9'
-const PAIRING = 'acdert-version'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
 const OBFUSCATION_SEED = 1
@@ -52,7 +50,8 @@ const OBFUSCATION = {
 const { values } = parseArgs({
   options: {
     api: { type: 'string', default: join(ROOT, '../../acdert/web/packages/acde-api/dist') },
-    sdk: { type: 'string', default: SDK_PIN },
+    sdk: { type: 'string' },
+    runtime: { type: 'string' },
     version: { type: 'string', default: SELF.version },
     out: { type: 'string', default: join(ROOT, '.dist') },
   },
@@ -66,9 +65,11 @@ if (!existsSync(join(api, 'package.json')) || !existsSync(join(api, 'src', 'inde
   throw new Error(`--api ${api}: not a built @dopame/acde-api package (package.json and src/index.js)`)
 }
 const sdk = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { name?: string; version?: string }
-if (sdk.name !== '@dopame/acde-api' || sdk.version !== values.sdk) {
+if (sdk.name !== '@dopame/acde-api' || (values.sdk !== undefined && sdk.version !== values.sdk)) {
   throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
 }
+const runtime = values.runtime === undefined ? null : resolve(values.runtime)
+if (runtime !== null && !existsSync(runtime)) throw new Error(`--runtime ${runtime}: no such directory`)
 
 const skill = join(ROOT, 'skills', 'acde')
 const unfit = skillProblems(skill)
@@ -124,10 +125,23 @@ rmSync(plain, { force: true })
 rmSync(stage, { recursive: true, force: true })
 
 const sum = createHash('sha256').update(readFileSync(tarball)).digest('hex')
-const pairing = join(dir, PAIRING)
-writeFileSync(pairing, `${values.sdk}\n`)
-const paired = createHash('sha256').update(readFileSync(pairing)).digest('hex')
-writeFileSync(join(dir, 'SHA256SUMS'), `${paired}  ${PAIRING}\n${sum}  ${name}.tar.gz\n`)
+const sdkStage = join(dir, '.sdk')
+rmSync(sdkStage, { recursive: true, force: true })
+cpSync(api, join(sdkStage, 'package'), { recursive: true, filter: skipped })
+pinTimes(sdkStage)
+const sdkPlain = join(dir, `acde-api-${sdk.version}.tar`)
+const sdkTar = spawnSync(tarExe, ['-cf', sdkPlain, ...tarFlags, '-C', sdkStage, 'package'], {
+  stdio: 'inherit',
+  env: { ...process.env, COPYFILE_DISABLE: '1' },
+})
+rmSync(sdkStage, { recursive: true, force: true })
+if (sdkTar.status !== 0) throw new Error(`tar for acde-api-${sdk.version}.tar.gz failed`)
+writeFileSync(`${sdkPlain}.gz`, gzipSync(readFileSync(sdkPlain), { level: 9 }))
+rmSync(sdkPlain, { force: true })
+if (runtime !== null) for (const file of readdirSync(runtime)) copyFileSync(join(runtime, file), join(dir, file))
+const sums = readdirSync(dir).filter((file) => file !== 'SHA256SUMS' && !file.startsWith('.')).sort()
+  .map((file) => `${createHash('sha256').update(readFileSync(join(dir, file))).digest('hex')}  ${file}\n`)
+writeFileSync(join(dir, 'SHA256SUMS'), sums.join(''))
 writeFileSync(join(out, 'latest'), `${version}\n`)
 const scripts = ['install.sh', 'install.ps1'].map((file) => readFileSync(join(INSTALLERS, file), 'utf8'))
 const addresses = Pkgs.scriptProblems(scripts[0]!, scripts[1]!)

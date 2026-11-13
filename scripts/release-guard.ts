@@ -9,6 +9,7 @@ const { values } = parseArgs({
   options: {
     dir: { type: 'string', default: 'out' },
     version: { type: 'string' },
+    targets: { type: 'string', default: '' },
   },
 })
 
@@ -24,9 +25,16 @@ function fail(message: string): never {
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) fail(`--version ${version || '(missing)'}: x.y.z`)
 if (!existsSync(dir)) fail(`${dir}: no such directory`)
 
+const TARGETS = ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc']
+const targets = values.targets!.split(',').filter(Boolean)
+if (targets.length === 0) fail('--targets: the triples this release ships, comma-separated')
+for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: unknown target ${target} (one of ${TARGETS.join(', ')})`)
 const archives = [`acde-${version}.tar.gz`]
-const PAIRING = 'acdert-version'
-const checked = [PAIRING, ...archives]
+const windows = (target: string) => target.endsWith('-windows-msvc')
+const runtimes = targets.map((target) => `acdebin-dbg-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
+const host = `acde-host-${version}.tar.gz`
+const sdk = `acde-api-${version}.tar.gz`
+const checked = [...archives, ...runtimes, host, sdk]
 const allowed = new Set([
   'latest',
   'latest.json',
@@ -34,8 +42,7 @@ const allowed = new Set([
   'install.ps1',
   'install.md',
   `${version}/SHA256SUMS`,
-  `${version}/${PAIRING}`,
-  ...archives.map((archive) => `${version}/${archive}`),
+  ...checked.map((file) => `${version}/${file}`),
 ])
 
 const present = listFiles(dir)
@@ -77,12 +84,25 @@ if (problems.length === 0) {
   if (listed.size !== checked.length) {
     problems.push(`SHA256SUMS lists ${listed.size} files, expected ${checked.length}`)
   }
-  const acdert = readFileSync(join(dir, version, PAIRING), 'utf8')
-  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\n$/.test(acdert)) {
-    problems.push(`${PAIRING}: not one acdert version line`)
-  } else if (acdert.trim() !== manifest.sdk) {
-    problems.push(`${PAIRING} says ${acdert.trim()}, latest.json sdk is ${manifest.sdk}`)
+  for (const [index, runtime] of runtimes.entries()) {
+    const member = windows(targets[index]!) ? 'acdebin-dbg.exe' : 'acdebin-dbg'
+    const listing = systemTar([runtime.endsWith('.xz') ? '-tvJf' : '-tvzf', join(dir, version, runtime)])
+    const rows = listing.status === 0 ? listing.stdout.split('\n').filter(Boolean) : []
+    if (rows.length !== 1 || rows[0]![0] !== '-' || !rows[0]!.endsWith(` ${member}`)) {
+      problems.push(`${runtime}: not exactly the one file ${member}`)
+    }
   }
+  const hostNames = systemTar(['-tzf', join(dir, version, host)])
+  const hostList = hostNames.status === 0 ? hostNames.stdout.split('\n').filter(Boolean) : []
+  if (!hostList.includes('app/dist/broker.js')) problems.push(`${host}: no app/dist/broker.js`)
+  for (const name of hostList) {
+    if (name.startsWith('/') || name.split('/').includes('..')) problems.push(`${host}: unsafe entry ${name}`)
+    if (/\.(map|ts|tsx)$/.test(name)) problems.push(`${host}: source-like file ${name}`)
+  }
+  const sdkNames = systemTar(['-tzf', join(dir, version, sdk)])
+  const sdkList = sdkNames.status === 0 ? sdkNames.stdout.split('\n').filter(Boolean) : []
+  if (!sdkList.includes('package/package.json')) problems.push(`${sdk}: no package/package.json`)
+  for (const name of sdkList) if (name !== 'package' && !name.startsWith('package/')) problems.push(`${sdk}: entry ${name} outside package/`)
 
   const scratch = mkdtempSync(join(tmpdir(), 'acde-release-guard-'))
   try {
@@ -126,4 +146,4 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the archive, acdert-version, SHA256SUMS, latest, latest.json, the installers and install.md are listed')
+console.log('release guard: the CLI archive, the acdebin-dbg builds, the host files, the SDK, SHA256SUMS, latest, latest.json, the installers and install.md are listed')

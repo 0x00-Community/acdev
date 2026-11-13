@@ -15,13 +15,32 @@ function sha(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
-function release(plant: Plant[] = [], tamper = false, acdert = `${VERSION}\n`, sdk = VERSION): string {
+const TARGETS = ['x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc']
+
+function pack(root: string, file: string, member: string, text: string, flag: string): void {
+  const stage = join(root, `.${member.replaceAll('/', '_')}`)
+  mkdirSync(join(stage, member, '..'), { recursive: true })
+  writeFileSync(join(stage, member), text)
+  const made = systemTar([flag, file, '-C', stage, member.split('/')[0]!])
+  if (made.status !== 0) throw new Error(`tar failed: ${made.stderr}`)
+  rmSync(stage, { recursive: true, force: true })
+}
+
+function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): string {
   const root = tmp()
   const out = join(root, 'out')
   const version = join(out, VERSION)
   mkdirSync(version, { recursive: true })
-  writeFileSync(join(version, 'acdert-version'), acdert)
-  const lines: string[] = [`${sha(join(version, 'acdert-version'))}  acdert-version`]
+  const lines: string[] = []
+  for (const target of TARGETS) {
+    const windows = target.endsWith('-windows-msvc')
+    const file = `acdebin-dbg-${target}${windows ? '.tar.gz' : '.tar.xz'}`
+    pack(root, join(version, file), runtimeMember || (windows ? 'acdebin-dbg.exe' : 'acdebin-dbg'), 'binary', windows ? '-czf' : '-cJf')
+    lines.push(`${sha(join(version, file))}  ${file}`)
+  }
+  pack(root, join(version, `acde-host-${VERSION}.tar.gz`), 'app/dist/broker.js', 'export {}\n', '-czf')
+  pack(root, join(version, `acde-api-${VERSION}.tar.gz`), 'package/package.json', '{}', '-czf')
+  for (const file of [`acde-host-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
     const top = `acde-${VERSION}`
@@ -48,7 +67,7 @@ function release(plant: Plant[] = [], tamper = false, acdert = `${VERSION}\n`, s
   writeFileSync(join(out, 'install.sh'), 'sh')
   writeFileSync(join(out, 'install.ps1'), 'ps1')
   writeFileSync(join(out, 'install.md'), 'md')
-  writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, sdk, files: readdirSync(version).sort() }))
+  writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, files: readdirSync(version).sort() }))
   if (tamper) writeFileSync(join(version, `acde-${VERSION}.tar.gz`), 'changed after the checksum')
   for (const item of plant.filter((p) => p.where === 'release')) {
     mkdirSync(join(out, item.path, '..'), { recursive: true })
@@ -59,7 +78,7 @@ function release(plant: Plant[] = [], tamper = false, acdert = `${VERSION}\n`, s
 
 function guard(out: string): { code: number | null; out: string } {
   const child = Bun.spawnSync([
-    process.execPath, '../scripts/release-guard.ts', '--dir', out, '--version', VERSION,
+    process.execPath, '../scripts/release-guard.ts', '--dir', out, '--version', VERSION, '--targets', TARGETS.join(','),
   ], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' })
   return { code: child.exitCode, out: child.stdout.toString() + child.stderr.toString() }
 }
@@ -87,16 +106,13 @@ describe('release guard', () => {
     expect(made.out).toContain('install.sh: missing from the release')
   }, 180_000)
 
-  test('fails when acdert-version is not one version line or is not the sdk of latest.json', () => {
-    const garbled = guard(release([], false, 'latest\n'))
-    expect(garbled.code).toBe(1)
-    expect(garbled.out).toContain('acdert-version: not one acdert version line')
-    const other = guard(release([], false, '0.0.4\n'))
-    expect(other.code).toBe(1)
-    expect(other.out).toContain(`acdert-version says 0.0.4, latest.json sdk is ${VERSION}`)
+  test('fails when a build holds anything but acdebin-dbg, or a target is missing', () => {
+    const wrong = guard(release([], false, 'acdert'))
+    expect(wrong.code).toBe(1)
+    expect(wrong.out).toContain('acdebin-dbg-x86_64-unknown-linux-gnu.tar.xz: not exactly the one file acdebin-dbg')
     const out = release()
-    rmSync(join(out, VERSION, 'acdert-version'))
-    expect(guard(out).out).toContain(`${VERSION}/acdert-version: missing from the release`)
+    rmSync(join(out, VERSION, 'acdebin-dbg-x86_64-pc-windows-msvc.tar.gz'))
+    expect(guard(out).out).toContain(`${VERSION}/acdebin-dbg-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
   }, 180_000)
 
   test('fails on an archive whose checksum no longer matches', () => {

@@ -101,7 +101,7 @@ describe('launcher: where acdert comes from', () => {
     } catch (error) {
       message = (error as Error).message
     }
-    const beside = join(root, '..', '..', 'bin', `acdert${EXE}`)
+    const beside = join(root, '..', '..', 'bin', `acdebin-dbg${EXE}`)
     expect(message).toBe(
       `acde dev needs the Dopame runtime (acdert) and found none: no ${beside}, which the acde installer puts there: ` +
       'run the installer again, set ACDERT to an acdert binary, or put acdert on PATH ' +

@@ -251,7 +251,7 @@ describe('mistakes', () => {
 describe('acde new when a step fails', () => {
   test('a failed install keeps the project and says how to finish it', async () => {
     const dir = join(tmp(), 'no-deps')
-    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDERT_DIST: 'http://127.0.0.1:9' })
+    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDE_DIST: 'http://127.0.0.1:9' })
     expect(made.code).toBe(1)
     expect(made.stdout).toBe('')
     expect(made.stderr).toStartWith(`acde: the project is in ${dir}, but its dependencies are not installed; `

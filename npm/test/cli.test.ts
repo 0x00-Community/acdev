@@ -512,12 +512,12 @@ describe('a project made by acde from its checkout', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
-    const saved = process.env['ACDERT_DIST']
-    delete process.env['ACDERT_DIST']
+    const saved = process.env['ACDE_DIST']
+    delete process.env['ACDE_DIST']
     try {
-      expect(Sdk.url()).toBe(`${Pkgs.ACDERT}/${version}/acde-api-${version}.tar.gz`)
+      expect(Sdk.url()).toBe(`${Pkgs.ACDE}/${version}/acde-api-${version}.tar.gz`)
     } finally {
-      if (saved !== undefined) process.env['ACDERT_DIST'] = saved
+      if (saved !== undefined) process.env['ACDE_DIST'] = saved
     }
   })
 
@@ -623,7 +623,7 @@ describe('a project made by acde from its checkout', () => {
         const path = tools(pm === 'bun' ? ['bun'] : [pm, 'node', 'bun'])
         const argv = [process.execPath, join(ROOT, 'src/cli.ts'), 'new', dir, '--pm', pm, '--yes']
         const PATH = [path, ...basePath(pm === 'bun' ? process.execPath : pm)].join(delimiter)
-        const made = await run(argv, tmp(), path, { ACDERT_DIST: sdk.dist, PATH })
+        const made = await run(argv, tmp(), path, { ACDE_DIST: sdk.dist, PATH })
         expect(made.code, made.out).toBe(0)
         const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         expect(pkg.packageManager).toStartWith(`${pm}@`)

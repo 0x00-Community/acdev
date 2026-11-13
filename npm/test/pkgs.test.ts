@@ -8,12 +8,11 @@ const read = (file: string) => readFileSync(join(ROOT, file), 'utf8')
 const INSTALLERS = '../scripts'
 
 describe('the download address', () => {
-  test('the install scripts default to Pkgs.ACDE and Pkgs.ACDERT', () => {
+  test('the install scripts default to Pkgs.ACDE', () => {
     expect(Pkgs.scriptProblems(read(`${INSTALLERS}/install.sh`), read(`${INSTALLERS}/install.ps1`))).toEqual([])
     expect(Pkgs.scriptProblems(read(`${INSTALLERS}/install.sh`).replaceAll(Pkgs.BASE, 'https://elsewhere'), read(`${INSTALLERS}/install.ps1`)))
       .toEqual([
         `install.sh: the default download address is not ACDE_DIST=\${ACDE_DIST:-${Pkgs.ACDE}}`,
-        `install.sh: the default download address is not ACDERT_DIST=\${ACDERT_DIST:-${Pkgs.ACDERT}}`,
       ])
   })
 

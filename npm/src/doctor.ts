@@ -459,8 +459,8 @@ export class Doctor {
       action: 'reinstall',
       target: version,
       ask: true,
-      does: `run the installer of acde ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdert this acde ` +
-        `pairs with, checks it against SHA256SUMS and puts it next to acde`,
+      does: `run the installer of acde ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdebin-dbg ` +
+        `released with it, checks it against SHA256SUMS and puts it next to acde`,
     }
   }
 

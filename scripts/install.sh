@@ -3,8 +3,6 @@ set -eu
 
 ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 ACDE_DIST=${ACDE_DIST%/}
-ACDERT_DIST=${ACDERT_DIST:-https://pkgs.dopame.ai/acdert}
-ACDERT_DIST=${ACDERT_DIST%/}
 
 say() {
   printf 'acde-install: %s\n' "$*"
@@ -45,14 +43,13 @@ usage: curl -fsSL $ACDE_DIST/install.sh | sh
        curl -fsSL $ACDE_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
-Installs acde (the developer CLI and its SDK) and the Dopame runtime it was built
-with (acdert) into \$ACDE_INSTALL (default ~/.acde) and puts \$ACDE_INSTALL/bin on
+Installs acde (the developer CLI and its SDK) and the debug runtime released with it
+(acdebin-dbg) into \$ACDE_INSTALL (default ~/.acde) and puts \$ACDE_INSTALL/bin on
 PATH. No root needed. Every download is checked against its SHA256SUMS; if any part
 fails, nothing is installed and an earlier install stays as it was.
-  --version X.Y.Z    that version of acde (and its acdert) instead of the latest
+  --version X.Y.Z    that version of acde (and its acdebin-dbg) instead of the latest
   --no-modify-path   do not touch any shell startup file
   ACDE_DIST          where to download acde from (now $ACDE_DIST)
-  ACDERT_DIST        where to download acdert from (now $ACDERT_DIST)
 EOF
 }
 
@@ -234,45 +231,25 @@ main() {
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
   download "$ACDE_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDE_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
-  runtime=
-  if fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" 2>/dev/null; then
-    verify "$tmp/SHA256SUMS" acdert-version "$tmp/acdert-version"
-    runtime=$(tr -d ' \t\r\n' <"$tmp/acdert-version")
-  elif fetch "$ACDE_DIST/latest.json" "$tmp/latest.json" 2>/dev/null; then
-    field() {
-      tr -d '\r\n' <"$tmp/latest.json" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
-    }
-    if [ "$(field version)" = "$version" ]; then
-      runtime=$(field sdk)
-      [ -z "$runtime" ] || say "acde $version names no acdert of its own; latest.json pairs it with acdert $runtime"
-    fi
-  fi
-  [ -n "$runtime" ] || die "acde $version does not name the acdert it runs with, so it cannot be installed" \
-    "(acde names it from 0.0.8 on): leave out --version for the latest"
-  case $runtime in
-    '' | *[!0-9A-Za-z.-]*) die "acdert-version of acde $version is not a version: '$runtime'" ;;
-  esac
-
-  sums=$ACDERT_DIST/$runtime/SHA256SUMS
-  say "acde $version runs with acdert $runtime: getting its build for $triple"
-  fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
-  binary=acdert-$triple
-  if [ -n "$(listed "$tmp/acdert.sums" "$binary.tar.xz")" ]; then
+  binary=acdebin-dbg-$triple
+  if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
     binary=$binary.tar.xz
     tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
       die "needs xz to unpack $binary: install the xz (or xz-utils) package and run this again"
-  elif [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
-    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdert-/ && f !~ /^acdert-host-/) {
-      sub(/^acdert-/, "", f); sub(/\.tar\.[gx]z$/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" |
+  elif [ -n "$(listed "$tmp/SHA256SUMS" "acdert-version")" ]; then
+    die "acde $version comes from before acde and its runtime were released together: leave out --version for the latest"
+  else
+    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdebin-dbg-/) {
+      sub(/^acdebin-dbg-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
-    die "acdert $runtime has no build for this platform ($triple); it is built for: ${supported% }"
+    die "acde $version has no acdebin-dbg for this platform ($triple); it is built for: ${supported% }"
   fi
-  host=acdert-host-$runtime.tar.gz
-  download "$ACDERT_DIST/$runtime/$binary" "$tmp/$binary" "$binary" ||
-    die "could not download $ACDERT_DIST/$runtime/$binary"
-  got "$tmp/acdert.sums" "$binary" "$tmp/$binary"
-  download "$ACDERT_DIST/$runtime/$host" "$tmp/$host" "$host" || die "could not download $ACDERT_DIST/$runtime/$host"
-  got "$tmp/acdert.sums" "$host" "$tmp/$host"
+  host=acde-host-$version.tar.gz
+  say "getting acdebin-dbg $version for $triple"
+  download "$ACDE_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDE_DIST/$version/$binary"
+  got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
+  download "$ACDE_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDE_DIST/$version/$host"
+  got "$tmp/SHA256SUMS" "$host" "$tmp/$host"
 
   root=${ACDE_INSTALL:-$HOME/.acde}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
@@ -286,17 +263,13 @@ main() {
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
   unpacked=$stage/acde-$version
   [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
-  case $binary in
-    *.tar.xz)
-      mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
-      [ -f "$stage/runtime/acdert" ] && [ ! -h "$stage/runtime/acdert" ] || die "$binary does not hold acdert"
-      mv "$stage/runtime/acdert" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
-      ;;
-    *) cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert" ;;
-  esac
+  mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
+  [ -f "$stage/runtime/acdebin-dbg" ] && [ ! -h "$stage/runtime/acdebin-dbg" ] || die "$binary does not hold acdebin-dbg"
+  mv "$stage/runtime/acdebin-dbg" "$unpacked/bin/acdebin-dbg" && chmod 755 "$unpacked/bin/acdebin-dbg" ||
+    die "could not place acdebin-dbg"
   mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
   [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
-  mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the acdert host files"
+  mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the host files (app/)"
   if [ -e "$root/versions/$version" ]; then
     mv "$root/versions/$version" "$stage/old"
   fi
@@ -385,9 +358,9 @@ main() {
     fi
   fi
 
-  say "installed acde $version with acdert $runtime in $root/versions/$version"
-  printf '  acde    %s/acde\n' "$bin"
-  printf '  acdert  %s/acdert\n' "$bin"
+  say "installed acde $version with acdebin-dbg $version in $root/versions/$version"
+  printf '  acde         %s/acde\n' "$bin"
+  printf '  acdebin-dbg  %s/acdebin-dbg\n' "$bin"
 
   runs=
   if command -v bun >/dev/null 2>&1; then

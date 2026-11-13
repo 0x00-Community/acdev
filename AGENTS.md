@@ -24,6 +24,11 @@ acde 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通�
 目录: `src/` 是 acdebin-dbg 本体 (Rust, 仓库根的包); `crates/hostwin` 宿主窗口; `npm/` 是开发者 CLI `acde` 这个 JS 包 (连同它自己的构建脚本 `npm/scripts/`); `scripts/` 是不随包发的安装器
 (`install.sh` / `install.ps1` / `install.md`, 发版时传到 pkgs) 和发版检查 `release-guard.ts`.
 
+发版 (`.github/workflows/release.yml`, 手动跑, 说明在 `npm/AGENTS.md` 的「分发」): 一次发布、一个版本号, 把四个平台的 `acdebin-dbg-<triple>`、
+页面资源 `acde-host-<版本>.tar.gz` (acdert 的 `build:release`)、SDK `acde-api-<版本>.tar.gz`、`acde` 命令行和安装器一起放进
+`pkgs.dopame.ai/acde/<版本>/`, 标签 `v<版本>` 打在本仓库. 版本号要和 `npm/package.json`、acdert 的 SDK 一起改 (`plan` 核对), acdert 按输入
+`acdert_commit` (缺省它的 main) 检出在旁边. acdert 自己不再发版.
+
 ## 构建
 
 acdert 要和本仓库并排检出 (`../acdert`): crate 都是 path 依赖, `[patch.crates-io]` 用 `../acdert/vendor`. `Cargo.lock` 不进 git,

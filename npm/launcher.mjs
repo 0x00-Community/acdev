@@ -47,7 +47,7 @@ export const RUNTIMES = ['acdebin-dbg', 'acdert']
 export function acdertBeside(root = ROOT) {
   if (!installed(root)) return null
   const paths = RUNTIMES.map((name) => join(root, '..', '..', 'bin', `${name}${EXE}`))
-  return paths.find((path) => existsSync(path)) ?? paths.at(-1)
+  return paths.find((path) => existsSync(path)) ?? paths[0]
 }
 
 export function findAcdert(root = ROOT, env = process.env) {

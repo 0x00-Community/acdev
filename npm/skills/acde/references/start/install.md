@@ -114,55 +114,55 @@ The runtime renders pages only on the GPU, so it needs a working GPU (Metal on m
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdert` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdert/acdert` in the commands below). Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdebin-dbg` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdebin-dbg/acdebin-dbg` in the commands below). The runtime is released together with acde, in `https://pkgs.dopame.ai/acde/<version>/`, and `https://pkgs.dopame.ai/acde/latest` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
-| `acdert-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
-| `acdert-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
-| `acdert-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
-| `acdert-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
-| `acdert-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory), the same on every platform |
+| `acdebin-dbg-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
+| `acdebin-dbg-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
+| `acdebin-dbg-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
+| `acdebin-dbg-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
+| `acde-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory) and its license, the same on every platform |
+| `acde-<version>.tar.gz` | acde itself (what the installer puts in `~/.acde`) |
 | `acde-api-<version>.tar.gz` | The SDK, `@dopame/acde-api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
-| `LICENSE` | The runtime's license |
 | `SHA256SUMS` | Checksums of the files above |
 
-Each runtime archive holds only the binary, `acdert` (`acdert.exe` on Windows).
+Each runtime archive holds only the binary, `acdebin-dbg` (`acdebin-dbg.exe` on Windows).
 
-Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: acdert looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
+Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: the runtime looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
 
 On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux.
 
 ```sh
 (
 target=aarch64-apple-darwin
-base=https://pkgs.dopame.ai/acdert
-version=$(curl -fsSL "$base/latest.json" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')
-mkdir -p ~/.acdert && cd ~/.acdert
-curl -fsSLO "$base/$version/acdert-$target.tar.xz" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
-grep -E " (acdert-$target\.tar\.xz|acdert-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
-  rm -rf app && tar -xzf "acdert-host-$version.tar.gz" && tar -xJf "acdert-$target.tar.xz"
+base=https://pkgs.dopame.ai/acde
+version=$(curl -fsSL "$base/latest" | tr -d ' \r\n')
+mkdir -p ~/.acdebin-dbg && cd ~/.acdebin-dbg
+curl -fsSLO "$base/$version/acdebin-dbg-$target.tar.xz" -O "$base/$version/acde-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
+grep -E " (acdebin-dbg-$target\.tar\.xz|acde-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
+  rm -rf app && tar -xzf "acde-host-$version.tar.gz" && tar -xJf "acdebin-dbg-$target.tar.xz"
 )
 ```
 
 `sha256sum` prints `OK` for both files; if it doesn't, nothing is extracted. Then point acde at it: add this line to your shell's startup file, and run it in the current terminal too:
 
 ```sh
-export ACDERT="$HOME/.acdert/acdert"
+export ACDERT="$HOME/.acdebin-dbg/acdebin-dbg"
 ```
 
-Adding `~/.acdert` to `PATH` works as well.
+Adding `~/.acdebin-dbg` to `PATH` works as well.
 
 On Windows, in PowerShell:
 
 ```powershell
 & {
   $ProgressPreference = 'SilentlyContinue'
-  $base = 'https://pkgs.dopame.ai/acdert'
-  $version = (Invoke-RestMethod "$base/latest.json").version
-  $dir = "$env:USERPROFILE\.acdert"
+  $base = 'https://pkgs.dopame.ai/acde'
+  $version = (Invoke-RestMethod "$base/latest").Trim()
+  $dir = "$env:USERPROFILE\.acdebin-dbg"
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $files = 'acdert-x86_64-pc-windows-msvc.tar.gz', "acdert-host-$version.tar.gz"
+  $files = 'acdebin-dbg-x86_64-pc-windows-msvc.tar.gz', "acde-host-$version.tar.gz"
   foreach ($f in $files + 'SHA256SUMS') { Invoke-WebRequest "$base/$version/$f" -OutFile "$dir\$f" }
   $sums = Get-Content "$dir\SHA256SUMS"
   foreach ($f in $files) {
@@ -170,10 +170,10 @@ On Windows, in PowerShell:
     if ((Get-FileHash "$dir\$f").Hash -ne $want) { throw "checksum mismatch: $f" }
   }
   Remove-Item -Recurse -Force "$dir\app" -ErrorAction SilentlyContinue
-  tar -xzf "$dir\acdert-host-$version.tar.gz" -C $dir
-  tar -xzf "$dir\acdert-x86_64-pc-windows-msvc.tar.gz" -C $dir
-  [Environment]::SetEnvironmentVariable('ACDERT', "$dir\acdert.exe", 'User')
-  $env:ACDERT = "$dir\acdert.exe"
+  tar -xzf "$dir\acde-host-$version.tar.gz" -C $dir
+  tar -xzf "$dir\acdebin-dbg-x86_64-pc-windows-msvc.tar.gz" -C $dir
+  [Environment]::SetEnvironmentVariable('ACDERT', "$dir\acdebin-dbg.exe", 'User')
+  $env:ACDERT = "$dir\acdebin-dbg.exe"
 }
 ```
 
