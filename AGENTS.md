@@ -1573,15 +1573,20 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 ## 发版
 
-`.github/workflows/release.yml`, 四个平台各编一个 release 的 `acdert` (`cargo build --profile dist -p acdert --target <triple>`, 产物在 `target/<triple>/dist/`), 按 triple 发:
+`.github/workflows/release.yml`, 四个平台各编一个 release 的运行时, 按 triple 发. 本仓库根只是 lib, 运行时二进制是 acdebin-dbg 的 (用户定, 2026-11-14:
+尽可能不破坏接口): `plan` 定下 AC/acdebin-dbg 的提交 (输入 `dbg_commit`, 空就取它的 main; 必须在它的 main 上, 它的 `workspace.package.version` 必须和本仓库
+一致, 所以两边一起改版本号), `build` 把它克隆到 `../acdebin-dbg` (它按 `../acdert` 找本仓库, 所以工作区目录名必须是 `acdert`; 同时 `git submodule update`
+取 vendor/blitz), 在那里 `cargo build --profile dist -p acdebin-dbg --target <triple>`, 再改名成 `acdert` 照旧打包: 压缩包名和里面的文件名不变,
+0.0.9 的安装器和 acde CLI (`--version` 认 `acdebin-dbg` 和 `acdert` 两种开头) 不用改. acdebin-dbg 只在 Gitea 上, GitHub 上 `plan` 直接失败, 发版只在 Gitea 跑.
+克隆用 `ACKERNEL_TOKEN` (没有就用这个作业自己的令牌), 同 acdebin-system 的 package.yaml. 按 triple 发:
 `aarch64-apple-darwin` (macos-15)、`x86_64-apple-darwin` (macos-15-intel, 原生编, 不交叉编译)、`x86_64-unknown-linux-gnu` (runner 标签 `debian12`)、`x86_64-pc-windows-msvc`
 (windows-2025, 要 NASM 和 `PYTHON3`). 发出去的是压缩包 (0.0.9 起; 0.0.8 及以前是裸文件 `acdert-<triple>[.exe]`, acde 的安装器两种都认):
 `acdert-<triple>.tar.xz` (macOS、Linux, 里面只有 `acdert`) 和 `acdert-x86_64-pc-windows-msvc.tar.gz` (里面只有 `acdert.exe`; 不用 xz, 因为 acde 的
 install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 80 MB 的 macOS 二进制 xz 后约 19.5 MB. `stage.sh` 打包: 成员 755、时间戳 2000-01-01、
 属主 0、ustar, `xz -9 -T1` / `gzip -9 -n`, 同样的输入两次打包字节相同 (上传拒绝覆盖不同内容的同名文件, 重跑要能对上). host bundle 和平台无关, 单独打成 `acdert-host-<版本>.tar.gz` (`app/`: `dist`、`brand`、`greet`、
 `package.json`, `LICENSE`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
-- 二进制 (`dist` profile, 根 `Cargo.toml`, 继承 `release`): `debug = "line-tables-only"`、`split-debuginfo = "packed"`、`strip = "symbols"`. 发出去的 binary 不带符号.
-  分离的调试信息 (Windows `acdert.pdb`、Linux `acdert.dwp`、macOS `acdert.dSYM`) 只进 `symbols-<triple>` 的 Actions artifact (保留 30 天): 不上 GitHub release, 不进 pkgs.
+- 二进制 (acdebin-dbg 根 `Cargo.toml` 的 `dist` profile, 继承 `release`): `debug = "line-tables-only"`、`split-debuginfo = "packed"`、`strip = "symbols"`. 发出去的 binary 不带符号.
+  分离的调试信息 (Windows `acdebin_dbg.pdb`、Linux `acdebin-dbg.dwp`、macOS `acdebin-dbg.dSYM`; 名字按 acdebin-dbg, 不跟着改名, PDB 名字写在 exe 里) 只进 `symbols-<triple>` 的 Actions artifact (保留 30 天): 不上 GitHub release, 不进 pkgs.
   本地 `release` profile 不变 (`strip = true`, 没有调试信息), `scripts/` 和基准都用它, 所以它留着.
 - Windows 的 PDB 路径: `.cargo/config.toml` 的 `/PDBALTPATH:%_PDB%` 让 exe 只记 PDB 的文件名 (MSVC 本来会写完整路径). CI 的 RUSTFLAGS 另加
   `--remap-path-prefix`: cargo home、toolchain、workspace 分别映射成 `/cargo`、`/rustc`、`/src`, 去掉 registry 和 toolchain 路径里的用户名.
@@ -1651,7 +1656,7 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   见下面 web/packages 的 acde-api. 它不做混淆 (决定, 2026-11-09: 它的 `.d.ts` 是公共接口, 混淆只增加调试难度, 收益低). 别的包不发,
   开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`, acde 新建工程时从这个地址装 SDK.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
-  一起改 (再 `bun install` 刷新 `web/bun.lock`), tag 是 `v0.0.N`.
+  一起改 (再 `bun install` 刷新 `web/bun.lock`), acdebin-dbg 根 `Cargo.toml` 的 `workspace.package.version` 也改成同一个 (`plan` 核对), tag 是 `v0.0.N`.
 - Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire、GLib 和 GStreamer (`libgstreamer1.0`、
   `gst-plugins-base` 的库, 没有就起不来); 放 `<video>` 还要 gst-plugins-base / good 的插件 (VA-API 硬解要 `gst-plugin-va`), 同 Arch 包的 depends.
   CI 的 Linux 构建装对应的 `-dev` 包 (`libglib2.0-dev`、`libgstreamer1.0-dev`、`libgstreamer-plugins-base1.0-dev`, crates/media 经 pkg-config 找它们).

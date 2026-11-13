@@ -9,6 +9,9 @@ name: release
 # servers, through scripts/release/s3.sh, as the role dopame-acdert-release: GitHub assumes it with OIDC, Gitea with the key of
 # the IAM user gitea-acdert-release (secrets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY). The GitHub release runs only on github.com;
 # on Gitea, tag-gitea and latest-gitea take the place of tag and latest.
+# The runtime binary is acdebin-dbg's (AC/acdebin-dbg, beside this checkout as ../acdebin-dbg; it builds on ../acdert), shipped
+# under the old name acdert-<triple> so the installers and the acde CLI take it unchanged. acdebin-dbg is only on Gitea, so a
+# release runs there; on GitHub plan stops.
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +21,10 @@ on:
         default: false
       commit:
         description: 'full or short sha on origin/main to publish or rehearse; a formal release needs it, a rehearsal defaults to the run commit'
+        type: string
+        default: ''
+      dbg_commit:
+        description: 'full or short sha of AC/acdebin-dbg to build the runtime binary from; empty takes its main. Its version must equal this one'
         type: string
         default: ''
       skip_targets:
@@ -50,6 +57,7 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       mode: ${{ steps.plan.outputs.mode }}
       targets: ${{ steps.plan.outputs.targets }}
+      dbg_sha: ${{ steps.dbg.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
         timeout-minutes: 10
@@ -79,6 +87,29 @@ jobs:
           echo "publish=$publish github=$github"
           { echo "publish=$publish"; echo "github=$github"; } >> "$GITHUB_OUTPUT"
           scripts/release/plan.sh "$EVENT" "$REF_TYPE" "$REF_NAME" "$SHA" "$publish" "${COMMIT:-}"
+      - name: the acdebin-dbg commit the runtime binary is built from
+        id: dbg
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          DBG_COMMIT: ${{ github.event.inputs.dbg_commit }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          if [ "$GITHUB_SERVER_URL" = https://github.com ]; then
+            echo "::error::the runtime binary is built from AC/acdebin-dbg, which is only on Gitea: run this release on Gitea"
+            exit 1
+          fi
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          dbg="$RUNNER_TEMP/acdebin-dbg"
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" "$dbg"
+          sha=$(git -C "$dbg" rev-parse --verify "${DBG_COMMIT:-origin/main}^{commit}")
+          git -C "$dbg" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdebin-dbg $sha is not on its main"; exit 1; }
+          dbg_version=$(git -C "$dbg" show "$sha:Cargo.toml" | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p')
+          if [ "$dbg_version" != "$VERSION" ]; then
+            echo "::error::acdebin-dbg $sha is version $dbg_version, this release is $VERSION: bump both together"
+            exit 1
+          fi
+          echo "acdebin-dbg $sha ($dbg_version)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
@@ -107,6 +138,20 @@ jobs:
         if: env.BUILD == 'true'
         with:
           ref: ${{ needs.plan.outputs.sha }}
+      - name: vendor/blitz (public on GitHub, fetched without the Gitea token) and acdebin-dbg beside this checkout
+        if: env.BUILD == 'true'
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          DBG_SHA: ${{ needs.plan.outputs.dbg_sha }}
+        run: |
+          git submodule update --init --depth 1
+          [ "$(basename "$GITHUB_WORKSPACE")" = acdert ] || { echo "::error::acdebin-dbg finds this checkout as ../acdert; the workspace is $GITHUB_WORKSPACE"; exit 1; }
+          dbg="$GITHUB_WORKSPACE/../acdebin-dbg"
+          rm -rf "$dbg"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" "$dbg"
+          git -C "$dbg" checkout --detach "$DBG_SHA"
       - name: system libraries
         if: env.BUILD == 'true' && runner.os == 'Linux'
         run: >
@@ -133,6 +178,7 @@ jobs:
         if: env.BUILD == 'true'
         with:
           key: dist-${{ matrix.triple }}
+          workspaces: ../acdebin-dbg -> target
       - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
         if: env.BUILD == 'true'
         shell: bash
@@ -140,28 +186,31 @@ jobs:
           cargo_home="${CARGO_HOME:-$HOME/.cargo}"
           sysroot=$(rustc --print sysroot)
           workspace="$GITHUB_WORKSPACE"
+          dbg=$(cd "$GITHUB_WORKSPACE/../acdebin-dbg" && pwd)
           flags=""
           case "$(uname -s)" in
             MINGW* | MSYS* | CYGWIN*)
               cargo_home=$(cygpath -w "$cargo_home")
               sysroot=$(cygpath -w "$sysroot")
               workspace=$(cygpath -w "$workspace")
+              dbg=$(cygpath -w "$dbg")
               flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%"
               ;;
           esac
-          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$workspace=/src"
+          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$workspace=/src --remap-path-prefix=$dbg=/src/acdebin-dbg"
           echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
-      - name: "acdert (dist profile: release build, split debug information)"
+      - name: "acdebin-dbg (dist profile: release build, split debug information)"
         if: env.BUILD == 'true'
-        run: cargo build --profile dist -p acdert --target ${{ matrix.triple }}
-      - name: stage binary and split debug information
+        shell: bash
+        run: cd ../acdebin-dbg && cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }}
+      - name: stage binary (as acdert) and split debug information
         if: env.BUILD == 'true'
         shell: bash
         run: |
-          dist=target/${{ matrix.triple }}/dist
+          dist=../acdebin-dbg/target/${{ matrix.triple }}/dist
           mkdir -p out symbols
-          cp "$dist/acdert${{ matrix.exe }}" "out/acdert-${{ matrix.triple }}${{ matrix.exe }}"
-          for part in acdert.pdb acdert.dwp acdert.dSYM; do
+          cp "$dist/acdebin-dbg${{ matrix.exe }}" "out/acdert-${{ matrix.triple }}${{ matrix.exe }}"
+          for part in acdebin-dbg.pdb acdebin_dbg.pdb acdebin-dbg.dwp acdebin_dbg.dwp acdebin-dbg.dSYM acdebin_dbg.dSYM; do
             if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" symbols/; fi
           done
           if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
