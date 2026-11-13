@@ -1697,7 +1697,6 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
 | `web/packages/acde-dom` | web 里的浏览器全局对象和 DOM |
 | `web/packages/acde-api` | `@dopame/acde-api`: SDK (唯一对外发布的 JS 包) |
-| `packaging/office` | ONLYOFFICE Document Server 容器脚本 (Arch 包和会话里的驱动测量 `packaging/arch` / `qemu` 已搬到 acde-system) |
 
 ### web/packages
 
@@ -1894,36 +1893,3 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 - `ACDE_PAINT_VERIFY=1` 下机器忙时 `tests/damage.rs` 偶发等帧超时, 单独重跑都过.
 - `tests/fixtures/replay/*.ops.gz` 是旧 acde-host 的 DOM 操作流 (`tests/replay.rs` 回放, 格式见它), `svg/*.svg` 是简单 SVG 的对比用例, 元素的特殊渲染
   在 `tests/elements.rs`. `release_keeps_memory_flat` 只在 Linux 上跑.
-
-## packaging/arch
-
-`PKGBUILD` 打出 `acdert` 包 (provides / conflicts `acde-base`), 装 `/usr/lib/acdert/acdert`、`/usr/lib/acdert/app/` (acde-host 的 `dist/`、`greet/`、
-`brand/`)、`/usr/lib/acdert/office-ds.sh`、会话入口 `/usr/bin/acdert` (POSIX sh)、`/usr/share/wayland-sessions/acdert.desktop`、
-`/usr/lib/tmpfiles.d/acde.conf` (`/var/lib/acde/greeter`)、fcitx5 的默认 profile (Ctrl+Space 切拼音)、`acde-portals.conf` (portal 全用 GTK).
-系统装的桌面包在 `/usr/share/acde/packages/`.
-
-会话入口: 子命令直接 exec acdert; 否则跑 acdert, 异常退出重新拉起, 60 秒内第 3 次放弃 (登录页改成 `exec agreety --cmd /usr/bin/acdert`); 退出码 3 且有
-交接文件时 exec 它. 输入法是 fcitx5 (原生应用走 text-input-v3, 网页走 runtime 的 `Ime`). 包从 `HEAD` 构建 (`git archive`), 版本来自 `v*` tag;
-`vulkan-driver` 依赖由 GPU 自己的驱动满足, 没有 GPU 时 lavapipe (`vulkan-swrast`) 也行. 构建 `makepkg -s` 或 `podman-build.sh out/`; 发版在 x86_64 Arch 和 Arch Linux ARM 上各跑
-`release.sh <tag>`, agentos 仓库的 `scripts/components` 钉 tag.
-
-## packaging/qemu
-
-在会话所在的机器上驱动和测量 (会话带 `ACDE_DEBUG_DIR` 起). 没有 3D 的虚拟机起不来网页图层, 验收在有 GPU 的真机上.
-
-- greetd 的 `initial_session` 只在第一次启动时跑; fcitx5 退出时写回 profile, 改它先 `kill -9`; 测试机的密码不进仓库.
-- seat0 被 gdm 占着时验 DRM 后端: `sudo systemd-run --unit=acde-drm-test --uid=$USER -p PAMName=login -p TTYPath=/dev/tty7 -p StandardInput=tty-force
-  <脚本>` (脚本设 `ACDE_BACKEND=drm ACDE_DEBUG_DIR=…`, 用 `timeout` 兜底), 测完 `loginctl terminate-session <id>` 再 `chvt 1`.
-
-`drive.sh [-d DIR] [-t 秒] 命令 [参数...]` (dash): 交给 Broker 里的 `drive.mjs` 执行, 打印 JSON. 回答直接 `cat` 出来, 不经变量和
-`printf` (dash 0.5.13 会在经过 `$(...)` 的 UTF-8 续字节前插 0x81); `drive-check.sh` 不要会话, 在 dash 和 bash 下各跑一次, 比对非 ASCII 回答的每个字节.
-
-| 命令 | 做什么 |
-| --- | --- |
-| `keys ctrl+space n i h a o` / `type 'nihao'` | 按键 / 打字, 经 `Shell.inject` |
-| `move X Y` / `click [X Y] [right]` / `drag X1 Y1 X2 Y2` / `wheel X Y DY` | 指针 (逻辑像素) |
-| `eval WEB CODE` | 在 web 里求值 |
-| `windows` / `launch APP` / `close WINDOW` | 窗口表; 开关窗口 |
-| `stats [reset]` | shell 和每个 web 的现值 |
-| `screenshot PATH` | `Shell.screenshot` |
-| `perf 场景 [秒] [参数]` | `idle` / `pointer` / `drag [APP]` / `scroll [APP]` / `stress [N]` (要把 `web/packages/acde-host/tests/fixtures/stress-app` 加进 `ACDE_PATH`) / `contend [N]` / `open [APP]`; 报 `cpuPercent`、按线程名的 CPU、`rssMb`、合成帧率和 p50 / p95、每个 web 的出帧 |
