@@ -21,7 +21,7 @@ export interface DevHost {
   webs(): Web[]
   desktop(): Web | null
   title(web: Web): string
-  emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): unknown
+  emulate(options: { readonly colorScheme?: 'light' | 'dark' | null }): unknown
   reload(app: string | null): Promise<void>
   screen(): Screen
   readonly devtools: NativeDevTools | null

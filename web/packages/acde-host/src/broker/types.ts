@@ -111,7 +111,6 @@ export interface BrokerOptions {
   readonly width: number
   readonly height: number
   readonly scale: number
-  readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly session: boolean
   readonly storage: (desktop: string) => StoragePlace
@@ -151,7 +150,6 @@ export interface WebInit {
   readonly height: number
   readonly scale: number
   readonly screen?: { width: number; height: number; workArea?: { x: number; y: number; width: number; height: number } }
-  readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly languages: Languages
   readonly navigator: { readonly userAgent: string; readonly platform: string }

@@ -48,7 +48,6 @@ pub struct Options {
     pub default_lang: Option<String>,
     pub verify_paint: Option<bool>,
     pub svg_text_path: Option<bool>,
-    pub reduced_motion: bool,
     pub dark: bool,
     pub name: Option<String>,
     pub loader: Option<Loader>,

@@ -1,8 +1,0 @@
-[package]
-name = "fslock"
-version = "0.2.1"
-edition = "2024"
-license = "MIT"
-description = "fslock's LockFile on std::fs::File::lock (acde: no winapi)"
-
-[workspace]

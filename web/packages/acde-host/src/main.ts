@@ -252,7 +252,6 @@ class Main {
       width,
       height,
       scale,
-      reducedMotion: Main.#switch('ACDE_REDUCED_MOTION'),
       dark: fixed ?? false,
       session,
       storage: (id) => (greeter ? StoragePlaces.memory('greeter') : StoragePlaces.desktop(id)),

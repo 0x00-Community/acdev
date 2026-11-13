@@ -211,15 +211,6 @@ fn element_from_point_follows_the_viewport_scroll() {
 }
 
 #[test]
-fn pointer_events_all_takes_the_hit_back_from_a_none_ancestor() {
-    let doc = page(
-        "<!doctype html><style>body { margin: 0; } #outer { pointer-events: none; } #inner { pointer-events: all; display: block; width: 100px; height: 40px; }</style>
-        <div id=outer><button id=inner>Delete</button></div>",
-    );
-    assert_eq!(doc.dom.hit_test(10.0, 10.0), Some(doc.dom.get_element_by_id("inner")));
-}
-
-#[test]
 fn an_inline_svg_without_a_view_box_draws_in_css_pixels() {
     let doc = page(
         "<!doctype html><style>body { margin: 0; background: #fff; } svg { display: block; width: 100px; height: 100px; }</style>

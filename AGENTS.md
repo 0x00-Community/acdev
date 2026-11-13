@@ -9,7 +9,7 @@
 >   类型在 SDK `@dopame/acde-api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 workerd 的 binding, 直接注入页面所在的 V8 isolate, 调用直接进 Rust 原生实现, 不经 socket /
 >   IPC / 别的进程代办.
-> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 分叉 acrender, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有 devtools、
+> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, `vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有 devtools、
 >   远程调试端口、浏览器外壳.
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见「通信」); acde-dopame 还直接用 napi 导出.
@@ -52,12 +52,12 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 - 这次不发布到 registry: `[patch.crates-io]` 换成 vendor/ 的分叉不会随包走, 要先把分叉发出去或改名依赖.
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
-会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (含 smithay 一侧用的 ironrdp-server、libseat-sys) 仍在本仓库, 两个前端都用 `../acdert/vendor`.
+会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (blitz 子模块、naga、ironrdp-server) 仍在本仓库, 两个前端都用 `../acdert/vendor`.
 
 acdert 和开发者 CLI `acde` ([acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 的 `cli/`)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
 crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境变量、`$XDG_*/acde/` 这些都不改. 桌面是一张网页: JS 在内嵌的 V8 里
-(不用 Node), Blitz (`vendor/acrender`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
+(不用 Node), Blitz (`vendor/blitz`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
 [acde-dopame](https://github.com/dopame-org/acde-dopame), 发行时带上, acdert 不认识它).
 
 两种跑法, 运行时是同一套:
@@ -249,9 +249,8 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   - `network {web?, since?, limit?, failed?}` → 同样的形状, 条目 `{seq, time, web, app, id, kind: fetch | xhr | websocket | eventsource, method,
     url, requestBytes, status, statusText, responseBytes, ms, error, done}`; `failed` 只要出错的和 status ≥ 400 的.
   - `screen {path}` → `Shell.screenshot(path)` 加 `path` (绝对路径; 整个屏幕, 所有窗口合在一起).
-  - `emulate {colorScheme?: light | dark | null, reducedMotion?: boolean | null}` → `{colorScheme, emulated, reducedMotion}`: 所有页面 (和以后
-    开的) 的 `prefers-color-scheme` / `prefers-reduced-motion` (CSS 和 `matchMedia`); null 回到系统的 (portal / `ACDE_COLOR_SCHEME` /
-    `ACDE_REDUCED_MOTION`). 模拟配色时系统配色的变化只记下, 回到系统时再生效.
+  - `emulate {colorScheme?: light | dark | null}` → `{colorScheme, emulated}`: 所有页面 (和以后开的) 的 `prefers-color-scheme`
+    (CSS 和 `matchMedia`); null 回到系统的 (portal / `ACDE_COLOR_SCHEME`). 模拟配色时系统配色的变化只记下, 回到系统时再生效.
   - `choose {folder | open | save}` (恰好给一个) → 原样回: 事先答复页面下一次的这种选择器, 不弹窗, 三种各排各的队列, null 当作用户取消.
     `folder: 绝对路径` 答 `showDirectoryPicker`; `open: [绝对路径, …]` (不空) 答 `showOpenFilePicker` / `<input type=file>`, 多于一个而这次
     不许多选时这次回错; `save: 绝对路径` 答 `showSaveFilePicker`. napi `Shell.answerFolder` / `answerOpen` / `answerSave` → hostwin 的队列,
@@ -379,10 +378,10 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   dev 日志不变; 渲染器自己从应用包读的 (`<img>`、`<link rel=stylesheet>`、CSS 里的字体: render `net.rs` `LocalNet` 直接读文件, 不经 JS 加载器)
   在 dev 模式下也给加载器发一个 `served: true` 的 `Load` (没有 `done`), crates/host `dom.rs` 以 `(-1, url, destination, cors, true)` 调页面的
   加载回调, acde-dom `reportServed` 在有客户端录制时按路径读出文件补报; 非 dev 模式不发). 图片取自文档的图片缓存或并入进行中的请求时不再取,
-  acrender 经 `NetProvider::reused` 报成 served 且 `cached` (`Load.cached`, 加载回调第 6 个参数): 只报状态和按扩展名的类型, 不读文件,
+  blitz fork 经 `NetProvider::reused` 报成 served 且 `cached` (`Load.cached`, 加载回调第 6 个参数): 只报状态和按扩展名的类型, 不读文件,
   `responseReceived` 带 `fromMemoryCache: true`. `<img>` 插入文档时, 当前 `src` 已经开始取过 (成功、失败或还在取, 记在 `ElementData.image_tried`) 就不再取, 和规范一样不重发请求、
   不再触发一次 load / error (`process_added_subtree`); `src` 换了才重新取. 不在文档里的 `<img>` (`new Image()`) 设了 `src` 也加载
-  并发 load / error (acrender `mutator.rs` `set_attribute`; render `Engine::image` 只在请求进行中时算加载中), 和浏览器一样. 因页面没有 network 能力被拒的 (`NO_NETWORK`) 在 `loadingFailed` 带 `blockedReason: "other"`.
+  并发 load / error (blitz fork `mutator.rs` `set_attribute`; render `Engine::image` 只在请求进行中时算加载中), 和浏览器一样. 因页面没有 network 能力被拒的 (`NO_NETWORK`) 在 `loadingFailed` 带 `blockedReason: "other"`.
   `Tracked` 的 `frame(sent, data)` / `message(event, data, lastId)` 交给 `NetworkObserver` 的可选同名方法; `exchange` 可以接收调用方建好的 `Tracked`.
   `CSS` (#191, `devtools/css.ts`) 和 `DOM.getBoxModel`: 取数和 `getComputedStyle` / `getBoundingClientRect` 是同一个原生接口 (`dom.computedStyleAll`,
   `dom.rect`, 经 `pagedom.ts`). `getComputedStyleForNode` 是 stylo 算出的全部值; `getBoxModel` 的 border 是 `rect` (变换后的包围盒),
@@ -691,7 +690,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   字体 cors; 样式表要 2xx 的 `text/css`, 图片不看状态码; 失败在 console 报 `Failed to load resource: <url>: <原因>`. `<link crossorigin>` 是 CORS
   请求 (空值和别的值不带凭据, `use-credentials` 带), 没过 CORS 检查算失败; 改 `crossorigin` 和改 `href` / `rel` 一样重取.
   `document.fonts` 列的是各表的 `@font-face` (acde-dom `fontFaceTexts`, 内部读 render 的规则, 跨源 (opaque) 的表也算, 像浏览器), 页面读这种表的 `cssRules` 仍是 `SecurityError`.
-  - `<link>` 的 `load` / `error`: acrender 给每个 link 记它当前这一次取 (`SheetLoad`, 连同表里 `@import` 的表, 都答了才算完), render 的
+  - `<link>` 的 `load` / `error`: blitz fork 给每个 link 记它当前这一次取 (`SheetLoad`, 连同表里 `@import` 的表, 都答了才算完), render 的
     `take_loaded` 把取完的 link 和图片一起报, `sheetState` 说成败. 成了 (取到并进了 stylist) 派 `load`; 取不到、状态码或类型不对、`@import` 的表有
     一个没取到派 `error` (已取到的规则照样生效, 和 Chrome 一样). `href` 又变了或 link 离开了文档, 先前那次的答复丢掉, 不派事件; 换 `href` 时旧表留到新的
     答复来. 页面这边由 `deliverLoads` (`dom/media.ts`) 派: 每帧一次, 另外 link 接进文档、这三个属性变了、解析的 HTML 里有 `<link`、远程样式表答了
@@ -701,7 +700,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `sheet` 是 null. 响应对页面不透明的表, `cssRules` / `rules` / `insertRule` / `deleteRule` 抛 `SecurityError`. 透不透明由取这张表的那次
     请求定, 不看 link 现在的属性 (改了 `crossorigin` / `href`, 新表到之前手上还是旧表, 旧表的结论不变): `loadResource` 在响应头到的时候判,
     不是 CORS 请求而且请求地址或重定向后的最终地址有一个不同源就是不透明 (中间跳过别的源、首尾都同源的不算), 随 `loaded(id, bytes, opaque)`
-    交给 render (`Load::finish_opaque` → `NetHandler::opaque`), acrender 记在这张表上 (`sheet_sources`, 连同取它的地址即 `sheet.href`, 和带来
+    交给 render (`Load::finish_opaque` → `NetHandler::opaque`), blitz fork 记在这张表上 (`sheet_sources`, 连同取它的地址即 `sheet.href`, 和带来
     它的那次请求的 id). `CSSStyleSheet` 对象建的时候按这个 id (`sheetSerial`) 绑定到这一张表: `link.sheet` 在 id 变了时给新对象; 旧对象和从它
     拿走的 `cssRules` 每次读都核对 id, link 换了表之后读到的是空 (不会读到后来那张表的规则), 往里 `insertRule` 只改它自己. 包里的文件、`data:`、`blob:`、同源后端和过了 CORS 检查的可读写. `replaceSync` / `replace` 只给
     `new CSSStyleSheet()` 造的表, `<style>` / `<link>` 的表是 `NotAllowedError`.
@@ -738,7 +737,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `set_value` 都过它): min 默认 0、max 默认 100 (比 min 小时取 min)、step 默认 1 (`any` 不对齐)、无效值取中点, 夹到范围里再按 step 从 min 起
   四舍五入对齐 (按 min / step 的小数位数用整数算, 和浏览器的十进制结果一样, 不出 1.8000000000000003), 超出 max 时取不超过 max 的最大一档;
   `min` / `max` / `step` 改了时重新净化已有的值. 画 (blitz-paint `draw_range`, `SpecialElementData::RangeInput(比例)`): 灰色轨道、左边一段和
-  圆形滑块用 `accent-color` (`auto` 是文字颜色, 和复选框、单选框同一个 `accent_color`), 默认 `appearance: auto` (render 的 UA 样式表),
+  圆形滑块用文字颜色 (和复选框、单选框同一个 `accent_color`), 默认 `appearance: auto` (render 的 UA 样式表),
   `appearance: none` 时不画; 默认 129 × 16. 交互 (acde-dom `dom/rangeinput.ts`): 按下 (没被取消) 按指针位置设值并跟着拖, 每次变发 `input`, 松开时和按下时不同发 `change`;
   有焦点时 左 / 下 减一档、右 / 上 加一档、PageUp / PageDown 十分之一、Home / End 到两头, 各发 `input` 和 `change`.
 - **XML 文档和命名空间** (render `xml.rs` / `serialize.rs` 的 `XmlSerializer`, acde-dom `dom/namespaces.ts`): `DOMParser` 的 `application/xml`、
@@ -1340,7 +1339,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 ### render (`crates/render`, Rust 接口)
 
 - `Document::new(width, height, scale, &Options {base_url, resources: [Resource {prefix, dirs}], default_lang, verify_paint, svg_text_path,
-  reduced_motion, dark, name})`: 尺寸是物理像素. 同源资源按最长前缀在 dirs 里找, `file:` 直接读盘, 不联网, 读不到回空. `Document` 发句柄:
+  dark, name})`: 尺寸是物理像素. 同源资源按最长前缀在 dirs 里找, `file:` 直接读盘, 不联网, 读不到回空. `Document` 发句柄:
   `dom()` (JS 线程)、`handle()` (出帧方).
 - 线程: 文档由 JS 线程和 `acde-render` 线程共用 (一把锁).
 - DOM: `Dom` 实现 acde-dom 的 `DomNative` (契约 `web/packages/acde-dom/src/native.ts`, 同名 snake_case). 节点 id 是 u32 不复用, `<html>` 是 0;
@@ -1376,9 +1375,9 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - `createImageBitmap` / `ImageBitmap` (acde-dom `dom/bitmap.ts`): 把 `<img>`、`Blob`、`ImageData`、canvas、`ImageBitmap` 画进一个不挂在文档上的
   2D 画布, 支持裁剪矩形、`resizeWidth` / `resizeHeight`、`imageOrientation: 'flipY'`、`premultiplyAlpha` (WebGL 上传时按它, 不看
   `UNPACK_FLIP_Y_WEBGL` / `UNPACK_PREMULTIPLY_ALPHA_WEBGL`); `<video>` 来源报 `NotSupportedError`. 2D `drawImage` 和 WebGPU 外部拷贝收它.
-- 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
+- 选项 `default_lang` (默认 zh-Hans)、`dark` (事后用 `set_dark` 改, 都只改
   viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen, invisible)`: offscreen 时不按可见范围剪, invisible 见「看和操作桌面」. `<iframe>` 不加载
-  (`skip_iframe_content`), 只是空盒子. 增量录制见 vendor/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
+  (`skip_iframe_content`), 只是空盒子. 增量录制见 vendor/blitz; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
   64 MB. 所有入口 `catch_unwind`.
 - 窗框 (`decoration.rs`): `Decoration::scene(&Bar {title, width, height, scale, style, fullscreen})` → 物理像素的场景 (背景 #f4f2f7; `FrameStyle::Mac`:
   左边三个 12 px 圆点 (关闭 / 最小化 / 全屏), 标题居中截断; `FrameStyle::Windows`: 右边三个 46 px 宽的按钮 (最小化 / 最大化 / 关闭, 1 px 线画的图标,
@@ -1495,7 +1494,7 @@ acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/
 (`Microsoft.VisualStudio.Component.VC.ATL`): 静态 DXC 的预编译库要新版 STL 的 `__std_*` 和 `atls.lib`, v142 链接不了, 不支持.
 CRT 静态链接 (`.cargo/config.toml` 的 `+crt-static`). arm64 暂不做 (没有静态 DXC 的预编译库). `WGPU_VALIDATION=1` / `WGPU_DEBUG=1` 打开
 D3D12 调试层 (要装「图形工具」可选功能). 没有: 通知、WebGPU、network / office / 语音. 依赖里不要 winapi
-(见 vendor 的 fslock、async-dnssd).
+(fslock、async-dnssd 现在是 crates.io 原版, 经 v8 / sspi 会带进 winapi).
 
 编好 acdert 和网页宿主后, 在有 GPU 的机器上用 `bash scripts/check-standalone.sh` 验证独立应用启动、重载、退出和服务清理.
 脚本以无窗口模式运行, 测试包和日志写到 `logs/standalone.*`.
@@ -1544,7 +1543,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 有 `error` 退出 1, 否则 0; 不认的参数一行原因加用法, 退出 2.
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
-内存, 见「网页存储」)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acde: <message>`, 不带 `Error:`, 和 acde 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
+内存, 见「网页存储」)、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acde: <message>`, 不带 `Error:`, 和 acde 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
 `ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HOST_FAULT`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
@@ -1678,7 +1677,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
   (都 `publish = false`), 不发 npm 包 (SDK 只以 pkgs 上的归档发布), 仓库和 release 不公开. `vendor/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (crates/acde-napi 的 Deno 版权)、工具指令 (`/// <reference>`,
-  `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` / `acde:` 标记. derive 要读的文字写成属性.
+  `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
   和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
 - 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdert.git`, 网页 `http://gitea.dopamine/AC/acdert`), GitHub 的
@@ -1687,7 +1686,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   发版仍在 GitHub Actions 上跑 (见「发版」); Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
-- 改 `crates/shell`、`crates/render`、`vendor/acrender` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
+- 改 `crates/shell`、`crates/render`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
   什么、没验什么. 汇报时分开写「已验证 / 未验证」.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
@@ -1774,24 +1773,21 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 
 ## vendor
 
-依赖只来自 crates.io 和 `vendor/` (没有 git 来源; 镜像在自己的 `$CARGO_HOME/config.toml` 里换, bun 用 `BUN_CONFIG_REGISTRY`). vendor 是直接放进
-仓库的源码, 改动处加 `acrender:` (ironrdp-server、fslock、async-dnssd、naga 是 `acde:`) 注释并同步下表, 升级上游时重打. 有 `Cargo.toml` 的末尾加空的
-`[workspace]`, 根 `Cargo.toml` 用 `[patch.crates-io]` 替换上游.
+依赖来自 crates.io, 加上两处 git: `vendor/blitz` 是子模块 (GitHub `Jabberwocky238/blitz`, fork 自 DioxusLabs/blitz), blitz 的 taffy
+照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. `vendor/naga`、`vendor/ironrdp-server` 是直接放进仓库的源码 (改动处加 `acde:` 注释并同步
+下表). 根 `Cargo.toml` 用 `[patch.crates-io]` 替换上游. 克隆后 `git submodule update --init`; 打包 (acdebin-system 的 PKGBUILD) 和 CI 也取子模块.
+小补丁不留: stylo、parley、fontique、vello、taffy、libseat-sys、fslock、async-dnssd 都用 crates.io 原版 (servo 版 stylo 没有的 `@container`、
+`accent-color`、`field-sizing`、`prefers-reduced-motion` 和 SVG 的 `pointer-events` 取值随之没有).
 
 | 目录 | 上游 |
 | --- | --- |
-| `acrender` | DioxusLabs/blitz main `fb297a38`: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
-| `fontique` / `parley` | linebender/parley |
-| `stylo` / `stylo_atoms` | servo/stylo |
-| `vello` | crates.io 0.11.0 |
+| `blitz` (子模块) | DioxusLabs/blitz main `fb297a38` 上接我们的提交: 只留 blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer (`MIT OR Apache-2.0`) |
 | `naga` | crates.io 30.0.1 (wgpu 用的同一版, 整个换掉): GLSL 前端加 WebGL 方言 (`front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界; MSL 后端给跨度大于元素的数组元素加填充 (`back/msl/writer.rs` `padded_element`) |
-| `taffy` | DioxusLabs/taffy `4e59968` (Blitz 钉的提交), 未改 |
 | `ironrdp-server` | Devolutions/IronRDP |
-| `libseat-sys` 0.2.0 / `fslock` 0.2.1 (v8 的构建依赖) / `async-dnssd` 0.5.1 (经 sspi) | crates.io |
 
-acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
+blitz fork 和上游结构的不同: HTML 解析用 crates/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
 先录进 acde-gpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
-`vendor/acrender` 里 `cargo fmt --all --check`、`cargo clippy --workspace --all-targets`、`cargo check -p blitz-dom --no-default-features`、
+`vendor/blitz` 里 `cargo clippy --workspace --all-targets`、`cargo check -p blitz-dom --no-default-features`、
 `cargo test -p blitz-dom -p blitz-paint`、`cargo clippy -p blitz-paint --all-targets --features scrollbars`; 再 `cargo test --release -p acde-render`
 (加 `ACDE_PAINT_VERIFY=1` 再一遍).
 
@@ -1810,7 +1806,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render.rs` `draw_canvas_picture`, `cache.rs` `is_boundary` | `<canvas>` 画 2D 图, canvas 是绘制边界 |
 | `render.rs`, `text.rs` | 行内元素按行画 padding / border / 圆角背景 |
 | `render.rs` `draw_text_input_text` | 空输入框画 placeholder |
-| `render/form_controls.rs` `draw_input` | 复选框和单选框: `appearance: none` 时不画控件 (元素自己的边框、背景、`::before` 照常); 选中时填 `accent-color` (`auto` 是文字颜色), 勾按和白色的对比度 (低于 3 用深色); 没选中的复选框边框是文字颜色 |
+| `render/form_controls.rs` `draw_input` | 复选框和单选框: `appearance: none` 时不画控件 (元素自己的边框、背景、`::before` 照常); 选中时填文字颜色 (原版 stylo 没有 `accent-color`), 勾按和白色的对比度 (低于 3 用深色); 没选中的复选框边框是文字颜色 |
 | `render/form_controls.rs` `draw_select` / `draw_picker`, `lib.rs` `paint_select_picker` | `<select>`: 下拉框的选中项文字和箭头, 列表框的行 (只画看得见的); 打开的选项列表 (render 画在帧的最上面) |
 | `render/box_shadow.rs` | spread 加到圆角; 偏移和模糊乘缩放; 透明内阴影只跳过自己; 内阴影第一个在最上; 不模糊的内阴影一次填充 (padding box 加反向的洞, 重合的边抵消; 先填再 DestOut 挖洞时两条边落在同一像素里会剩一条淡线, xterm.js 的竖线光标) |
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
@@ -1826,9 +1822,9 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 
 | 文件 | 改了什么 |
 | --- | --- |
-| `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块的强调色都从 `accent_color` 取 |
+| `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块都用 `accent_color` (文字颜色) |
 | `mutator.rs` `set_attribute` | 不在文档里的 `<img>` 设 `src` 也取图 (HTML 的 update the image data; `new Image()` 预加载): 上游在文档外不做任何特殊处理, 图一直不来; render 的 `image_state` 也不再把文档外的图一律当作加载中, 取不到就报失败 |
-| `layout/mod.rs` textarea / 文本类 `<input>` 的叶子布局, `field_sized` / `text_field_wrap` / `measure_text_field`, `document.rs` `with_text_input` | textarea 排完版把文字的高度 (加上下内边距) 算进 `scrollable_overflow_rect`, `scrollHeight` 是整段文字 (聊天输入框按它长高; 上游只有 rows 那么高); `field-sizing: content`: textarea 按给的宽度 (或 `width`、可用宽度) 折行后的文字定高, 至少一行, 不看 rows / cols; 文本类 input 按不折行的文字宽度加 1 px 光标; 值是空的时按 placeholder; 文字变了 (`with_text_input`) 清掉布局缓存重排 |
+| `layout/mod.rs` textarea / 文本类 `<input>` 的叶子布局, `document.rs` `with_text_input` | textarea 排完版把文字的高度 (加上下内边距) 算进 `scrollable_overflow_rect`, `scrollHeight` 是整段文字 (聊天输入框按它长高; 上游只有 rows 那么高) |
 | `document.rs` `svg_with_document_refs`, `node/svg.rs` `missing_local_refs`, `node/serialize.rs` `write_svg_raw` | usvg 只在它解析的那份 SVG 里找 `<use href="#id">` / `url(#id)`; 页面常把 `<symbol>`、渐变放在另一个 `<svg>` (藏起来的雪碧图): 这份里没定义的 id 按文档找到 SVG 元素, 抄进 `<defs>`, 再找它引用的; 没算过样式的 (在 `display: none` 的 `<svg>` 里) 按原属性写 |
 | `document.rs` `svg_box`, `node/serialize.rs` `write_svg_marked` / `SVG_BOX_ID`, `stylo.rs` SVG 呈现属性 | 内联 SVG 里的元素没有布局盒: `svg_box` 把所在的最外层 `<svg>` 再序列化一次, 目标元素包进 `<g id="__acrender_box">`, 交 usvg 解析 (文字排成路径), 取这个组在画布上的包围盒, 按画的时候的变换 (`SvgImageData::inline_viewport_transform`) 放进内容框, 换成内容框的比例; render 的 `rect` / `clientRects` 按 `<svg>` 的内容框换成页面坐标 (getBoundingClientRect, 和 acde-dom 里 getBBox 的文字、图片、use 部分). `font-size="20"` 这样不带单位的呈现属性按用户单位补 `px` (CSS 的 font-size 不收纯数字, 原先这一条被丢掉, 计算样式回到页面字号) |
 | `stylo.rs` `match_non_ts_pseudo_class`, `assets/default.css` | `:popover-open` / `:modal` 看元素状态 (由 render `Dom::set_open_state` 设, 上游一律 false), `:open` 是 `details` / `dialog` 有 `open`; popover 的 UA 样式 (定位、边框) 搬出 Gecko 的 pref, 没有 top layer, `:popover-open` 和 `dialog:modal` 给最大 z-index 代替 |
@@ -1851,7 +1847,6 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `layout/construct.rs` `flush_inline_pseudos_recursive` | 按子元素自己的 display 决定是否往下走 |
 | `resolve.rs` `needs_layout` / `resolve_layout_children`, `layout/damage.rs` | 没有布局损伤不跑 taffy; 只走有构造损伤的子树; hover 有变化才刷新 |
 | `layout/inline/layout.rs` | min / max-content 宽度缓存; shrink-to-fit 断行宽度放宽 0.01 |
-| `stylo.rs`, `resolve.rs` `resolve_containers`, `document.rs` | `container-type` / `@container` (用上次布局的尺寸, 最多再两遍) |
 | `stylo.rs` `resolve_stylist` | 被取消的动画 / 过渡, 元素再遍历一次 |
 | `stylo.rs`, `layout/construct.rs`, `node/text.rs` | placeholder 排版, `::placeholder` 按需计算 |
 | `config.rs` `default_lang`, `tree.rs`, `document.rs`, `iframe.rs`, `stylo.rs` | 根没有 lang 时用默认语言 (-x-lang 继承, 传给 parley) |
@@ -1868,7 +1863,6 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `document.rs` `repair_after_panic` | panic 后去掉对已删节点的引用, 全部标脏 |
 | `layout/damage.rs` `repaint_inline_root` / `clear_damage_and_dirty_flags` | 行内元素的损伤让 inline root 重画; `display: none` 子树的构造损伤留着 |
 | `document.rs` `physical_unrounded_geometry` | 只减包含块的滚动偏移 |
-| `stylo_device.rs`, blitz-traits `shell.rs` `Viewport.reduced_motion` | `prefers-reduced-motion` |
 | `layout/fieldset.rs` (新), `layout/mod.rs`, `layout/construct.rs`, `node/node.rs`, stylo_taffy `wrapper.rs` | fieldset 是 flow-root; rendered legend 是块级的直接布局子节点, 居中压在上边框上, 上边框占 max(边框宽, legend 高); 不建匿名 content box. 不做竖排、`align`、百分比定高 |
 | `layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 |
 | `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字; `select` 是 inline-block, 列表框 (`[multiple]` / `[size]`, `size` 是 0 / 1 的除外) 纵向能滚 |
@@ -1884,28 +1878,9 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 
 | 文件 | 改了什么 |
 | --- | --- |
-| fontique `backend/fontconfig.rs` `SystemFonts::members` / `family_uncached` | 按第一个族名建表, 不再每族一次 `FcFontSort` |
-| fontique `collection/mod.rs` `System::shared` | 系统字体只扫一次, 所有 `Collection` 共用 |
-| fontique `font.rs` `mod tests` | 关掉 |
-| fontique `backend/*.rs` `fallback_for_text`, `collection` `text_fallback` (`Collection` / `Query`) | 按文字本身向系统要字族: CoreText `CTFontCreateForString` (不要 LastResort, 它对任何码位都给一个条纹框), fontconfig 按这些字符的 charset 匹配, DirectWrite 的 fallback 映射; Android 没有. 每段文字只问一次 (最多 32 个字符, 最多记 4096 条, 满了清掉: 文字由页面决定) |
-| parley `shape/mod.rs` `FontSelector::select_font` | CJK 标点只有带汉字的字体才算覆盖; Common / Inherited 的 cluster 先试前一个的字体; 字族栈和脚本的回退都盖不全一个 cluster 时 (✕ ✔ ❤ 是 Common 脚本, 它的回退里没有符号字体), 拿这几个字符问系统 (`text_fallback`), 那个字族盖全了就用它, 像浏览器按字符回退 |
-| parley `shape/mod.rs` `CjkVariant` / `shape_text` | 按 locale 换成本地区的 CJK 字族, 缓存键加地区 |
-| parley `shape/mod.rs` `begin_segment` | (script, locale) 没被跟踪时按没有 locale 查 |
-| stylo `stylesheets/rule_parser.rs` | `@container` 去掉 gecko 限定 (pref `layout.container-queries.enabled`) |
-| stylo `servo/media_features.rs`, `device/servo.rs` | `prefers-reduced-motion` |
-| stylo `properties/longhands.toml` `accent-color` | 去掉 gecko 限定 (servo 也解析、计算, 改了只重画) |
-| stylo `properties/longhands.toml` `field-sizing` | 去掉 gecko 限定 (servo 也解析、计算, 改了重建盒子); acrender 按它给文本框定尺寸 |
-| stylo `values/specified/ui.rs` `PointerEvents` | SVG 的取值 (`all`、`visible`、`painted`、`fill`、`stroke` 等) 去掉 gecko 限定: servo 原先只认 `auto` / `none`, `pointer-events: all` 整条被丢、继承到 `none` (Mantine 的 Modal / Drawer 里的按钮点不到); 命中测试只把 `none` 当作不接收 |
-| stylo `servo/animation.rs` `maybe_start_animations` | 已在跑的动画名 `continue` 而不是 `return` |
-| stylo `servo/selector_parser.rs` `ServoElementSnapshot::get_attr` | 没存属性的快照 (只为状态变化拍的: hover / focus / active) 回 None 而不是 unwrap: 加样式表时 `invalidation/stylesheets.rs` 不看 `has_attrs()` 就问每个快照的旧 class 和 id, 元素正悬停 / 按着时加 `<style>` 会 panic. 测试 `crates/render/tests/dom.rs` `a_stylesheet_added_while_an_element_is_active_restyles` |
-| stylo_atoms `static_atoms.txt` | 加 `prefers-reduced-motion` |
-| vello `scene.rs` `DrawGlyphs::draw` / `try_draw_colr` / `color_bitmaps` | 只有彩色位图代替轮廓; 只带 EBDT 的字体画轮廓 |
 | ironrdp-server `transport.rs` (新), `server.rs`, `helper.rs` | tokio → ntex (FramedRead / Write、TLS 握手、`ironrdp-accept` 监听线程), TLS 用 OpenSSL; async-channel; TLS 握手 5 秒超时; 只用 NTLM |
-| libseat-sys | 运行时 dlopen `libseat.so.1`, 拿不到时 `libseat_open_seat` 返回空 (没装 seatd 的机器上 acdert 照样起) |
-| fslock | 用 std 的 `File::lock`, 不要 winapi |
-| async-dnssd `evented/windows.rs` | winapi 换成 windows-sys |
 
-验证: fontique `cargo test --release --features system --lib acrender`; stylo `--test geometry` / `--test compositor`; ironrdp-server 用 FreeRDP 以 tls / nla 连.
+验证: ironrdp-server 用 FreeRDP 以 tls / nla 连.
 
 ## crates/render 的已知问题和测试数据
 

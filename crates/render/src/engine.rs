@@ -63,10 +63,7 @@ impl Engine {
         let net = LocalNet::new(base.clone(), resources, arrived.clone(), options.loader.clone(), wake);
         let mut this = Self {
             doc: BaseDocument::new(DocumentConfig {
-                viewport: Some(Viewport {
-                    reduced_motion: options.reduced_motion,
-                    ..Viewport::new(width, height, scale, if options.dark { ColorScheme::Dark } else { ColorScheme::Light })
-                }),
+                viewport: Some(Viewport::new(width, height, scale, if options.dark { ColorScheme::Dark } else { ColorScheme::Light })),
                 base_url: Some(base.into()),
                 net_provider: Some(Arc::new(net)),
                 skip_iframe_content: true,
@@ -174,16 +171,6 @@ impl Engine {
         }
         let mut viewport = self.doc.viewport().clone();
         viewport.color_scheme = scheme;
-        self.doc.set_viewport(viewport);
-        self.touch();
-    }
-
-    pub(crate) fn set_reduced_motion(&mut self, on: bool) {
-        if self.doc.viewport().reduced_motion == on {
-            return;
-        }
-        let mut viewport = self.doc.viewport().clone();
-        viewport.reduced_motion = on;
         self.doc.set_viewport(viewport);
         self.touch();
     }

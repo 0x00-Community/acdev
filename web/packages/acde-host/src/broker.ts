@@ -125,7 +125,7 @@ export class Broker {
   constructor(native: Native, options: BrokerOptions) {
     this.native = native
     this.#options = options
-    this.#preferences = new Preferences(options.dark, options.reducedMotion, (message) => {
+    this.#preferences = new Preferences(options.dark, (message) => {
       for (const web of this.#webs()) web.thread.post(message)
     })
     this.#current = options.desktop
@@ -365,7 +365,6 @@ export class Broker {
       height: this.#output.main.height,
       scale: this.#output.main.scale,
       screen: this.#screen(),
-      reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
       navigator: UserAgent.current,
@@ -407,7 +406,6 @@ export class Broker {
       height: 600 * this.#output.main.scale,
       scale: this.#output.main.scale,
       screen: this.#screen(record.id),
-      reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
       navigator: UserAgent.current,

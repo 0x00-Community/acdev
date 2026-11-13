@@ -102,7 +102,6 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
     let height = bind::arg_f64(scope, &args, 1).max(1.0) as u32;
     let scale = bind::arg_f64(scope, &args, 2) as f32;
     let mut resources = Vec::new();
-    let mut reduced_motion = false;
     let mut dark = false;
     if let Ok(options) = v8::Local::<v8::Object>::try_from(args.get(3)) {
         if let Some(Ok(list)) = bind::get(scope, options, "resources").map(v8::Local::<v8::Array>::try_from) {
@@ -120,7 +119,6 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
                 resources.push(acde_render::Resource { prefix, dirs });
             }
         }
-        reduced_motion = bind::get(scope, options, "reducedMotion").is_some_and(|v| v.is_true());
         dark = bind::get(scope, options, "dark").is_some_and(|v| v.is_true());
     }
     ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
@@ -132,15 +130,8 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
             _ = tasks.send(crate::rt::Msg::Task(Box::new(move |scope| start_load(scope, load))));
         }
     });
-    let options = acde_render::Options {
-        base_url: Some(format!("{ORIGIN}/")),
-        resources: Some(resources),
-        reduced_motion,
-        dark,
-        name,
-        loader: Some(loader),
-        ..Default::default()
-    };
+    let options =
+        acde_render::Options { base_url: Some(format!("{ORIGIN}/")), resources: Some(resources), dark, name, loader: Some(loader), ..Default::default() };
     let document = match acde_render::Document::new(width, height, scale, &options) {
         Ok(document) => document,
         Err(e) => return bind::throw_error(scope, &format!("createDocument: {e}")),
@@ -767,10 +758,6 @@ natives! {
     }
     "setDark" => fn set_dark(scope, args, dom) {
         dom.set_dark(bind::arg_bool(scope, &args, 0));
-        Ok(())
-    }
-    "setReducedMotion" => fn set_reduced_motion(scope, args, dom) {
-        dom.set_reduced_motion(bind::arg_bool(scope, &args, 0));
         Ok(())
     }
 }

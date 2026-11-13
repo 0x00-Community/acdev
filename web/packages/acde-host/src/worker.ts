@@ -52,7 +52,7 @@ interface WebNatives extends Natives {
     width: number,
     height: number,
     scale: number,
-    options: { resources: { prefix: string; dirs: string[] }[]; reducedMotion: boolean; dark: boolean },
+    options: { resources: { prefix: string; dirs: string[] }[]; dark: boolean },
   ): DomNative
   claimSurface(token: bigint, options?: { frame?: number }): NativeSurface
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
@@ -81,7 +81,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   Host.label = init.name
 
   let language = init.languages?.language
-  const look = { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true }
+  const look = { resources: init.resources, dark: init.dark === true }
   const dom = natives.createDocument(init.width, init.height, init.scale, look)
   const surface = natives.claimSurface(init.token, { frame: init.kind === 'window' ? Frame.height(init.app) : 0 })
   const title = (text: string) => surface.setTitle(text || (init.app?.label ?? init.name))
@@ -226,9 +226,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
         return page.setLanguages({ language: m.language, languages: m.languages })
       case 'colorscheme':
         dom.setDark?.(m.dark === true)
-        return page.mediaChanged()
-      case 'motion':
-        dom.setReducedMotion?.(m.reduced === true)
         return page.mediaChanged()
       case 'devhot':
         return devhot()

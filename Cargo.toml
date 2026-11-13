@@ -37,25 +37,13 @@ napi = ["acde-model/napi"]
 [build-dependencies]
 cbindgen = { version = "0", default-features = false }
 
-# acrender: 我们的 Blitz 分叉 (vendor/acrender, 基于上游 main 独立维护), 整组 blitz crate 都用它
 [patch.crates-io]
-async-dnssd = { path = "vendor/async-dnssd" }
-blitz-dom = { path = "vendor/acrender/packages/blitz-dom" }
-blitz-paint = { path = "vendor/acrender/packages/blitz-paint" }
-blitz-traits = { path = "vendor/acrender/packages/blitz-traits" }
-fontique = { path = "vendor/fontique" }
-# 不依赖 winapi (见 AGENTS.md 的 vendor/fslock、vendor/async-dnssd)
-fslock = { path = "vendor/fslock" }
-# RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendor/ironrdp-server)
+# blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz)
+blitz-dom = { path = "vendor/blitz/packages/blitz-dom" }
+blitz-paint = { path = "vendor/blitz/packages/blitz-paint" }
+blitz-traits = { path = "vendor/blitz/packages/blitz-traits" }
 ironrdp-server = { path = "vendor/ironrdp-server" }
-# libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendor/libseat-sys)
-libseat-sys = { path = "vendor/libseat-sys" }
-# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendor/naga)
 naga = { path = "vendor/naga" }
-parley = { path = "vendor/parley" }
-stylo = { path = "vendor/stylo" }
-stylo_atoms = { path = "vendor/stylo_atoms" }
-vello = { path = "vendor/vello" }
 
 [profile.release]
 opt-level = "s"

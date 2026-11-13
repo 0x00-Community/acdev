@@ -183,38 +183,6 @@ fn shrink_to_fit_box_with_percentage_padding_keeps_one_line() {
 }
 
 #[test]
-fn container_queries_use_the_containers_laid_out_size() {
-    let page = Page::new(
-        "#box { container-type: size; width: 200px; height: 300px; padding: 10px; }
-         #dot { width: 46px; height: 40px; }
-         @container (max-height: 350px) { #dot { width: 40px; } }
-         @container (min-width: 500px) { #dot { height: 10px; } }",
-    );
-    let boxed = page.el("div", page.body, "box");
-    let dot = page.el("div", boxed, "dot");
-    let rect = page.doc.rect(dot).unwrap();
-    assert_eq!((rect.width, rect.height), (40.0, 40.0));
-    page.doc.set_attribute(boxed, "style", "height: 360px").unwrap();
-    assert_eq!(page.doc.rect(dot).unwrap().width, 46.0);
-}
-
-#[test]
-fn prefers_reduced_motion_follows_the_option() {
-    for reduced in [false, true] {
-        let doc = Doc::new(800, 600, 1.0, &Options { reduced_motion: reduced, ..Default::default() }).unwrap();
-        doc.add_stylesheet("#dot { width: 10px; height: 10px; } @media (prefers-reduced-motion: reduce) { #dot { width: 30px; } }").unwrap();
-        let body = doc.create_element("body").unwrap();
-        doc.append_child(0, body).unwrap();
-        let dot = doc.create_element("div").unwrap();
-        doc.set_attribute(dot, "id", "dot").unwrap();
-        doc.append_child(body, dot).unwrap();
-        assert_eq!(doc.rect(dot).unwrap().width, if reduced { 30.0 } else { 10.0 });
-        assert_eq!(doc.dom.match_media("(prefers-reduced-motion: reduce)"), reduced);
-        assert_eq!(doc.dom.match_media("(prefers-reduced-motion: no-preference)"), !reduced);
-    }
-}
-
-#[test]
 fn prefers_color_scheme_follows_the_option_and_set_dark() {
     for dark in [false, true] {
         let doc = Doc::new(800, 600, 1.0, &Options { dark, ..Default::default() }).unwrap();

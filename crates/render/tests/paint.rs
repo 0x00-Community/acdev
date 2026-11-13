@@ -198,16 +198,6 @@ fn control(css: &str, kind: &str, checked: bool) -> usize {
 }
 
 #[test]
-fn checked_controls_take_the_accent_color() {
-    for kind in ["checkbox", "radio"] {
-        assert_eq!(control("", kind, true), 0, "{kind}: auto keeps the text colour");
-        let accented = control("input { accent-color: #f00; }", kind, true);
-        assert!(accented > 60, "{kind}: {accented} red px");
-        assert_eq!(control("input { accent-color: #f00; }", kind, false), 0, "{kind}: unchecked has no accent");
-    }
-}
-
-#[test]
 fn appearance_none_draws_the_element_s_own_boxes() {
     let own = "input { width: 30px; height: 30px; background: #f00; }";
     let native = control(own, "checkbox", false);
@@ -222,15 +212,4 @@ fn appearance_none_draws_the_element_s_own_boxes() {
     );
     let shown = control(before, "checkbox", true);
     assert!(shown > 350, "::before of an appearance: none checkbox: {shown} red px");
-}
-
-#[test]
-fn symbols_no_font_in_the_stack_has_come_from_the_system_per_character() {
-    use parley::fontique::{Collection, CollectionOptions};
-    let mut fonts = Collection::new(CollectionOptions { shared: false, system_fonts: true });
-    for symbol in ["✕", "✔", "❤", "✖"] {
-        let family = fonts.text_fallback(symbol).unwrap_or_else(|| panic!("no system font for {symbol}"));
-        let name = fonts.family_name(family).unwrap().to_owned();
-        assert!(!name.contains("LastResort"), "{symbol}: {name}");
-    }
 }

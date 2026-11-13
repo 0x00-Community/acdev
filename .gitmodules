@@ -1,0 +1,4 @@
+[submodule "vendor/blitz"]
+	path = vendor/blitz
+	url = https://github.com/Jabberwocky238/blitz.git
+	branch = main

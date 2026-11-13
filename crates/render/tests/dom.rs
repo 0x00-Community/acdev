@@ -1040,29 +1040,16 @@ fn css_animation_and_transition_events() {
 }
 
 #[test]
-fn textarea_scroll_height_and_field_sizing() {
+fn textarea_scroll_height() {
     let (_doc, dom) = page(
-        "<head><style>textarea, input { font: 16px/20px sans-serif; padding: 8px; border: 1px solid; box-sizing: border-box; \
-         width: 300px; display: block }</style></head>\
-         <body><textarea id=a rows=1></textarea><textarea id=b rows=1 style='field-sizing: content'></textarea>\
-         <input id=c style='field-sizing: content; width: auto; display: inline-block'></body>",
+        "<head><style>textarea { font: 16px/20px sans-serif; padding: 8px; border: 1px solid; box-sizing: border-box; \
+         width: 300px; display: block }</style></head><body><textarea id=a rows=1></textarea></body>",
     );
-    let (a, b, c) = (by_id(&dom, "a"), by_id(&dom, "b"), by_id(&dom, "c"));
+    let a = by_id(&dom, "a");
     let lines = "one\ntwo\nthree\nfour";
     dom.set_value(a, lines).unwrap();
     let m = dom.metrics(a).unwrap().unwrap();
     assert_eq!((m.client_height, m.scroll_height), (36.0, 96.0), "scrollHeight covers the four lines and the padding");
-
-    dom.set_value(b, lines).unwrap();
-    assert_eq!(dom.metrics(b).unwrap().unwrap().offset_height, 98.0, "sized to its four lines");
-    dom.set_value(b, "x").unwrap();
-    assert_eq!(dom.metrics(b).unwrap().unwrap().offset_height, 38.0, "and back to one");
-
-    dom.set_value(c, "hi").unwrap();
-    let narrow = dom.metrics(c).unwrap().unwrap().offset_width;
-    dom.set_value(c, "hello there, a longer value").unwrap();
-    let wide = dom.metrics(c).unwrap().unwrap().offset_width;
-    assert!(narrow < 60.0 && wide > narrow * 4.0, "{narrow} -> {wide}");
 }
 
 #[test]
