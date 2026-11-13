@@ -218,10 +218,10 @@ describe('release.yml', () => {
     expect(runs('upload')).toContain('"out/$v/acde-$v.tar.gz"')
   })
 
-  test('Linux jobs run on debian12 on Gitea and on ubuntu-24.04 on GitHub, inside node:22-bookworm', () => {
+  test('Linux jobs run on debian12, inside node:22-bookworm', () => {
     for (const [id, job] of Object.entries(jobs)) {
       if (id === 'exe') continue
-      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe("${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}")
+      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe('debian12')
       expect((job as Job & { container?: string }).container).toBe('node:22-bookworm')
     }
   })
