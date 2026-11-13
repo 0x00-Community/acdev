@@ -47,6 +47,8 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 - 命令: `send` 收到 `AcdertCommand` (`kind` 决定哪些字段有意义; 指针只在回调期间有效). `READ_CLIPBOARD` 带 `AcdertReply*`, 必须恰好一次
   `acdert_reply_send` 或 `acdert_reply_free`. 还没进 C 的: `FRAME_THEME` 只有 kind, `START_DRAG` 不带拖拽图像, 帧本身 (`RenderHandle::frame`
   是 GPU scene) 拿不到, `Platform::exports` 收 V8 scope 只在 Rust 里.
+- 导出表: `build.rs` 从 `src/ffi.rs` 收 `acdert_*`, so 只导出它们 (Linux `--exclude-libs,ALL` + 版本脚本, macOS `-exported_symbols_list`, MSVC `.def`);
+  V8 / napi / temporal 等依赖的符号都不导出 (acde-napi 的 napi_* 只给静态链接的内置模块用, 不 dlopen 外部 .node).
 - 这次不发布到 registry: `[patch.crates-io]` 换成 vendor/ 的分叉不会随包走, 要先把分叉发出去或改名依赖.
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
