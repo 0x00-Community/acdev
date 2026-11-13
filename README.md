@@ -30,8 +30,20 @@ ACDE_PATH=<acde-dopame>/packages/dopame ../target/release/acde-base --desktop do
 
 ## 打包
 
-- Arch 包: `packaging/arch` (`makepkg -s`, 没有 Arch 用 `podman-build.sh`).
+- Arch 包: `packaging/arch` (`makepkg -s`, bun 在 Arch 的 extra 里; 没有 Arch 用 `podman-build.sh`).
+  CI: `.gitea/workflows/package.yaml` 在 runner 标签 `archlinux` 上打包, 包是那次运行的 artifact `acde-base` (留 14 天), 不发布.
 - npm 包: `npm/build.sh` 打出 `acde` (命令)、`@dopame/acde-linux-x64` (运行时)、`create-acde` (`npm create acde`) 和 SDK `@dopame/acde-api`.
+
+## 仓库
+
+内网 Gitea 的 [AC/acde-base](http://gitea.dopamine/AC/acde-base) (`ssh://git@gitea.dopamine:2333/AC/acde-base.git`) 是主仓库,
+GitHub 的 `dopame-org/acde-base` 是镜像. `origin` 配两个 pushurl (先 Gitea 再 GitHub), `git push origin` 一次推两边:
+
+```sh
+git remote set-url origin ssh://git@gitea.dopamine:2333/AC/acde-base.git
+git config --add remote.origin.pushurl ssh://git@gitea.dopamine:2333/AC/acde-base.git
+git config --add remote.origin.pushurl git@github.com:dopame-org/acde-base.git
+```
 
 ## 更多
 

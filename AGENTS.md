@@ -1712,7 +1712,11 @@ input-method-v2, IBus 不支持它); 网页里的输入框走 runtime 的 `Ime` 
 
 构建: Arch / CachyOS 上 `cd packaging/arch && makepkg -s`; 没有 Arch 的机器用 `packaging/arch/podman-build.sh out/`
 (一次性的 archlinux 容器). `check()` 不要显示器跑一次 `acde desktops --package <greet>`, 要列出登录页 `greet`.
-发版: 没有 CI. 打 `v*` tag 并推送, 在 x86_64 Arch 和 Arch Linux ARM 机器上各跑一次 `packaging/arch/release.sh <tag>`
+CI: Gitea 的 `.gitea/workflows/package.yaml` (runner 标签 `archlinux`, 容器 `archlinux:base-devel`; 手动, 或推 main 改到打包要的路径时):
+`pacman -Syu` 装工具链 (bun 也从 extra 装), `makepkg -s --nocheck`, 包作为那次运行的 artifact `acde-base` 留 14 天 (用
+`christopherhx/gitea-upload-artifact`, 官方 `actions/upload-artifact` v4 起只认 github.com), 不打标签、不发布.
+仓库: 主仓库是内网 Gitea `AC/acde-base`, GitHub `dopame-org/acde-base` 是镜像, `origin` 配两个 pushurl (见 README).
+发版不经 CI: 打 `v*` tag 并推送, 在 x86_64 Arch 和 Arch Linux ARM 机器上各跑一次 `packaging/arch/release.sh <tag>`
 (本机架构的包和 `.sha256`; `gh` 已登录就建 GitHub release 并上传). agentos 仓库的 `scripts/components` 钉住用哪个 tag,
 ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 
