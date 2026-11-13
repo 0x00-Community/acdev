@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-exclude = ["vendors"]
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.0.9"
@@ -9,25 +9,53 @@ edition = "2024"
 repository = "https://github.com/dopame-org/acdert"
 publish = false
 
-# acrender: 我们的 Blitz 分叉 (vendors/acrender, 基于上游 main 独立维护), 整组 blitz crate 都用它
+# 对外唯一的包: 平铺导出 crates/* (Rust 用 rlib), 并以 cdylib 出 libacdert.so (C 接口在 src/ffi.rs, 头文件 include/acdert.h 由 build.rs 经 cbindgen 生成)
+[package]
+name = "acdert"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+acde-host = { path = "crates/host" }
+acde-gpu = { path = "crates/gpu" }
+acde-log = { path = "crates/log" }
+acde-media = { path = "crates/media" }
+acde-model = { path = "crates/model" }
+acde-napi = { path = "crates/acde-napi" }
+acde-render = { path = "crates/render" }
+acde-runtime = { path = "crates/runtime" }
+acde-storage = { path = "crates/storage" }
+acde-vello = { path = "crates/vello" }
+acde-webgl = { path = "crates/webgl" }
+
+[features]
+napi = ["acde-model/napi"]
+
+[build-dependencies]
+cbindgen = { version = "0", default-features = false }
+
+# acrender: 我们的 Blitz 分叉 (vendor/acrender, 基于上游 main 独立维护), 整组 blitz crate 都用它
 [patch.crates-io]
-async-dnssd = { path = "vendors/async-dnssd" }
-blitz-dom = { path = "vendors/acrender/packages/blitz-dom" }
-blitz-paint = { path = "vendors/acrender/packages/blitz-paint" }
-blitz-traits = { path = "vendors/acrender/packages/blitz-traits" }
-fontique = { path = "vendors/fontique" }
-# 不依赖 winapi (见 AGENTS.md 的 vendors/fslock、vendors/async-dnssd)
-fslock = { path = "vendors/fslock" }
-# RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendors/ironrdp-server)
-ironrdp-server = { path = "vendors/ironrdp-server" }
-# libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendors/libseat-sys)
-libseat-sys = { path = "vendors/libseat-sys" }
-# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendors/naga)
-naga = { path = "vendors/naga" }
-parley = { path = "vendors/parley" }
-stylo = { path = "vendors/stylo" }
-stylo_atoms = { path = "vendors/stylo_atoms" }
-vello = { path = "vendors/vello" }
+async-dnssd = { path = "vendor/async-dnssd" }
+blitz-dom = { path = "vendor/acrender/packages/blitz-dom" }
+blitz-paint = { path = "vendor/acrender/packages/blitz-paint" }
+blitz-traits = { path = "vendor/acrender/packages/blitz-traits" }
+fontique = { path = "vendor/fontique" }
+# 不依赖 winapi (见 AGENTS.md 的 vendor/fslock、vendor/async-dnssd)
+fslock = { path = "vendor/fslock" }
+# RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendor/ironrdp-server)
+ironrdp-server = { path = "vendor/ironrdp-server" }
+# libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendor/libseat-sys)
+libseat-sys = { path = "vendor/libseat-sys" }
+# WebGL (crates/webgl): naga with a GLSL ES dialect in its GLSL frontend (见 AGENTS.md 的 vendor/naga)
+naga = { path = "vendor/naga" }
+parley = { path = "vendor/parley" }
+stylo = { path = "vendor/stylo" }
+stylo_atoms = { path = "vendor/stylo_atoms" }
+vello = { path = "vendor/vello" }
 
 [profile.release]
 opt-level = "s"

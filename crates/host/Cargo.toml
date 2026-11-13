@@ -1,5 +1,5 @@
 [package]
-name = "acdert"
+name = "acde-host"
 version.workspace = true
 edition.workspace = true
 

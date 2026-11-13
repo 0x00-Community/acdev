@@ -6,7 +6,7 @@ mod common;
 use common::Doc;
 
 fn page() -> (Doc, u32) {
-    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendors/acrender/packages/blitz-dom/assets");
+    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendor/acrender/packages/blitz-dom/assets");
     let options = Options { resources: Some(vec![Resource { prefix: "/fonts/".into(), dirs: vec![assets.into()] }]), ..Options::default() };
     let doc = Doc::new(400, 300, 1.0, &options).unwrap();
     let body = doc.create_element("body").unwrap();

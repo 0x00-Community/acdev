@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 acde-gpu = { path = "../gpu" }
-# shaders: GLSL ES through the vendored naga's WebGL dialect (vendors/naga), handed to wgpu as IR
+# shaders: GLSL ES through the vendored naga's WebGL dialect (vendor/naga), handed to wgpu as IR
 naga = { version = "30", features = ["glsl-in"] }
 wgpu = { version = "30", default-features = false, features = ["naga-ir"] }
 peniko = "0"
