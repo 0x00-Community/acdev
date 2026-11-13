@@ -137,7 +137,7 @@ impl Engine {
                 let picture = self.doc.canvas_picture(node)?;
                 picture.commands.iter().find_map(|c| match c {
                     acde_gpu::RenderCommand::Fill(f) => match &f.brush {
-                        acde_gpu::Paint::Image(brush) => match acde_gpu::Gpu::shared().and_then(|g| g.images.lookup(&brush.image)) {
+                        acde_gpu::Paint::Image(brush) => match acde_gpu::Gpu::shared().and_then(|g| g.images.find(brush.image.data.id())) {
                             Some(image) => Some(crate::render::Pixels::Gpu(image)),
                             None => Some(crate::render::Pixels::Cpu {
                                 width: brush.image.width,

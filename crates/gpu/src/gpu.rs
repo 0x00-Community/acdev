@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once, OnceLock};
 use std::time::Duration;
 
-use crate::{Compositor, GpuImage, ImageSet, Offscreen};
+use acgpu::fallback::Shared;
+
+use crate::{Compositor, Offscreen};
 
 type LostListener = Box<dyn Fn(&str) + Send>;
 type Waiter = Box<dyn FnOnce(Option<Arc<Gpu>>) + Send>;
@@ -15,11 +17,8 @@ const POLL_BUSY: Duration = Duration::from_micros(500);
 const POLL_IDLE: Duration = Duration::from_millis(4);
 
 pub struct Gpu {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
+    pub shared: Arc<Shared>,
     pub info: wgpu::AdapterInfo,
-    pub images: Arc<ImageSet>,
-    submit: Mutex<()>,
     polls: Mutex<usize>,
     polling: Condvar,
     poller: Once,
@@ -169,11 +168,8 @@ pub fn set_error_sink(sink: Option<ErrorSink>) {
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo) -> Arc<Self> {
         let gpu = Arc::new(Self {
-            device,
-            queue,
+            shared: Shared::new(device, queue),
             info,
-            images: Arc::default(),
-            submit: Mutex::new(()),
             polls: Mutex::new(0),
             polling: Condvar::new(),
             poller: Once::new(),
@@ -292,63 +288,6 @@ impl Gpu {
         self.device.destroy();
     }
 
-    pub fn submit_lock(&self) -> MutexGuard<'_, ()> {
-        lock(&self.submit)
-    }
-
-    pub fn submit<I: IntoIterator<Item = wgpu::CommandBuffer>>(&self, buffers: I) -> wgpu::SubmissionIndex {
-        let _guard = self.submit_lock();
-        self.queue.submit(buffers)
-    }
-
-    pub fn write(&self, image: &GpuImage, data: &[u8], (width, height): (u32, u32), from: [u32; 2], [x, y, w, h]: [u32; 4]) {
-        if w == 0 || h == 0 || data.len() < (width * height * 4) as usize {
-            return;
-        }
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &image.texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
-            data,
-            wgpu::TexelCopyBufferLayout { offset: u64::from((from[1] * width + from[0]) * 4), bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        );
-    }
-
-    pub fn read(&self, texture: &wgpu::Texture, [x, y, w, h]: [u32; 4]) -> Result<Vec<u8>, String> {
-        if w == 0 || h == 0 || x + w > texture.width() || y + h > texture.height() {
-            return Err(format!("{w}x{h} at ({x}, {y}) is outside the {}x{} texture", texture.width(), texture.height()));
-        }
-        let stride = (w * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("acde read back"),
-            size: u64::from(stride) * u64::from(h),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde read back") });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(stride), rows_per_image: Some(h) },
-            },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        );
-        let index = self.submit([encoder.finish()]);
-        let (tx, rx) = std::sync::mpsc::channel();
-        let slice = buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, move |r| _ = tx.send(r));
-        self.device.poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: Some(WAIT) }).map_err(|e| format!("waiting for the read back: {e}"))?;
-        rx.recv_timeout(WAIT).map_err(|e| e.to_string())?.map_err(|e| format!("read back: {e}"))?;
-        let mapped = slice.get_mapped_range().map_err(|e| format!("read back: {e}"))?;
-        let mut out = Vec::with_capacity((w * h * 4) as usize);
-        for row in mapped.chunks_exact(stride as usize) {
-            out.extend_from_slice(&row[..(w * 4) as usize]);
-        }
-        drop(mapped);
-        buffer.unmap();
-        Ok(out)
-    }
-
     pub fn hold_poll(self: &Arc<Self>) {
         self.poller.call_once(|| {
             let gpu = self.clone();
@@ -388,5 +327,13 @@ impl Gpu {
 
     pub fn forget_lost(&self, id: u64) {
         lock(&self.lost).remove(&id);
+    }
+}
+
+impl std::ops::Deref for Gpu {
+    type Target = Shared;
+
+    fn deref(&self) -> &Shared {
+        &self.shared
     }
 }

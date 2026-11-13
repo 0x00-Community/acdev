@@ -5,6 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# the 2D scene, filters, compose types, GPU images, the compositor and the page rasterizer are acgpu's (its Vulkan
+# fallback is plain wgpu off Linux); no `compiler`, so no MLIR and no jemalloc
+acgpu = { version = "0.1.4", registry = "ac", default-features = false, features = ["fallback-vulkan"] }
 kurbo = "0"
 peniko = "0"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
@@ -19,5 +22,3 @@ wgpu = { version = "30", default-features = false, features = ["metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["vulkan"] }
-ash = "0"
-rustix = { version = "1", features = ["event"] }
