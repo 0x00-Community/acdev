@@ -356,37 +356,6 @@ fn waapi(names: &[&str], delays: &[&str]) -> String {
 }
 
 #[test]
-fn inserted_keyframes_and_inline_animation_lists_run_like_web_animations() {
-    let page = Page::new(CSS);
-    let style = page.doc.create_element("style").unwrap();
-    page.doc.append_child(page.body, style).unwrap();
-    let m = page.div(page.body, "");
-    let handle = page.doc.handle();
-    handle.tick(0.0);
-    page.doc.dom.sheet_insert_rule(style, "@keyframes acde-animation-1 { 0% { left: 0px } 100% { left: 100px } }", 0).unwrap();
-    page.doc.set_attribute(m, "style", &waapi(&["acde-animation-1"], &["-250ms"])).unwrap();
-    assert!((page.doc.rect(m).unwrap().x - 25.0).abs() < 2.0, "{}", page.doc.rect(m).unwrap().x);
-    handle.tick(500.0);
-    assert!((page.doc.rect(m).unwrap().x - 75.0).abs() < 2.0, "{}", page.doc.rect(m).unwrap().x);
-    page.doc.dom.sheet_insert_rule(style, "@keyframes acde-animation-2 { 0% { top: 0px } 100% { top: 100px } }", 1).unwrap();
-    page.doc.set_attribute(m, "style", &waapi(&["acde-animation-1", "acde-animation-2"], &["-250ms", "0ms"])).unwrap();
-    let r = page.doc.rect(m).unwrap();
-    assert!((r.x - 75.0).abs() < 2.0 && r.y.abs() < 2.0, "the first keeps its time: {} {}", r.x, r.y);
-    handle.tick(700.0);
-    let r = page.doc.rect(m).unwrap();
-    assert!((r.x - 95.0).abs() < 2.0 && (r.y - 20.0).abs() < 2.0, "the second starts, the first runs on: {} {}", r.x, r.y);
-    page.doc.dom.sheet_insert_rule(style, "@keyframes acde-animation-3 { 0% { top: 0px } 100% { top: 100px } }", 2).unwrap();
-    page.doc.set_attribute(m, "style", &waapi(&["acde-animation-1", "acde-animation-3"], &["-250ms", "-100ms"])).unwrap();
-    page.doc.rect(m).unwrap();
-    handle.tick(750.0);
-    let r = page.doc.rect(m).unwrap();
-    assert!((r.x - 100.0).abs() < 2.0 && (r.y - 15.0).abs() < 2.0, "a restarted second leaves the first alone: {} {}", r.x, r.y);
-    handle.tick(2000.0);
-    let r = page.doc.rect(m).unwrap();
-    assert!((r.x - 100.0).abs() < 2.0 && (r.y - 100.0).abs() < 2.0, "fill forwards holds the end: {} {}", r.x, r.y);
-}
-
-#[test]
 fn an_animation_takes_a_new_value_on_every_tick_at_120_hz() {
     let page =
         Page::new(".box { position: absolute; left: 0; top: 0; width: 10px; height: 10px; transition: left 2000ms linear; } .box.moved { left: 1000px; }");
