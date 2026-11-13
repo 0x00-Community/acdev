@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dopame-org/acdert/web/packages/acde-api/config.schema.json",
   "title": "acde.config.jsonc",
-  "description": "acde 工程的配置: 一个窗口应用 (type app) 或一个桌面 (type desktop); acde app build 把它变成包的 package.json 清单",
+  "description": "acde 工程的配置: 一个窗口应用 (type app) 或一个桌面 (type desktop); acde build 把它变成包的 package.json 清单",
   "oneOf": [
     {
       "type": "object",
