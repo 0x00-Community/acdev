@@ -14,6 +14,10 @@ declare module 'acde:power' {
   const power: import('@dopame/acde-api').AcdeModules['power']
   export { power, power as default }
 }
+declare module 'acde:input' {
+  const input: import('@dopame/acde-api').AcdeModules['input']
+  export { input, input as default }
+}
 
 declare module 'acde:devices' {
   const devices: import('@dopame/acde-api').AcdeModules['devices']

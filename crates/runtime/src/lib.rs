@@ -46,6 +46,8 @@ mod voice;
 #[cfg(target_os = "linux")]
 mod wakelock;
 #[cfg(target_os = "linux")]
+mod xkb;
+#[cfg(target_os = "linux")]
 pub use atspi::Accessibility;
 #[cfg(target_os = "linux")]
 pub use battery::Battery;
@@ -81,6 +83,8 @@ pub use terminal::Terminals;
 pub use voice::Voice;
 #[cfg(target_os = "linux")]
 pub use wakelock::WakeLock;
+#[cfg(target_os = "linux")]
+pub use xkb::XkbCatalog;
 
 use napi::{Error, Result, Status};
 use serde_json::json;

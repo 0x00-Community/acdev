@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::sync::Arc;
 
 use acde_model::{Event, OpenRequest, SaveRequest, Waker};
@@ -28,6 +29,15 @@ pub trait Window {
     }
 }
 
+pub type InputSink = Box<dyn Fn(serde_json::Value) -> bool + Send>;
+
+pub trait Input: Send + Sync {
+    fn state(&self) -> Result<serde_json::Value, String>;
+    fn set(&self, patch: &serde_json::Value) -> Result<(), String>;
+    fn listen(&self, sink: InputSink);
+    fn as_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+}
+
 pub trait Platform: Send + Sync {
     fn claim(&self, token: u64, render: RenderHandle, frame: u32, app: Option<String>) -> Result<Box<dyn Window>, String>;
 
@@ -51,6 +61,10 @@ pub trait Platform: Send + Sync {
 
     fn save_file(&self, request: SaveRequest) -> Result<Option<String>, String> {
         Portal.save_file(request)
+    }
+
+    fn input(&self) -> Option<Arc<dyn Input>> {
+        None
     }
 }
 

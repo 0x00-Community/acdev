@@ -919,6 +919,87 @@ export interface PowerState {
   readonly policy: boolean
 }
 
+export interface InputLayout {
+  readonly layout: string
+  readonly variant: string
+}
+
+export interface InputKeyboard {
+  readonly layouts: readonly InputLayout[]
+  readonly model: string
+  readonly options: readonly string[]
+  readonly repeat: boolean
+  readonly repeatDelay: number
+  readonly repeatRate: number
+  readonly numlock: 'on' | 'off' | 'unchanged'
+  readonly active: readonly string[]
+  readonly current: number
+}
+
+export type InputScroll = 'two-finger' | 'edge' | 'button' | 'none'
+export type InputClick = 'areas' | 'fingers'
+
+export interface InputPointer {
+  readonly present: boolean
+  readonly speed?: number
+  readonly acceleration?: 'adaptive' | 'flat'
+  readonly leftHanded?: boolean
+  readonly naturalScroll?: boolean
+  readonly scrollSpeed?: number
+  readonly middleEmulation?: boolean
+}
+
+export interface InputTouchpad extends InputPointer {
+  readonly tapToClick?: boolean
+  readonly tapAndDrag?: boolean
+  readonly dragLock?: boolean
+  readonly tapButtons?: 'lrm' | 'lmr'
+  readonly disableWhileTyping?: boolean
+  readonly scroll?: InputScroll
+  readonly click?: InputClick
+  readonly scrollMethods: readonly InputScroll[]
+  readonly clickMethods: readonly InputClick[]
+}
+
+export interface InputState {
+  readonly keyboard: InputKeyboard
+  readonly mouse: InputPointer
+  readonly touchpad: InputTouchpad
+  readonly devices: readonly { readonly name: string; readonly kind: 'mouse' | 'touchpad' }[]
+}
+
+type InputNullable<T> = { readonly [K in keyof T]?: T[K] | null }
+
+export interface InputPatch {
+  readonly keyboard?: InputNullable<Omit<InputKeyboard, 'active' | 'current'>>
+  readonly mouse?: InputNullable<Omit<InputPointer, 'present'>>
+  readonly touchpad?: InputNullable<Omit<InputTouchpad, 'present' | 'scrollMethods' | 'clickMethods'>>
+}
+
+export interface InputCatalog {
+  readonly models: readonly { readonly id: string; readonly name: string; readonly vendor: string }[]
+  readonly layouts: readonly {
+    readonly id: string
+    readonly name: string
+    readonly short: string
+    readonly languages: readonly string[]
+    readonly variants: readonly { readonly id: string; readonly name: string }[]
+  }[]
+  readonly options: readonly {
+    readonly id: string
+    readonly name: string
+    readonly multiple: boolean
+    readonly options: readonly { readonly id: string; readonly name: string }[]
+  }[]
+}
+
+export interface AcdeInput {
+  state(): Promise<InputState>
+  set(patch: InputPatch): Promise<void>
+  catalog(): Promise<InputCatalog>
+  on(type: 'changed', handler: (state: InputState) => void): () => boolean
+}
+
 export interface AcdePower {
   state(): Promise<PowerState>
   setProfile(profile: PowerProfile): Promise<void>
@@ -944,6 +1025,7 @@ export interface AcdePage {
   readonly audio?: AcdeAudio
   readonly devices?: AcdeDevices
   readonly power?: AcdePower
+  readonly input?: AcdeInput
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly launch?: AcdeLaunch

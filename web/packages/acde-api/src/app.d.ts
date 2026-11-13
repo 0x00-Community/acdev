@@ -21,6 +21,7 @@ export interface AppModules {
   readonly audio: Page.AcdeAudio
   readonly devices: Page.AcdeDevices
   readonly power: Page.AcdePower
+  readonly input: Page.AcdeInput
   readonly launch: Page.AcdeLaunch
   readonly apps: Page.AcdeAppList
   readonly open: Page.AcdeOpen

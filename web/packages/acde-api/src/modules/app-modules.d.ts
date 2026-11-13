@@ -14,6 +14,10 @@ declare module 'acde:power' {
   const power: import('../types/page').AcdePower
   export { power, power as default }
 }
+declare module 'acde:input' {
+  const input: import('../types/page').AcdeInput
+  export { input, input as default }
+}
 
 declare module 'acde:devices' {
   const devices: import('../types/page').AcdeDevices

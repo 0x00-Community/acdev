@@ -1,6 +1,6 @@
 const HOST_WINDOW_ONLY = ['slots']
-const WINDOWS_MISSING = ['network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'idleDetection', 'office', 'camera', 'microphone', ...HOST_WINDOW_ONLY]
-const MACOS_MISSING = ['network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'idleDetection', 'office', ...HOST_WINDOW_ONLY]
+const WINDOWS_MISSING = ['network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'idleDetection', 'office', 'camera', 'microphone', ...HOST_WINDOW_ONLY]
+const MACOS_MISSING = ['network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'idleDetection', 'office', ...HOST_WINDOW_ONLY]
 const FULL = { backdrop: 'full' }
 
 export const RUNNING_MODES = ['session', 'desktop', 'standalone']

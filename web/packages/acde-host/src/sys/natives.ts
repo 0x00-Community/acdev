@@ -83,6 +83,7 @@ export interface WebGrants {
   readonly audio: boolean
   readonly devices: boolean
   readonly power: boolean
+  readonly input: boolean
   readonly office: boolean
   readonly camera: boolean
   readonly microphone: boolean

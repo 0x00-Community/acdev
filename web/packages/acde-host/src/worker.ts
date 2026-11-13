@@ -71,6 +71,7 @@ interface WebNatives extends Natives {
   readonly sound?: WatchNatives
   readonly devices?: DevicesNatives
   readonly power?: WatchNatives
+  readonly input?: WatchNatives
   readonly office?: object
   readonly picker?: FolderPicker
 }
@@ -273,6 +274,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.sound) bridge.value['audio'] = Watched.module('audio', natives.sound)
   if (natives.devices) bridge.value['devices'] = DevicesModule.wrap(natives.devices)
   if (natives.power) bridge.value['power'] = Watched.typed('power', natives.power, ['changed', 'prompt', 'critical'])
+  if (natives.input) bridge.value['input'] = Watched.module('input', natives.input)
   if (natives.office) {
     const editorPage = async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme)
     const office = natives.office as { state(...args: unknown[]): Promise<unknown>; open(path: string, writable: boolean): Promise<unknown> }

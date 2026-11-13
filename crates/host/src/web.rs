@@ -82,6 +82,7 @@ struct Grants {
     devices: Option<acde_runtime::Devices>,
     #[cfg(target_os = "linux")]
     power: Option<acde_runtime::Power>,
+    input: Option<Option<Arc<dyn crate::Input>>>,
 }
 
 impl Webs {
@@ -108,6 +109,7 @@ impl Webs {
                 devices: None,
                 #[cfg(target_os = "linux")]
                 power: None,
+                input: None,
             };
         };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -140,6 +142,7 @@ impl Webs {
         let devices = bind::get(scope, wanted, "devices").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let power = bind::get(scope, wanted, "power").is_some_and(|v| v.is_true());
+        let input = bind::get(scope, wanted, "input").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(rt::current().platform(), app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
@@ -168,6 +171,7 @@ impl Webs {
             devices: devices.then(|| system.devices.clone()),
             #[cfg(target_os = "linux")]
             power: power.then(|| system.power.clone()),
+            input: input.then(|| rt::current().platform().input()),
         }
     }
 }
@@ -214,6 +218,9 @@ impl Grants {
         #[cfg(target_os = "linux")]
         if let Some(power) = self.power {
             crate::power::install(scope, natives, power);
+        }
+        if let Some(input) = self.input {
+            crate::input::install(scope, natives, input);
         }
     }
 }
@@ -319,6 +326,7 @@ impl Spec {
         crate::devices::clear();
         #[cfg(target_os = "linux")]
         crate::power::clear();
+        crate::input::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);

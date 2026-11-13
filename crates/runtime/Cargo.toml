@@ -40,6 +40,8 @@ flate2 = "1"
 # Linux desktop services: D-Bus (input method, NetworkManager, portals, AT-SPI, the session bus, BlueZ) and PipeWire (voice, acde:audio)
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+# acde:input 的 catalog(): xkeyboard-config 的 rules/evdev.xml
+roxmltree = "0"
 pipewire = { version = "0", features = ["v0_3_49"] }
 
 # unix: the pty, the terminal's poll loop, signals and process groups, O_NOFOLLOW, ELOOP
