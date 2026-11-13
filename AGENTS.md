@@ -18,14 +18,14 @@
 
 ## 是什么
 
-acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分四个仓库 (测试期间的架构, 用户定 2026-11-13):
+acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个仓库 (测试期间的架构, 用户定 2026-11-13):
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
 | acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`crates/host/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
 | [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acdebin-dbg` |
 | [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acdebin-system` |
-| [acde-cli](http://gitea.dopamine/AC/acde-cli) | 开发者 CLI `acde` | `acde` |
+| acdebin-dbg 的 `cli/` | 开发者 CLI `acde` (bun) | `acde` |
 
 平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
@@ -52,8 +52,8 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分四个�
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (含 smithay 一侧用的 ironrdp-server、libseat-sys) 仍在本仓库, 两个前端都用 `../acdert/vendor`.
 
-acdert 和开发者 CLI [acde-cli](http://gitea.dopamine/AC/acde-cli)
-的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdert. 改名成 acdert 的只有程序、Arch 包和
+acdert 和开发者 CLI `acde` ([acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 的 `cli/`)
+的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
 crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境变量、`$XDG_*/acde/` 这些都不改. 桌面是一张网页: JS 在内嵌的 V8 里
 (不用 Node), Blitz (`vendor/acrender`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
 [acde-dopame](https://github.com/dopame-org/acde-dopame), 发行时带上, acdert 不认识它).
@@ -114,22 +114,22 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   任何句柄, 整棵进程树放进一个关句柄即结束的作业对象: 关终端时先关伪控制台 (shell 收到 `CTRL_CLOSE_EVENT`), 3 秒后还在就结束整个作业, 会话
   线程退出时作业句柄关闭, 后台留下的进程一并结束; 没有 `cwd` 事件, `exit` 的 `signal` 总是 null.
   network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
-  `sys.openOffice()` 开 (network / office / system 只在 Linux). `acde:system` (清单能力 `system`, crates/host `system.rs` → runtime `system.rs`,
-  从 acde-base 移植): 这台电脑的信息 (主机名、系统、CPU、GPU、NPU、内存、开机时长、序列号)、各卷容量、时区和 NTP (经 timedated)、改时区 /
+  `sys.openOffice()` 开 (network / office / system 只在 Linux). `acde:system` (清单能力 `system`, crates/host `system.rs` → runtime `system.rs`):
+  这台电脑的信息 (主机名、系统、CPU、GPU、NPU、内存、开机时长、序列号)、各卷容量、时区和 NTP (经 timedated)、改时区 /
   NTP / 主机名 (经 hostnamed, 要 polkit 授权)、当前用户; 每次调用在 offload 线程上现读, 没有变化事件.
-  `acde:bluetooth` (能力 `bluetooth`, crates/host `bluetooth.rs` → runtime `bluetooth.rs`, 从 acde-base 移植): BlueZ 的适配器和设备 (开关、可见、改名、
+  `acde:bluetooth` (能力 `bluetooth`, crates/host `bluetooth.rs` → runtime `bluetooth.rs`): BlueZ 的适配器和设备 (开关、可见、改名、
   扫描、配对 / 应答、连接、信任、屏蔽、忘记), 自己注册配对代理; `on('changed' | 'pairing')` 由 acde-host `bluetooth.ts` 包在原生 `watch` / `pairing` 上.
   登录时的开关 (`setOnLogin`: remember / on / off, 存在 `$XDG_CONFIG_HOME`) 只在自己的会话里由 Broker 调 `sys.restoreBluetooth()` 应用, 宿主窗口和登录页不碰.
-  `acde:audio` (能力 `audio`, 原生名 `sound`, crates/host `sound.rs` → runtime `sound.rs`, 从 acde-base 移植): PipeWire 上的输出 / 输入设备、端口、
+  `acde:audio` (能力 `audio`, 原生名 `sound`, crates/host `sound.rs` → runtime `sound.rs`): PipeWire 上的输出 / 输入设备、端口、
   声卡配置和各应用的流 (默认设备、音量、静音、平衡、端口、配置、把流挪到别的设备); `on('changed')` 由 acde-host `watched.ts` (`Watched.module`,
   只有 changed 事件的模块共用) 包在原生 `watch` 上.
-  `acde:devices` (能力 `devices`, crates/host `devices.rs` → runtime `devices/`, 从 acde-base 移植): UDisks2 上的可移动驱动器 (挂载、卸载、弹出)、
+  `acde:devices` (能力 `devices`, crates/host `devices.rs` → runtime `devices/`): UDisks2 上的可移动驱动器 (挂载、卸载、弹出)、
   CUPS 打印机 (经 IPP: 默认打印机、暂停 / 恢复、任务和取消)、自动挂载设置 (登录时 / 插入时 / 未知设备, 每个设备单独设); 事件 `changed` / `added`
   (新插入的驱动器) 由 acde-host `devices.ts` 包在原生 `watch(type)` / `unwatch(id)` 上. 自动挂载的监视只在自己的会话里由 Broker 调
   `sys.startDevices()` 起.
-  `acde:power` (能力 `power`, crates/host `power.rs` → runtime `power/`, 从 acde-base 移植): UPower 的电池、power-profiles-daemon 的模式、
+  `acde:power` (能力 `power`, crates/host `power.rs` → runtime `power/`): UPower 的电池、power-profiles-daemon 的模式、
   按交流 / 电池 / 低电量分组的策略设置 (空闲动作、熄屏、合盖、电源键、亮度), logind 挂起 / 休眠, 背光亮度, 充电上限; 事件 `changed` / `prompt` /
-  `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上 (acde-base 是全局 static). 会话里的执行 (空闲计时、熄屏、
+  `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上. 会话里的执行 (空闲计时、熄屏、
   合盖和电源键) 要合成器配合, 见 acdebin-system. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
   公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
@@ -522,7 +522,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` / `rgb()` / `rgba()`; `buttonStyle: 'dots' | 'glyphs'`, `buttonSide: 'left' | 'right'`,
   `titleAlign: 'center' | 'start'`, `light: {active?, inactive?}`; 每次给的是整个主题, 不和上次的合并) 声明运行时画的标题栏的样子, 运行时照旧画、命中、拖动和双击.
   检查在 SDK `FrameThemes.parse` (`@dopame/acde-api/manifest`; 坏颜色和别的取值抛 TypeError; 不认识的键 (各层) 不再报错, 忽略并记一行 warn, #114:
-  以后加的可选键在旧运行时上不出错, 但 acde-base 和这次修改 (#114) 之前的 acdert 仍会抛, 桌面要先探测), 转成 19 个数交给 surface 的 `setFrameTheme` (整个宿主一份,
+  以后加的可选键在旧运行时上不出错, 但这次修改 (#114) 之前的 acdert 仍会抛, 桌面要先探测), 转成 19 个数交给 surface 的 `setFrameTheme` (整个宿主一份,
   `State.theme`). 设了就重画所有开着的有窗框的窗口 (`Msg::Theme`), 焦点变化时窗口换 `active` / `inactive` (`Msg::Active`); `null` 回到
   今天的样子. 只管合成里的窗口; 会话里还没有 (只记 debug 日志). 谁有它同 `setDoubleClick`.
   **页面不支持深色时用 `light`** (#114): 主题带了 `light` 的配色时, 页面没声明支持深色的窗口改画 `light` 那套 (缺的项用运行时默认, 不借深色主题的);
@@ -715,7 +715,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 在所有宿主上都报 Linux (`X11; Linux x86_64` / `Linux x86_64`, Broker 的 `UserAgent`,
   经 `WebInit.navigator`), 产品段是 `acdert/<真实版本>`. 运行时对应用呈现统一的 Linux 环境: 交互语义一律照 Linux (编辑快捷键是 Ctrl;
-  页面若看到 `MacIntel`, 编辑器库会把快捷键改绑到 Command, 同一窗口里就有两套规矩), 跨宿主一致, 也和 acde-base 一致.
+  页面若看到 `MacIntel`, 编辑器库会把快捷键改绑到 Command, 同一窗口里就有两套规矩), 跨宿主一致.
   需要宿主系统信息的应用以后由 `acde:` 模块单独提供, 不从 `navigator` 猜.
 - **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
   和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
