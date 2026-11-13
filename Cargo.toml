@@ -5,13 +5,13 @@ members = ["crates/gpu"]
 exclude = ["vendor"]
 
 [workspace.package]
-version = "0.0.9"
+version = "0.0.10"
 edition = "2024"
 repository = "https://github.com/dopame-org/acdert"
 publish = ["ac"]
 
 [workspace.dependencies]
-acde-gpu = { path = "crates/gpu", version = "0.0.9", registry = "ac" }
+acde-gpu = { path = "crates/gpu", version = "0.0.10", registry = "ac" }
 # blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz), published to ac with the same names
 blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
 blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.4", registry = "ac", default-features = false }
