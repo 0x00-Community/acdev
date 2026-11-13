@@ -8,7 +8,7 @@
 ## 是什么
 
 acde 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通用运行时 lib)、acdebin-dbg (本仓库, 跨平台调试运行时)、acdebin-system
-(Dopame OS 特化运行时), 开发者 CLI `acde` 在本仓库的 `cli/` (bun, 说明在 `cli/AGENTS.md`). acdebin-dbg 产出二进制 `acdebin-dbg`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
+(Dopame OS 特化运行时), 开发者 CLI `acde` 在本仓库的 `npm/` (bun, 说明在 `npm/AGENTS.md`). acdebin-dbg 产出二进制 `acdebin-dbg`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
 跑一个应用 (`acdebin-dbg app <id>`) 或一个桌面 (`acdebin-dbg desktop <id|包目录>`); `acde dev` 拉起的就是它 (`acde` 先找 `ACDERT`,
 再找装在旁边的、PATH 上的 `acdebin-dbg`, 最后才是旧的 `acdert`).
 
@@ -21,6 +21,9 @@ acde 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通�
 - 合成器: 现在直接用 acdert 的 acde-gpu (wgpu: Vulkan / OpenGL / Metal / DX12); acdert 抽出合成器接口后, wgpu (vello) 实现搬到本仓库,
   另加 acgpu 实现 (feature `acgpu`).
 
+目录: `src/` 是 acdebin-dbg 本体 (Rust, 仓库根的包); `crates/hostwin` 宿主窗口; `npm/` 是开发者 CLI `acde` 这个 JS 包 (连同它自己的构建脚本 `npm/scripts/`); `scripts/` 是不随包发的安装器
+(`install.sh` / `install.ps1` / `install.md`, 发版时传到 pkgs) 和发版检查 `release-guard.ts`.
+
 ## 构建
 
 acdert 要和本仓库并排检出 (`../acdert`): crate 都是 path 依赖, `[patch.crates-io]` 用 `../acdert/vendor`. `Cargo.lock` 不进 git,
@@ -32,7 +35,7 @@ cargo build -p acdebin-dbg                              # target/debug/acdebin-d
 ACDE_APP=../acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
 ```
 
-不在安装目录里跑时要用 `ACDE_APP` 指向 acdert 的 `web/packages/acde-host/dist`. 用 `acde` (`cli/`): `ACDERT=<本仓库>/target/debug/acdebin-dbg acde dev`.
+不在安装目录里跑时要用 `ACDE_APP` 指向 acdert 的 `web/packages/acde-host/dist`. 用 `acde` (`npm/`): `ACDERT=<本仓库>/target/debug/acdebin-dbg acde dev`.
 
 ## 协作规则
 

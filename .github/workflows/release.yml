@@ -1,7 +1,7 @@
 name: release
 
 # Run by hand on Gitea (AC/acdebin-dbg → Actions → release → Run workflow): build, check and preview.
-# Publish: the same with publish ticked and commit=<sha>. The CLI is cli/, checked out at acdebin-dbg/cli.
+# Publish: the same with publish ticked and commit=<sha>. The CLI is npm/, run in acdebin-dbg/npm.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
 # Gitea reads .github/workflows; the same file also runs on GitHub.
@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
       - name: the commit is a full SHA on origin/main, and package.json gives the version
         id: version
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
@@ -97,7 +97,7 @@ jobs:
           echo "commit $sha, acde $v, publish=$PUBLISH"
       - name: the tag is free, or already points at this commit
         if: steps.version.outputs.publish == 'true'
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         env:
           SHA: ${{ steps.version.outputs.sha }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -113,33 +113,8 @@ jobs:
             echo "$TAG is free"
           fi
 
-  exe:
-    needs: plan
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdebin-dbg
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - name: acde.exe, the Windows launcher (x64, static CRT)
-        working-directory: acdebin-dbg/cli/exe
-        shell: pwsh
-        run: |
-          rustup target add x86_64-pc-windows-msvc
-          cargo build --release --locked --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $exe = Get-Item target/x86_64-pc-windows-msvc/release/acde.exe
-          "acde.exe: $($exe.Length) bytes"
-      - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        with:
-          name: acde-exe
-          path: acdebin-dbg/cli/exe/target/x86_64-pc-windows-msvc/release/acde.exe
-          if-no-files-found: error
-          retention-days: 1
-
   pkgs:
-    needs: [plan, exe]
+    needs: plan
     runs-on: debian12
     container: node:22-bookworm
     env:
@@ -193,7 +168,7 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
           mv in/sdk/unpacked/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
       - name: the placed SDK is the pinned one, at the path package.json names
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         run: |
           node -e '
             const fs = require("fs")
@@ -205,20 +180,16 @@ jobs:
               throw new Error("placed " + placed.name + "@" + placed.version + ", want " + process.argv[2])
             }
           ' "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" "$SDK_VERSION"
-      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          name: acde-exe
-          path: in/exe
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: install
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         run: bun install --frozen-lockfile
       - name: dist
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         run: |
           v=${TAG#v}
           bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
-            --version "$v" --out "$GITHUB_WORKSPACE/out" --exe "$GITHUB_WORKSPACE/in/exe/acde.exe"
+            --version "$v" --out "$GITHUB_WORKSPACE/out"
       - name: the version directory names the acdert it pairs with, in its SHA256SUMS
         run: |
           set -eu
@@ -256,10 +227,6 @@ jobs:
               exit 1
               ;;
           esac
-          test "$(head -c 2 "smoke/acde-$v/bin/acde.exe")" = MZ || {
-            echo "::error::bin/acde.exe is missing or not a Windows executable"
-            exit 1
-          }
       - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         with:
           name: acde-release
@@ -285,7 +252,7 @@ jobs:
           name: acde-release
           path: out
       - name: the release is exactly the allow-list and the shipped content is clean
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         run: |
           set -eu
           v=$(cat "$GITHUB_WORKSPACE/out/latest")
@@ -293,7 +260,7 @@ jobs:
             echo "::error::the release is $v but the tag is $TAG"
             exit 1
           fi
-          bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
+          bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
       - name: a preview stops here
         if: needs.plan.outputs.publish != 'true'
         run: |
@@ -420,7 +387,7 @@ jobs:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: true
       - name: the annotated tag points at the commit, or already does
-        working-directory: acdebin-dbg/cli
+        working-directory: acdebin-dbg/npm
         run: |
           set -eu
           test "$(git rev-parse HEAD)" = "$SHA"

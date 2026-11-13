@@ -20,14 +20,8 @@ function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
   return collect(argv, { cwd, env: env(extra) })
 }
 
-function launcher(text = 'MZ stand-in for acde.exe'): string {
-  const file = join(tmp(), 'acde.exe')
-  writeFileSync(file, text)
-  return file
-}
-
 function dist(out: string, version: string) {
-  const args = ['--api', API, '--sdk', SDK, '--version', version, '--out', out, '--exe', launcher()]
+  const args = ['--api', API, '--sdk', SDK, '--version', version, '--out', out]
   return run([process.execPath, 'scripts/dist.ts', ...args], {})
 }
 
@@ -135,14 +129,14 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const tarball = join(out, '0.0.2', 'acde-0.0.2.tar.gz')
     const listed = (await run(['tar', '-tzf', tarball], {})).stdout.split('\n')
     for (const path of [
-      'acde-0.0.2/bin/acde', 'acde-0.0.2/bin/acde.cmd', 'acde-0.0.2/bin/acde.exe', 'acde-0.0.2/LICENSE',
+      'acde-0.0.2/bin/acde', 'acde-0.0.2/bin/acde.cmd', 'acde-0.0.2/LICENSE',
       'acde-0.0.2/lib/acde/package.json',
       'acde-0.0.2/lib/acde/launcher.mjs', 'acde-0.0.2/lib/acde/dist/cli.js', 'acde-0.0.2/lib/acde/dist/driver/index.js',
       'acde-0.0.2/lib/acde/dist/e2e/index.js', 'acde-0.0.2/lib/acde/templates/app/index.html',
       'acde-0.0.2/lib/acde-api/package.json', 'acde-0.0.2/lib/acde-api/src/index.js',
       'acde-0.0.2/lib/acde/skills/acde/SKILL.md', 'acde-0.0.2/lib/acde/skills/acde/references/reference/cli.md',
     ]) expect(listed).toContain(path)
-    expect(readFileSync(join(out, 'install.md'), 'utf8')).toBe(readFileSync(join(ROOT, 'install.md'), 'utf8'))
+    expect(readFileSync(join(out, 'install.md'), 'utf8')).toBe(readFileSync(join(ROOT, '..', 'scripts', 'install.md'), 'utf8'))
     expect(listed.some((path) => /\/(bin\/acdert|bin\/app|lib\/acde\/src)\b/.test(path))).toBe(false)
     expect(listed.some((path) => path.endsWith('.map') || path.includes('/._'))).toBe(false)
     expect(listed.some((path) => /\/lib\/acde\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
@@ -414,11 +408,6 @@ describe('the release archive and the installed CLI', () => {
     const missing = await run([process.execPath, 'scripts/dist.ts', ...missingArgs], {})
     expect(missing.code).toBe(1)
     expect(missing.out).toContain('not a built @dopame/acde-api package')
-    const script = launcher('#!/bin/sh')
-    const notExe = await run([process.execPath, 'scripts/dist.ts', '--api', API, '--sdk', SDK, '--version', '0.0.3',
-      '--out', join(root, 'x'), '--exe', script], {})
-    expect(notExe.code).toBe(1)
-    expect(notExe.out).toContain('not a Windows executable')
   }, 60_000)
 
   test('Windows x64: install.ps1 and the installed CLI work in paths containing spaces', async () => {

@@ -15,6 +15,7 @@ import { shipLeaks } from './shipped.ts'
 import { skillProblems } from './skill.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
+const INSTALLERS = resolve(ROOT, '..', 'scripts')
 const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   version: string
   description: string
@@ -54,7 +55,6 @@ const { values } = parseArgs({
     sdk: { type: 'string', default: SDK_PIN },
     version: { type: 'string', default: SELF.version },
     out: { type: 'string', default: join(ROOT, '.dist') },
-    exe: { type: 'string' },
   },
 })
 
@@ -70,11 +70,6 @@ if (sdk.name !== '@dopame/acde-api' || sdk.version !== values.sdk) {
   throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
 }
 
-const exe = values.exe === undefined ? null : resolve(values.exe)
-if (exe !== null && (!existsSync(exe) || readFileSync(exe).subarray(0, 2).toString('latin1') !== 'MZ')) {
-  throw new Error(`--exe ${exe}: not a Windows executable (exe/, cargo build --release)`)
-}
-
 const skill = join(ROOT, 'skills', 'acde')
 const unfit = skillProblems(skill)
 if (unfit.length > 0) throw new Error(`skills/acde does not follow the skill rules:\n${unfit.join('\n')}`)
@@ -88,11 +83,10 @@ rmSync(stage, { recursive: true, force: true })
 
 mkdirSync(join(top, 'bin'), { recursive: true })
 mkdirSync(join(lib, 'dist'), { recursive: true })
-copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
+copyFileSync(join(ROOT, 'bin', 'acde.sh'), join(top, 'bin', 'acde'))
 chmodSync(join(top, 'bin', 'acde'), 0o755)
-const cmd = readFileSync(join(ROOT, 'scripts', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
+const cmd = readFileSync(join(ROOT, 'bin', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
 writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
-if (exe !== null) copyFileSync(exe, join(top, 'bin', 'acde.exe'))
 for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
@@ -135,12 +129,12 @@ writeFileSync(pairing, `${values.sdk}\n`)
 const paired = createHash('sha256').update(readFileSync(pairing)).digest('hex')
 writeFileSync(join(dir, 'SHA256SUMS'), `${paired}  ${PAIRING}\n${sum}  ${name}.tar.gz\n`)
 writeFileSync(join(out, 'latest'), `${version}\n`)
-const scripts = ['install.sh', 'install.ps1'].map((file) => readFileSync(join(ROOT, file), 'utf8'))
+const scripts = ['install.sh', 'install.ps1'].map((file) => readFileSync(join(INSTALLERS, file), 'utf8'))
 const addresses = Pkgs.scriptProblems(scripts[0]!, scripts[1]!)
 if (addresses.length > 0) throw new Error(addresses.join('\n'))
-copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
-copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))
-copyFileSync(join(ROOT, 'install.md'), join(out, 'install.md'))
+copyFileSync(join(INSTALLERS, 'install.sh'), join(out, 'install.sh'))
+copyFileSync(join(INSTALLERS, 'install.ps1'), join(out, 'install.ps1'))
+copyFileSync(join(INSTALLERS, 'install.md'), join(out, 'install.md'))
 console.log(`${tarball}\n${sum}`)
 
 async function bundle(

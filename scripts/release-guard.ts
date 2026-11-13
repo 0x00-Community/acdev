@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { listFiles, shipLeaks, systemTar } from './shipped.ts'
+import { listFiles, shipLeaks, systemTar } from '../npm/scripts/shipped.ts'
 
 const { values } = parseArgs({
   options: {
@@ -112,11 +112,6 @@ if (problems.length === 0) {
       if (extracted.status !== 0) {
         problems.push(`${archive}: cannot be unpacked`)
         continue
-      }
-      const launcher = join(target, top, 'bin', 'acde.exe')
-      if (!existsSync(launcher)) problems.push(`${archive}: no bin/acde.exe (the Windows launcher)`)
-      else if (readFileSync(launcher).subarray(0, 2).toString('latin1') !== 'MZ') {
-        problems.push(`${archive}: bin/acde.exe is not a Windows executable`)
       }
       const leaks = shipLeaks(join(target, top))
       for (const leak of leaks) problems.push(`${archive}: ${leak}`)

@@ -186,7 +186,7 @@ describe('start-up', () => {
     const top = join(tmp(), 'versions', '0.0.5')
     mkdirSync(join(top, 'bin'), { recursive: true })
     mkdirSync(join(top, 'lib', 'acde', 'dist'), { recursive: true })
-    copyFileSync(join(import.meta.dir, '../scripts/acde.sh'), join(top, 'bin', 'acde'))
+    copyFileSync(join(import.meta.dir, '../bin/acde.sh'), join(top, 'bin', 'acde'))
     chmodSync(join(top, 'bin', 'acde'), 0o755)
     writeFileSync(join(top, 'lib', 'acde', 'dist', 'cli.js'), "console.log('cli', process.argv.slice(2).join(' '))\n")
     const fake = join(tmp(), 'fake')

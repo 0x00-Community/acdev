@@ -1,6 +1,6 @@
 # acde
 
-acde 的开发者 CLI, 是 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 仓库的 `cli/` 子包 (原 gitea AC/acde-cli, 连历史并入).
+acde 的开发者 CLI, 是 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 仓库的 `npm/` 子包 (原 gitea AC/acde-cli, 连历史并入).
 和运行时的关系像 wrangler 和 workerd: [acdert](http://gitea.dopamine/AC/acdert) 是运行时库, 二进制是同仓库根上的 `acdebin-dbg`
 (跨平台调试) 和 acdebin-system (Dopame OS 的会话); acde 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../../acdert`), 这里只写工具.
@@ -630,7 +630,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `paths` 和 `baseUrl`, 换成绝对路径; 链上可以是相对路径、数组、包) 加上这两个模块, 指向跑测试的这个 acde (`packageRoot()`, 打包后也对),
   所以 CLI 和 driver 总是同一个版本. 编辑器里的类型还得工程自己装.
 
-## 分发 (`install.sh`, `install.ps1`, `scripts/dist.ts`)
+## 分发 (仓库根 `scripts/install.sh`, `scripts/install.ps1`, 本包 `scripts/dist.ts`)
 
 只有全局安装: 安装器把 acde 和与它配对的 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认
 `Pkgs.ACDE`) 和 `ACDERT_DIST` (默认 `Pkgs.ACDERT`), 两个脚本开头各一处, 末尾的 `/` 去掉. 地址只有一处: `src/pkgs.ts` 的 `Pkgs.BASE`
@@ -651,12 +651,11 @@ acdert 二进制和 `acdert-host-<acdert 版本>.tar.gz`, 都按那份 `SHA256SU
 装好后一个版本目录 (`versions/<版本>`; 归档里的顶层目录 `acde-<版本>/` 加上安装器放的两项) 是:
 
 ```
-bin/acde            scripts/acde.sh 跑 lib/acde/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
-bin/acde.exe        Windows 的启动器 (exe/, Rust, 无依赖, 静态 CRT): 选法和提示同 acde.cmd, 只在 PATH 里找 bun.exe / node.exe (不找当前目录); 把自己的原始命令行去掉程序名后原样交给运行时 (raw_arg, 不重新拆分和转义), 自己忽略 Ctrl+C 交给子进程处理, 透传退出码. PATHEXT 里 .EXE 在 .CMD 前, 所以 `acde` 先命中它; PowerShell 调 .cmd 时经 cmd 会丢掉参数里的双引号 (acde#33), 调 .exe 不会
-bin/acde.cmd        Windows 的后备启动器 (直接 `acde.cmd …`; acde.exe 被安全软件拦下或缺失时用) 和 dist.ts 没给 --exe 时唯一的启动器: scripts/acde.cmd (CRLF), 同样的选法和提示; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
+bin/acde            bin/acde.sh 跑 lib/acde/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
+bin/acde.cmd        Windows 的启动器: bin/acde.cmd (CRLF), 同样的选法和提示; PowerShell 调 .cmd 时经 cmd 会丢掉参数里的双引号 (acde#33); 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
 bin/acdert[.exe]    安装器放的 acdert (不在归档里)
-lib/runtime-cache   三个启动器记下的选择 (gitea acde#94: 每次起 bun/node 探版本在 Windows 上要 1 s 以上): 第一行是 PATH 上 bun 和 node 的
-                    路径 (acde.exe 再加修改时间纳秒和大小, acde.cmd 加 %~t 和 %~z), 第二行 (acde.cmd 用 * 隔开) 是选中的运行时. 键对得上、
+lib/runtime-cache   两个启动器记下的选择 (gitea acde#94: 每次起 bun/node 探版本在 Windows 上要 1 s 以上): 第一行是 PATH 上 bun 和 node 的
+                    路径 (acde.cmd 再加 %~t 和 %~z), 第二行 (acde.cmd 用 * 隔开) 是选中的运行时. 键对得上、
                     选中的文件还在 (sh 另要求 bun/node 都不比缓存新, -nt) 就直接起它, 否则照旧探测再写; 写不进去不报错. 只在探测通过时写
 bin/app/            安装器从 acdert-host 解出的 app/ 目录原样 (dist/broker.js、dist/web.js、brand/、greet/、package.json); acdert 找 <自己>/app/dist
 LICENSE             专有 LICENSE, 归档顶层 (和 lib/acde/LICENSE 一样)
@@ -666,10 +665,10 @@ lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)�
 lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
 ```
 
-- `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist] [--exe <acde.exe>]` (`--exe` 放进 `bin/acde.exe`, 不是 `MZ` 开头的文件报错; 在 Windows 上 `cd exe && cargo build --release` 得到它; 发布必须带) (`--api` 默认 `../../acdert/web/packages/acde-api/dist`,
+- `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist]` (`--api` 默认 `../../acdert/web/packages/acde-api/dist`,
   要先在 acdert 那边 `bun run build`; 没有 `package.json` 和 `src/index.js`, 或包名不是 `@dopame/acde-api`、版本不等于 `--sdk`
   (默认 `dist.ts` 的 `SDK_PIN`) 时报错. 发布时 `--api` 指向上面解包出的 `package/`). `--sdk` 也写进 `<版本>/acdert-version`. Windows 上打的归档
-  没有 unix 的可执行位, 只供 Windows 和测试用 (`.gitattributes` 让 `skills/**`、`install.sh`、`install.md`、`scripts/acde.sh` 在 Windows 检出里也是 LF); 发布在 Linux 上打. 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):
+  没有 unix 的可执行位, 只供 Windows 和测试用 (`.gitattributes` 让 `skills/**`、`bin/acde.sh` 和仓库根 `scripts/` 的 `install.sh`、`install.md` 在 Windows 检出里也是 LF); 发布在 Linux 上打. 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):
   不许有 `lib/acde/src`、`lib/acde/test`、`lib/acde-api/test`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
   模板之外的 `.ts` 源码, 也不许有符号链接、点文件、密钥和本机构建路径; 覆盖整个包 (acde#7). 有就不出包.
 - **轻度混淆** (`javascript-obfuscator` 5.9.0, 精确钉住, 发版前至少两周): 在 `Bun.build` 的 `minify` 之后对 `dist/cli.js`、`dist/driver.js`、
@@ -680,8 +679,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - **发布** (`.github/workflows/release.yml`, 只能手动运行 `workflow_dispatch`): 协作者的工作流为基础, 合入以下要求. 版本以提交里的 `package.json` 为准, 标签 `v<版本>` 是注释标签, 由工作流打在该提交上 (不手动打标签; 推标签不触发任何工作流). 一个通用包 `acde-<版本>.tar.gz`, 只含命令行工具、模板、SDK 和 LICENSE; acdert 由安装器按 `acdert-version` 从 `pkgs.dopame.ai/acdert/<版本>/` 另行下载 (见「运行时」), 工作流
 不下载 acdert 二进制; Dopame 桌面不随 acde 发布.
   发版: 在 `Akira/develop` 改 `package.json` 的版本号并合入 `main`, 然后在 Gitea 上手动跑 release (勾 publish, 填 `commit=<sha>`). `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
-  Linux 的作业都在 `node:22-bookworm` 容器里跑 (`container:`, Debian 12 加 Node 22, 不用 Ubuntu 的环境); `runs-on` 一律 `debian12`, GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13), 镜像里没有的 jq、awscli 在作业第一步用 apt 装 (bookworm: awscli 2.9 (v2)、jq 1.6); Windows 的 `exe` 不变.
-  作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续 (指向别处则失败, 提示升版本), 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA, 输出打印完整 SHA. `pkgs` 从 `https://pkgs.dopame.ai/acdert/<版本>/` 取 SDK 归档, 先校验 `SHA256SUMS`, 解包 `package/` 放到 `../../acdert/web/packages/acde-api` (那是 `file:` 依赖的 CI 位置, 不是 acdert 仓库), 核对放置的包名与版本, 再 `bun install --frozen-lockfile`, 跑 `dist.ts` (同时写配对记录 `<版本>/acdert-version`, 内容是这一版 SDK 对应的 acdert 版本, 列进 `SHA256SUMS`; 下一步核对它等于 `SDK_VERSION`), 写 `latest.json`, 解开归档检查 `bin/acde` 能起 CLI、`bin/acde.exe` 是 Windows 可执行文件. `exe` 作业在 `windows-2025` 上 `cargo build --release --locked --target x86_64-pc-windows-msvc` (`exe/.cargo/config.toml` 开静态 CRT), 产物交给 `pkgs` 的 `dist.ts --exe`; 只构建, 不跑测试. 选 Windows 作业而不是在 Linux 上交叉编译: MSVC 目标是 Windows 自己的工具链, 与 acdert 的 Windows 构建一致, 不用装 mingw 或 xwin 下载 MSVC 运行库; 只出 x64 (安装器只支持 x64, Windows on ARM 可以仿真运行 x64, acdert 也没有 arm64 Windows 构建). acde.exe 在通用包里, 由包的 `SHA256SUMS` 覆盖, 不单独发布. `guard` 用 `scripts/release-guard.ts` 核对产物恰好是允许清单、归档里有 `MZ` 开头的 `bin/acde.exe`, 并重新做泄漏检查 (拒绝 `.ts` 源码、`.map`、`sourceMappingURL` 等).
+  Linux 的作业都在 `node:22-bookworm` 容器里跑 (`container:`, Debian 12 加 Node 22, 不用 Ubuntu 的环境); `runs-on` 一律 `debian12`, GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13), 镜像里没有的 jq、awscli 在作业第一步用 apt 装 (bookworm: awscli 2.9 (v2)、jq 1.6);
+  作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续 (指向别处则失败, 提示升版本), 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA, 输出打印完整 SHA. `pkgs` 从 `https://pkgs.dopame.ai/acdert/<版本>/` 取 SDK 归档, 先校验 `SHA256SUMS`, 解包 `package/` 放到 `../../acdert/web/packages/acde-api` (那是 `file:` 依赖的 CI 位置, 不是 acdert 仓库), 核对放置的包名与版本, 再 `bun install --frozen-lockfile`, 跑 `dist.ts` (同时写配对记录 `<版本>/acdert-version`, 内容是这一版 SDK 对应的 acdert 版本, 列进 `SHA256SUMS`; 下一步核对它等于 `SDK_VERSION`), 写 `latest.json`, 解开归档检查 `bin/acde` 能起 CLI. Windows 上的启动器只有 `bin/acde.cmd`, 没有单独编的 acde.exe. `guard` 用仓库根的 `scripts/release-guard.ts` 核对产物恰好是允许清单并重新做泄漏检查 (拒绝 `.ts` 源码、`.map`、`sourceMappingURL` 等).
   上传顺序: `upload` (只有它和 `latest` 有 `id-token: write`) 上传版本目录的 `acde-<版本>.tar.gz`、`acdert-version` 与 `SHA256SUMS`, 逐一回读校验; 版本文件已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. `tag` (只有它有 `contents: write`) 在上传通过后打注释标签 `v<版本>` 指向该 SHA 并推送; 标签已指向该 SHA 则跳过. `latest` 最后更新 `install.sh`、`install.ps1`、`install.md` (`text/markdown`)、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径. 上传全部用 AWS CLI 换取的临时凭据 (Gitea 的 key 经 `aws sts assume-role`, GitHub 的 OIDC 经 `assume-role-with-web-identity`; 先 mask, 从不打印, 不用 `set -x`), 按允许清单逐个 `aws s3 cp` (没有 sync、递归或通配). `concurrency: acde-release` 让发版排队且不取消进行中的运行.
   与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成六个作业, 写权限只给打标签的作业, OIDC 权限只给上传与更新指针的作业, 凭据用 AWS CLI 换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档. (5) 协作者的版本目录每次覆盖; 现在版本文件内容相同则跳过、不同则失败.
   在内网 Gitea 上跑 (`http://gitea.dopamine/AC/acdebin-dbg/actions` → `release` → Run workflow; Gitea 读 `.github/workflows`), 同一份文件在 GitHub 上也能跑
@@ -691,7 +690,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `git push` 推, 不用 `gh`. 产物用 `christopherhx/gitea-upload-artifact` (`8818363`: 官方 v7.0.2 加 `isGhes()` 返回 false) 和
   `christopherhx/gitea-download-artifact` (`3f0bddc`: 官方 v8.0.1 加同一处改动, 外加 README 和不在运行路径上的 `scripts/replace-isghes.js`;
   2026-11-11 用 GitHub compare 对过), 官方 v4 起把 github.com 以外的服务器当 GHES 拒绝; 换 SHA 前对着官方版本重看. 在 Gitea 上仍不通的:
-  `exe` 要 `windows-2025` 的 runner (Gitea 没有 Windows runner 时它一直排队, `pkgs` 等它); `upload` / `latest` 换角色 `dopame-acde-release` 的凭据:
+  `upload` / `latest` 换角色 `dopame-acde-release` 的凭据:
   有 repo secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (Gitea 上是 IAM 用户 `gitea-acde-release` 的 key, 它只能 assume 这个角色) 时用
   `aws sts assume-role`, 没有 (GitHub) 时用 OIDC 令牌 `assume-role-with-web-identity` (用户定, 2026-11-12: 腾讯云 COS 改回 S3 `dopame-pkgs`). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
   Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, GitHub 镜像靠推送镜像或手动推.
@@ -811,7 +810,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
   (`{created: [绝对路径]}`); `remove` 删掉 skill 后从那一处往上, 只删记过且已空的目录, 删了就从记录里去掉. 用户原有的目录 (没记过的) 和
   里面还有别的东西的目录都不动. 记录放 acde 自己的数据目录, 不在 agent 的 skills 目录里留文件.
 
-**`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
+**`install.md`** (仓库根的 `scripts/`, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
 `acde` 能跑、`acde skills install`、`acde doctor` 查一遍 (找到的运行时、它的 GPU 自检等; 安装器已把配对的 acdert 装在 acde 旁边; `acdert` 那项是错误时先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acde dev --headless`
 截图、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
@@ -881,6 +880,6 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 ## 协作规则
 
 - 提交信息英文, Conventional Commits, 每行不超过 72 字符, 不加 Co-Authored-By. 做完就提交并推送.
-- 仓库是内网 Gitea 的 acdebin-dbg (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`), 本 CLI 在 `cli/`, 发版工作流在仓库根的
-  `.github/workflows/release.yml` (检出到 `acdebin-dbg`, 各步在 `acdebin-dbg/cli` 里跑). acdert 和 acdebin-dbg 并排检出, 所以 `file:` 依赖是 `../../acdert`.
+- 仓库是内网 Gitea 的 acdebin-dbg (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`), 本 CLI 在 `npm/`, 发版工作流在仓库根的
+  `.github/workflows/release.yml` (检出到 `acdebin-dbg`, 各步在 `acdebin-dbg/npm` 里跑). acdert 和 acdebin-dbg 并排检出, 所以 `file:` 依赖是 `../../acdert`.
 - 汇报时分开写「已验证 / 未验证」.

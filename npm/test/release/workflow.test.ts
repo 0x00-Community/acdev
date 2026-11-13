@@ -61,11 +61,10 @@ describe('release.yml', () => {
     expect(workflow.concurrency).toEqual({ group: 'acde-release', 'cancel-in-progress': false })
   })
 
-  test('the jobs run plan, exe, pkgs, guard, upload, tag, latest, with their needs', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'exe', 'pkgs', 'guard', 'upload', 'tag', 'latest'])
+  test('the jobs run plan, pkgs, guard, upload, tag, latest, with their needs', () => {
+    expect(Object.keys(jobs)).toEqual(['plan', 'pkgs', 'guard', 'upload', 'tag', 'latest'])
     expect(needs('plan')).toEqual([])
-    expect(needs('exe')).toEqual(['plan'])
-    expect(needs('pkgs')).toEqual(['plan', 'exe'])
+    expect(needs('pkgs')).toEqual(['plan'])
     expect(needs('guard')).toEqual(['plan', 'pkgs'])
     expect(needs('upload')).toEqual(['plan', 'guard'])
     expect(needs('tag')).toEqual(['plan', 'guard', 'upload'])
@@ -140,7 +139,7 @@ describe('release.yml', () => {
     const planCheckout = jobs['plan']!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
     expect(planCheckout?.with?.['fetch-depth']).toBe(0)
     expect(planCheckout?.with?.['ref']).toBeUndefined()
-    for (const job of ['exe', 'pkgs', 'guard', 'upload', 'tag', 'latest']) {
+    for (const job of ['pkgs', 'guard', 'upload', 'tag', 'latest']) {
       if (job === 'upload' || job === 'latest') continue
       const checkout = jobs[job]!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
       expect(checkout?.with?.['ref']).toBe('${{ needs.plan.outputs.sha }}')
@@ -219,19 +218,10 @@ describe('release.yml', () => {
   })
 
   test('Linux jobs run on debian12, inside node:22-bookworm', () => {
-    for (const [id, job] of Object.entries(jobs)) {
-      if (id === 'exe') continue
+    for (const job of Object.values(jobs)) {
       expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe('debian12')
       expect((job as Job & { container?: string }).container).toBe('node:22-bookworm')
     }
-  })
-
-  test('acde.exe is built on Windows x64 from the locked crate, only built, and goes into the archive', () => {
-    expect((jobs['exe'] as Job & { 'runs-on'?: string })['runs-on']).toBe('windows-2025')
-    expect(runs('exe')).toContain('cargo build --release --locked --target x86_64-pc-windows-msvc')
-    expect(runs('exe')).not.toMatch(/cargo (test|clippy)|bun test/)
-    expect(runs('pkgs')).toContain('--exe "$GITHUB_WORKSPACE/in/exe/acde.exe"')
-    expect(runs('pkgs')).toContain('bin/acde.exe is missing or not a Windows executable')
   })
 
   test('the version directory names its acdert in acdert-version, checked, listed, uploaded and invalidated', () => {
@@ -251,7 +241,7 @@ describe('release.yml', () => {
   })
 
   test('the guard runs the release guard on the artifact before any upload or tag', () => {
-    expect(runs('guard')).toContain('bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
+    expect(runs('guard')).toContain('bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
     expect(uses('guard').some((action) => action.startsWith('christopherhx/gitea-download-artifact@'))).toBe(true)
     expect(jobs['guard']!.permissions).toBeUndefined()
   })
@@ -287,7 +277,7 @@ describe('release.yml', () => {
   })
 
   test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
-    const secrets = TEXT.match(/\$\{\{ secrets\.\w+ \}\}/g) ?? []
+    const secrets: string[] = [...(TEXT.match(/\$\{\{ secrets\.\w+ \}\}/g) ?? [])]
     expect(secrets).toEqual(Array(2).fill(['${{ secrets.AWS_ACCESS_KEY_ID }}', '${{ secrets.AWS_SECRET_ACCESS_KEY }}']).flat())
     for (const job of ['upload', 'latest']) {
       const step = jobs[job]!.steps.find((item) => item.name === CREDENTIALS)

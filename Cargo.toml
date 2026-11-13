@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# cli/: the developer CLI (bun); cli/exe is its own small crate (the Windows acde.exe)
-exclude = ["cli"]
+# npm/: the acde CLI (bun)
+exclude = ["npm"]
 
 [workspace.package]
 version = "0.0.9"

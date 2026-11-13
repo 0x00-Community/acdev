@@ -55,7 +55,7 @@ describe('the skill', () => {
   test('install.md, the steps an agent follows, uses commands acde has and is where the skill says', async () => {
     const usage = (await cli(['--help'], tmp())).stdout
     const commands = new Set([...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!))
-    const steps = readFileSync(join(ROOT, 'install.md'), 'utf8')
+    const steps = readFileSync(join(ROOT, '..', 'scripts', 'install.md'), 'utf8')
     const code = [...steps.matchAll(/^```\w*\n([\s\S]*?)^```$|`([^`\n]+)`/gm)]
       .flatMap((match) => (match[1] ?? match[2]!).split('\n'))
     const used = code.flatMap((line) => /^acde ([a-z]+)\b/.exec(line)?.[1] ?? [])
