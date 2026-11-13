@@ -23,14 +23,14 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分四个�
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
 | acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`crates/acdert/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | lib (`crates/acdert` 等) |
-| [acde-dbg](http://gitea.dopamine/AC/acde-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acde-dbg` |
-| [acde-system](http://gitea.dopamine/AC/acde-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acde-system` |
+| [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acdebin-dbg` |
+| [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acdebin-system` |
 | [acde-cli](http://gitea.dopamine/AC/acde-cli) | 开发者 CLI `acde` | `acde` |
 
-平台特化的部分只经接口进来: 前端 (acde-dbg / acde-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
+平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
-会话里的 shell / window / paint / supervise 已搬到 acde-system; vendors (含 smithay 一侧用的 ironrdp-server、libseat-sys) 仍在本仓库, 两个前端都用 `../acdert/vendors`.
+会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendors (含 smithay 一侧用的 ironrdp-server、libseat-sys) 仍在本仓库, 两个前端都用 `../acdert/vendors`.
 
 acdert 和开发者 CLI [acde-cli](http://gitea.dopamine/AC/acde-cli)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdert. 改名成 acdert 的只有程序、Arch 包和
@@ -43,10 +43,10 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 | 跑法 | 命令 | 平台 | 输出 | 合成器 |
 | --- | --- | --- | --- | --- |
 | **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdert 自己 (crates/shell) |
-| **调试桌面** (`acde dev`) | `acde-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acde-dbg 的 crates/hostwin |
-| **调试窗口** | `acde-dbg app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
+| **调试桌面** (`acde dev`) | `acdebin-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdebin-dbg 的 crates/hostwin |
+| **调试窗口** | `acdebin-dbg app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
 
-选哪种看跑的是哪个二进制: `acde-dbg` 一律宿主窗口, `acdert` (过渡期, 只在 Linux) 一律会话 (有 `WAYLAND_DISPLAY` / `DISPLAY` 又没设
+选哪种看跑的是哪个二进制: `acdebin-dbg` 一律宿主窗口, `acdert` (过渡期, 只在 Linux) 一律会话 (有 `WAYLAND_DISPLAY` / `DISPLAY` 又没设
 `ACDE_BACKEND` 时合成器嵌在宿主桌面里). 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
 
 调试桌面用桌面的模块、服务和 `acde:windows` / `acde:desktop` 事件. 调试窗口用清单授权的模块和 `acde:window` 事件.
@@ -110,7 +110,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `acde:power` (能力 `power`, crates/acdert `power.rs` → runtime `power/`, 从 acde-base 移植): UPower 的电池、power-profiles-daemon 的模式、
   按交流 / 电池 / 低电量分组的策略设置 (空闲动作、熄屏、合盖、电源键、亮度), logind 挂起 / 休眠, 背光亮度, 充电上限; 事件 `changed` / `prompt` /
   `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上 (acde-base 是全局 static). 会话里的执行 (空闲计时、熄屏、
-  合盖和电源键) 要合成器配合, 见 acde-system. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
+  合盖和电源键) 要合成器配合, 见 acdebin-system. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
   公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
   `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的
@@ -183,7 +183,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 
 ## 宿主窗口
 
-宿主窗口 (crates/hostwin, `acdert app` / `acdert desktop` 在别人桌面里的那条路) 归 [acde-dbg](http://gitea.dopamine/AC/acde-dbg), 说明在它的 AGENTS.md.
+宿主窗口 (crates/hostwin, `acdert app` / `acdert desktop` 在别人桌面里的那条路) 归 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg), 说明在它的 AGENTS.md.
 
 ## acde dev
 
@@ -819,11 +819,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `dischargingtimechange`; 没有电池、没有 UPower 或别的平台按规范给接着电源的默认值 (charging true, level 1, chargingTime 0, dischargingTime Infinity).
   每个 navigator 只有一个 BatteryManager, `getBattery()` 回同一个 promise.
   `navigator.wakeLock.request('screen')` (Screen Wake Lock, 只在 Linux; 别处没有 `navigator.wakeLock`): runtime `wakelock.rs` 拿 logind 的
-  `idle` inhibitor (acde-system 的电源策略认它) 外加会话总线上 `org.freedesktop.ScreenSaver.Inhibit` (GNOME / KDE 宿主桌面认它), 两个都拿不到就
+  `idle` inhibitor (acdebin-system 的电源策略认它) 外加会话总线上 `org.freedesktop.ScreenSaver.Inhibit` (GNOME / KDE 宿主桌面认它), 两个都拿不到就
   NotAllowedError; 页面不可见时请求被拒, 变成不可见时放掉所有锁并发 `release`.
   `IdleDetector` (Idle Detection, 只在 Linux): runtime `idle.rs` 读 logind 会话的 `IdleHint` / `IdleSinceHintMonotonic` / `LockedHint` 并跟着
   PropertiesChanged; `userState` 是 idle 当且仅当会话标了空闲且已空闲到 threshold (不到就定时补算), `screenState` 看 LockedHint. 空闲提示由桌面写给
-  logind (acde-system 的合成器、宿主桌面的会话管理器), 所以比 threshold 更早的空闲要等桌面先标. 授权是审批能力 `idleDetection` (清单声明,
+  logind (acdebin-system 的合成器、宿主桌面的会话管理器), 所以比 threshold 更早的空闲要等桌面先标. 授权是审批能力 `idleDetection` (清单声明,
   `IdleDetector.requestPermission()` 弹 acde 的批准提示, `permissions.query({name: 'idle-detection'})` 看它); threshold 小于 1 分钟 TypeError.
 - **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/acdert `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
@@ -1665,7 +1665,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   发版仍在 GitHub Actions 上跑 (见「发版」); Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
-- 改 `crates/shell`、`crates/render`、`vendors/acrender` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acde-dbg) 上起一次, 提交信息里写验了
+- 改 `crates/shell`、`crates/render`、`vendors/acrender` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
   什么、没验什么. 汇报时分开写「已验证 / 未验证」.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendors/` 的 crate 和配套的 (blitz-*、stylo*、
@@ -1683,10 +1683,10 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | 路径 | 职责 |
 | --- | --- |
 | `crates/acdert` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
-| `crates/shell` / `crates/window` / `crates/paint` | 会话 (Wayland 合成器、会话里 web 的 Wayland 客户端和光栅化) 已搬到 [acde-system](http://gitea.dopamine/AC/acde-system), 说明在它的 AGENTS.md |
+| `crates/shell` / `crates/window` / `crates/paint` | 会话 (Wayland 合成器、会话里 web 的 Wayland 客户端和光栅化) 已搬到 [acdebin-system](http://gitea.dopamine/AC/acdebin-system), 说明在它的 AGENTS.md |
 | `crates/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
 | `crates/gpu` | `acde-gpu`: 合成器接口和 wgpu 设备层. 2D 场景 (`Scene` / `PaintScene` / 滤镜)、页面的 `Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`, 共享设备 `Gpu` (WebGPU / WebGL / video / canvas 图都在它上面) 和 `GpuImage`; 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用). 不依赖 vello |
-| `crates/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acde-dbg 和会话用它. acgpu 实现以后也放本仓库 |
+| `crates/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acdebin-dbg 和会话用它. acgpu 实现以后也放本仓库 |
 | `crates/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |

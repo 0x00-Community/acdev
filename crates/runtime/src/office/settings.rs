@@ -58,7 +58,7 @@ impl OfficeSettings {
     fn secret_from_file(&self) -> Outcome<String> {
         let missing = || {
             Failure::office_config(format!(
-                "no JWT secret: {} is missing; run office-ds.sh up first (/usr/lib/acde-system/office-ds.sh)",
+                "no JWT secret: {} is missing; run office-ds.sh up first (/usr/lib/acdebin-system/office-ds.sh)",
                 self.env_file
             ))
         };
