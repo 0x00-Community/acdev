@@ -1,0 +1,52 @@
+{
+  "name": "acde",
+  "version": "0.0.9",
+  "description": "The acde developer CLI (wrangler to acdert's workerd): acde new / check / build / install / dev. Builds a web app (any framework) or a desktop into a package acdert runs; the preload that puts an app backend's every listen on a unix socket",
+  "license": "UNLICENSED",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopame-org/acde"
+  },
+  "engines": {
+    "node": ">=22.3",
+    "bun": ">=1.4"
+  },
+  "bin": {
+    "acde": "./bin/acde.mjs"
+  },
+  "sideEffects": [
+    "./src/listen.ts"
+  ],
+  "scripts": {
+    "acde": "bun bin/acde.mjs",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "dist": "bun scripts/dist.ts",
+    "startup": "bun scripts/startup.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "@dopame/acde-api": "file:../acdert/web/packages/acde-api",
+    "@modelcontextprotocol/server": "2.4.0",
+    "string-width": "^8.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/bun": "^1.4.4",
+    "javascript-obfuscator": "5.9.0",
+    "typescript": "5.9.3",
+    "vite": "8"
+  },
+  "exports": {
+    "./launcher": {
+      "types": "./launcher.d.mts",
+      "default": "./launcher.mjs"
+    },
+    "./driver": "./src/driver/index.ts",
+    "./test": "./src/e2e/index.ts",
+    "./package.json": "./package.json"
+  }
+}

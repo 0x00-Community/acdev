@@ -1,0 +1,7 @@
+{
+  "name": "@example/Hello_App",
+  "version": "1.2.3",
+  "displayName": "Hello",
+  "private": true,
+  "type": "module"
+}

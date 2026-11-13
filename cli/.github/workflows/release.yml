@@ -1,0 +1,527 @@
+name: release
+
+# Run by hand. Build, check and preview: gh workflow run release.yml -R dopame-org/acde --ref main
+# Publish: gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true -f commit=<sha>
+# The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
+# Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
+# Runs on the internal Gitea (AC/acde → Actions → release → Run workflow), which reads .github/workflows, and on GitHub.
+# Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
+# the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
+# GitHub gives the string 'true'; in an environment variable both are the text true. Artifacts go through the
+# christopherhx/gitea-*-artifact forks: the official actions/*-artifact v4+ refuse any server but github.com.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'false: build and check only. true: tag v<version> and publish (main only, commit required)'
+        required: false
+        default: false
+        type: boolean
+      commit:
+        description: 'full or short SHA of a commit on origin/main (required for publish=true)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acde-release
+  cancel-in-progress: false
+
+env:
+  PKGS: https://pkgs.dopame.ai
+  AWS_REGION: ap-southeast-1
+  ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
+  BUCKET: dopame-pkgs
+  PREFIX: acde
+  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
+
+jobs:
+  plan:
+    runs-on: debian12
+    container: node:22-bookworm
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      sha: ${{ steps.version.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          fetch-depth: 0
+          persist-credentials: false
+      - name: the commit is a full SHA on origin/main, and package.json gives the version
+        id: version
+        working-directory: acde
+        env:
+          PUBLISH_INPUT: ${{ github.event.inputs.publish }}
+          COMMIT: ${{ github.event.inputs.commit }}
+        run: |
+          set -eu
+          if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
+          if [ -z "$COMMIT" ]; then
+            if [ "$PUBLISH" = true ]; then
+              echo "::error::a publish needs a commit: run it with -f commit=<sha>"
+              exit 1
+            fi
+            sha=$GITHUB_SHA
+          else
+            sha=$(git rev-parse --verify --quiet "$COMMIT^{commit}") || {
+              echo "::error::$COMMIT is not a commit in this repository"
+              exit 1
+            }
+          fi
+          if [ "$PUBLISH" = true ] || [ -n "$COMMIT" ]; then
+            if ! git merge-base --is-ancestor "$sha" origin/main; then
+              echo "::error::$sha is neither origin/main nor one of its ancestors"
+              exit 1
+            fi
+          fi
+          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::a release is published from main only; this run is on $GITHUB_REF"
+            exit 1
+          fi
+          git checkout --quiet --detach "$sha"
+          v=$(node -p 'require("./package.json").version')
+          case $v in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::package.json version $v is not x.y.z"; exit 1 ;;
+          esac
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          echo "commit $sha, acde $v, publish=$PUBLISH"
+      - name: the tag is free, or already points at this commit
+        if: steps.version.outputs.publish == 'true'
+        working-directory: acde
+        env:
+          SHA: ${{ steps.version.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -eu
+          if tagged=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"); then
+            if [ "$tagged" != "$SHA" ]; then
+              echo "::error::$TAG already exists and points at $tagged, not at $SHA: bump the version in package.json and merge it to main"
+              exit 1
+            fi
+            echo "$TAG already points at $SHA: a rerun continues"
+          else
+            echo "$TAG is free"
+          fi
+
+  exe:
+    needs: plan
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: acde.exe, the Windows launcher (x64, static CRT)
+        working-directory: acde/exe
+        shell: pwsh
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Get-Item target/x86_64-pc-windows-msvc/release/acde.exe
+          "acde.exe: $($exe.Length) bytes"
+      - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+        with:
+          name: acde-exe
+          path: acde/exe/target/x86_64-pc-windows-msvc/release/acde.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  pkgs:
+    needs: [plan, exe]
+    runs-on: debian12
+    container: node:22-bookworm
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      SDK_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq > /dev/null
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS
+        run: |
+          set -eu
+          base="$PKGS/acdert/$SDK_VERSION"
+          name="acde-api-$SDK_VERSION.tar.gz"
+          mkdir -p in/sdk
+          curl -fsSL "$base/SHA256SUMS" -o in/sdk/SHA256SUMS || {
+            echo "::error::no $base/SHA256SUMS: acdert $SDK_VERSION must be published on pkgs first"
+            exit 1
+          }
+          curl -fsSL "$base/$name" -o "in/sdk/$name" || {
+            echo "::error::cannot download $base/$name"
+            exit 1
+          }
+          expected=$(awk -v f="$name" '$2 == f || $2 == "*" f { print $1 }' in/sdk/SHA256SUMS)
+          if [ -z "$expected" ]; then
+            echo "::error::$name is not listed in SHA256SUMS"
+            exit 1
+          fi
+          actual=$(sha256sum "in/sdk/$name" | cut -d ' ' -f 1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::$name does not match its SHA256SUMS"
+            exit 1
+          fi
+          mkdir -p in/sdk/unpacked
+          tar -xzf "in/sdk/$name" -C in/sdk/unpacked
+          if [ "$(ls in/sdk/unpacked)" != package ]; then
+            echo "::error::$name must unpack to package/ (the published layout), found: $(ls in/sdk/unpacked)"
+            exit 1
+          fi
+          test -f in/sdk/unpacked/package/package.json
+          test -f in/sdk/unpacked/package/src/index.js
+          test -f in/sdk/unpacked/package/src/validate.js
+          mkdir -p "$GITHUB_WORKSPACE/acdert/web/packages"
+          rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+          mv in/sdk/unpacked/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+      - name: the placed SDK is the pinned one, at the path package.json names
+        working-directory: acde
+        run: |
+          node -e '
+            const fs = require("fs")
+            const self = JSON.parse(fs.readFileSync("package.json", "utf8"))
+            const spec = self.dependencies["@dopame/acde-api"]
+            const placed = JSON.parse(fs.readFileSync(process.argv[1] + "/package.json", "utf8"))
+            if (spec !== "file:../acdert/web/packages/acde-api") throw new Error("unexpected spec " + spec)
+            if (placed.name !== "@dopame/acde-api" || placed.version !== process.argv[2]) {
+              throw new Error("placed " + placed.name + "@" + placed.version + ", want " + process.argv[2])
+            }
+          ' "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" "$SDK_VERSION"
+      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          name: acde-exe
+          path: in/exe
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: install
+        working-directory: acde
+        run: bun install --frozen-lockfile
+      - name: dist
+        working-directory: acde
+        run: |
+          v=${TAG#v}
+          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
+            --version "$v" --out "$GITHUB_WORKSPACE/out" --exe "$GITHUB_WORKSPACE/in/exe/acde.exe"
+      - name: the version directory names the acdert it pairs with, in its SHA256SUMS
+        run: |
+          set -eu
+          v=${TAG#v}
+          dir="$GITHUB_WORKSPACE/out/$v"
+          if [ "$(cat "$dir/acdert-version")" != "$SDK_VERSION" ]; then
+            echo "::error::acdert-version says $(cat "$dir/acdert-version"), the paired acdert is $SDK_VERSION"
+            exit 1
+          fi
+          grep -q '  acdert-version$' "$dir/SHA256SUMS" || {
+            echo "::error::SHA256SUMS does not list acdert-version"
+            exit 1
+          }
+      - name: latest.json
+        run: |
+          v=${TAG#v}
+          files=$(cd "$GITHUB_WORKSPACE/out/$v" && ls | jq -R . | jq -sc .)
+          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$SHA" --arg sdk "$SDK_VERSION" \
+            --argjson files "$files" \
+            '{version: $version, tag: $tag, commit: $commit, sdk: $sdk, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
+            > "$GITHUB_WORKSPACE/out/latest.json"
+          cat "$GITHUB_WORKSPACE/out/latest.json"
+      - name: the archive starts the CLI
+        run: |
+          set -eu
+          v=${TAG#v}
+          mkdir -p smoke
+          tar -xzf "$GITHUB_WORKSPACE/out/$v/acde-$v.tar.gz" -C smoke
+          out=$("smoke/acde-$v/bin/acde" --help 2>&1 || true)
+          case $out in
+            *'Usage: acde <command>'*) echo "shim ok" ;;
+            *)
+              printf '%s\n' "$out"
+              echo "::error::bin/acde does not start the CLI"
+              exit 1
+              ;;
+          esac
+          test "$(head -c 2 "smoke/acde-$v/bin/acde.exe")" = MZ || {
+            echo "::error::bin/acde.exe is missing or not a Windows executable"
+            exit 1
+          }
+      - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+        with:
+          name: acde-release
+          path: out
+          if-no-files-found: error
+          retention-days: 1
+
+  guard:
+    needs: [plan, pkgs]
+    runs-on: debian12
+    container: node:22-bookworm
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          name: acde-release
+          path: out
+      - name: the release is exactly the allow-list and the shipped content is clean
+        working-directory: acde
+        run: |
+          set -eu
+          v=$(cat "$GITHUB_WORKSPACE/out/latest")
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::the release is $v but the tag is $TAG"
+            exit 1
+          fi
+          bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
+      - name: a preview stops here
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          echo "preview only: the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
+
+  upload:
+    needs: [plan, guard]
+    if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
+    runs-on: debian12
+    container: node:22-bookworm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
+      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          name: acde-release
+          path: out
+      - name: check the allow-list and the checksums once more
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          case $v in *[!0-9A-Za-z.-]*|'') echo "::error::bad version"; exit 1 ;; esac
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::the release is $v but the tag is $TAG"
+            exit 1
+          fi
+          expected=$(mktemp)
+          {
+            echo install.md
+            echo install.ps1
+            echo install.sh
+            echo latest
+            echo latest.json
+            echo "$v/SHA256SUMS"
+            echo "$v/acdert-version"
+            echo "$v/acde-$v.tar.gz"
+          } | sort > "$expected"
+          (cd out && find . -type f | sed 's|^\./||' | sort) > actual
+          if ! diff "$expected" actual; then
+            echo "::error::the release is not exactly the allow-list"
+            exit 1
+          fi
+          (cd "out/$v" && sha256sum -c SHA256SUMS)
+      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
+        env:
+          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -eu
+          if [ -n "${KEY_ID:-}" ]; then
+            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
+          else
+            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+            echo "::add-mask::$token"
+            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+              --duration-seconds 3600 --query Credentials --output json)
+          fi
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: upload the versioned files, then read them back
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          immutable='public, max-age=31536000, immutable'
+          text='text/plain; charset=utf-8'
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          # a published version is identical or refused, never overwritten; a rerun skips the identical files
+          publish_once() {
+            key="$PREFIX/$2"
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> head.err; then
+              aws s3 cp "s3://$BUCKET/$key" published.tmp --only-show-errors
+              if cmp -s published.tmp "$1"; then
+                echo "already published, identical: $2"
+              else
+                echo "::error::$2 is already published with different content: a version is never overwritten"
+                exit 1
+              fi
+            elif grep -qE 'Not Found|NotFound|404' head.err; then
+              put "$1" "$2" "$3" "$4"
+            else
+              echo "::error::cannot check $2: $(cat head.err)"
+              exit 1
+            fi
+            aws s3 cp "s3://$BUCKET/$key" readback.tmp --only-show-errors
+            cmp -s readback.tmp "$1" || { echo "::error::$2 does not read back as uploaded"; exit 1; }
+          }
+          publish_once "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
+          publish_once "out/$v/acdert-version" "$v/acdert-version" "$text" "$immutable"
+          publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
+
+  tag:
+    needs: [plan, guard, upload]
+    if: needs.plan.outputs.publish == 'true' && needs.upload.result == 'success'
+    runs-on: debian12
+    container: node:22-bookworm
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: true
+      - name: the annotated tag points at the commit, or already does
+        working-directory: acde
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
+            if [ -z "$peeled" ]; then
+              peeled=$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)
+            fi
+            if [ "$peeled" != "$SHA" ]; then
+              echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version in package.json"
+              exit 1
+            fi
+            echo "$TAG already points at $SHA: a rerun continues"
+          else
+            git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+              tag -a "$TAG" -m "acde $TAG" "$SHA"
+            git push origin "refs/tags/$TAG"
+            echo "pushed $TAG at $SHA"
+          fi
+
+  latest:
+    needs: [plan, guard, tag]
+    if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
+    runs-on: debian12
+    container: node:22-bookworm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
+      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          name: acde-release
+          path: out
+      - name: check the allow-list and the checksums once more
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          case $v in *[!0-9A-Za-z.-]*|'') echo "::error::bad version"; exit 1 ;; esac
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::the release is $v but the tag is $TAG"
+            exit 1
+          fi
+          (cd "out/$v" && sha256sum -c SHA256SUMS)
+      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
+        env:
+          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -eu
+          if [ -n "${KEY_ID:-}" ]; then
+            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
+          else
+            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+            echo "::add-mask::$token"
+            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+              --duration-seconds 3600 --query Credentials --output json)
+          fi
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: update the pointers, latest.json last
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          fresh='public, max-age=0, must-revalidate'
+          text='text/plain; charset=utf-8'
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          put out/install.sh install.sh "$text" "$fresh"
+          put out/install.ps1 install.ps1 "$text" "$fresh"
+          put out/install.md install.md 'text/markdown; charset=utf-8' "$fresh"
+          put out/latest latest "$text" "$fresh"
+          put out/latest.json latest.json application/json "$fresh"
+      - name: invalidate
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
+            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 /acde/install.md \
+            "/acde/$v/SHA256SUMS" "/acde/$v/acdert-version" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
+      - run: |
+          {
+            echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
+            echo
+            echo "irm https://pkgs.dopame.ai/acde/install.ps1 | iex"
+            echo
+            echo "Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine."
+          } >> "$GITHUB_STEP_SUMMARY"
