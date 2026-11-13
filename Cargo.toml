@@ -24,7 +24,8 @@ name = "acdert"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-exclude = ["/tests", "/web", "/scripts", "/packaging", "/shrink.md", "/AGENTS.md", "/vendor"]
+# the package is the library: its sources, the header, the Wayland protocols, and the API level src/host reads from web/
+include = ["/src/**", "/build.rs", "/cbindgen.toml", "/include/**", "/protocol/**", "/LICENSE", "/web/packages/acde-api/src/runtime/level.js"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]
