@@ -103,7 +103,7 @@ jobs:
           git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" "$dbg"
           sha=$(git -C "$dbg" rev-parse --verify "${DBG_COMMIT:-origin/main}^{commit}")
           git -C "$dbg" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdebin-dbg $sha is not on its main"; exit 1; }
-          dbg_version=$(git -C "$dbg" show "$sha:Cargo.toml" | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p')
+          dbg_version=$(git -c http.extraHeader="Authorization: basic ${auth}" -C "$dbg" show "$sha:Cargo.toml" | sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p')
           if [ "$dbg_version" != "$VERSION" ]; then
             echo "::error::acdebin-dbg $sha is version $dbg_version, this release is $VERSION: bump both together"
             exit 1
@@ -151,7 +151,7 @@ jobs:
           rm -rf "$dbg"
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" "$dbg"
-          git -C "$dbg" checkout --detach "$DBG_SHA"
+          git -c http.extraHeader="Authorization: basic ${auth}" -C "$dbg" checkout --detach "$DBG_SHA"
       - name: system libraries
         if: env.BUILD == 'true' && runner.os == 'Linux'
         run: >
