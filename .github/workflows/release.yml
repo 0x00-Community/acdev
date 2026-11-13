@@ -40,7 +40,7 @@ env:
 
 jobs:
   plan:
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     outputs:
       publish: ${{ steps.version.outputs.publish }}
@@ -140,7 +140,7 @@ jobs:
 
   pkgs:
     needs: [plan, exe]
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
@@ -269,7 +269,7 @@ jobs:
 
   guard:
     needs: [plan, pkgs]
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
@@ -302,7 +302,7 @@ jobs:
   upload:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     permissions:
       contents: read
@@ -406,7 +406,7 @@ jobs:
   tag:
     needs: [plan, guard, upload]
     if: needs.plan.outputs.publish == 'true' && needs.upload.result == 'success'
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     permissions:
       contents: write
@@ -444,7 +444,7 @@ jobs:
   latest:
     needs: [plan, guard, tag]
     if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
-    runs-on: ${{ (github.server_url == 'https://github.com' && 'ubuntu-24.04' || 'debian12') }}
+    runs-on: debian12
     container: node:22-bookworm
     permissions:
       contents: read
