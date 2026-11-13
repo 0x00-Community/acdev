@@ -202,6 +202,8 @@ jobs:
       - name: "acdebin-dbg (dist profile: release build, split debug information)"
         if: env.BUILD == 'true'
         shell: bash
+        env:
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
         run: cd ../acdebin-dbg && cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }}
       - name: stage binary (as acdert) and split debug information
         if: env.BUILD == 'true'
