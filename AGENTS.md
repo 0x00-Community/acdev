@@ -132,7 +132,13 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `acde:power` (能力 `power`, crates/host `power.rs` → runtime `power/`): UPower 的电池、power-profiles-daemon 的模式、
   按交流 / 电池 / 低电量分组的策略设置 (空闲动作、熄屏、合盖、电源键、亮度), logind 挂起 / 休眠, 背光亮度, 充电上限; 事件 `changed` / `prompt` /
   `critical` 由 acde-host `Watched.typed` 按 `type` 分发. 系统总线连接挂在 `Power` 上. 会话里的执行 (空闲计时、熄屏、
-  合盖和电源键) 要合成器配合, 见 acdebin-system. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
+  合盖和电源键) 要合成器配合, 见 acdebin-system.
+  `acde:input` (能力 `input`, crates/host `input.rs`): 合成器的 xkb 布局 / 型号 / 选项、按键重复、NumLock 和鼠标 / 触控板的 libinput 设置;
+  `state()` / `set(patch)` / `on('changed')` 走前端 `Platform::input()` 给的 `Input` (acdebin-system 的会话经 acde_shell `set_input` / `input` 事件;
+  acdebin-dbg 没有, 调用就抛), `catalog()` 读 xkeyboard-config 的 `rules/evdev.xml` (runtime `XkbCatalog`).
+  `acde:display` (能力 `display`, crates/host `display.rs`): `state()` 是前端 `Platform::display()` 给的输出表 (acde_shell `display` 事件),
+  内置屏的 `brightness` 由这里用 `acde:power` 的背光补上; `configure(id, {scale})` 经 acde_shell `set_scale` (只认 1..3 的整数, 别的键还没有),
+  `setBrightness(id, v)` 只对内置屏 (logind 背光), `setNightLight` 还没有. 两者都是进程内模块, 不经 Broker; Linux only. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
   runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
   公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
   `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的
