@@ -1,5 +1,11 @@
 # acde-base
 
+> **已归档 (2026-11-14), 由 [acde-system](http://gitea.dopamine/AC/acde-system) 取代.** 本仓库只读, 不再接受提交.
+> acde-system 是 Dopame OS 的桌面运行时 (Wayland 合成器、DRM/KMS、会话、RDP、系统服务), 建在
+> [acdert](http://gitea.dopamine/AC/acdert) (通用运行时: V8、DOM、渲染) 之上; 开发者命令行是 [acde-cli](http://gitea.dopamine/AC/acde-cli)
+> (`acde build` 代替这里的 `acde app build`). 包 `acde-system` provides / conflicts / replaces `acde-base`, 会话命令是 `acdert`.
+> 下面的内容是归档时的样子, 不再更新.
+
 acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE Plasma / GNOME. 桌面和应用都是网页.
 
 - 自己就是 Wayland 合成器, 直接管屏幕、键盘、鼠标.
