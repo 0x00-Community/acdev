@@ -39,13 +39,19 @@ jobs:
           chown -R builder: .
           sudo -u builder git config --global --add safe.directory '*'
           cd packaging/arch
-          # bun is installed by hand (not a pacman package): tell makepkg it is there
+          # makepkg has no --assume-installed (that is pacman's): install the PKGBUILD's dependencies here, except bun
+          # (not a pacman package, installed by hand above) and the virtual vulkan-driver (the GPU's own driver, only at
+          # run time), then build with --nodeps
+          deps=$(bash -c 'source ./PKGBUILD >/dev/null; printf "%s\n" "${depends[@]}" "${makedepends[@]}"' \
+                 | sed 's/[<>=].*//' | grep -vxE 'bun|vulkan-driver' | sort -u)
+          pacman -S --noconfirm --needed $deps
           sudo -u builder env PATH="/usr/local/bin:$PATH" PKGDEST="$GITHUB_WORKSPACE/out" \
-            makepkg -s --noconfirm --nocheck --assume-installed bun
+            makepkg --nodeps --noconfirm --nocheck
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: upload package
-        uses: actions/upload-artifact@v4
+        # actions/upload-artifact v4 and later refuse any server but github.com; this is the same action without that check
+        uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7
         with:
           name: acde-base
           path: out/*.pkg.tar.*
