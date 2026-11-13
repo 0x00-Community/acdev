@@ -49,7 +49,12 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
   是 GPU scene) 拿不到, `Platform::exports` 收 V8 scope 只在 Rust 里.
 - 导出表: `build.rs` 从 `src/ffi.rs` 收 `acdert_*`, so 只导出它们 (Linux `--exclude-libs,ALL` + 版本脚本, macOS `-exported_symbols_list`, MSVC `.def`);
   V8 / napi / temporal 等依赖的符号都不导出 (acde-napi 的 napi_* 只给静态链接的内置模块用, 不 dlopen 外部 .node).
-- 这次不发布到 registry: `[patch.crates-io]` 换成 vendor/ 的分叉不会随包走, 要先把分叉发出去或改名依赖.
+- 发布到 gitea.dopamine AC 组织的 cargo 源 `ac` (`.cargo/config.toml`; 读也要令牌, 匿名 401):
+  `CARGO_REGISTRIES_AC_TOKEN="Bearer <令牌>" cargo publish -p <包> --registry ac`. 内部 crate 和 blitz fork 都是 `[workspace.dependencies]` 里带
+  `version` + `registry = "ac"` 的 path 依赖; blitz fork 的包 (blitz-dom / blitz-paint / blitz-traits / stylo_taffy / debug_timer) 以原名发到 ac,
+  它的 taffy 是上游 Blitz 钉的 git 提交, 以 `0.15.0-git.4e59968` 发到 ac. 顺序: acde-log、acde-model、acde-gpu → blitz 那五个 (在 `vendor/blitz` 里
+  发) → acde-vello、acde-render、acde-runtime、acde-storage、acde-media、acde-napi、acde-webgl、acde-host → acdert. 升版本时改
+  `[workspace.package] version` 和 `[workspace.dependencies]` 里的 `version` (blitz fork 里 acde-gpu 的也要改).
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 两个前端的 `[patch]` 都指 `../acdert/vendor/blitz`.
