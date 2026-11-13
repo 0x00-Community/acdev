@@ -29,7 +29,7 @@ export interface SdkMirror {
   stop(): void
 }
 
-export function sdkMirror(api = join(import.meta.dir, '../../acdert/web/packages/acde-api/dist')): SdkMirror {
+export function sdkMirror(api = join(import.meta.dir, '../../../acdert/web/packages/acde-api/dist')): SdkMirror {
   const { version } = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { version: string }
   const root = tmp()
   const stage = join(root, 'stage', 'package')

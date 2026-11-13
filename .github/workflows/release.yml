@@ -1,10 +1,10 @@
 name: release
 
-# Run by hand. Build, check and preview: gh workflow run release.yml -R dopame-org/acde --ref main
-# Publish: gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true -f commit=<sha>
+# Run by hand on Gitea (AC/acdebin-dbg → Actions → release → Run workflow): build, check and preview.
+# Publish: the same with publish ticked and commit=<sha>. The CLI is cli/, checked out at acdebin-dbg/cli.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
-# Runs on the internal Gitea (AC/acde → Actions → release → Run workflow), which reads .github/workflows, and on GitHub.
+# Gitea reads .github/workflows; the same file also runs on GitHub.
 # Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
 # the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
 # GitHub gives the string 'true'; in an environment variable both are the text true. Artifacts go through the
@@ -50,12 +50,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acde
+          path: acdebin-dbg
           fetch-depth: 0
           persist-credentials: false
       - name: the commit is a full SHA on origin/main, and package.json gives the version
         id: version
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
@@ -97,7 +97,7 @@ jobs:
           echo "commit $sha, acde $v, publish=$PUBLISH"
       - name: the tag is free, or already points at this commit
         if: steps.version.outputs.publish == 'true'
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         env:
           SHA: ${{ steps.version.outputs.sha }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -119,11 +119,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acde
+          path: acdebin-dbg
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - name: acde.exe, the Windows launcher (x64, static CRT)
-        working-directory: acde/exe
+        working-directory: acdebin-dbg/cli/exe
         shell: pwsh
         run: |
           rustup target add x86_64-pc-windows-msvc
@@ -134,7 +134,7 @@ jobs:
       - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         with:
           name: acde-exe
-          path: acde/exe/target/x86_64-pc-windows-msvc/release/acde.exe
+          path: acdebin-dbg/cli/exe/target/x86_64-pc-windows-msvc/release/acde.exe
           if-no-files-found: error
           retention-days: 1
 
@@ -153,7 +153,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq > /dev/null
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acde
+          path: acdebin-dbg
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - name: the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS
@@ -193,14 +193,14 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
           mv in/sdk/unpacked/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
       - name: the placed SDK is the pinned one, at the path package.json names
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         run: |
           node -e '
             const fs = require("fs")
             const self = JSON.parse(fs.readFileSync("package.json", "utf8"))
             const spec = self.dependencies["@dopame/acde-api"]
             const placed = JSON.parse(fs.readFileSync(process.argv[1] + "/package.json", "utf8"))
-            if (spec !== "file:../acdert/web/packages/acde-api") throw new Error("unexpected spec " + spec)
+            if (spec !== "file:../../acdert/web/packages/acde-api") throw new Error("unexpected spec " + spec)
             if (placed.name !== "@dopame/acde-api" || placed.version !== process.argv[2]) {
               throw new Error("placed " + placed.name + "@" + placed.version + ", want " + process.argv[2])
             }
@@ -211,10 +211,10 @@ jobs:
           path: in/exe
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: install
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         run: bun install --frozen-lockfile
       - name: dist
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         run: |
           v=${TAG#v}
           bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
@@ -276,7 +276,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acde
+          path: acdebin-dbg
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -285,7 +285,7 @@ jobs:
           name: acde-release
           path: out
       - name: the release is exactly the allow-list and the shipped content is clean
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         run: |
           set -eu
           v=$(cat "$GITHUB_WORKSPACE/out/latest")
@@ -416,11 +416,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acde
+          path: acdebin-dbg
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: true
       - name: the annotated tag points at the commit, or already does
-        working-directory: acde
+        working-directory: acdebin-dbg/cli
         run: |
           set -eu
           test "$(git rev-parse HEAD)" = "$SHA"

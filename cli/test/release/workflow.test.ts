@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pkgs } from '../../src/pkgs.ts'
 
-const TEXT = readFileSync(join(import.meta.dir, '..', '..', '.github', 'workflows', 'release.yml'), 'utf8')
+const TEXT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'workflows', 'release.yml'), 'utf8')
 const CREDENTIALS = 'credentials for the role, from the Gitea key or the GitHub OIDC token'
 const LOCK = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
 type Step = {
@@ -205,7 +205,7 @@ describe('release.yml', () => {
     expect(placed).toBeGreaterThanOrEqual(0)
     expect(placed).toBeLessThan(check)
     expect(check).toBeLessThan(install)
-    expect(runs('pkgs')).toContain('file:../acdert/web/packages/acde-api')
+    expect(runs('pkgs')).toContain('file:../../acdert/web/packages/acde-api')
   })
 
   test('the lockfile fetches every package from the default registry, not a mirror', () => {
