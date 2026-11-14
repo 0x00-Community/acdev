@@ -593,9 +593,9 @@ jobs:
               --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
               --duration-seconds 3600 --query Credentials --output json)
           fi
-          key=$(jq -r .AccessKeyId <<< "$creds")
-          secret=$(jq -r .SecretAccessKey <<< "$creds")
-          session=$(jq -r .SessionToken <<< "$creds")
+          key=$(printf '%s' "$creds" | jq -r .AccessKeyId)
+          secret=$(printf '%s' "$creds" | jq -r .SecretAccessKey)
+          session=$(printf '%s' "$creds" | jq -r .SessionToken)
           echo "::add-mask::$key"
           echo "::add-mask::$secret"
           echo "::add-mask::$session"
@@ -808,9 +808,9 @@ jobs:
               --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
               --duration-seconds 3600 --query Credentials --output json)
           fi
-          key=$(jq -r .AccessKeyId <<< "$creds")
-          secret=$(jq -r .SecretAccessKey <<< "$creds")
-          session=$(jq -r .SessionToken <<< "$creds")
+          key=$(printf '%s' "$creds" | jq -r .AccessKeyId)
+          secret=$(printf '%s' "$creds" | jq -r .SecretAccessKey)
+          session=$(printf '%s' "$creds" | jq -r .SessionToken)
           echo "::add-mask::$key"
           echo "::add-mask::$secret"
           echo "::add-mask::$session"
