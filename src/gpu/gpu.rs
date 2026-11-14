@@ -167,8 +167,17 @@ pub fn set_error_sink(sink: Option<ErrorSink>) {
 
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo) -> Arc<Self> {
+        Self::with(Shared::new(device, queue), info)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn exporting(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo) -> Arc<Self> {
+        Self::with(Shared::exporting(device, queue), info)
+    }
+
+    fn with(shared: Arc<Shared>, info: wgpu::AdapterInfo) -> Arc<Self> {
         let gpu = Arc::new(Self {
-            shared: Shared::new(device, queue),
+            shared,
             info,
             polls: Mutex::new(0),
             polling: Condvar::new(),
