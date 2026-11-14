@@ -1622,10 +1622,14 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
   和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
-- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdert.git`, 网页 `http://gitea.dopamine/AC/acdert`), GitHub 的
-  `dopame-org/acdert` 是镜像 (远端 `gh`). `origin` 配两个 pushurl (先 Gitea 再 GitHub), `git push origin` 一次推两边; 新检出照这样配:
-  `git remote add gh git@github.com:dopame-org/acdert.git`, `git config --add remote.origin.pushurl <Gitea 地址>`, 再 `--add` 一次 GitHub 地址.
-  发版仍在 GitHub Actions 上跑 (见「发版」); Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdert.git`, 网页 `http://gitea.dopamine/AC/acdert`), 只推这里 (用户定 2026-11-14:
+  全部放内网, 不再双推 GitHub; GitHub 的 `dopame-org/acdert` 不再更新).
+- 构建不从外网取东西 (2026-11-14): blitz 子模块在 Gitea `AC/blitz`; rusty_v8 的预编译库 (静态库 `.a.gz` / `.lib.gz` 和 `src_binding_*.rs`) 在公开组织
+  `mirror` 的 generic 包 `rusty_v8/v<版本>` (`.cargo/config.toml` 的 `[env] RUSTY_V8_MIRROR`, 不回落 GitHub). 升 v8 时把新版本的 5 个目标
+  (x86_64 / aarch64 Linux、两种 macOS、x86_64 Windows) 的这两种文件从 GitHub releases 下下来, `PUT` 到
+  `http://gitea.dopamine/api/packages/mirror/generic/rusty_v8/v<版本>/<文件>`. CI 的 action 用 `mirror` 组织里的副本 (`uses: http://gitea.dopamine/mirror/<名字>@<提交>`).
+  crates.io 和 npm 还是外网.
+  Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
 - 改 `crates/shell`、`src/render`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
