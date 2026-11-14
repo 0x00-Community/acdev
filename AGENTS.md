@@ -172,16 +172,22 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   (最小化、全屏 / 还原) 由运行时直接改状态, 只有关闭交给页面. `requestMode` 只收 `free` / `fixed` / `pinned` (`fullscreen` 抛 TypeError,
   全屏用 `requestState`); 改模式时当前状态在新模式下不允许就回到 `normal`. 独立应用的窗口 (`acdert app`) 内部仍是 `fullscreen` 模式, 页面改不了.
   会话 (crates/window) 把请求映射成标准 xdg_toplevel 请求 (`set_fullscreen` / `set_maximized` / `set_minimized` / 取消), 按 configure 里的
-  fullscreen / maximized 给页面发 `state`. 合成器 (crates/shell) 执行全屏和最小化: 全屏切换和 `set_minimized` 都经 `acde_shell.window_state`
-  给 Broker 发 `windowstate` (和宿主窗口同一语义: 已经做完的变化); 最小化的窗口藏起 (记下之前是 `normal` 还是 `fullscreen`), 桌面 `focus` / `show`
-  它时回到之前的状态并再发 `windowstate`. 页面的 `minimize()` 在会话里走自己的 `set_minimized` (Broker 经 `window.minimize` 回调页面).
-  会话里 `filled`、给页面发 `minimized` 的 `state` 和 `acde:windows.requestState` 还没有 (Broker 回 501).
+  fullscreen / maximized 给页面发 `state`. 合成器 (crates/shell `compositor/windows.rs`, 同一套 `WindowState` + `Restore`) 执行四种状态, 规则同上;
+  原生客户端 (Firefox 等) 的最大化 / 全屏 / 最小化请求、acde 窗口的请求和桌面的 `acde:windows.requestState` (napi `Shell.setState` →
+  `acde_shell.set_state`) 走同一个 `set_state`, 每次变化经 `acde_shell.window_state` 给 Broker 发 `windowstate` (已经做完的变化), 拒绝的请求也回一个
+  configure. `filled` 是 xdg 的 maximized, 铺满工作区 (见「钉住的面板」); `fullscreen` 铺满输出. 只有 `normal` 的窗口能拖动、拖边改尺寸;
+  输出或工作区变了, 铺满的窗口跟着改 rect; `windowgone` 报的是 `normal` 时的 rect. 还没显示就要铺满 / 全屏的客户端 (Firefox 记着上次是最大化)
+  在显示时照做, 这样的窗口没有 `normal` 的 rect: 回到 `normal` 时让客户端自己定尺寸, 等它确认离开铺满 / 全屏后的第一次提交再放到中间
+  (之前那一帧还是铺满的尺寸). 最小化的窗口藏起, 桌面 `focus` / `show` 它时回到之前的状态. 页面的 `minimize()` 在会话里走自己的
+  `set_minimized` (Broker 经 `window.minimize` 回调页面).
 - **分层**: 客户端出缓冲 (dmabuf / shm + damage + opaque 区域); 合成只出计划; 呈现 (GPU / DRM / RDP) 执行. 只传句柄、只报脏区,
   框架不读像素; 客户端慢就用上一次的缓冲.
 - **`CompositePlan`** (src/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
   [{window, dst, clip, look, effect, redraw}]}`, 不透明的上层剔除下面. backdrop (`set_backdrop`) 只在下面的损伤碰到时重算, 呈现层 (shell
   `effects.rs`, GLES) 双 Kawase 模糊 + 圆角 + 饱和度 + 亮度, 按窗口缓存, 着色器编不出时降级. `Direct` 现在只计数, 上 plane 由 smithay 判断.
-- **窗口管理** (框架裁决, 客户端只能请求): 新窗口居中、按窗口数错开 32 像素, 有父窗口的居中在父窗口上方 (不错开). 只有 `free` 改尺寸. 点进一个窗口: 拿焦点
+- **窗口管理** (框架裁决, 客户端只能请求): 新窗口居中、按窗口数错开 32 像素, 有父窗口的居中在父窗口上方 (不错开). 只有 `free` 改尺寸. 会话里 configure 不带 tiled 状态 (带了的话
+  GTK / Firefox 认为窗口四边贴着别的窗口, 不给拖边改尺寸), 命中按客户端的 input 区域: 窗口几何外的那圈缩放边 (CSD 画在阴影里的) 也算;
+  交互改尺寸期间 configure 带 `resizing`. 点进一个窗口: 拿焦点
   并提到它那一层最前, 它的子窗口 (含子窗口的子窗口, 保持原来的先后) 跟着提到它上方 (model `front_family`). 隐藏是框架状态 (不画、不命中、不拿焦点). `animate {opacity, scale, dx, dy, duration, delay, easing}` 由合成器每帧插值,
   做完发 `windowanimated`; 有 look 的窗口按画出来的位置命中.
 - **焦点和模态**: 键盘只发给焦点窗口. 要把焦点给有模态子窗口 (xdg-dialog `set_modal` + `set_parent`, 或 Broker 授权时的 `parent` / `modal`) 的窗口时
@@ -208,12 +214,14 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 | `set_grab_hint(rect, edges)` | 窗口本地逻辑像素; 按下在这里时框架开始移动 (edges 空) 或改大小; 累加, 重叠处后给的优先; 空 rect 清掉全部 |
 | `request_grab(kind)` / `release_grab(kind)` → `grab(granted, kind)` / `grab_lost(reason)` | 见上面 grab |
 | `request_activate` | 提到最前并请求焦点 |
+| `reserve(edge, thickness)` | 面板在输出的一条边上占 `thickness` 逻辑像素 (从那条边量起), 显示着才算; 同一条边取最大, edge 为 none 或厚度 0 时撤回 |
 
 ### 协议 `acde_shell` (Broker ↔ 合成器, `src/model/protocol/acde-shell.xml`)
 
 只对 runtime 那条连接可见 (`can_view`). 合成器侧 shell `compositor/acde_shell.rs` (Broker 没绑上时攒最多 256 条事件), Broker 侧 shell
 `link.rs` 包成 napi `Shell`, 请求和事件和下面「shell」一节的方法 / 事件一一对应 (坐标是 canvas 逻辑像素, int -1 是没有, 小数走 wl_fixed).
-`exit` 是连接断了时 Broker 侧自己发的.
+`exit` 是连接断了时 Broker 侧自己发的. `work_area(x, y, width, height)` 在绑上时紧跟 `output`, 之后变了才发, Broker 侧成为 `workarea` 事件
+(和宿主窗口的一样进 `screen` 消息的 `workArea`).
 
 ## 宿主窗口
 
@@ -527,7 +535,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   面板隐藏、挪动、改尺寸、取消钉住或输出变了时重算 (`refill`): `filled` 的窗口跟着改 rect, 全屏不管工作区; 工作区变了给 Broker 发
   `workarea {x, y, width, height}`, Broker (`broker/output.ts`) 把它放进发给每个 web 的 `screen` 消息和 `WebInit.screen.workArea`
   (`acde:window.output.workArea`). 不写 reserve 的面板什么都不占. 钉住后用句柄的 `reserve({edge, thickness?} | null)` 就地换占的边或厚度 (不用 unpin 再钉,
-  工作区只变一次, 中间没有整个输出的一步; `null` 不再占, 不认识的边或负的厚度抛 TypeError). 一个宿主窗口就是一个输出; 会话里还没有工作区 (`reservePanel` 只记 debug 日志). 元素要是 stacking context, 不带祖先的裁剪和透明度.
+  工作区只变一次, 中间没有整个输出的一步; `null` 不再占, 不认识的边或负的厚度抛 TypeError). 一个宿主窗口就是一个输出. 会话里 crates/window 把 `reservePanel` 经面板的 `acde_window.reserve` 交给合成器, 工作区
+  (shell `compositor/workarea.rs`) 是输出减去 layer-shell 的独占区, 再减去显示着的面板占的边 (同一条边取最大); 面板占的边变了、面板隐藏 / 显示 /
+  关掉或输出变了时重算, 变了经 `acde_shell.work_area` 给 Broker, 铺满的窗口跟着改 rect. 元素要是 stacking context, 不带祖先的裁剪和透明度.
   `acde.desktop.setDoubleClick('fill' | 'minimize' | 'none')` (SDK `DoubleClickAction`) 声明双击标题栏做什么, 随时可以再设, 下一次双击就按新的;
   不认识的值抛 TypeError. 桌面页面和声明了 `acde:desktop` 的系统应用窗口都有 (经自己的 surface 的 `setDoubleClick`, 整个宿主一份), 服务没有;
   会话里还没有 (只记 debug 日志).
