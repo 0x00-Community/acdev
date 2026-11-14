@@ -1,9 +1,11 @@
 name: release
 
 # Run by hand on Gitea (AC/acdebin-dbg → Actions → release → Run workflow): build, check and preview.
-# Publish: the same with publish ticked and commit=<sha>. One release, one version (the Cargo workspace, npm/package.json and
-# acdert's SDK agree): the acdebin-dbg builds, the host files (acde-host), the SDK, the acde CLI (npm/) and the installers,
-# all in pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS. acdert (the library, AC/acdert) is checked out beside this
+# Publish: the same with publish ticked and commit=<sha>, or push a tag v<x.y.z>. The version counts up by itself: one patch
+# past the highest of pkgs' latest.json, npm (@dopame/acde, @dopame/acde-api) and the v* tags (a pushed tag gives its own);
+# scripts/set-version.sh writes it into Cargo.toml and package.json in each job, uncommitted. One release, one version: the
+# acdebin-dbg builds, the host files (acde-host), the SDK, the acde CLI (npm/) and the installers, all in
+# pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS, and on npm (job npm, secret NPM_TOKEN). acdert (the library, AC/acdert) is checked out beside this
 # checkout at acdert_commit, with its vendor/blitz submodule; its cargo registry ac needs ACKERNEL_TOKEN.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
@@ -109,20 +111,23 @@ jobs:
             exit 1
           fi
           git checkout --quiet --detach "$sha"
-          v=$(node -p 'require("./package.json").version')
+          if [ -n "$PUSHED_TAG" ]; then
+            v=${PUSHED_TAG#v}
+          else
+            # the next patch after the highest version released anywhere: pkgs' latest.json, npm, and the v* tags
+            seen=$( {
+              curl -fsSL "$PKGS/$PREFIX/latest.json" 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version' 2>/dev/null || true
+              for pkg in @dopame/acde @dopame/acde-api; do npm view "$pkg" versions --json 2>/dev/null | node -p 'const v=JSON.parse(require("fs").readFileSync(0,"utf8"));(Array.isArray(v)?v:[v]).join("\n")' 2>/dev/null || true; done
+              git tag --list 'v*' | sed 's/^v//'
+            } | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+            seen=${seen:-0.0.0}
+            v=$(echo "$seen" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
+            echo "highest released: $seen; this release: $v"
+          fi
           case $v in
             [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::package.json version $v is not x.y.z"; exit 1 ;;
+            *) echo "::error::version $v is not x.y.z"; exit 1 ;;
           esac
-          crate=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' ../Cargo.toml)
-          if [ "$crate" != "$v" ]; then
-            echo "::error::Cargo.toml says $crate, npm/package.json says $v: bump both together"
-            exit 1
-          fi
-          if [ -n "$PUSHED_TAG" ] && [ "$PUSHED_TAG" != "v$v" ]; then
-            echo "::error::the pushed tag is $PUSHED_TAG but this commit is version $v: tag it v$v"
-            exit 1
-          fi
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "version=$v" >> "$GITHUB_OUTPUT"
@@ -144,7 +149,7 @@ jobs:
           left=${left#,}
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
           echo "targets=$left" | tee -a "$GITHUB_OUTPUT"
-      - name: the acdert commit to build with, and its SDK is this version
+      - name: the acdert commit to build with
         id: acdert
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
@@ -157,12 +162,7 @@ jobs:
           git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdert.git" "$lib"
           sha=$(git -C "$lib" rev-parse --verify "${ACDERT_COMMIT:-origin/main}^{commit}")
           git -C "$lib" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdert $sha is not on its main"; exit 1; }
-          sdk=$(git -c http.extraHeader="Authorization: basic ${auth}" -C "$lib" show "$sha:web/packages/acde-api/package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
-          if [ "$sdk" != "$VERSION" ]; then
-            echo "::error::acdert $sha has SDK $sdk, this release is $VERSION: bump them together"
-            exit 1
-          fi
-          echo "acdert $sha (SDK $sdk)"
+          echo "acdert $sha, built as $VERSION"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: the tag is free, or already points at this commit
         if: steps.version.outputs.publish == 'true'
@@ -174,7 +174,7 @@ jobs:
           set -eu
           if tagged=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"); then
             if [ "$tagged" != "$SHA" ]; then
-              echo "::error::$TAG already exists and points at $tagged, not at $SHA: bump the version in package.json and merge it to main"
+              echo "::error::$TAG already exists and points at $tagged, not at $SHA"
               exit 1
             fi
             echo "$TAG already points at $SHA: a rerun continues"
@@ -294,6 +294,9 @@ jobs:
           cp libcrypto.a "$out/lib/libcrypto.lib"
           cp libssl.a "$out/lib/libssl.lib"
           { echo "OPENSSL_NO_VENDOR=1"; echo "OPENSSL_STATIC=1"; echo "OPENSSL_DIR=$out"; } >> "$GITHUB_ENV"
+      - name: the release version into Cargo.toml and package.json (not committed)
+        if: env.BUILD == 'true'
+        run: sh acdebin-dbg/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdebin-dbg acdert
       - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
         if: env.BUILD == 'true'
         shell: bash
@@ -373,7 +376,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: "host bundle (release build: minified, obfuscated, no source maps)"
         working-directory: acdert/web
-        run: bun install --frozen-lockfile && bun run --filter @dopame/acde-host build:release
+        run: |
+          bun install --frozen-lockfile
+          node -e 'for (const p of ["acde-api","acde-host","acde-dom"]) { const f=`packages/${p}/package.json`, j=JSON.parse(require("fs").readFileSync(f,"utf8")); j.version=process.env.VERSION; require("fs").writeFileSync(f, JSON.stringify(j,null,2)+"\n") }'
+          bun run --filter @dopame/acde-host build:release
       - name: acde-host-<version>.tar.gz (app/ and LICENSE), checked for source-like files
         run: |
           set -eu
@@ -435,11 +441,12 @@ jobs:
           cp "in/runtime-host/acde-host-$SDK_VERSION.tar.gz" in/runtime/
           ls -la in/runtime
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - name: the SDK, built from the acdert checkout
-        run: bun install --frozen-lockfile --cwd acdert/web && bun run --cwd acdert/web/packages/acde-api build
       - name: install
-        working-directory: acdebin-dbg/npm
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --cwd acdert/web && bun install --frozen-lockfile --cwd acdebin-dbg/npm
+      - name: the release version into Cargo.toml and package.json (not committed)
+        run: sh acdebin-dbg/scripts/set-version.sh "$SDK_VERSION" acdebin-dbg acdert
+      - name: the SDK, built from the acdert checkout
+        run: bun run --cwd acdert/web/packages/acde-api build
       - name: dist
         working-directory: acdebin-dbg/npm
         run: |
@@ -626,6 +633,88 @@ jobs:
             esac
           done
           publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
+
+  npm:
+    # npm: @dopame/acde (one line of JS that starts its platform package), @dopame/acde-<os>-<cpu> (the binaries, the
+    # built CLI and the host files, laid out as an install), and the SDK @dopame/acde-api; a version already there is skipped
+    needs: [plan, guard]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: debian12
+    container: node:22-bookworm
+    env:
+      V: ${{ needs.plan.outputs.version }}
+      TARGETS: ${{ needs.plan.outputs.targets }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          name: acde-release
+          path: out
+      - name: the packages
+        run: |
+          set -eu
+          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends xz-utils > /dev/null
+          rel="$GITHUB_WORKSPACE/out/$V"
+          mkdir -p npm
+          deps=
+          for t in $(echo "$TARGETS" | tr , ' '); do
+            case $t in
+              x86_64-unknown-linux-gnu) os=linux cpu=x64 exe= ;;
+              aarch64-apple-darwin) os=darwin cpu=arm64 exe= ;;
+              x86_64-apple-darwin) os=darwin cpu=x64 exe= ;;
+              x86_64-pc-windows-msvc) os=win32 cpu=x64 exe=.exe ;;
+              *) echo "::error::no npm platform for $t"; exit 1 ;;
+            esac
+            name="@dopame/acde-$os-$cpu"
+            dir="npm/acde-$os-$cpu"
+            mkdir -p "$dir.stage" "$dir"
+            tar -xzf "$rel/acde-$V.tar.gz" -C "$dir.stage"
+            cp -a "$dir.stage/acde-$V/." "$dir/"
+            case $t in
+              *-windows-msvc) tar -xzf "$rel/acdebin-dbg-$t.tar.gz" -C "$dir/bin" ;;
+              *) tar -xJf "$rel/acdebin-dbg-$t.tar.xz" -C "$dir/bin" ;;
+            esac
+            test -f "$dir/bin/acdebin-dbg$exe"
+            tar -xzf "$rel/acde-host-$V.tar.gz" -C "$dir.stage" app
+            mv "$dir.stage/app" "$dir/bin/app"
+            rm -rf "$dir.stage"
+            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acde for ${os}-${cpu}: the acdebin-dbg runtime, the acde CLI and the host files`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
+              "$name" "$V" "$os" "$cpu" > "$dir/package.json"
+            deps="$deps\"$name\": \"$V\","
+          done
+          mkdir -p npm/acde
+          printf '%s\n' '#!/usr/bin/env node' \
+            'import(`@dopame/acde-${process.platform}-${process.arch}/lib/acde/launcher.mjs`).then(async (m) => process.exit(await m.run(process.argv.slice(2))), (e) => { process.stderr.write(`acde: no acde for ${process.platform}-${process.arch} (${e.message})\n`); process.exit(1) })' \
+            > npm/acde/acde.mjs
+          node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acde", version: v, description: "acde: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acde.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
+            "$V" "$deps" > npm/acde/package.json
+          mkdir -p npm/acde-api.stage
+          tar -xzf "$(ls "$rel"/acde-api-*.tar.gz)" -C npm/acde-api.stage
+          mv npm/acde-api.stage/package npm/acde-api && rm -rf npm/acde-api.stage
+          cat npm/acde/package.json npm/acde/acde.mjs
+          du -sh npm/*
+      - name: publish (platforms, the SDK, then @dopame/acde)
+        run: |
+          set -eu
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::warning::no NPM_TOKEN secret: nothing published to npm"
+            exit 0
+          fi
+          printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
+          npm whoami
+          for dir in npm/acde-*-* npm/acde-api npm/acde; do
+            [ -d "$dir" ] || continue
+            case $dir in *.stage) continue ;; esac
+            name=$(node -p "require('./$dir/package.json').name")
+            ver=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$ver" version > /dev/null 2>&1; then
+              echo "$name@$ver is already on npm"
+              continue
+            fi
+            (cd "$dir" && npm publish --access public)
+            echo "published $name@$ver"
+          done
 
   tag:
     needs: [plan, guard, upload]
