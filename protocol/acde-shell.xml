@@ -192,6 +192,12 @@
       <description summary="the compositor stops; the connection closes when it has"/>
     </request>
 
+    <request name="set_state">
+      <description summary="a window state change (acde:windows.requestState); the compositor decides, a done change comes back as window_state"/>
+      <arg name="window" type="uint"/>
+      <arg name="state" type="uint" summary="a state entry"/>
+    </request>
+
     <event name="output">
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
