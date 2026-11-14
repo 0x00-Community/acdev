@@ -37,6 +37,11 @@ on:
         required: false
         default: ''
         type: string
+      version:
+        description: 'x.y.z to release as; empty counts up from the highest released version (acdert tags pass theirs)'
+        required: false
+        default: ''
+        type: string
       skip_targets:
         description: 'targets not to build or ship this time, comma-separated without spaces (e.g. aarch64-apple-darwin)'
         required: false
@@ -81,6 +86,7 @@ jobs:
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           set -eu
           if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
@@ -113,6 +119,8 @@ jobs:
           git checkout --quiet --detach "$sha"
           if [ -n "$PUSHED_TAG" ]; then
             v=${PUSHED_TAG#v}
+          elif [ -n "${VERSION_INPUT:-}" ]; then
+            v=${VERSION_INPUT#v}
           else
             # the next patch after the highest version released anywhere: pkgs' latest.json, npm, and the v* tags
             seen=$( {
