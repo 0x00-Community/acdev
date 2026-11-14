@@ -287,6 +287,14 @@
       <description summary="the input settings in effect and the pointing devices (JSON); on bind and when they change"/>
       <arg name="state" type="string"/>
     </event>
+
+    <event name="work_area">
+      <description summary="the part of the screen left to windows (canvas logical pixels): the output less layer-shell exclusive zones and the edges panels reserve; after output on bind and when it changes"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
   </interface>
 
   <interface name="acde_shell_list" version="1">

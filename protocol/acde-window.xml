@@ -90,6 +90,15 @@
     </request>
     <request name="request_activate"/>
 
+    <request name="reserve">
+      <description summary="keep this edge of the screen clear while this window shows">
+        A panel's claim on the work area: windows that fill the work area stay this many logical pixels away from
+        the edge while this window is shown. Edge none (or a thickness of 0) withdraws it.
+      </description>
+      <arg name="edge" type="uint" enum="edges" summary="one edge"/>
+      <arg name="thickness" type="fixed" summary="logical pixels"/>
+    </request>
+
     <event name="window">
       <description summary="the window this surface is in the window table (after bind)"/>
       <arg name="id" type="uint"/>
