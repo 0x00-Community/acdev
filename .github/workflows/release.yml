@@ -31,9 +31,9 @@ on:
         default: ''
         type: string
       skip_targets:
-        description: 'targets not to build or ship this time, comma-separated without spaces (e.g. aarch64-apple-darwin)'
+        description: 'targets not to build or ship this time, comma-separated without spaces. Default: the two whose runners (akira-150, akira-w110) are offline; empty builds all four'
         required: false
-        default: ''
+        default: 'x86_64-apple-darwin,x86_64-pc-windows-msvc'
         type: string
 
 permissions:
