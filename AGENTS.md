@@ -1577,9 +1577,13 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 本仓库不发二进制, 也不往 pkgs.dopame.ai 上传东西 (用户定, 2026-11-14): 调试运行时 (acdebin-dbg 的二进制)、页面资源 (`acde-host-<版本>.tar.gz`, 由
 本仓库 `web/packages/acde-host` 的 `build:release` 打)、SDK (`acde-api-<版本>.tar.gz`, `web/packages/acde-api` 的 `build`)、acde 命令行和安装器, 由
-acdebin-dbg 的 `.github/workflows/release.yml` 一次发到 `pkgs.dopame.ai/acde/<版本>/`, 它在 `acdert_commit` (缺省本仓库 main) 检出本仓库. 所以
-发版时本仓库的版本号 (根 `Cargo.toml` 的 `workspace.package.version` 与 `web/packages/*/package.json`) 要和 acdebin-dbg 的一起改: 它的 `plan` 要求
-SDK 版本等于发布的版本. 以前在 `pkgs.dopame.ai/acdert/<版本>/` 的 0.0.9 及更早的版本还留在那里.
+acdebin-dbg 的 `.github/workflows/release.yml` 一次发到 `pkgs.dopame.ai/acde/<版本>/` (S3 桶 `dopame-pkgs` 的 `acde/`) 和 npm, 它在 `acdert_commit` (缺省本仓库 main) 检出本仓库.
+版本号不用手改 (2026-11-14 起): 它取 pkgs 的 `latest.json`、npm 和 `v*` tag 里最高的版本加一个 patch (或给定的版本), 由 acdebin-dbg 的 `scripts/set-version.sh`
+在构建时写进本仓库根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json` (不提交). 本仓库推 tag `v<x.y.z>` 就发版:
+`.gitea/workflows/release.yml` (只在 Gitea) 用 secret `RELEASE_TOKEN` (emmett 的 `write:repository` 令牌) 触发 acdebin-dbg 的 release, `publish=true`、
+`acdert_commit` 是这个 tag 的提交、`version` 是 tag 的版本、acdebin-dbg 取它的 main. npm 上是 `@dopame/acde` (只有一行 JS, 加载本平台包里的启动器)、
+`@dopame/acde-<os>-<cpu>` (二进制、构建好的命令行和页面资源, 按安装后的目录摆) 和 SDK `@dopame/acde-api`: 二进制闭源, 公开的只有这几行 JS 和压缩过的产物.
+以前在 `pkgs.dopame.ai/acdert/<版本>/` 的 0.0.9 及更早的版本还留在那里.
 
 Rust 包发到 cargo 源 ac 是手动的, 见本文件开头「发布到 gitea.dopamine AC 组织的 cargo 源」那条的顺序 (`cargo publish --registry ac`, 从 HEAD 导出的干净副本发).
 
@@ -1613,7 +1617,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 ## 协作规则
 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
-  (都 `publish = false`), 不发 npm 包 (SDK 只以 pkgs 上的归档发布), 仓库和 release 不公开. `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
+  (都 `publish = false`), 仓库和 release 不公开. npm 上发的包见「发版」(用户定 2026-11-14: 二进制闭源, JS 可以公开一些). `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (src/napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
