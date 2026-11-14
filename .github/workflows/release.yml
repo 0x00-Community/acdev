@@ -8,6 +8,8 @@ name: release
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
 # Gitea reads .github/workflows; the same file also runs on GitHub.
+# Every target builds on the debian12 runners: Linux natively, Windows with cargo-xwin (OpenSSL built beside it with clang),
+# macOS with cargo-zigbuild and the MacOSX15.5 SDK; no macOS or Windows machine is needed.
 # Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
 # the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
 # GitHub gives the string 'true'; in an environment variable both are the text true. Artifacts go through the
@@ -31,9 +33,9 @@ on:
         default: ''
         type: string
       skip_targets:
-        description: 'targets not to build or ship this time, comma-separated without spaces. Default: the two whose runners (akira-150, akira-w110) are offline; empty builds all four'
+        description: 'targets not to build or ship this time, comma-separated without spaces (e.g. aarch64-apple-darwin)'
         required: false
-        default: 'x86_64-apple-darwin,x86_64-pc-windows-msvc'
+        default: ''
         type: string
 
 permissions:
@@ -175,11 +177,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { triple: aarch64-apple-darwin, os: macos-15 }
-          - { triple: x86_64-apple-darwin, os: macos-15-intel }
-          - { triple: x86_64-unknown-linux-gnu, os: linux }
-          - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
-    runs-on: ${{ (contains(format(',{0},', github.event.inputs.skip_targets), format(',{0},', matrix.triple)) || matrix.os == 'linux') && 'debian12' || matrix.os }}
+          - { triple: aarch64-apple-darwin, cross: zigbuild }
+          - { triple: x86_64-apple-darwin, cross: zigbuild }
+          - { triple: x86_64-unknown-linux-gnu, cross: '' }
+          - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe }
+    runs-on: debian12
     timeout-minutes: 120
     env:
       BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
@@ -204,24 +206,49 @@ jobs:
           git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdert.git" acdert
           git -c http.extraHeader="Authorization: basic ${auth}" -C acdert checkout --detach "$ACDERT_SHA"
           git -C acdert submodule update --init --depth 1
-      - name: system libraries
-        if: env.BUILD == 'true' && runner.os == 'Linux'
-        run: >
-          s=$(command -v sudo || true); $s apt-get update && $s apt-get install -y --no-install-recommends
-          clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
-          libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
-          libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
-      - name: nasm
-        if: env.BUILD == 'true' && runner.os == 'Windows'
+      - name: system libraries (Linux), clang and LLVM's linker and archiver (cross)
+        if: env.BUILD == 'true'
+        run: |
+          s=$(command -v sudo || true); $s apt-get update
+          if [ -z "${{ matrix.cross }}" ]; then
+            $s apt-get install -y --no-install-recommends clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev \
+              libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev \
+              libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
+          else
+            $s apt-get install -y --no-install-recommends clang lld llvm python3 perl make xz-utils
+          fi
+      - name: cargo-xwin (Windows from Linux; the MSVC CRT and SDK with ATL)
+        if: env.BUILD == 'true' && matrix.cross == 'xwin'
         shell: bash
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/nasm.zip" https://www.nasm.us/pub/nasm/releasebuilds/3.02/win64/nasm-3.02-win64.zip
-          7z x -y -o"$RUNNER_TEMP" "$RUNNER_TEMP/nasm.zip" > /dev/null
-          cygpath -w "$RUNNER_TEMP/nasm-3.02" >> "$GITHUB_PATH"
-      - name: python for stylo
-        if: env.BUILD == 'true' && runner.os == 'Windows'
+          set -eu
+          f=cargo-xwin-v0.23.1.x86_64-unknown-linux-musl.tar.gz
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/rust-cross/cargo-xwin/releases/download/v0.23.1/$f"
+          echo "c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360  $RUNNER_TEMP/$f" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "XWIN_INCLUDE_ATL=true" >> "$GITHUB_ENV"
+      - name: cargo-zigbuild, zig and the macOS SDK (macOS from Linux)
+        if: env.BUILD == 'true' && matrix.cross == 'zigbuild'
         shell: bash
-        run: echo "PYTHON3=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP"
+          f=cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz
+          curl -sSfL -o "$f" "https://github.com/rust-cross/cargo-zigbuild/releases/download/v0.24.1/$f"
+          echo "f09b180a517af0e4dd4bffc921bb88e5ab705452a9dd948c61e489b3020c68c2  $f" | sha256sum -c -
+          mkdir -p zb bin && tar -xJf "$f" -C zb && find zb -name cargo-zigbuild -type f -exec cp {} bin/ \;
+          z=zig-x86_64-linux-0.17.1.tar.xz
+          curl -sSfL -o "$z" "https://ziglang.org/download/0.17.1/$z"
+          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  $z" | sha256sum -c -
+          tar -xJf "$z" && ln -sf "$RUNNER_TEMP/zig-x86_64-linux-0.17.1/zig" bin/zig
+          sdk=MacOSX15.5.sdk.tar.xz
+          curl -sSfL -o "$sdk" "https://github.com/joseluisq/macosx-sdks/releases/download/15.5/$sdk"
+          echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  $sdk" | sha256sum -c -
+          mkdir -p sdk && tar -xJf "$sdk" -C sdk
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "SDKROOT=$RUNNER_TEMP/sdk/MacOSX15.5.sdk" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
         if: env.BUILD == 'true'
         with:
@@ -231,25 +258,42 @@ jobs:
         with:
           key: dist-${{ matrix.triple }}
           workspaces: acdebin-dbg -> target
+      - name: OpenSSL for Windows (openssl-src's own build wants Windows perl and nmake; this is clang with the MSVC target)
+        if: env.BUILD == 'true' && matrix.cross == 'xwin'
+        shell: bash
+        working-directory: acdebin-dbg
+        env:
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
+        run: |
+          set -eu
+          cargo xwin env --target ${{ matrix.triple }} > /dev/null
+          cargo fetch --target ${{ matrix.triple }}
+          src=$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/openssl-src-*/openssl | sort -V | tail -1)
+          x="$HOME/.cache/cargo-xwin/xwin"
+          out="$RUNNER_TEMP/openssl"
+          cp -r "$src" "$RUNNER_TEMP/openssl-build"
+          cd "$RUNNER_TEMP/openssl-build"
+          inc="-isystem $x/crt/include -isystem $x/sdk/include/ucrt -isystem $x/sdk/include/um -isystem $x/sdk/include/shared"
+          CC=clang AR=llvm-ar RANLIB=llvm-ranlib CFLAGS="--target=${{ matrix.triple }} -O2 $inc -D_MT -Wno-everything" \
+            perl ./Configure mingw64 --prefix="$out" --libdir=lib no-shared no-module no-tests no-comp no-zlib no-zlib-dynamic \
+            no-ssl3 no-md2 no-rc5 no-weak-ssl-ciphers no-camellia no-idea no-seed no-capieng no-asm no-apps
+          make -j"$(nproc)" build_libs > /dev/null
+          mkdir -p "$out/lib" "$out/include"
+          cp -r include/openssl "$out/include/"
+          cp libcrypto.a "$out/lib/libcrypto.lib"
+          cp libssl.a "$out/lib/libssl.lib"
+          { echo "OPENSSL_NO_VENDOR=1"; echo "OPENSSL_STATIC=1"; echo "OPENSSL_DIR=$out"; } >> "$GITHUB_ENV"
       - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
         if: env.BUILD == 'true'
         shell: bash
         run: |
           cargo_home="${CARGO_HOME:-$HOME/.cargo}"
           sysroot=$(rustc --print sysroot)
-          dbg="$GITHUB_WORKSPACE/acdebin-dbg"
-          lib="$GITHUB_WORKSPACE/acdert"
           flags=""
-          case "$(uname -s)" in
-            MINGW* | MSYS* | CYGWIN*)
-              cargo_home=$(cygpath -w "$cargo_home")
-              sysroot=$(cygpath -w "$sysroot")
-              dbg=$(cygpath -w "$dbg")
-              lib=$(cygpath -w "$lib")
-              flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%"
-              ;;
+          case "${{ matrix.triple }}" in
+            *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%" ;;
           esac
-          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$dbg=/src --remap-path-prefix=$lib=/src/acdert"
+          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$GITHUB_WORKSPACE/acdebin-dbg=/src --remap-path-prefix=$GITHUB_WORKSPACE/acdert=/src/acdert"
           echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
       - name: "acdebin-dbg (dist profile: release build, split debug information)"
         if: env.BUILD == 'true'
@@ -257,7 +301,12 @@ jobs:
         working-directory: acdebin-dbg
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
-        run: cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }}
+        run: |
+          case "${{ matrix.cross }}" in
+            xwin) cargo xwin build --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
+            zigbuild) cargo zigbuild --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
+            *) cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
+          esac
       - name: archive the binary (one file, fixed times and owner) and keep the split debug information
         if: env.BUILD == 'true'
         shell: bash
