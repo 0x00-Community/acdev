@@ -15,6 +15,9 @@ name: release
 # GitHub gives the string 'true'; in an environment variable both are the text true. Artifacts go through the
 # christopherhx/gitea-*-artifact forks: the official actions/*-artifact v4+ refuse any server but github.com.
 on:
+  # pushing the tag v<version> (on a commit of main whose npm/package.json and Cargo.toml say <version>) publishes it
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       publish:
@@ -79,6 +82,10 @@ jobs:
         run: |
           set -eu
           if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
+          PUSHED_TAG=
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/tags/v*) PUBLISH=true; COMMIT=$GITHUB_SHA; PUSHED_TAG=${GITHUB_REF#refs/tags/} ;;
+          esac
           if [ -z "$COMMIT" ]; then
             if [ "$PUBLISH" = true ]; then
               echo "::error::a publish needs a commit: run it with -f commit=<sha>"
@@ -97,7 +104,7 @@ jobs:
               exit 1
             fi
           fi
-          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+          if [ "$PUBLISH" = true ] && [ -z "$PUSHED_TAG" ] && [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::a release is published from main only; this run is on $GITHUB_REF"
             exit 1
           fi
@@ -110,6 +117,10 @@ jobs:
           crate=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' ../Cargo.toml)
           if [ "$crate" != "$v" ]; then
             echo "::error::Cargo.toml says $crate, npm/package.json says $v: bump both together"
+            exit 1
+          fi
+          if [ -n "$PUSHED_TAG" ] && [ "$PUSHED_TAG" != "v$v" ]; then
+            echo "::error::the pushed tag is $PUSHED_TAG but this commit is version $v: tag it v$v"
             exit 1
           fi
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
