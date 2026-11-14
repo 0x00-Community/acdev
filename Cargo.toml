@@ -9,7 +9,7 @@ repository = "https://github.com/dopame-org/acdert"
 publish = ["ac"]
 
 [workspace.dependencies]
-# blitz: our fork (submodule vendor/blitz, GitHub Jabberwocky238/blitz), published to ac with the same names
+# blitz: our fork (submodule vendor/blitz, Gitea AC/blitz), published to ac with the same names
 blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
 blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
 blitz-traits = { path = "vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.5", registry = "ac", default-features = false }

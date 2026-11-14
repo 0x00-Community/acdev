@@ -1715,7 +1715,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 
 ## vendor
 
-依赖来自 crates.io, 加上两处 git: `vendor/blitz` 是子模块 (GitHub `Jabberwocky238/blitz`, fork 自 DioxusLabs/blitz), blitz 的 taffy
+依赖来自 crates.io, 加上两处 git: `vendor/blitz` 是子模块 (Gitea `AC/blitz`, `.gitmodules` 写相对地址 `../blitz.git`: 跟着本仓库的 origin 走, ssh 克隆就是 ssh, CI 用 http 加令牌克隆就是 http (这台 Gitea 不许匿名读, 带令牌的 `-c http.extraHeader` 也要给 `submodule update`); fork 自 DioxusLabs/blitz, 原来在 GitHub `Jabberwocky238/blitz`, 2026-11-14 整个搬进内网), blitz 的 taffy
 照上游 Blitz 钉 DioxusLabs/taffy 的 git 提交 `4e59968`. 根 `Cargo.toml` 用 `[patch.crates-io]` 把 blitz-* 换成子模块里的. 克隆后 `git submodule update --init`; 打包 (acdebin-system 的 PKGBUILD) 和 CI 也取子模块.
 小补丁不留: stylo、parley、fontique、vello、taffy、libseat-sys、fslock、async-dnssd 都用 crates.io 原版 (servo 版 stylo 没有的 `@container`、
 `accent-color`、`field-sizing`、`prefers-reduced-motion` 和 SVG 的 `pointer-events` 取值随之没有).
