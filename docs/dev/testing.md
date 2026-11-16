@@ -5,7 +5,7 @@
 | 层 | 什么时候 | 内容 |
 | --- | --- | --- |
 | 守门 | 每次改动 (现在手动, `.gitea/workflows/test.yml` 选 `gate`) | `web/` 的 typecheck 和 `bun run test`; WPT 里期望文件说能过、且三次结果一致的那些 (gate) |
-| 全量 | 每晚 / 发版前 (`full`) | 全部适用的 WPT (testharness、reftest、crashtest); 结果按目录出通过率 |
+| 全量 | 每晚 / 发版前 (`full`) | 全部适用的 WPT (testharness、reftest、crashtest), 结果按目录出通过率; 并排克隆 AC/acde-demo 跑它全部应用的 e2e (含回归用例那一页) |
 | 回归 | 修每个 bug 时 | 网页接口的行为: 能用 WPT 表达的就是 WPT 的那一项 (期望文件里从 FAIL 变成通过); WPT 没有的, 照 WPT 的写法 (testharness 或 reftest) 写进 acde-dom 的 `test/` 或 `tests/`; `acde:` 模块、窗口、命令行这类 WPT 管不到的, 写 acde-demo `apps/regressions` 的一格或 acdebin-dbg `npm/` 的 e2e |
 
 **WPT** (`scripts/wpt/`, `wpt.sh` 是入口; 状态目录 `logs/wpt/`, `WPT_STATE` / `WPT_DIR` 可改):
