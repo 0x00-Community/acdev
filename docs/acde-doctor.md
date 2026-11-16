@@ -23,7 +23,7 @@
 有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
 `acde doctor: N errors, M warnings` / `no errors, M warnings` / `everything acde needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
 
-- **运行时自检**: 运行时的 `acdebin-dbg doctor --json` (本仓 `src/doctor.rs`; 见 acdert AGENTS.md 的「命令」), 它的每项变成 `runtime.<id>`, 标题、状态、fix 照搬. 支不支持看
+- **运行时自检**: 运行时的 `acdebin-dbg doctor --json` (本仓 `src/doctor.rs`, 见 `doctor.md`), 它的每项变成 `runtime.<id>`, 标题、状态、fix 照搬. 支不支持看
   `acdebin-dbg --help` 的 stdout 里有没有以 `acdebin-dbg doctor` (或旧的 `acdert doctor`) 开头的一行, 不按版本号 (同一版本号的开发构建可能有也可能没有). 旧的 acdert 不认 `doctor`, 会把它当成
   会话参数起桌面, 所以不能盲调. 没有时是一条 `runtime` 警告 (版本号和 SDK 相同时 fix 是换一个更新的构建, 不同时是装配对的那版); 60 s 没结束、stdout 不是
   报告都是错误. acdebin-dbg 没找到或起不来时这项和 `contract` 是 `skip`.
