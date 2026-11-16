@@ -46,23 +46,13 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
 - Rust 代码提交前 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`; `vendor/` 不在 workspace 里, 不碰).
 
-## Agent 规范
-
-- **说明分层**：本文件只放每次都要读的定位、仓库规则和文件路由；细节写进 `docs/` 的主题文件，并在路由表里登记。一个意思只写在一处，改说明时保持这个分层。
-- **领域词汇**：本仓术语以 `CONTEXT.md` 为准。动手前先读涉及的词条，代码命名、文档和提交说明都用表里的叫法；遇到新概念或叫法冲突，先确认再补进 `CONTEXT.md`。细则见 `docs/agents/domain.md`。
-- **架构决定**：记在 `docs/adr/NNNN-<名称>.md`，只记难以逆转、缺背景会让人困惑、确实有取舍的决定。改动和已有决定冲突时先指出，不绕开。
-- **任务跟踪**：本仓不用议题，任务与规划记在别处。细则见 `docs/agents/issue-tracker.md`。
-
 ## 文件路由
 
 | 什么时候读 | 文件 |
 | --- | --- |
 | 第一次接手本仓库, 要弄清三个仓库的分工、两种跑法 (会话 / 宿主窗口) 或进程与线程 | `docs/runtime/architecture.md` |
 | 找某个模块、目录或 `web/packages` 里的文件归谁, 新加文件前确认放哪 | `docs/runtime/layout.md` |
-| 碰到 web、Broker、外壳模块、层级、根这类本仓库的术语 | `CONTEXT.md` |
-| 理解或补充领域词汇、记录架构决定 | `docs/agents/domain.md` |
-| 用 to-spec / to-tickets / wayfinder 等需要跟踪器的技能 | `docs/agents/issue-tracker.md` |
-| 想推翻或绕开一个已定的取舍之前: 三仓架构 (0001)、GPU 路线 (0002)、只批准摄像头和麦克风 (0003)、系统框架解码 (0004)、Windows 后端不开监听 (0005)、文件类型只用平台登记的 (0006)、由 acdebin-dbg 发版 (0007)、闭源和内网 (0008) | `docs/adr/` |
+| 改说明或新增说明文档 | `docs/writing-docs.md` |
 | 改 C 接口 (`src/ffi.rs`、`include/acdert.h`)、`Platform` 回调或 so 的导出表 | `docs/runtime/ffi.md` |
 | 改窗口表、窗口模式与状态、焦点 / 模态 / grab、全局快捷键, 或 `protocol/` 里的 `acde_window` / `acde_shell` | `docs/runtime/window-model.md` |
 | 改 acde dev 的 IPC、调试请求 (eval / shot / route / clock / input …)、dev 日志或热重载 | `docs/dev/dev-ipc.md` |
