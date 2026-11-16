@@ -365,8 +365,9 @@ export class Mcp {
     s.registerTool(
       'screenshot',
       {
-        description: "A PNG in device pixels of one window's page (the desktop's includes its panels), or of the whole "
-          + "screen with every window composed (target screen). Default: the focused window.",
+        description: "A PNG in device pixels of one window's page, or of the whole screen with every window composed "
+          + '(target screen). Default: the focused window. The desktop\'s page has no panels it pinned (a Dock, a menu '
+          + 'bar): they are layers of their own, so take screen to see the desktop as shown.',
         inputSchema: z.object({
           target: z.string().optional().describe('screen, a window ref (w3), a web name (ledger#1048576), an app id, '
             + 'or desktop'),

@@ -29,7 +29,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `open` | Opens an app and waits for its window |
 | `query` | Finds elements by CSS selector, hidden ones too; the refs work with `act` |
 | `wait_for` | Waits for some text to appear (or disappear) |
-| `screenshot` | Screenshot of one window or the whole screen |
+| `screenshot` | Screenshot of one window or the whole screen; the desktop's panels (Dock, menu bar) only on the whole screen |
 | `eval` | Runs JS in a page |
 | `console` / `network` | The pages' logs and requests |
 | `emulate` | Switches light/dark mode |

@@ -222,7 +222,10 @@ export class Help {
         'Runs code in a web (a web name, an app id or desktop) and prints the result as JSON; - reads the code '
           + 'from stdin.',
       ], [], ['acde eval notes "document.title"']),
-      inspecting('shot', '<web>', 'Take a PNG of a window', ['A PNG of the web\'s window; prints its path.'],
+      inspecting('shot', '<web>', 'Take a PNG of a window', [
+        'A PNG of the web\'s window; prints its path. The desktop\'s page has no panels it pinned (a Dock, '
+          + 'a menu bar): take acde screen to see them.',
+      ],
         [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./<web>.png)' }], ['acde shot notes']),
       inspecting('screen', '', 'Take a PNG of the whole screen', ['A PNG of the whole screen, every window composed.'],
         [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./screen.png)' }], ['acde screen']),
