@@ -1,7 +1,7 @@
 # acdebin-dbg
 
 跨平台调试运行时 `acdebin-dbg` (Rust, 仓库根 `src/` 和 `crates/hostwin`) 和开发者 CLI `acde` (TypeScript, `npm/`) 的仓库. 闭源,
-`publish = false`. 说明都在本文件、`CONTEXT.md` 和 `docs/` 里 (没有 README), 按下面的文件路由选读.
+`publish = false`. 说明都在本文件和 `docs/` 里 (没有 README), 按下面的文件路由选读.
 
 ## 仓库规则
 
@@ -25,19 +25,12 @@
 - 改 `crates/hostwin` 的提交先在这棵树编出来的 acdebin-dbg 上起一次 (`ACDE_HEADLESS=1` 也行), 写清已验证 / 未验证.
 - 汇报时分开写「已验证 / 未验证」.
 
-## Agent 规范
-
-- **说明分层**：本文件只放每次都要读的定位、仓库规则和文件路由；细节写进 `docs/` 的主题文件，并在路由表里登记。一个意思只写在一处，改说明时保持这个分层。
-- **领域词汇**：本仓术语以 `CONTEXT.md` 为准。动手前先读涉及的词条，代码命名、文档和提交说明都用表里的叫法；遇到新概念或叫法冲突，先确认再补进 `CONTEXT.md`。细则见 `docs/agents/domain.md`。
-- **架构决定**：记在 `docs/adr/NNNN-<名称>.md`，只记难以逆转、缺背景会让人困惑、确实有取舍的决定。改动和已有决定冲突时先指出，不绕开。
-- **任务跟踪**：本仓不用议题，任务与规划记在别处。细则见 `docs/agents/issue-tracker.md`。
-
 ## 文件路由
 
 | 什么时候读 | 文件 |
 | --- | --- |
+| 改说明或新增说明文档 | `docs/writing-docs.md` |
 | 弄清本仓库在三仓架构里的位置、`src/` 各文件做什么、`acde` 怎么找运行时 | `docs/architecture.md` |
-| 碰到本仓库特有的词 (宿主窗口、单应用会话、契约级别、配对版本、认领、测试会话……) | `CONTEXT.md` |
 | 在本地编译、运行 `acdebin-dbg`, 或让源码跑的 `acde dev` 用上它 | `docs/runtime-build.md` |
 | 改宿主窗口、合成、出帧、GPU、输入、窗框、菜单、headless 或系统能力 (`crates/hostwin`) | `docs/hostwin.md` |
 | 了解 CLI 的启动速度、仓库脚本、工程与安装目录, 或写要在 bun 和 Node 上都跑的代码 | `docs/cli-overview.md` |
@@ -53,12 +46,5 @@
 | 改 CLI 和 acdert 之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-acdert.md` |
 | 跑或加 CLI 的测试, 在 Windows 上跑 `bun test` | `docs/cli-tests.md` |
 | 挑下一件 CLI 的事做, 或判断某个功能是不是已经计划过 | `docs/roadmap.md` |
-| 想推翻三仓分法 | `docs/adr/0001-three-repos.md` |
-| 想把命令行、运行时、宿主文件或 SDK 分开发版 | `docs/adr/0002-one-release-one-version.md` |
-| 想在 Windows 上让后端开 TCP 端口或命名管道 | `docs/adr/0003-windows-backend-contract.md` |
-| 想让 `acde doctor --fix` 或 MCP 的 `doctor_fix` 多修一类问题 | `docs/adr/0004-doctor-fix-scope.md` |
-| 想换发布用的 runner 或存储 | `docs/adr/0005-release-infrastructure.md` |
-| 理解或补充领域词汇、记录架构决定 | `docs/agents/domain.md` |
-| 用 to-spec / to-tickets / wayfinder 等需要跟踪器的技能 | `docs/agents/issue-tracker.md` |
 
 `docs/` 里 CLI 的文件路径相对 `npm/`, 运行时的相对仓库根, 每个文件开头注明.
