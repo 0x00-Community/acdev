@@ -44,7 +44,7 @@ Each test gets:
 
 - Temporary `HOME` and `XDG_*` directories, and in-memory storage only;
 - A 1280 × 800 screen, light mode, and no autostart items;
-- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`); the time the session takes to start counts. Headless still needs a GPU, so Linux CI machines without one can't run tests; see [Platform support](../reference/platforms.md).
+- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`); the time the session takes to start counts. On Linux CI without a GPU the runtime draws on the CPU through the software Vulkan driver (lavapipe), which must be installed and is slow; see [Platform support](../reference/platforms.md).
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 

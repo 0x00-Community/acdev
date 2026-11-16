@@ -27,7 +27,7 @@ With several projects or `--desktop`, the desktop is chosen like this: the value
 
 The session is ready when `acde webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. The camera and the microphone wait for an answer, which `acde allow` or `acde deny` gives from another terminal: in 0.0.9, an app that declares one opens its window only once answered; after 0.0.9, only a page that asks for one waits. See [Camera and microphone](tools.md#camera-and-microphone).
 
-`--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
+`--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. On Linux without a GPU it draws on the CPU through the software Vulkan driver (lavapipe), slowly; see [Platform support](../reference/platforms.md).
 
 On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acde shot`, `acde screen` and `acde inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acde dev` without `--headless` (and `acde test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdebin-dbg exits with an error anyway, `acde dev` adds the same `--headless` hint after acdebin-dbg's own messages.
 
