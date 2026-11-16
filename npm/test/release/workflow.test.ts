@@ -16,7 +16,7 @@ type Job = {
 }
 type Input = { description: string; required: boolean; default: boolean | string; type: string }
 const workflow = Bun.YAML.parse(TEXT) as {
-  on: { workflow_dispatch: { inputs: Record<string, Input> } }
+  on: { push: { tags: string[] }; workflow_dispatch: { inputs: Record<string, Input> } }
   permissions: Record<string, string>
   concurrency: { group: string; 'cancel-in-progress': boolean }
   env: Record<string, string>
@@ -27,6 +27,7 @@ const runs = (job: string) => jobs[job]!.steps.map((step) => step.run ?? '').joi
 const uses = (job: string) => jobs[job]!.steps.map((step) => step.uses).filter((value): value is string => !!value)
 const needs = (job: string) => [jobs[job]!.needs ?? []].flat()
 const step = (job: string, name: string) => jobs[job]!.steps.find((item) => item.name === name)
+const checkoutOf = (job: string) => jobs[job]!.steps.find((item) => /(^|\/)checkout@/.test(item.uses ?? ''))
 const indexIn = (text: string, needle: string) => {
   const at = text.indexOf(needle)
   expect(at).toBeGreaterThanOrEqual(0)
@@ -34,20 +35,17 @@ const indexIn = (text: string, needle: string) => {
 }
 
 describe('release.yml', () => {
-  test('is started by hand only, with publish (boolean, default false) and string inputs for the commits and targets', () => {
-    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch'])
+  test('is started by hand, with publish (boolean, default false) and string inputs, or by pushing a tag v*', () => {
+    expect(Object.keys(workflow.on)).toEqual(['push', 'workflow_dispatch'])
+    expect(workflow.on.push).toEqual({ tags: ['v*'] })
     const inputs = workflow.on.workflow_dispatch.inputs
-    expect(Object.keys(inputs)).toEqual(['publish', 'commit', 'acdert_commit', 'skip_targets'])
-    for (const name of ['acdert_commit', 'skip_targets']) {
+    expect(Object.keys(inputs)).toEqual(['publish', 'commit', 'acdert_commit', 'version', 'skip_targets'])
+    for (const name of ['commit', 'acdert_commit', 'version', 'skip_targets']) {
       expect(inputs[name]).toEqual({ description: expect.any(String), required: false, default: '', type: 'string' })
     }
     expect(inputs['publish']).toEqual({
       description: expect.any(String), required: false, default: false, type: 'boolean',
     })
-    expect(inputs['commit']).toEqual({ description: expect.any(String), required: false, default: '', type: 'string' })
-    expect(TEXT).not.toMatch(/^\s*push:/m)
-    expect(TEXT).not.toMatch(/tags: \['v\*'\]/)
-    expect(TEXT).not.toMatch(/^\s*version:\s*$/m)
   })
 
   test('read-only by default; contents write only on tag; id-token write only on upload and latest', () => {
@@ -64,8 +62,10 @@ describe('release.yml', () => {
     expect(workflow.concurrency).toEqual({ group: 'acde-release', 'cancel-in-progress': false })
   })
 
-  test('the jobs run plan, build, host, pkgs, guard, upload, tag, latest, with their needs', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'host', 'pkgs', 'guard', 'upload', 'tag', 'latest'])
+  test('the jobs run plan, build, host, pkgs, guard, upload, npm, tag, latest, with their needs', () => {
+    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'host', 'pkgs', 'guard', 'upload', 'npm', 'tag', 'latest'])
+    expect(needs('npm')).toEqual(['plan', 'guard'])
+    expect(jobs['npm']!.if).toBe("needs.plan.outputs.publish == 'true'")
     expect(needs('plan')).toEqual([])
     expect(needs('build')).toEqual(['plan'])
     expect(needs('host')).toEqual(['plan'])
@@ -132,41 +132,44 @@ describe('release.yml', () => {
     })
   })
 
-  test('a publish runs only on main; the version is read from the commit checked out', () => {
+  test('a publish by hand runs only on main; the version is the pushed tag, the input, or one past the highest', () => {
     const plan = runs('plan')
-    expect(plan).toContain('"$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]')
-    expect(plan).toContain('require("./package.json").version')
-    expect(plan).toContain('[0-9]*.[0-9]*.[0-9]*')
+    expect(plan).toContain('[ "$PUBLISH" = true ] && [ -z "$PUSHED_TAG" ] && [ "$GITHUB_REF" != refs/heads/main ]')
+    expect(plan).toContain('push:refs/tags/v*) PUBLISH=true; COMMIT=$GITHUB_SHA; PUSHED_TAG=')
+    expect(plan).toContain('GITHUB_REF#refs/tags/')
     const checkout = indexIn(plan, 'git checkout --quiet --detach "$sha"')
-    expect(checkout).toBeLessThan(indexIn(plan, 'require("./package.json")'))
+    expect(checkout).toBeLessThan(indexIn(plan, 'PUSHED_TAG#v'))
+    expect(indexIn(plan, 'PUSHED_TAG#v')).toBeLessThan(indexIn(plan, 'VERSION_INPUT#v'))
+    expect(plan).toContain('npm view "$pkg" versions --json')
+    expect(plan).toContain("git tag --list 'v*'")
+    expect(plan).toContain('$3 + 1')
+    expect(plan).toContain('[0-9]*.[0-9]*.[0-9]*')
+    for (const job of ['build', 'pkgs']) expect(runs(job)).toContain('sh acdebin-dbg/scripts/set-version.sh')
     expect(TEXT).not.toMatch(/github\.ref_name|format\('v\{0\}'/)
   })
 
   test('the plan checkout fetches history; every later job checks out the resolved commit', () => {
-    const planCheckout = jobs['plan']!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
+    const planCheckout = checkoutOf('plan')
     expect(planCheckout?.with?.['fetch-depth']).toBe(0)
     expect(planCheckout?.with?.['ref']).toBeUndefined()
-    for (const job of ['pkgs', 'guard', 'upload', 'tag', 'latest']) {
-      if (job === 'upload' || job === 'latest') continue
-      const checkout = jobs[job]!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
-      expect(checkout?.with?.['ref']).toBe('${{ needs.plan.outputs.sha }}')
+    for (const job of ['build', 'pkgs', 'guard', 'tag']) {
+      expect(checkoutOf(job)?.with?.['ref']).toBe(jobs['tag']!.env?.['SHA'])
     }
   })
 
-  test('the tag is free, or already points at the same commit; a different commit fails with a bump hint', () => {
+  test('the tag is free, or already points at the same commit; a different commit fails', () => {
     const check = step('plan', 'the tag is free, or already points at this commit')
     expect(check?.if).toBe("steps.version.outputs.publish == 'true'")
     expect(check?.run).toContain('git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"')
     expect(TEXT).not.toContain('gh api')
     expect(check?.run).toContain('[ "$tagged" != "$SHA" ]')
-    expect(check?.run).toContain('bump the version in package.json')
+    expect(check?.run).toContain('already exists and points at $tagged, not at $SHA')
   })
 
   test('the tag job creates an annotated tag on the resolved commit, never moves or forces one', () => {
     const tag = jobs['tag']!
     expect(tag.env?.['SHA']).toBe('${{ needs.plan.outputs.sha }}')
-    const checkout = tag.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
-    expect(checkout?.with?.['persist-credentials']).toBe(true)
+    expect(checkoutOf('tag')?.with?.['persist-credentials']).toBe(true)
     const run = runs('tag')
     expect(run).toContain('test "$(git rev-parse HEAD)" = "$SHA"')
     expect(run).toContain('git ls-remote --exit-code --tags origin "refs/tags/$TAG"')
@@ -181,29 +184,28 @@ describe('release.yml', () => {
   test('the checkout in every job other than tag keeps no token', () => {
     for (const job of Object.keys(jobs).filter((id) => id !== 'tag')) {
       for (const item of jobs[job]!.steps) {
-        if (item.uses?.startsWith('actions/checkout@')) expect(item.with?.['persist-credentials']).toBe(false)
+        if (/(^|\/)checkout@/.test(item.uses ?? '')) expect(item.with?.['persist-credentials']).toBe(false)
       }
     }
   })
 
-  test('one version: Cargo.toml, npm/package.json and the SDK of the acdert commit built with', () => {
+  test('one version: set into Cargo.toml, npm/package.json and the SDK of the acdert commit built with', () => {
     const plan = runs('plan')
-    expect(plan).toContain('Cargo.toml says $crate, npm/package.json says $v: bump both together')
-    expect(plan).toContain('"$sha:web/packages/acde-api/package.json"')
-    expect(plan).toContain('this release is $VERSION: bump them together')
     expect(plan).toContain('git -C "$lib" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdert $sha is not on its main"')
     expect(jobs['pkgs']!.env?.['SDK_VERSION']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
+    const set = indexIn(pkgs, 'sh acdebin-dbg/scripts/set-version.sh "$SDK_VERSION" acdebin-dbg acdert')
+    expect(set).toBeLessThan(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build'))
     expect(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build')).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
     expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api/dist" --sdk "$SDK_VERSION"')
-    expect(pkgs).not.toMatch(/\bnpm\b/)
+    expect(pkgs).not.toMatch(/\bnpm (?:publish|install|view)\b/)
     expect(TEXT).not.toMatch(/acdert-version|acdert-host|acdert-x86|pkgs\.dopame\.ai\/acdert/)
   })
 
   test('the builds and the host files come from this run, built from the planned commits', () => {
     const build = runs('build')
     expect(build).toContain('checkout --detach "$ACDERT_SHA"')
-    expect(build).toContain('git -C acdert submodule update --init --depth 1')
+    expect(build).toContain('-C acdert submodule update --init --depth 1')
     expect(build).toContain('cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }}')
     expect(build).toContain('"out/acdebin-dbg-${{ matrix.triple }}.tar.xz"')
     expect(build).toContain('"out/acdebin-dbg-${{ matrix.triple }}.tar.gz"')
@@ -243,7 +245,7 @@ describe('release.yml', () => {
 
   test('the guard runs the release guard on the artifact before any upload or tag', () => {
     expect(runs('guard')).toContain('bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
-    expect(uses('guard').some((action) => action.startsWith('christopherhx/gitea-download-artifact@'))).toBe(true)
+    expect(uses('guard').some((action) => action.includes('/gitea-download-artifact@'))).toBe(true)
     expect(jobs['guard']!.permissions).toBeUndefined()
   })
 
@@ -278,8 +280,13 @@ describe('release.yml', () => {
   })
 
   test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
-    const secrets: string[] = [...(TEXT.match(/\$\{\{ secrets\.\w+ \}\}/g) ?? [])]
-    expect(secrets).toEqual(Array(2).fill(['${{ secrets.AWS_ACCESS_KEY_ID }}', '${{ secrets.AWS_SECRET_ACCESS_KEY }}']).flat())
+    const secrets = [...TEXT.matchAll(/\bsecrets\.(\w+)/g)].map((match) => match[1])
+    expect([...new Set(secrets)].sort())
+      .toEqual(['ACKERNEL_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'NPM_TOKEN'])
+    expect(secrets.filter((name) => name!.startsWith('AWS_'))).toEqual(
+      Array(2).fill(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']).flat())
+    expect(jobs['npm']!.env?.['NPM_TOKEN']).toContain('secrets.NPM_TOKEN')
+    expect(secrets.filter((name) => name === 'NPM_TOKEN')).toHaveLength(1)
     for (const job of ['upload', 'latest']) {
       const step = jobs[job]!.steps.find((item) => item.name === CREDENTIALS)
       expect(step?.env).toEqual({ KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}', KEY_SECRET: '${{ secrets.AWS_SECRET_ACCESS_KEY }}' })
@@ -302,7 +309,7 @@ describe('release.yml', () => {
   test('every action is pinned to a full commit SHA with its version noted', () => {
     const all = Object.keys(jobs).flatMap((job) => uses(job))
     expect(all.length).toBeGreaterThan(0)
-    for (const action of all) expect(action).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/)
+    for (const action of all) expect(action).toMatch(/^http:\/\/gitea\.dopamine\/mirror\/[\w.-]+@[0-9a-f]{40}$/)
     expect(TEXT.match(/@[0-9a-f]{40} # v\d+/g)?.length).toBe(all.length)
   })
 
