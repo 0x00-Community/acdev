@@ -36,6 +36,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
       - name: install
         run: bun install --frozen-lockfile --cwd web
       - name: typecheck
@@ -45,17 +47,10 @@ jobs:
         working-directory: web
         run: bun run test
 
-  # One job per shard: a job stops at the instance's limit (3 h), and every applicable test does not fit in one.
-  wpt:
+  gate:
+    if: github.event.inputs.wpt == 'gate'
     runs-on: x86_64-debian-234
     timeout-minutes: 175
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        shard: ${{ fromJSON(github.event.inputs.wpt == 'gate' && '[1]' || '[1, 2, 3, 4]') }}
-    env:
-      SHARDS: ${{ github.event.inputs.wpt == 'gate' && '1' || '4' }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -66,25 +61,54 @@ jobs:
           token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
           dbg: ${{ github.event.inputs.dbg }}
           workers: ${{ github.event.inputs.workers }}
-      - name: run shard ${{ matrix.shard }}
+      - name: run the gate
         shell: bash
-        env:
-          MODE: ${{ github.event.inputs.wpt }}
-          WORKERS: ${{ github.event.inputs.workers }}
-          SHARD: ${{ matrix.shard }}
         run: |
           set -eu
           w=acdert/scripts/wpt/wpt.sh
-          args=(--acdert "$ACDERT" --workers "$WORKERS" --label "$LABEL" --shard "$SHARD/$SHARDS")
-          case "$MODE" in
-            gate)
-              $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
-              $w run "${args[@]}" --tests "$WPT_STATE/gate.json" ;;
-            full) $w run "${args[@]}" --skip-slow acdert/scripts/wpt/expectations/linux ;;
-            baseline) $w run "${args[@]}" ;;
-          esac
+          $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
+          $w run --acdert "$ACDERT" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
       - name: check against scripts/wpt/expectations/linux
-        if: github.event.inputs.wpt != 'baseline'
+        run: acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
+      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+        if: always()
+        with:
+          name: wpt-gate
+          path: ${{ env.WPT_STATE }}/results
+          retention-days: 14
+
+  # full and baseline: one job per shard, one after another (a job stops at Gitea's 3-hour limit; every applicable test does not fit in one).
+  wpt:
+    if: github.event.inputs.wpt != 'gate'
+    runs-on: x86_64-debian-234
+    timeout-minutes: 175
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acdert
+          persist-credentials: false
+      - uses: ./acdert/.gitea/actions/wpt-setup
+        with:
+          token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          dbg: ${{ github.event.inputs.dbg }}
+          workers: ${{ github.event.inputs.workers }}
+      - name: run shard ${{ matrix.shard }} of 4
+        shell: bash
+        env:
+          MODE: ${{ github.event.inputs.wpt }}
+        run: |
+          set -eu
+          w=acdert/scripts/wpt/wpt.sh
+          args=(--acdert "$ACDERT" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
+          if [ "$MODE" = full ]; then args+=(--skip-slow acdert/scripts/wpt/expectations/linux); fi
+          $w run "${args[@]}"
+      - name: check against scripts/wpt/expectations/linux
+        if: github.event.inputs.wpt == 'full'
         run: acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: always()
@@ -140,8 +164,7 @@ jobs:
 
   # full and baseline: acde-demo's apps and its regression cells.
   demo:
-    needs: wpt
-    if: always() && github.event.inputs.wpt != 'gate'
+    if: github.event.inputs.wpt != 'gate'
     runs-on: x86_64-debian-234
     timeout-minutes: 120
     steps:
