@@ -33,12 +33,12 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 - 构建不从外网取东西 (2026-11-14): 依赖都从内网 Gitea 取 (blitz 子模块、rusty_v8 预编译库、CI 的 action), 见 `docs/dev/build-run.md`「构建不从外网取东西」.
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
-- 改 `src/render`、`src/gpu`、`src/vello`、`src/webgl`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
-  什么、没验什么. 汇报时分开写「已验证 / 未验证」.
+- 提交前只做语法检查: `cargo fmt --all` (及 web 侧的格式化)、Guard 提交时的暂存语法检查; 构建、运行和测试只在用户要求时做, 做了就在提交信息里写清
+  已验证 / 未验证.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
   parley、html5ever、cssparser) 用 `=` 钉住.
-- `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过.
+- `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新.
   本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编. 0.x 写到次版本正是因为这个: 只写 `"0"` 时,
   workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖, 它们会落到旧锁里已有的老版本上, 只在 Linux 编的 `voice`、`office` 就编不过
   (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
