@@ -32,17 +32,17 @@ for (const r of results.values()) {
   const g = group(r.url)
   if (!rows.has(g)) rows.set(g, empty())
   const subs = r.tests ?? []
-  const pass = subs.filter((s) => s.status === 0).length
+  const pass = subs.length ? subs.filter((s) => s.status === 0).length : r.status === 'PASS' ? 1 : 0
   for (const row of [rows.get(g)!, total]) {
     row.files++
     row.ms += r.ms
-    if (r.status === 'OK') row.ok++
+    if (r.status === 'OK' || r.status === 'PASS') row.ok++
     else if (r.status === 'ERROR') row.error++
-    else if (r.status === 'TIMEOUT') row.timeout++
+    else if (r.status === 'TIMEOUT' || r.status === 'NOLOAD') row.timeout++
     else if (r.status === 'CRASH' || r.status === 'HANG') row.crash++
     row.pass += pass
     row.subs += Math.max(subs.length, 1)
-    if (r.status === 'OK' && subs.length > 0 && pass === subs.length) row.filesAllPass++
+    if ((r.status === 'OK' && subs.length > 0 && pass === subs.length) || r.status === 'PASS') row.filesAllPass++
   }
   statusCount[r.status] = (statusCount[r.status] ?? 0) + 1
   for (const f of [...t.flags, ...(r.url.includes('.tentative.') || r.url.includes('/tentative/') ? ['tentative'] : [])]) {
@@ -94,22 +94,22 @@ function note(message: string | null | undefined, url: string) {
 }
 for (const r of results.values()) {
   if (!byUrl.has(r.url)) continue
-  if (r.status !== 'OK') note(`[${r.status}] ${r.message ?? ''}`, r.url)
+  if (r.status !== 'OK' && r.status !== 'PASS') note(`[${r.status}] ${r.message ?? ''}`, r.url)
   for (const s of r.tests ?? []) if (s.status !== 0) note(s.message ?? `subtest status ${s.status}`, r.url)
 }
 
 const pct = (a: number, b: number) => (b ? `${((100 * a) / b).toFixed(1)}%` : '—')
-const notRun = (reason: string) => inScope.filter((t) => t.skip === reason).length
-const notYet = inScope.filter((t) => !t.skip && !results.has(t.url)).length
+const notRun = (reason: string) => inScope.filter((t) => t.unhosted === reason).length
+const notYet = inScope.filter((t) => !t.unhosted && !results.has(t.url)).length
 const lines: string[] = []
 lines.push(`# WPT on acdert — ${label}`, '')
 lines.push(`- WPT ${String(meta.wpt).slice(0, 10)}, acdert binary \`${meta.acdert}\`, ${meta.platform}, ${meta.workers} workers, started ${meta.started}${meta.seconds ? `, ${Math.round(meta.seconds / 60)} min` : ''}`)
-lines.push('- testharness tests only: reftests (most of `css/`, rendering) are **not measured** here.')
-lines.push(`- Not run: ${notRun('worker')} worker variants (no Worker in acdert), ${notRun('server')} need wptserve (.sub/.headers/.py/websockets/eventsource), ${notRun('https')} need https/h2${notYet ? `, ${notYet} not reached yet` : ''}.`)
+lines.push('- testharness, reftest and crashtest files; a reftest or crashtest counts as one subtest.')
+lines.push(`- The runner cannot host yet: ${notRun('worker')} worker variants, ${notRun('server')} need wptserve (.sub/.headers/.py/websockets/eventsource), ${notRun('https')} need https/h2, ${notRun('print')} print reftests${notYet ? `; ${notYet} not reached yet` : ''}. Not applicable: see scripts/wpt/not-applicable.`)
 lines.push(`- Ran ${total.files} test files: ${Object.entries(statusCount).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}.`)
 lines.push(`- Subtests: **${total.pass} / ${total.subs} pass (${pct(total.pass, total.subs)})**; files with every subtest passing: ${total.filesAllPass} / ${total.files} (${pct(total.filesAllPass, total.files)}).`)
 lines.push('- A TIMEOUT or ERROR file with no subtests counts as one failing subtest.', '')
-lines.push('## By directory', '', '| dir | files | subtests pass | % | all-pass files | TIMEOUT | ERROR | CRASH |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
+lines.push('## By directory', '', '| dir | files | subtests pass | % | all-pass files | TIMEOUT or NOLOAD | ERROR | CRASH |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
 for (const [g, r] of [...rows.entries()].sort((a, b) => b[1].subs - a[1].subs))
   lines.push(`| ${g} | ${r.files} | ${r.pass} / ${r.subs} | ${pct(r.pass, r.subs)} | ${r.filesAllPass} | ${r.timeout} | ${r.error} | ${r.crash} |`)
 lines.push('', '## Tests that use iframes, testdriver or server handlers', '', 'acdert does not load `<iframe>` content and has no testdriver backend yet; `py-handler` tests reach a wptserve handler the static runner does not have.', '', '| flag | files | TIMEOUT | subtests pass |', '| --- | ---: | ---: | ---: |')

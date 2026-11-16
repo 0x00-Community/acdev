@@ -13,10 +13,10 @@ fetch() {
   if [ ! -d "$checkout/.git" ]; then
     git clone --quiet --filter=blob:none --no-checkout https://github.com/web-platform-tests/wpt.git "$checkout"
   fi
-  local paths=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && paths+=("$line")
-  done <"$here/paths"
+  local paths=('/*')
+  while IFS=$'\t' read -r dir _; do
+    [ -n "$dir" ] && paths+=("!/$dir/")
+  done <"$here/not-applicable"
   git -C "$checkout" sparse-checkout set --no-cone "${paths[@]}"
   if [ "$(git -C "$checkout" rev-parse HEAD 2>/dev/null || true)" != "$revision" ]; then
     git -C "$checkout" fetch --quiet --depth 1 --filter=blob:none origin "$revision"
@@ -34,9 +34,9 @@ command=${1:-}
 [ $# -gt 0 ] && shift
 case "$command" in
   fetch) fetch ;;
-  prepare | run | report | compare) exec bun "$here/$command.ts" "$@" ;;
+  prepare | run | report | compare | expectations) exec bun "$here/$command.ts" "$@" ;;
   *)
-    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] [--dirs a,b] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--flag F] [--timeout-scale S] | report LABEL | compare OLD NEW\n' >&2
+    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--kinds testharness,reftest,crashtest] [--tests FILE] [--timeout-scale S] | report LABEL | compare OLD NEW | expectations check LABEL | update LABEL… | gate | summary\n' >&2
     exit 2
     ;;
 esac

@@ -1,41 +1,54 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { Acde } from 'acde/driver'
+import { Acde, Png, type Image } from 'acde/driver'
+import { compare, fuzzyFor, within } from './reftest'
 import { perform, type DriverRequest } from './drive'
 import type { Test } from './prepare'
 
-const STATE = process.env.WPT_STATE ?? join(import.meta.dir, '..', '..', 'logs', 'wpt')
+const ROOT = join(import.meta.dir, '..', '..')
+const STATE = process.env.WPT_STATE ?? join(ROOT, 'logs', 'wpt')
 const { values } = parseArgs({
   options: {
     label: { type: 'string', default: new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') },
     workers: { type: 'string', default: '3' },
     first: { type: 'string', default: '1' },
     dirs: { type: 'string', default: '' },
+    kinds: { type: 'string', default: 'testharness,reftest,crashtest' },
+    tests: { type: 'string', default: '' },
     limit: { type: 'string', default: '0' },
+    chunk: { type: 'string', default: '40' },
     acdert: { type: 'string', default: process.env.ACDERT ?? '' },
+    app: { type: 'string', default: process.env.ACDE_APP ?? join(ROOT, 'web', 'packages', 'acde-host', 'dist') },
     'timeout-scale': { type: 'string', default: '1' },
     retry: { type: 'boolean', default: false },
     flag: { type: 'string', default: '' },
     rerun: { type: 'boolean', default: false },
   },
 })
-if (!values.acdert) throw new Error('--acdert <path to acdert> (or ACDERT) is required')
+if (!values.acdert) throw new Error('--acdert <path to acdebin-dbg> (or ACDERT) is required')
+if (!existsSync(join(values.app!, 'broker.js'))) throw new Error(`${values.app}: no broker.js; build acdert's web (cd web && bun run build) or pass --app <acde-host dist>`)
 const WORKERS = Number(values.workers)
 const FIRST = Number(values.first)
 const SCALE = Number(values['timeout-scale'])
+const CHUNK = Math.max(1, Number(values.chunk))
 const OUT = join(STATE, 'results', values.label!)
 const DATA = join(STATE, 'work', 'data', values.label!)
 mkdirSync(OUT, { recursive: true })
 const RESULTS = join(OUT, 'results.jsonl')
-const ACTIVE = join(STATE, 'run.active')
+const VIEWPORT: [number, number] = [800, 600]
+const LOAD_MS = 6000
 
-type Sub = { name: string; status: number; message: string | null }
-type Result = { url: string; status: string; message?: string | null; tests?: Sub[]; ms: number; worker: number; attempt?: number }
+export type Sub = { name: string; status: number; message: string | null }
+export type Result = { url: string; kind: Test['kind']; status: string; message?: string | null; tests?: Sub[]; ms: number; worker: number; attempt?: number }
 
 const HARNESS = ['OK', 'ERROR', 'TIMEOUT', 'PRECONDITION_FAILED']
 const only = values.dirs ? values.dirs.split(',').map((d) => '/' + d.replace(/^\/+|\/+$/g, '') + '/') : null
-let list = (JSON.parse(readFileSync(join(STATE, 'tests.json'), 'utf8')) as Test[]).filter((t) => !t.skip && (!only || only.some((d) => t.url.startsWith(d))) && (!values.flag || t.flags.includes(values.flag)))
+const kinds = new Set(values.kinds!.split(','))
+const chosen = values.tests ? new Set(JSON.parse(readFileSync(values.tests, 'utf8')) as string[]) : null
+const all = JSON.parse(readFileSync(join(STATE, 'tests.json'), 'utf8')) as Test[]
+const byUrl = new Map(all.map((t) => [t.url, t]))
+let list = all.filter((t) => !t.unhosted && kinds.has(t.kind) && (!only || only.some((d) => t.url.startsWith(d))) && (!chosen || chosen.has(t.url)) && (!values.flag || t.flags.includes(values.flag)))
 
 for (let n = FIRST; n < FIRST + WORKERS; n++)
   if (!existsSync(join(STATE, 'work', `app${n}`, 'acde.config.jsonc'))) throw new Error(`${join(STATE, 'work', `app${n}`)} is missing: run scripts/wpt/wpt.sh prepare --first ${FIRST} --workers ${WORKERS}`)
@@ -53,33 +66,46 @@ list = list.filter((t) => {
 })
 if (Number(values.limit) > 0) list = list.slice(0, Number(values.limit))
 
-const chunks = new Map<string, Test[]>()
+const groups = new Map<string, Test[]>()
 for (const t of list) {
-  const key = t.url.split('?')[0]!.split('/').slice(1, -1).slice(0, 2).join('/')
-  if (!chunks.has(key)) chunks.set(key, [])
-  chunks.get(key)!.push(t)
+  const key = `${t.kind}:${t.url.split('?')[0]!.split('/').slice(1, -1).slice(0, 2).join('/')}`
+  if (!groups.has(key)) groups.set(key, [])
+  groups.get(key)!.push(t)
 }
-const queue = [...chunks.entries()].sort((a, b) => b[1].length - a[1].length)
+const queue: [string, Test[]][] = []
+for (const [key, tests] of groups) for (let i = 0; i < tests.length; i += CHUNK) queue.push([`${key}#${i / CHUNK}`, tests.slice(i, i + CHUNK)])
+queue.sort((a, b) => b[1].length - a[1].length)
 const total = list.length
 let finished = 0
 const started = Date.now()
 const previous = existsSync(join(OUT, 'meta.json')) ? JSON.parse(readFileSync(join(OUT, 'meta.json'), 'utf8')) : null
-const meta = { ...(previous ?? {}), passes: [...(previous?.passes ?? []), { started: new Date().toISOString(), flag: values.flag || null, rerun: values.rerun, dirs: values.dirs || null }], label: values.label, wpt: readFileSync(join(STATE, 'work', 'wpt-sha'), 'utf8').trim(), acdert: values.acdert, started: new Date().toISOString(), workers: WORKERS, dirs: values.dirs || null, platform: process.platform }
-writeFileSync(join(OUT, 'meta.json'), JSON.stringify(meta, null, 2) + '\n')
-const ownsActive = !existsSync(ACTIVE)
-if (ownsActive) writeFileSync(ACTIVE, `${process.pid} ${values.label}\n`)
-const releaseActive = () => {
-  if (ownsActive) rmSync(ACTIVE, { force: true })
+const meta = {
+  ...(previous ?? {}),
+  passes: [...(previous?.passes ?? []), { started: new Date().toISOString(), flag: values.flag || null, rerun: values.rerun, dirs: values.dirs || null, kinds: values.kinds, tests: values.tests || null }],
+  label: values.label,
+  wpt: readFileSync(join(STATE, 'work', 'wpt-sha'), 'utf8').trim(),
+  acdert: values.acdert,
+  started: new Date().toISOString(),
+  workers: WORKERS,
+  dirs: values.dirs || null,
+  platform: process.platform,
 }
+writeFileSync(join(OUT, 'meta.json'), JSON.stringify(meta, null, 2) + '\n')
 console.log(`${total} tests in ${queue.length} chunks, ${done.size} already done, ${WORKERS} workers -> ${OUT}`)
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const gone = (e: unknown) => /closed the connection|no longer connected|not connected|ECONNREFUSED|EPIPE|no web|no page|exited/i.test(String((e as Error)?.message ?? e))
+const text = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 500)
+
+class Crash extends Error {}
+class Hang extends Error {}
 
 class Worker {
   acde: Acde | null = null
   web = ''
   launches = 0
+  viewport: [number, number] | null = null
+  shots = new Map<string, Image>()
   constructor(readonly n: number) {}
 
   async launch(chunk: string) {
@@ -91,12 +117,14 @@ class Worker {
       headless: true,
       force: true,
       timeout: 20000,
-      env: { ACDERT: values.acdert!, XDG_DATA_HOME: data, XDG_CONFIG_HOME: join(data, 'config'), XDG_CACHE_HOME: join(data, 'cache') },
+      env: { ACDERT: values.acdert!, ACDE_APP: values.app!, XDG_DATA_HOME: data, XDG_CONFIG_HOME: join(data, 'config'), XDG_CACHE_HOME: join(data, 'cache') },
     })
     const webs = await this.acde.webs()
     const web = webs.find((w) => w.app === `wpt${this.n}`)
     if (!web) throw new Error(`worker ${this.n}: no page after launch for ${chunk}`)
     this.web = web.name
+    this.viewport = null
+    this.shots.clear()
   }
 
   async close() {
@@ -110,28 +138,126 @@ class Worker {
     return (await this.acde!.evaluate<T>(this.web, code)) as T
   }
 
-  async runOne(t: Test): Promise<Result> {
-    const t0 = Date.now()
-    const budget = (t.long ? 60000 : 10000) * SCALE
-    const res = (status: string, extra: Partial<Result> = {}): Result => ({ url: t.url, status, ms: Date.now() - t0, worker: this.n, ...extra })
+  async navigate(url: string) {
     try {
-      await this.eval(`window.__wpt = undefined; window.__old = 1; if (location.pathname + location.search === ${JSON.stringify(t.url)}) location.reload(); else location.href = ${JSON.stringify(t.url)}; 1`)
+      await this.eval(`window.__wpt = undefined; window.__old = 1; if (location.pathname + location.search === ${JSON.stringify(url)}) location.reload(); else location.href = ${JSON.stringify(url)}; 1`)
     } catch (e) {
-      return res(gone(e) ? 'CRASH' : 'HANG', { message: `navigate: ${String((e as Error)?.message ?? e).slice(0, 500)}` })
+      throw gone(e) ? new Crash(`navigate: ${text(e)}`) : new Hang(`navigate: ${text(e)}`)
     }
+  }
+
+  async poll<T>(code: string, until: (value: T) => boolean, ms: number): Promise<T | null> {
+    const end = Date.now() + ms
+    let last: T | null = null
+    while (Date.now() < end) {
+      try {
+        last = await this.eval<T>(code)
+        if (until(last)) return last
+      } catch (e) {
+        if (gone(e)) throw new Crash(text(e))
+      }
+      await sleep(25)
+    }
+    return null
+  }
+
+  async settle(waitClass: string, budget: number): Promise<'ready' | 'noload' | 'timeout'> {
+    const loaded = await this.poll<number>(`window.__old === 1 || document.readyState !== 'complete' ? 0 : document.querySelector('meta[name=wpt-runner]') ? 2 : 1`, (v) => v !== 0, Math.min(LOAD_MS * SCALE, budget))
+    if (loaded !== 1) return 'noload'
+    await this.eval(
+      `window.__settled = 0; (async () => { try { await document.fonts?.ready } catch {} ; const root = document.documentElement; while (root && root.classList.contains(${JSON.stringify(waitClass)})) await new Promise((r) => setTimeout(r, 20)); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); window.__settled = 1 })(); 1`,
+    ).catch((e) => {
+      if (gone(e)) throw new Crash(text(e))
+    })
+    const settled = await this.poll<number>(`window.__settled === 1 ? 1 : 0`, (v) => v === 1, budget)
+    return settled === null ? 'timeout' : 'ready'
+  }
+
+  async size(viewport: [number, number]) {
+    if (this.viewport && this.viewport[0] === viewport[0] && this.viewport[1] === viewport[1]) return
+    await this.acde!.resize(this.web, viewport[0], viewport[1])
+    this.viewport = viewport
+    this.shots.clear()
+  }
+
+  async shot(url: string, budget: number): Promise<Image | 'noload' | 'timeout'> {
+    await this.navigate(url)
+    const state = await this.settle('reftest-wait', budget)
+    if (state !== 'ready') return state
+    return Png.decode((await this.acde!.screenshot(this.web)).png)
+  }
+
+  async reference(url: string, budget: number): Promise<Image | 'noload' | 'timeout'> {
+    const cached = this.shots.get(url)
+    if (cached) return cached
+    const image = await this.shot(url, budget)
+    if (typeof image !== 'string') this.shots.set(url, image)
+    return image
+  }
+
+  async reftest(t: Test, budget: number, res: (status: string, extra?: Partial<Result>) => Result): Promise<Result> {
+    await this.size(t.viewport ?? VIEWPORT)
+    const test = await this.shot(t.url, budget)
+    if (test === 'noload') return res('NOLOAD', { message: 'the test page never loaded' })
+    if (test === 'timeout') return res('TIMEOUT', { message: 'reftest-wait was never removed' })
+    const failures: string[] = []
+    for (const ref of t.references ?? []) {
+      const chain = await this.matches(t, test, ref.url, ref.relation, budget, new Set([t.url]))
+      if (chain === null) return res('PASS')
+      failures.push(chain)
+    }
+    return res('FAIL', { message: failures.join('; ').slice(0, 2000) })
+  }
+
+  async matches(t: Test, image: Image, ref: string, relation: '==' | '!=', budget: number, seen: Set<string>): Promise<string | null> {
+    const other = await this.reference(ref, budget)
+    if (other === 'noload') return `${ref}: the reference never loaded`
+    if (other === 'timeout') return `${ref}: reftest-wait was never removed`
+    const diff = compare(image, other)
+    const same = !diff.size && within(diff, fuzzyFor(t, ref))
+    if (relation === '==' && !same) return `${ref}: ${diff.size ?? `${diff.totalPixels} pixels differ, by up to ${diff.maxDifference}`}`
+    if (relation === '!=' && same) return `${ref}: matches, but it must not`
+    const next = byUrl.get(ref)
+    if (next?.kind === 'reftest' && next.references?.length && !seen.has(ref)) {
+      seen.add(ref)
+      for (const deeper of next.references) {
+        const why = await this.matches(next, other, deeper.url, deeper.relation, budget, seen)
+        if (why !== null) return `${ref} -> ${why}`
+      }
+    }
+    return null
+  }
+
+  async crashtest(t: Test, budget: number, res: (status: string, extra?: Partial<Result>) => Result): Promise<Result> {
+    await this.navigate(t.url)
+    const state = await this.settle('test-wait', budget)
+    if (state === 'noload') return res('NOLOAD', { message: 'the test page never loaded' })
+    if (state === 'timeout') return res('TIMEOUT', { message: 'test-wait was never removed' })
+    try {
+      await this.eval('1')
+    } catch (e) {
+      return res(gone(e) ? 'CRASH' : 'ERROR', { message: text(e) })
+    }
+    return res('PASS')
+  }
+
+  async testharness(t: Test, budget: number, t0: number, res: (status: string, extra?: Partial<Result>) => Result): Promise<Result> {
+    await this.navigate(t.url)
     let loaded = false
     let timedOut = false
     while (true) {
       await sleep(loaded ? 40 : 25)
       let got: unknown
       try {
-        got = await this.eval(`window.__old === 1 ? 0 : typeof window.__wpt === 'string' ? window.__wpt : window.__wptdrv && window.__wptdrv.queue.length ? { drive: window.__wptdrv.queue.splice(0) } : 1`)
+        got = await this.eval(`window.__old === 1 ? 0 : document.querySelector('meta[name=wpt-runner]') ? 2 : typeof window.__wpt === 'string' ? window.__wpt : window.__wptdrv && window.__wptdrv.queue.length ? { drive: window.__wptdrv.queue.splice(0) } : 1`)
       } catch (e) {
-        if (gone(e)) return res('CRASH', { message: String((e as Error)?.message ?? e).slice(0, 500) })
-        if (Date.now() - t0 > budget + 8000) return res('HANG', { message: String((e as Error)?.message ?? e).slice(0, 500) })
+        if (gone(e)) return res('CRASH', { message: text(e) })
+        if (Date.now() - t0 > budget + 8000) return res('HANG', { message: text(e) })
         continue
       }
+      if (got === 2) return res('NOLOAD', { message: 'the runtime opened the app entry instead of the test (it does not load this kind of document)' })
       if (got === 1) loaded = true
+      if (!loaded && got === 0 && Date.now() - t0 > Math.min(LOAD_MS * SCALE, budget)) return res('NOLOAD', { message: 'the test page never loaded' })
       if (got && typeof got === 'object' && 'drive' in got) {
         loaded = true
         for (const req of (got as { drive: DriverRequest[] }).drive) {
@@ -139,7 +265,7 @@ class Worker {
           try {
             await this.eval(`window.__wptdrv && window.__wptdrv.done(${req.id}, ${JSON.stringify(error)}); 1`)
           } catch (e) {
-            if (gone(e)) return res('CRASH', { message: String((e as Error)?.message ?? e).slice(0, 500) })
+            if (gone(e)) return res('CRASH', { message: text(e) })
           }
         }
         continue
@@ -153,11 +279,26 @@ class Worker {
         try {
           await this.eval(`typeof timeout === 'function' ? (timeout(), 1) : 0`)
         } catch (e) {
-          if (gone(e)) return res('CRASH', { message: String((e as Error)?.message ?? e).slice(0, 500) })
-          return res('HANG', { message: `timeout(): ${String((e as Error)?.message ?? e).slice(0, 500)}` })
+          if (gone(e)) return res('CRASH', { message: text(e) })
+          return res('HANG', { message: `timeout(): ${text(e)}` })
         }
       }
-      if (timedOut && Date.now() - t0 > budget + 3000) return res('TIMEOUT', { message: loaded ? 'no completion after timeout()' : 'page never loaded' })
+      if (timedOut && Date.now() - t0 > budget + 3000) return res('TIMEOUT', { message: 'no completion after timeout()' })
+    }
+  }
+
+  async runOne(t: Test): Promise<Result> {
+    const t0 = Date.now()
+    const budget = (t.long ? 60000 : 10000) * SCALE
+    const res = (status: string, extra: Partial<Result> = {}): Result => ({ url: t.url, kind: t.kind, status, ms: Date.now() - t0, worker: this.n, ...extra })
+    try {
+      if (t.kind === 'reftest') return await this.reftest(t, budget, res)
+      if (t.kind === 'crashtest') return await this.crashtest(t, budget, res)
+      return await this.testharness(t, budget, t0, res)
+    } catch (e) {
+      if (e instanceof Crash) return res('CRASH', { message: e.message })
+      if (e instanceof Hang) return res('HANG', { message: e.message })
+      return res(gone(e) ? 'CRASH' : 'ERROR', { message: text(e) })
     }
   }
 
@@ -210,15 +351,10 @@ function record(r: Result) {
 const workers = Array.from({ length: WORKERS }, (_, i) => new Worker(FIRST + i))
 const stop = async () => {
   await Promise.all(workers.map((w) => w.close()))
-  releaseActive()
   process.exit(130)
 }
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
-try {
-  await Promise.all(workers.map((w) => w.work()))
-} finally {
-  releaseActive()
-  writeFileSync(join(OUT, 'meta.json'), JSON.stringify({ ...meta, finished: new Date().toISOString(), seconds: Math.round((Date.now() - started) / 1000) }, null, 2) + '\n')
-}
+await Promise.all(workers.map((w) => w.work()))
+writeFileSync(join(OUT, 'meta.json'), JSON.stringify({ ...meta, finished: new Date().toISOString(), seconds: Math.round((Date.now() - started) / 1000) }, null, 2) + '\n')
 console.log(`done in ${Math.round((Date.now() - started) / 1000)} s`)
