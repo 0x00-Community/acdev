@@ -29,5 +29,8 @@
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开
   (字体、GPU 不同, reftest 结果不同): `linux` 由 CI 的 `baseline` 生成 (跑全量, 再跑两遍 gate, 三次合并; 产物里的 `expectations/linux` 拷进来提交),
   `darwin` 在 Mac 上照样做. 修好东西后跑 `update` 把改进记下来, 一起提交.
-- CI (`.gitea/workflows/test.yml`, 手动, runner `x86_64-debian-234`, 直接跑在主机上, 没有 Docker): `web` 和 `wpt` (并排克隆 AC/acdebin-dbg 编 release, Mesa 的软件
-  Vulkan 无头跑). 结果和期望文件作为产物留 14 天. 稳定后改成每次推送跑 gate、每晚跑 full, 改之前先告诉基座的人.
+- CI (`.gitea/workflows/test.yml`, 手动, runner `x86_64-debian-234`, 直接跑在主机上, 没有 Docker): `web`; `wpt` 每个分片一个任务
+  (`gate` 一片, `full` / `baseline` 四片, 依次跑: Gitea 一个任务最多 3 小时, 全量一个任务跑不完; `run --shard i/n` 按分块的名字分);
+  `expectations` (只有 `baseline`: 合并各片结果, gate 再跑两遍, 写 `expectations/linux`, 作为产物 `wpt-expectations`, 拷进来提交);
+  `demo` (`full` / `baseline`: acde-demo 的 e2e). 准备环境的步骤在 `.gitea/actions/wpt-setup` (并排克隆 AC/acdebin-dbg 编 release, Mesa 的软件
+  Vulkan 无头跑, WPT 检出). 结果作为产物留 14 天. 稳定后改成每次推送跑 gate、每晚跑 full, 改之前先告诉基座的人.
