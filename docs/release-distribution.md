@@ -72,7 +72,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `upload` / `latest` 换角色 `dopame-acde-release` 的凭据:
   有 repo secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (Gitea 上是 IAM 用户 `gitea-acde-release` 的 key, 它只能 assume 这个角色) 时用
   `aws sts assume-role`, 没有 (GitHub) 时用 OIDC 令牌 `assume-role-with-web-identity` (用户定, 2026-11-12: 腾讯云 COS 改回 S3 `dopame-pkgs`). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
-  Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, GitHub 镜像靠推送镜像或手动推.
+  Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, 不往 GitHub 推 (用户定 2026-11-14: GitHub 不再更新).
   `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、构建和页面资源来自本次运行、版本目录的文件清单与上传、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN 与区域).
 - **npm** (作业 `npm`, 只在正式发布时, 在 `guard` 之后和 `upload` 并行; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
   每个要发的平台一个 `@dopame/acde-<os>-<cpu>` (`linux-x64`、`darwin-arm64`、`darwin-x64`、`win32-x64`; 内容按安装后的布局: 命令行归档、

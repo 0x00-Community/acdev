@@ -19,7 +19,7 @@
 
 ## 提交与推送
 
-- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`). 不 force push, 不开分支、不开 worktree.
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`), 只推这里 (用户定 2026-11-14: 不再推 GitHub). 不 force push, 不开分支、不开 worktree.
 - 提交一律 `git commit -- <自己的路径>`, 英文 Conventional Commits, 每行不超过 72 字符, 不加 Co-Authored-By. 做完就提交并推送.
 - 提交前只做语法检查: `cargo fmt --all`、`npm/` 的类型检查 (`bun run typecheck`) 与格式化 (如有)、Guard 提交时的暂存语法检查;
   构建、运行和测试只在用户要求时做, 做了就在提交信息里写清已验证 / 未验证.
