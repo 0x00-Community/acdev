@@ -1,6 +1,6 @@
 # 要做 (CLI)
 
-1. 热重载: acdert 已认 `reload {hot: true}` (见它的「acde dev」, 那里提到的 acde `src/changes.ts` 还没有), acde 只发普通 `reload`; 框架用自己的 `build --watch`.
+1. 框架工程用框架自己的 `build --watch` (热重载 `reload {hot: true}` 已经发了, 见 `acde-dev.md` 的「热重载」).
 2. `acde.config.jsonc` 加 `compatibility_date`、environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成 d.ts)、单元测试跑在 acdert 的 isolate 里、`acde deploy --to <主机>`、包签名和仓库之后 `acde publish`.
 4. 分发: 发布流水线按 `release.yml` 建立 (见 `release-distribution.md`). 远端已有 `v0.0.5` 标签 (指向 `7ff42fc`), 它不是由新流程打的, 因此新流程不能再发布 `v0.0.5`, 要发更高的版本号. 首次正式发布前先用预演跑一遍.

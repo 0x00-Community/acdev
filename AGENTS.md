@@ -39,7 +39,7 @@
 | 改 `acde build` / `install`: 工程与包、框架识别、打包器、`public/`、后端和 preload (含 Windows 通道模式) | `docs/acde-build.md` |
 | 改 `acde doctor` 的检查项、修法文字或 `--fix` | `docs/acde-doctor.md` |
 | 改运行时自检 `acdebin-dbg doctor` (`src/doctor.rs`) 的检查项或输出 | `docs/doctor.md` |
-| 改 `acde dev`: 契约级别检查、stderr 过滤、监听重建、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
+| 改 `acde dev`: 契约级别检查、stderr 过滤、监听重建、热重载、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
 | 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acde test` | `docs/devtools-driver-mcp.md` |
 | 发版, 改 `release.yml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
 | 改 `npm/skills/acde/`、`acde skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |

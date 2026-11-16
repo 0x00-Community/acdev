@@ -1,9 +1,12 @@
-import { rmSync, statSync } from 'node:fs'
-import { basename, delimiter, resolve } from 'node:path'
+import { readFileSync, rmSync, statSync } from 'node:fs'
+import { basename, delimiter, join, resolve } from 'node:path'
+import type { PackageManifest } from '@dopame/acde-api/manifest'
 import type { StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import { Devtools } from './devtools.ts'
+import * as Changes from './changes.ts'
+import type { Reload, Snapshot } from './changes.ts'
 import { DevClient, type Message } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
@@ -36,8 +39,14 @@ interface Unit {
   pkg: AppPackage
   readonly out: string
   built: Built | null
+  served?: Served
   timer?: ReturnType<typeof setTimeout>
   watcher?: Watching
+}
+
+interface Served {
+  readonly snapshot: Snapshot
+  readonly fixed: readonly string[]
 }
 
 export type { RuntimeProbe }
@@ -245,7 +254,10 @@ export class DevSession {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)
     }
-    for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out, { dev: true })
+    for (const unit of this.#units) {
+      unit.built = await unit.pkg.build(unit.out, { dev: true })
+      unit.served = DevSession.#served(unit.pkg, unit.built)
+    }
     const target = this.#plan()
     await this.#checkLevels()
     this.#shown = target.kind === 'desktop' ? target.id : null
@@ -312,7 +324,7 @@ export class DevSession {
       this.#link.send({ type: 'hello', role: 'dev' })
       this.#publish()
       for (const unit of this.#units) {
-        const skip = (dir: string) => SKIPPED.has(basename(dir)) || contains(unit.out, dir)
+        const skip = (dir: string) => DevSession.#skipped(unit, basename(dir), dir) || contains(unit.out, dir)
         unit.watcher = TreeWatch.start(unit.pkg.dir, skip, (file) => this.#changed(unit, file))
       }
       watchers.push(...this.#units.map((u) => u.watcher!))
@@ -383,7 +395,7 @@ export class DevSession {
   #changed(unit: Unit, file: string | null): void {
     if (file === null) return
     const path = resolve(unit.pkg.dir, file)
-    if (file.split(/[\\/]/).some((part) => SKIPPED.has(part)) || E2E_FILE.test(file)) return
+    if (file.split(/[\\/]/).some((part) => DevSession.#skipped(unit, part, path)) || E2E_FILE.test(file)) return
     if (DevSession.#directory(path)) return
     if (contains(unit.out, path)) return
     const nested = (other: Unit) =>
@@ -394,6 +406,32 @@ export class DevSession {
       this.#dirty.add(unit)
       void this.#drain()
     }, SETTLE_MS)
+  }
+
+  static reload(pkg: AppPackage, before: Served | undefined, after: Served | undefined): Reload {
+    if (!before || !after) return 'full'
+    const reload = Changes.reload(before.snapshot, after.snapshot, after.fixed)
+    return reload === 'none' && !pkg.manifest ? 'full' : reload
+  }
+
+  static #served(pkg: AppPackage, built: Built): Served | undefined {
+    try {
+      const manifest = pkg.manifest
+        ?? (JSON.parse(readFileSync(join(built.dir, 'package.json'), 'utf8')) as { acde: PackageManifest }).acde
+      const { roots, fixed } = Changes.served(built.dir, manifest, !pkg.manifest)
+      return { snapshot: Changes.snapshot(built.dir, roots), fixed }
+    } catch {
+      return undefined
+    }
+  }
+
+  static #skipped(unit: Unit, name: string, path: string): boolean {
+    if (Changes.IGNORED.has(name)) return true
+    if (!SKIPPED.has(name)) return false
+    const manifest = unit.pkg.manifest
+    if (!manifest) return true
+    const { roots } = Changes.served(unit.pkg.dir, manifest, false)
+    return !roots.some((root) => contains(join(unit.pkg.dir, root), path))
   }
 
   async #marks(): Promise<Reloaded | null> {
@@ -441,10 +479,19 @@ export class DevSession {
       const refused = this.#level === null ? null : DevSession.refusal({ pkg: unit.pkg, built }, this.#level)
       if (refused) throw new Error(refused)
       unit.built = built
-      console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
+      const served = DevSession.#served(unit.pkg, built)
+      const reload = DevSession.reload(unit.pkg, unit.served, served)
+      unit.served = served
+      const took = `${who}rebuilt (${Math.round(performance.now() - started)} ms)`
+      if (reload === 'none') {
+        console.log(`acde: ${took}; nothing the runtime loads changed, so no reload`)
+        return
+      }
+      console.log(`acde: ${took}, ${reload === 'hot' ? 'swapping its styles and scripts in place' : 'reloading'}`)
       this.#reloaded = (await this.#marks()) ?? this.#reloaded
-      for (const app of built.apps) this.#link?.send({ type: 'reload', app })
-      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#link?.send({ type: 'reload' })
+      const hot = reload === 'hot' ? { hot: true } : {}
+      for (const app of built.apps) this.#link?.send({ type: 'reload', app, ...hot })
+      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#link?.send({ type: 'reload', ...hot })
       if (this.#link) this.#publish()
     } catch (error) {
       console.error(`acde: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)

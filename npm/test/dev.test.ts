@@ -596,6 +596,70 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
+  test('a change of styles and scripts only reloads hot; a change of the page reloads the whole page', async () => {
+    const base = tmp()
+    const page = (text: string) =>
+      '<!doctype html><title>x</title><link rel="stylesheet" href="./style.css">' +
+      `<script type="module" src="./main.js"></script><p>${text}</p>`
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' },
+      { 'style.css': 'p { color: red }', 'main.js': 'console.log(1)' })
+    writeFileSync(join(alpha, 'index.html'), page('x'))
+    const dev = start([alpha], base)
+    const reloads = () => dev.entries().filter((e) => e.got?.['type'] === 'reload').map((e) => e.got)
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      await Bun.sleep(200)
+      writeFileSync(join(alpha, 'style.css'), 'p { color: blue }')
+      await until('the hot reload', () => reloads().length >= 1)
+      writeFileSync(join(alpha, 'main.js'), 'console.log(2)')
+      await until('the second hot reload', () => reloads().length >= 2)
+      writeFileSync(join(alpha, 'index.html'), page('y'))
+      await until('the full reload', () => reloads().length >= 3)
+      expect(reloads()).toEqual([
+        { type: 'reload', app: 'alpha', hot: true },
+        { type: 'reload', app: 'alpha', hot: true },
+        { type: 'reload', app: 'alpha' },
+      ])
+    } finally {
+      await dev.stop()
+    }
+  }, 30_000)
+
+  test('a hand-written package: its sources do not reload; what it serves (dist/) does, hot when it can', async () => {
+    const base = tmp()
+    const hand = join(base, 'hand')
+    mkdirSync(join(hand, 'dist'), { recursive: true })
+    mkdirSync(join(hand, 'src'))
+    writeFileSync(join(hand, 'package.json'), JSON.stringify({
+      name: 'hand',
+      acde: {
+        apiLevel: API_LEVEL,
+        apps: [{ id: 'hand', label: 'Hand', icon: 'app', entry: '/app/hand/index.html' }],
+        assets: { '/app/hand/': ['dist'] },
+      },
+    }))
+    const page = (text: string) => `<!doctype html><script type="module" src="main.js"></script><p>${text}</p>`
+    writeFileSync(join(hand, 'dist', 'index.html'), page('x'))
+    writeFileSync(join(hand, 'dist', 'main.js'), 'console.log(1)')
+    writeFileSync(join(hand, 'src', 'main.ts'), 'console.log(1)')
+    const dev = start([realpathSync(hand)], base)
+    const reloads = () => dev.entries().filter((e) => e.got?.['type'] === 'reload').map((e) => e.got)
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      await Bun.sleep(200)
+      writeFileSync(join(hand, 'src', 'main.ts'), 'console.log(2)')
+      await Bun.sleep(800)
+      expect(reloads()).toEqual([])
+      writeFileSync(join(hand, 'dist', 'main.js'), 'console.log(2)')
+      await until('the hot reload', () => reloads().length >= 1)
+      writeFileSync(join(hand, 'dist', 'index.html'), page('y'))
+      await until('the full reload', () => reloads().length >= 2)
+      expect(reloads()).toEqual([{ type: 'reload', app: 'hand', hot: true }, { type: 'reload', app: 'hand' }])
+    } finally {
+      await dev.stop()
+    }
+  }, 30_000)
+
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
     const base = tmp()
     const desk = project(
