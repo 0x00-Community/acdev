@@ -20,9 +20,9 @@
 ## 提交与推送
 
 - 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdebin-dbg.git`). 不 force push, 不开分支、不开 worktree.
-- 提交一律 `git commit -- <自己的路径>`, 英文 Conventional Commits, 每行不超过 72 字符, 不加 Co-Authored-By; 提交前 `cargo fmt --all`.
-  做完就提交并推送.
-- 改 `crates/hostwin` 的提交先在这棵树编出来的 acdebin-dbg 上起一次 (`ACDE_HEADLESS=1` 也行), 写清已验证 / 未验证.
+- 提交一律 `git commit -- <自己的路径>`, 英文 Conventional Commits, 每行不超过 72 字符, 不加 Co-Authored-By. 做完就提交并推送.
+- 提交前只做语法检查: `cargo fmt --all`、`npm/` 的类型检查 (`bun run typecheck`) 与格式化 (如有)、Guard 提交时的暂存语法检查;
+  构建、运行和测试只在用户要求时做, 做了就在提交信息里写清已验证 / 未验证.
 - 汇报时分开写「已验证 / 未验证」.
 
 ## 文件路由
