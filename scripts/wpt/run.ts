@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { Acde, Png, type Image } from 'acde/driver'
@@ -24,6 +24,7 @@ const { values } = parseArgs({
     retry: { type: 'boolean', default: false },
     flag: { type: 'string', default: '' },
     rerun: { type: 'boolean', default: false },
+    'skip-slow': { type: 'string', default: '' },
   },
 })
 if (!values.acdert) throw new Error('--acdert <path to acdebin-dbg> (or ACDERT) is required')
@@ -43,12 +44,26 @@ export type Sub = { name: string; status: number; message: string | null }
 export type Result = { url: string; kind: Test['kind']; status: string; message?: string | null; tests?: Sub[]; ms: number; worker: number; attempt?: number }
 
 const HARNESS = ['OK', 'ERROR', 'TIMEOUT', 'PRECONDITION_FAILED']
+
+function slowOf(dir: string): Set<string> {
+  const urls = new Set<string>()
+  if (!existsSync(dir)) return urls
+  for (const name of readdirSync(dir))
+    if (name.endsWith('.json'))
+      for (const [url, e] of Object.entries(JSON.parse(readFileSync(join(dir, name), 'utf8')) as Record<string, string | { status: string; flaky?: unknown }>)) {
+        const status = typeof e === 'string' ? e : e.status
+        if (['TIMEOUT', 'NOLOAD', 'HANG'].includes(status) && !(typeof e === 'object' && e.flaky === true)) urls.add(url)
+      }
+  return urls
+}
 const only = values.dirs ? values.dirs.split(',').map((d) => '/' + d.replace(/^\/+|\/+$/g, '') + '/') : null
 const kinds = new Set(values.kinds!.split(','))
 const chosen = values.tests ? new Set(JSON.parse(readFileSync(values.tests, 'utf8')) as string[]) : null
 const all = JSON.parse(readFileSync(join(STATE, 'tests.json'), 'utf8')) as Test[]
 const byUrl = new Map(all.map((t) => [t.url, t]))
-let list = all.filter((t) => !t.unhosted && kinds.has(t.kind) && (!only || only.some((d) => t.url.startsWith(d))) && (!chosen || chosen.has(t.url)) && (!values.flag || t.flags.includes(values.flag)))
+const slow = values['skip-slow'] ? slowOf(values['skip-slow']) : null
+let list = all.filter((t) => !t.unhosted && kinds.has(t.kind) && (!only || only.some((d) => t.url.startsWith(d))) && (!chosen || chosen.has(t.url)) && (!values.flag || t.flags.includes(values.flag)) && !slow?.has(t.url))
+if (slow) console.log(`skipping ${slow.size} tests the expectations in ${values['skip-slow']} record as TIMEOUT, NOLOAD or HANG`)
 
 for (let n = FIRST; n < FIRST + WORKERS; n++)
   if (!existsSync(join(STATE, 'work', `app${n}`, 'acde.config.jsonc'))) throw new Error(`${join(STATE, 'work', `app${n}`)} is missing: run scripts/wpt/wpt.sh prepare --first ${FIRST} --workers ${WORKERS}`)

@@ -23,7 +23,7 @@
   reftest (无边框窗口 800x600, 等 `reftest-wait` 去掉、字体就绪、两帧, 截图逐像素比, 按清单的 fuzzy 范围, 参考链, 同一会话缓存参考图);
   crashtest (加载、等 `test-wait` 去掉, 进程还在即 PASS). 6 秒内页面没加载完记 NOLOAD.
 - 命令: `wpt.sh fetch` (稀疏检出 `revision` 钉的 WPT, 去掉不适用的目录, 生成清单, 装好 wptserve 的 Python 环境) → `prepare --workers N` → `run --acdert <acdebin-dbg> [--label L]
-  [--dirs a,b] [--kinds …] [--tests gate.json]` (`--app` 缺省是本仓库的 `web/packages/acde-host/dist`, 要先 `cd web && bun run build`) →
+  [--dirs a,b] [--kinds …] [--tests gate.json] [--skip-slow <期望目录>]` (`--skip-slow` 跳过期望里记成 TIMEOUT / NOLOAD / HANG 的: 它们大多等满 10 / 60 秒的超时, 全量里大半时间花在这上面, 比如 acdert 没有的老式多字节编码; 只有 `baseline` 全跑) (`--app` 缺省是本仓库的 `web/packages/acde-host/dist`, 要先 `cd web && bun run build`) →
   `report L` (按目录的通过率、缺的接口、常见失败) / `expectations check L` (对期望文件, 回退就退出 1) / `expectations update L [L2 L3]` (几次结果合并,
   不一致的标 flaky) / `expectations gate` (守门的测试表).
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开

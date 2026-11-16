@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       wpt:
-        description: 'gate: the tests the expectations say pass; full: every applicable test; baseline: full, then the gate twice more, and expectations from the three runs'
+        description: 'gate: the tests the expectations say pass; full: every applicable test but those recorded as timing out; baseline: every applicable test, then the gate twice more, and expectations from the three runs'
         type: choice
         options: [gate, full, baseline]
         default: gate
@@ -110,7 +110,7 @@ jobs:
               $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
               run --label "$LABEL" --tests "$WPT_STATE/gate.json" ;;
             full)
-              run --label "$LABEL" ;;
+              run --label "$LABEL" --skip-slow acdert/scripts/wpt/expectations/linux ;;
             baseline)
               run --label "$LABEL"
               $w expectations update "$LABEL" --dir "$WPT_STATE/first" > /dev/null
