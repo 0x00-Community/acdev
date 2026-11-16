@@ -75,7 +75,7 @@ A runtime that cannot draw is an error of the `gpu` check, with the same reason 
 error  gpu: the system has a GPU (card0, kernel driver xe) but no usable Vulkan driver was found: install the GPU's Vulkan driver (for example vulkan-intel, vulkan-radeon, nvidia-utils) or point VK_DRIVER_FILES at its ICD (wgpu: No suitable graphics adapter found; …)
 ```
 
-Install the driver (see [The runtime](../start/install.md#the-runtime)); there is no software fallback. When it works, the line names the GPU, the graphics API and the driver, such as `ok     gpu: Intel(R) Graphics (PTL) (Vulkan, integrated GPU, driver Intel open-source Mesa driver Mesa 26.2.5-arch3.1): drew a test frame in 41 ms`.
+Install the driver (see [The runtime](../start/install.md#the-runtime)). With only a software driver (lavapipe), `gpu` is a warning: pages render on the CPU, and a page that animates the whole screen (a live wallpaper) shows only a few frames a second. When it works, the line names the GPU, the graphics API and the driver, such as `ok     gpu: Intel(R) Graphics (PTL) (Vulkan, integrated GPU, driver Intel open-source Mesa driver Mesa 26.2.5-arch3.1): drew a test frame in 41 ms`.
 
 On Linux in a shell with no graphical session (over SSH, for example):
 

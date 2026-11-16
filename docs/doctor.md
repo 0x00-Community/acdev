@@ -7,9 +7,11 @@
 `warn` / `error`, 可带一条 `fix`:
 
 - `host` (宿主文件): `acdert::app_dir()` (和起 Broker 同一个函数) 里有没有 `broker.js` 和 `web.js`; 缺了是错误, fix 按设没设 `ACDE_APP` 分两种.
-- `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`, 不认 CPU 适配器, 找不到时的原因和提示就是 `no_adapter` 那句), 再用
+- `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`: 真 GPU 排在前面, 只有 CPU 适配器 (lavapipe) 时也用它; 一个都没有时的原因和提示就是 `no_adapter` 那句), 再用
   `acdert::vello::Offscreen` 画一张 16x16 的纯色图、回读中心像素和画的颜色比 (每通道差 ≤ 2). 所以着色器编译 (Metal / DXC / Vulkan)、提交、
   回读都走过一遍. 在 `acde-doctor` 线程上做, 30 s 没结果算错误 (驱动挂住时不卡死), 回读是 doctor 自己要的像素, 不在 GPU 硬约束的禁止之列.
+  打开的是 CPU 适配器时是警告 (页面在 CPU 上画, 整屏动画只有几帧); WSL 上 (`/proc/sys/kernel/osrelease` 含 `microsoft`) fix 指向
+  `WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1`: wgpu 默认藏起不是一致性实现的 Vulkan 驱动, WSL 的 Dozen 就是, 于是只剩 lavapipe.
 - `display` (只在 Linux): 和起会话同一个判断 (`main.rs` 的 `outer()`: `WAYLAND_DISPLAY` / `DISPLAY` / `ACDE_HEADLESS`); 都没有时是警告:
   这时 `acdebin-dbg app` / `desktop` 不开宿主窗口, 而是去试着起 DRM 会话 (按代码的分支读出来的, 没在共用的机器上实测抢屏), fix 是
   `acde dev --headless` 或在图形会话里跑.

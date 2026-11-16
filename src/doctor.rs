@@ -16,7 +16,6 @@ const TOLERANCE: u8 = 2;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {
     Ok,
-    #[cfg_attr(not(target_os = "linux"), expect(dead_code, reason = "only the Linux display check warns"))]
     Warn,
     Error,
 }
@@ -172,7 +171,14 @@ fn gpu() -> Check {
         return Check::new("gpu", "gpu", Status::Error, format!("cannot start a thread for the test frame: {e}"), None);
     }
     match rx.recv_timeout(GPU_WAIT) {
-        Ok(Ok(summary)) => Check::new("gpu", "gpu", Status::Ok, summary, None),
+        Ok(Ok((summary, false))) => Check::new("gpu", "gpu", Status::Ok, summary, None),
+        Ok(Ok((summary, true))) => Check::new(
+            "gpu",
+            "gpu",
+            Status::Warn,
+            format!("{summary}; this is a software adapter, so pages render on the CPU and animate slowly"),
+            Some(software_fix()),
+        ),
         Ok(Err(summary)) => Check::new("gpu", "gpu", Status::Error, summary, None),
         Err(_) => Check::new(
             "gpu",
@@ -184,7 +190,17 @@ fn gpu() -> Check {
     }
 }
 
-fn draw() -> Result<String, String> {
+fn software_fix() -> &'static str {
+    let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+    if release.to_lowercase().contains("microsoft") {
+        "on WSL, WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1 uses the GPU through Dozen \
+         (Vulkan on Direct3D 12, not a conformant driver)"
+    } else {
+        "install or update the GPU's driver (on Linux its Vulkan driver), or run on a machine with a GPU"
+    }
+}
+
+fn draw() -> Result<(String, bool), String> {
     let started = Instant::now();
     let (_, _, gpu) = Gpu::open("acde doctor")?;
     let info = gpu.info.clone();
@@ -217,7 +233,8 @@ fn draw() -> Result<String, String> {
     if pixel.len() != 4 || pixel.iter().zip(PROBE).any(|(got, want)| got.abs_diff(want) > TOLERANCE) {
         return Err(format!("{name} drew a test frame, but it read back {pixel:?} instead of {PROBE:?}"));
     }
-    Ok(format!("{name}: drew a test frame in {} ms", started.elapsed().as_millis()))
+    let software = info.device_type == wgpu::DeviceType::Cpu;
+    Ok((format!("{name}: drew a test frame in {} ms", started.elapsed().as_millis()), software))
 }
 
 #[cfg(all(test, windows))]
