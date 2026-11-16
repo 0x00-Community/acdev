@@ -16,6 +16,23 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: end what an earlier test job left running (a cancelled job's wptserve group and runtime sessions outlive it)
+      shell: bash
+      run: |
+        for pid in $(pgrep -f '/hostexecutor/acdert/scripts/wpt/serve\.py' || true); do
+          pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
+          [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
+        done
+        ours='/hostexecutor/acdebin-dbg/target/release/acdebin-dbg |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdebin-dbg/npm/src/cli\.ts'
+        pkill -TERM -f "$ours" || true
+        for i in $(seq 1 30); do
+          pgrep -f "$ours|/hostexecutor/acdert/scripts/wpt/serve\.py" > /dev/null || break
+          sleep 1
+        done
+        pkill -KILL -f "$ours|/hostexecutor/acdert/scripts/wpt/serve\.py" || true
+        for pid in $(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
+          kill -KILL "$pid" 2>/dev/null || true
+        done
     - name: vendor/blitz, and AC/acdebin-dbg beside acdert
       shell: bash
       env:
