@@ -4,7 +4,7 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 `acde:` 系统模块, 拥有全部跨仓契约 (包清单、SDK `@dopame/acde-api`、`acde_*` 协议). 对外是一个 Rust 包 `acdert` (rlib + `libacdert.so` + `include/acdert.h`),
 由前端 acdebin-dbg / acdebin-system 接上平台.
 
-说明按主题放在 `docs/`, 按文末的路由选读; 术语见 `CONTEXT.md`, 已定的取舍见 `docs/adr/`. 没有 README, 子目录不放 AGENTS.md.
+没有 README, 子目录不放 AGENTS.md.
 
 > **第一原则: 不许在任何层次上魔改 web 接口.**
 >
@@ -24,7 +24,7 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
   (都 `publish = false`), 仓库和 release 不公开. npm 上发的包见 `docs/dev/release.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些). `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
-- Rust 和 TypeScript 代码不写注释, 要说明的写进 `docs/` 里对应的文件 (每次都要守的规则写进本文件). 例外: 版权和许可证行 (src/napi 的 Deno 版权)、工具指令 (`/// <reference>`,
+- Rust 和 TypeScript 代码不写注释, 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行 (src/napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
   和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
@@ -46,6 +46,13 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
 - Rust 代码提交前 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`; `vendor/` 不在 workspace 里, 不碰).
 
+## Agent 规范
+
+- **说明分层**：本文件只放每次都要读的定位、仓库规则和文件路由；细节写进 `docs/` 的主题文件，并在路由表里登记。一个意思只写在一处，改说明时保持这个分层。
+- **领域词汇**：本仓术语以 `CONTEXT.md` 为准。动手前先读涉及的词条，代码命名、文档和提交说明都用表里的叫法；遇到新概念或叫法冲突，先确认再补进 `CONTEXT.md`。细则见 `docs/agents/domain.md`。
+- **架构决定**：记在 `docs/adr/NNNN-<名称>.md`，只记难以逆转、缺背景会让人困惑、确实有取舍的决定。改动和已有决定冲突时先指出，不绕开。
+- **任务跟踪**：本仓不用议题，任务与规划记在别处。细则见 `docs/agents/issue-tracker.md`。
+
 ## 文件路由
 
 | 什么时候读 | 文件 |
@@ -53,6 +60,8 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 | 第一次接手本仓库, 要弄清三个仓库的分工、两种跑法 (会话 / 宿主窗口) 或进程与线程 | `docs/runtime/architecture.md` |
 | 找某个模块、目录或 `web/packages` 里的文件归谁, 新加文件前确认放哪 | `docs/runtime/layout.md` |
 | 碰到 web、Broker、外壳模块、层级、根这类本仓库的术语 | `CONTEXT.md` |
+| 理解或补充领域词汇、记录架构决定 | `docs/agents/domain.md` |
+| 用 to-spec / to-tickets / wayfinder 等需要跟踪器的技能 | `docs/agents/issue-tracker.md` |
 | 想推翻或绕开一个已定的取舍之前: 三仓架构 (0001)、GPU 路线 (0002)、只批准摄像头和麦克风 (0003)、系统框架解码 (0004)、Windows 后端不开监听 (0005)、文件类型只用平台登记的 (0006)、由 acdebin-dbg 发版 (0007)、闭源和内网 (0008) | `docs/adr/` |
 | 改 C 接口 (`src/ffi.rs`、`include/acdert.h`)、`Platform` 回调或 so 的导出表 | `docs/runtime/ffi.md` |
 | 改窗口表、窗口模式与状态、焦点 / 模态 / grab、全局快捷键, 或 `protocol/` 里的 `acde_window` / `acde_shell` | `docs/runtime/window-model.md` |
