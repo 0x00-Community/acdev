@@ -214,7 +214,7 @@ jobs:
           path: acdebin-dbg
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - name: acdert beside it, and its vendor/blitz (Gitea AC/blitz, a relative submodule URL: the same token)
+      - name: 'acdert beside it, and its vendor/blitz (Gitea AC/blitz, a relative submodule URL: the same token)'
         if: env.BUILD == 'true'
         shell: bash
         env:
