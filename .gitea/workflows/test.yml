@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   web:
-    runs-on: debian12
+    runs-on: x86_64-debian-234
     container: node:22-bookworm
     timeout-minutes: 30
     steps:
@@ -42,7 +42,7 @@ jobs:
         run: bun run test
 
   wpt:
-    runs-on: debian12
+    runs-on: x86_64-debian-234
     timeout-minutes: 360
     env:
       WPT_STATE: ${{ github.workspace }}/wpt-state
