@@ -1,6 +1,6 @@
 name: test
 
-# Started by hand while the suite settles (see AGENTS.md, 「测试」); it is meant to run on every push to main later.
+# Started by hand while the suite settles (see docs/testing.md); it is meant to run on every push to main later.
 on:
   workflow_dispatch:
     inputs:
