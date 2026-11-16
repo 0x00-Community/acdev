@@ -76,8 +76,9 @@ class GPUAdapterInfo {
   declare readonly architecture: string
   declare readonly device: string
   declare readonly description: string
-  constructor({ vendor, architecture, device, description }: GpuAdapterInfo) {
-    Object.assign(this, { vendor, architecture, device, description, subgroupMinSize: 4, subgroupMaxSize: 128, isFallbackAdapter: false })
+  declare readonly isFallbackAdapter: boolean
+  constructor({ vendor, architecture, device, description, isFallbackAdapter }: GpuAdapterInfo) {
+    Object.assign(this, { vendor, architecture, device, description, subgroupMinSize: 4, subgroupMaxSize: 128, isFallbackAdapter: isFallbackAdapter === true })
   }
 }
 tag(GPUAdapterInfo)
@@ -584,13 +585,14 @@ class GPUAdapter {
   readonly features: GPUSupportedFeatures
   readonly limits: GPUSupportedLimits
   readonly info: GPUAdapterInfo
-  readonly isFallbackAdapter = false
+  readonly isFallbackAdapter: boolean
   #used = false
 
   constructor(info: GpuAdapterInfo) {
     this.features = new GPUSupportedFeatures(info.features)
     this.limits = new GPUSupportedLimits(info.limits)
     this.info = new GPUAdapterInfo(info)
+    this.isFallbackAdapter = info.isFallbackAdapter === true
   }
 
   async requestDevice(d: Dict = {}): Promise<GPUDevice> {

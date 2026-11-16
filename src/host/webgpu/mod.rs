@@ -436,6 +436,7 @@ fn adapter_info<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value
             "architecture": "",
             "device": "",
             "description": format!("{} ({} {})", gpu.info.name, gpu.info.driver, gpu.info.driver_info),
+            "isFallbackAdapter": gpu.info.device_type == wgpu::DeviceType::Cpu,
             "features": features,
             "limits": limits,
         }),

@@ -338,6 +338,7 @@ export interface GpuAdapterInfo {
   architecture: string
   device: string
   description: string
+  isFallbackAdapter: boolean
   features: string[]
   limits: Record<string, number>
 }
