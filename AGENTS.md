@@ -1611,7 +1611,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开
   (字体、GPU 不同, reftest 结果不同): `linux` 由 CI 的 `baseline` 生成 (跑全量, 再跑两遍 gate, 三次合并; 产物里的 `expectations/linux` 拷进来提交),
   `darwin` 在 Mac 上照样做. 修好东西后跑 `update` 把改进记下来, 一起提交.
-- CI (`.gitea/workflows/test.yml`, 手动): `web` (容器 node:22-bookworm) 和 `wpt` (debian12, 并排克隆 AC/acdebin-dbg 编 release, Mesa 的软件
+- CI (`.gitea/workflows/test.yml`, 手动, runner `x86_64-debian-234`, 直接跑在主机上, 没有 Docker): `web` 和 `wpt` (并排克隆 AC/acdebin-dbg 编 release, Mesa 的软件
   Vulkan 无头跑). 结果和期望文件作为产物留 14 天. 稳定后改成每次推送跑 gate、每晚跑 full, 改之前先告诉基座的人.
 
 ## 发版
