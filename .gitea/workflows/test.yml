@@ -1,0 +1,129 @@
+name: test
+
+# Started by hand while the suite settles (see AGENTS.md, 「测试」); it is meant to run on every push to main later.
+on:
+  workflow_dispatch:
+    inputs:
+      wpt:
+        description: 'gate: the tests the expectations say pass; full: every applicable test; baseline: full, then the gate twice more, and expectations from the three runs'
+        type: choice
+        options: [gate, full, baseline]
+        default: gate
+      dbg:
+        description: 'AC/acdebin-dbg commit to build the runtime with; empty takes its main'
+        type: string
+        default: ''
+      workers:
+        description: 'parallel WPT sessions'
+        type: string
+        default: '12'
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    runs-on: debian12
+    container: node:22-bookworm
+    timeout-minutes: 30
+    steps:
+      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: install
+        run: bun install --frozen-lockfile --cwd web
+      - name: typecheck
+        working-directory: web
+        run: bun run typecheck
+      - name: unit tests (acde-api, acde-dom, acde-host)
+        working-directory: web
+        run: bun run test
+
+  wpt:
+    runs-on: debian12
+    timeout-minutes: 360
+    env:
+      WPT_STATE: ${{ github.workspace }}/wpt-state
+      LABEL: ci-${{ github.run_number }}
+    steps:
+      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acdert
+          persist-credentials: false
+      - name: vendor/blitz, and AC/acdebin-dbg beside acdert (the runtime binary and the acde CLI)
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          DBG: ${{ github.event.inputs.dbg }}
+        run: |
+          set -eu
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraHeader="Authorization: basic ${auth}" -C acdert submodule update --init --depth 1
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" acdebin-dbg
+          git -C acdebin-dbg checkout --quiet --detach "${DBG:-origin/main}"
+          echo "acdert $(git -C acdert rev-parse HEAD), acdebin-dbg $(git -C acdebin-dbg rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve's manifest
+        run: |
+          s=$(command -v sudo || true); $s apt-get update
+          $s apt-get install -y --no-install-recommends clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev \
+            libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils \
+            mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk \
+            python3 python3-venv git
+      - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
+      - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: wpt
+          workspaces: acdebin-dbg -> target
+      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: build acdebin-dbg (release) and acdert's web
+        env:
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
+        run: |
+          set -eu
+          (cd acdebin-dbg && cargo update --quiet && cargo build --release -p acdebin-dbg)
+          (cd acdert/web && bun install --frozen-lockfile && bun run build)
+          (cd acdebin-dbg/npm && bun install --frozen-lockfile && bun link)
+          (cd acdert/scripts/wpt && bun install)
+      - name: WPT checkout at scripts/wpt/revision, manifest, runner apps
+        run: |
+          set -eu
+          acdert/scripts/wpt/wpt.sh fetch
+          acdert/scripts/wpt/wpt.sh prepare --workers ${{ github.event.inputs.workers }}
+      - name: run
+        shell: bash
+        env:
+          MODE: ${{ github.event.inputs.wpt }}
+          WORKERS: ${{ github.event.inputs.workers }}
+        run: |
+          set -eu
+          w=acdert/scripts/wpt/wpt.sh
+          run() { $w run --acdert "$PWD/acdebin-dbg/target/release/acdebin-dbg" --workers "$WORKERS" "$@"; }
+          case "$MODE" in
+            gate)
+              $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
+              run --label "$LABEL" --tests "$WPT_STATE/gate.json" ;;
+            full)
+              run --label "$LABEL" ;;
+            baseline)
+              run --label "$LABEL"
+              $w expectations update "$LABEL" --dir "$WPT_STATE/first" > /dev/null
+              $w expectations gate --dir "$WPT_STATE/first" --out "$WPT_STATE/gate.json"
+              run --label "$LABEL-b" --tests "$WPT_STATE/gate.json"
+              run --label "$LABEL-c" --tests "$WPT_STATE/gate.json"
+              $w expectations update "$LABEL" "$LABEL-b" "$LABEL-c" --dir "$WPT_STATE/expectations/linux" ;;
+          esac
+          $w report "$LABEL" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: check against scripts/wpt/expectations/linux
+        if: github.event.inputs.wpt != 'baseline'
+        run: acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
+      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+        if: always()
+        with:
+          name: wpt-${{ github.run_number }}
+          path: |
+            ${{ env.WPT_STATE }}/results
+            ${{ env.WPT_STATE }}/expectations
+          retention-days: 14
