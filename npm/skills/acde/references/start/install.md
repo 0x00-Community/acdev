@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up acde (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdert, which runs your apps. No npm, no root. See [The runtime](#the-runtime).
+The installer sets up acde (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdert, which runs your apps. The installer needs no npm and no root. See [The runtime](#the-runtime).
 
 ## With a coding agent
 

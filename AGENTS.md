@@ -12,7 +12,7 @@
   `@ts-expect-error`) 除外.
 - CLI 的日志和命令行输出只用英文; 同一份 CLI 代码在 bun 和 Node 上都跑, `Bun.*`、`bun:*`、宏只能出现在 bun 专属的路径上
   (见 `docs/cli-overview.md` 的「bun 和 Node」).
-- CLI 闭源: 代码是专有的 (`npm/LICENSE`, package.json `"license": "UNLICENSED"`), 不发 npm 包, 仓库不公开.
+- CLI 闭源: 代码是专有的 (`npm/LICENSE`, package.json `"license": "UNLICENSED"`), 仓库不公开; 发布时连运行时一起发到 npm (`@dopame/acde` 等, 见 `docs/release-distribution.md` 的「npm」).
 - 格式化: Rust 用 `cargo fmt --all` (`rustfmt.toml`: `max_width = 160`).
 - 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill** (`npm/skills/acde/`,
   见 `docs/skills.md`); skill 只写对外的用法, 实现和取舍写在 `docs/`.

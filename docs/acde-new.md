@@ -21,7 +21,7 @@
   `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
   (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
-- `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 不发 npm, 只在 pkgs 上. 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
+- `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 也随每次发布发到 npm (`@dopame/acde-api`, 见 `release-distribution.md` 的「npm」), 但工程的依赖不用 npm 版本号, 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
   `https://pkgs.dopame.ai/acde/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
   取 acde 自己 `file:` 依赖的 acdert 检出里的 SDK 版本). 没有别的覆盖方式, 不回退到 npm 版本号; `ACDE_DIST` 设了时换掉地址前缀, 只给本地镜像
   测试用 (测试的 `sdkMirror()` 把检出的 SDK 打成同样的 tarball 再起本地服务), 文档不提. 换机器、CI 都装得上, lockfile 记下 tarball 与校验和.

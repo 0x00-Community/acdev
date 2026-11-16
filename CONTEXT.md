@@ -49,7 +49,7 @@ acdert 唯一认的产物: package.json 的 `acde` 字段 (`PackageManifest`), `
 运行时和 SDK 约定的整数级别: 清单的 `apiLevel`、SDK 的 `API_LEVEL`、`acdert --version` 的 `(contract level N)`; 不同时 `acde dev` 拒绝起.
 
 **SDK**:
-`@dopame/acde-api` (源码在 acdert 的 `web/packages/acde-api`), 只以 tarball 发在 pkgs 上; 工程依赖写配对版本的 tarball 地址.
+`@dopame/acde-api` (源码在 acdert 的 `web/packages/acde-api`), 发在 pkgs 上 (tarball) 和 npm 上; 工程依赖写配对版本在 pkgs 上的 tarball 地址.
 
 **配对版本**:
 和这个 acde 同一次发布的 SDK 版本 (`Sdk.paired()`); 工程装的版本和它不同时 `acde check` / `acde dev` / `acde doctor` 提醒.

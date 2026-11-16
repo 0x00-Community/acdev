@@ -2,14 +2,16 @@
 
 > CLI 相关路径相对 `npm/`, 安装器在仓库根 `scripts/`。
 
-发版 (`.github/workflows/release.yml`, 手动跑, 说明在下文「分发」): 一次发布、一个版本号, 把四个平台的 `acdebin-dbg-<triple>`、
-页面资源 `acde-host-<版本>.tar.gz` (acdert 的 `build:release`)、SDK `acde-api-<版本>.tar.gz`、`acde` 命令行和安装器一起放进
-`pkgs.dopame.ai/acde/<版本>/`, 标签 `v<版本>` 打在本仓库. 版本号要和 `npm/package.json`、acdert 的 SDK 一起改 (`plan` 核对), acdert 按输入
-`acdert_commit` (缺省它的 main) 检出在旁边. acdert 自己不再发版.
+发版 (`.github/workflows/release.yml`, 在 Gitea 上手动跑或推标签 `v<版本>`, 说明在下文「分发」的「发布」): 一次发布、一个版本号, 把四个平台的
+`acdebin-dbg-<triple>`、页面资源 `acde-host-<版本>.tar.gz` (acdert 的 `build:release`)、SDK `acde-api-<版本>.tar.gz`、`acde` 命令行和安装器一起放进
+`pkgs.dopame.ai/acde/<版本>/`, 同一版本也发到 npm (`@dopame/acde`、`@dopame/acde-<os>-<cpu>`、`@dopame/acde-api`, 见「npm」), 标签 `v<版本>`
+打在本仓库. 版本号不用先提交: 推的标签给出它, 否则用输入 `version`, 都没有时取 pkgs 的 `latest.json`、npm 上两个包和 `v*` 标签里最高的版本加一个
+补丁号; 各作业用 `scripts/set-version.sh` 把它写进本仓库和 acdert 的 `Cargo.toml`、`package.json` (不提交). acdert 按输入 `acdert_commit`
+(缺省它的 main) 检出在旁边. acdert 自己不再发版.
 
 ## 分发 (仓库根 `scripts/install.sh`, `scripts/install.ps1`, `npm/scripts/dist.ts`)
 
-只有全局安装: 安装器把 acde 和同一次发布的调试运行时 acdebin-dbg 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST`
+两种装法: 安装器 (下面说的这一种) 把 acde 和同一次发布的调试运行时 acdebin-dbg 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST`
 (默认 `Pkgs.ACDE`), 两个脚本开头各一处, 末尾的 `/` 去掉. 地址只有一处: `src/pkgs.ts` 的 `Pkgs.BASE`
 (`https://pkgs.dopame.ai`, S3 桶 `dopame-pkgs` 经 CloudFront `E3ET3L14ALFOXX`), `Doctor.DIST`、`Sdk.DIST`、测试都引用它; 脚本不能 import,
 `scripts/dist.ts` 打包前用 `Pkgs.scriptProblems` 对两个脚本的默认值, 不一致就失败 (`test/pkgs.test.ts` 也查). 前缀 `acde/`: `acde/install.sh`、
@@ -54,12 +56,12 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `dist.ts` 把它的 JSON 文本 `define` 进去、
   `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
-- **发布** (`.github/workflows/release.yml`, 只能手动运行 `workflow_dispatch`): 协作者的工作流为基础, 合入以下要求. 版本以提交里的 `package.json` 为准, 标签 `v<版本>` 是注释标签, 由工作流打在该提交上 (不手动打标签; 推标签不触发任何工作流). 命令行、四个平台的 acdebin-dbg、页面资源和 SDK 一起发 (见「运行时」); Dopame 桌面不随 acde 发布.
-  发版: 在 `Akira/develop` 改 `package.json` 的版本号并合入 `main`, 然后在 Gitea 上手动跑 release (勾 publish, 填 `commit=<sha>`). `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
+- **发布** (`.github/workflows/release.yml`, 手动运行 `workflow_dispatch`, 或推送标签 `v*`): 协作者的工作流为基础, 合入以下要求. 版本由 `plan` 定 (见上文开头: 推的标签、输入 `version`、或已发布的最高版本加一), 不以提交里的 `package.json` 为准; 手动发布时标签 `v<版本>` 是注释标签, 由工作流打在该提交上; 推送标签 `v<版本>` 本身就是正式发布 (`plan` 把它当 `publish`, 提交取标签指向的那个, 版本取标签名). 命令行、四个平台的 acdebin-dbg、页面资源和 SDK 一起发 (见「运行时」); Dopame 桌面不随 acde 发布.
+  发版: 在 Gitea 上手动跑 release (勾 publish, 填 `commit=<sha>`, 可填 `version`、`acdert_commit`、`skip_targets`), 或在 main 的提交上推标签 `v<版本>`. `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
   Linux 的作业都在 `node:22-bookworm` 容器里跑 (`container:`, Debian 12 加 Node 22, 不用 Ubuntu 的环境); `runs-on` 一律 `debian12`, GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13), 镜像里没有的 jq、awscli 在作业第一步用 apt 装 (bookworm: awscli 2.9 (v2)、jq 1.6);
-  作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续 (指向别处则失败, 提示升版本), 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA, 输出打印完整 SHA. `plan` 还核对 `Cargo.toml` 和 `npm/package.json` 版本相同, 定下 acdert 的提交 (输入 `acdert_commit`, 空就取它的 main, 必须在它的 main 上) 并要求它的 SDK 版本等于这个版本, 由 `skip_targets` 定下要编的平台. `build` 在每个平台自己的 runner 上把 acdert (连 `vendor/blitz` 子模块) 检出在旁边, `cargo build --profile dist -p acdebin-dbg` (ac 源用 `ACKERNEL_TOKEN`), 打成只有一个文件的 `acdebin-dbg-<triple>` 包, 分离的调试信息另存 30 天不发布; `host` 用 acdert 的 `build:release` 打 `acde-host-<版本>.tar.gz`. `pkgs` 在 acdert 检出里构建 SDK, 再 `bun install --frozen-lockfile`, 跑 `dist.ts --runtime` 把上面的包一起放进版本目录), 写 `latest.json`, 解开归档检查 `bin/acde` 能起 CLI. Windows 上的启动器只有 `bin/acde.cmd`, 没有单独编的 acde.exe. `guard` 用仓库根的 `scripts/release-guard.ts` 核对产物恰好是允许清单并重新做泄漏检查 (拒绝 `.ts` 源码、`.map`、`sourceMappingURL` 等).
+  作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续 (指向别处则失败, 提示升版本), 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA, 输出打印完整 SHA. `plan` 还定下 acdert 的提交 (输入 `acdert_commit`, 空就取它的 main, 必须在它的 main 上) 并要求它的 SDK 版本等于这个版本, 由 `skip_targets` 定下要编的平台. `build` 全在 debian12 runner 上 (Linux 原生, Windows 用 cargo-xwin, macOS 用 cargo-zigbuild 和 MacOSX15.5 SDK) 把 acdert (连 `vendor/blitz` 子模块) 检出在旁边, `cargo build --profile dist -p acdebin-dbg` (ac 源用 `ACKERNEL_TOKEN`), 打成只有一个文件的 `acdebin-dbg-<triple>` 包, 分离的调试信息另存 30 天不发布; `host` 用 acdert 的 `build:release` 打 `acde-host-<版本>.tar.gz`. `pkgs` 在 acdert 检出里构建 SDK, 再 `bun install --frozen-lockfile`, 跑 `dist.ts --runtime` 把上面的包一起放进版本目录), 写 `latest.json`, 解开归档检查 `bin/acde` 能起 CLI. Windows 上的启动器只有 `bin/acde.cmd`, 没有单独编的 acde.exe. `guard` 用仓库根的 `scripts/release-guard.ts` 核对产物恰好是允许清单并重新做泄漏检查 (拒绝 `.ts` 源码、`.map`、`sourceMappingURL` 等).
   上传顺序: `upload` (只有它和 `latest` 有 `id-token: write`) 上传版本目录的 `acde-<版本>.tar.gz`、`acde-api-<版本>.tar.gz`、`acde-host-<版本>.tar.gz`、各平台的 `acdebin-dbg-<triple>` 包, 最后是 `SHA256SUMS`, 逐一回读校验; 版本文件已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. `tag` (只有它有 `contents: write`) 在上传通过后打注释标签 `v<版本>` 指向该 SHA 并推送; 标签已指向该 SHA 则跳过. `latest` 最后更新 `install.sh`、`install.ps1`、`install.md` (`text/markdown`)、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径. 上传全部用 AWS CLI 换取的临时凭据 (Gitea 的 key 经 `aws sts assume-role`, GitHub 的 OIDC 经 `assume-role-with-web-identity`; 先 mask, 从不打印, 不用 `set -x`), 按允许清单逐个 `aws s3 cp` (没有 sync、递归或通配). `concurrency: acde-release` 让发版排队且不取消进行中的运行.
-  与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成六个作业, 写权限只给打标签的作业, OIDC 权限只给上传与更新指针的作业, 凭据用 AWS CLI 换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档. (5) 协作者的版本目录每次覆盖; 现在版本文件内容相同则跳过、不同则失败.
+  与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成多个作业 (`plan`、`build`、`host`、`pkgs`、`guard`、`upload`、`npm`、`tag`、`latest`), 写权限只给打标签的作业, OIDC 权限只给上传与更新指针的作业, 凭据用 AWS CLI 换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档. (5) 协作者的版本目录每次覆盖; 现在版本文件内容相同则跳过、不同则失败.
   在内网 Gitea 上跑 (`http://gitea.dopamine/AC/acdebin-dbg/actions` → `release` → Run workflow; Gitea 读 `.github/workflows`), 同一份文件在 GitHub 上也能跑
   (写法照 acde-dopame 在探测仓库上验证过的, 2026-11-11): 是否发布只在 `plan` 里由 shell 判断一次 (`PUBLISH_INPUT` 是 `github.event.inputs.publish`
   的原样, 等于文字 `true` 才发布, 输出 `publish`), 之后的作业和步骤看 `needs.plan.outputs.publish == 'true'`; 不写 `inputs.publish`, 也不在表达式里
@@ -72,6 +74,11 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `aws sts assume-role`, 没有 (GitHub) 时用 OIDC 令牌 `assume-role-with-web-identity` (用户定, 2026-11-12: 腾讯云 COS 改回 S3 `dopame-pkgs`). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
   Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, GitHub 镜像靠推送镜像或手动推.
   `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、构建和页面资源来自本次运行、版本目录的文件清单与上传、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN 与区域).
+- **npm** (作业 `npm`, 只在正式发布时, 在 `guard` 之后和 `upload` 并行; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
+  每个要发的平台一个 `@dopame/acde-<os>-<cpu>` (`linux-x64`、`darwin-arm64`、`darwin-x64`、`win32-x64`; 内容按安装后的布局: 命令行归档、
+  `bin/acdebin-dbg[.exe]` 和 `bin/app/` 宿主文件), SDK `@dopame/acde-api` (就是 `acde-api-<版本>.tar.gz` 里的 `package/`), 和
+  `@dopame/acde` (一行 JS 的 `acde.mjs`, 按 `process.platform` / `process.arch` 载入对应平台包的 `lib/acde/launcher.mjs`; 各平台包是它的 `optionalDependencies`, 平台包带 `os` / `cpu`).
+  先发平台包、再发 SDK、最后发 `@dopame/acde`, `npm publish --access public`; 这一版已经在 npm 上的包跳过 (重跑).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acde/launcher` 留作外部
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. 归档可复现: 混淆固定 `seed`, 打包前把暂存树的时间戳统一为 2000-01-01, 先 `tar -cf` 再用 `zlib.gzipSync` 压 (gzip 头不写时间), 同一提交两次构建字节相同 (`dist.ts` 里的 `OBFUSCATION_SEED`、`pinTimes`). `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和
