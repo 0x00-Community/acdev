@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::gpu::acgpu::fallback;
+use crate::gpu::detour::fallback;
 use crate::gpu::{Filter, Gpu, GpuImage, Scene};
 use kurbo::Affine;
 

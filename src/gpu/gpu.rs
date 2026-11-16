@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once, OnceLock};
 use std::time::Duration;
 
-use acgpu::fallback::Shared;
+use detour::fallback::Shared;
 
 use super::{Compositor, Offscreen};
 

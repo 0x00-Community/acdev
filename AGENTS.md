@@ -1,6 +1,6 @@
 # acdert
 
-acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自研 DOM 与排版绘制 (Blitz fork + acgpu / vello)、网页存储、媒体、WebGPU / WebGL 绑定和
+acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自研 DOM 与排版绘制 (Blitz fork + detour / vello)、网页存储、媒体、WebGPU / WebGL 绑定和
 `acde:` 系统模块, 拥有全部跨仓契约 (包清单、SDK `@dopame/acde-api`、`acde_*` 协议). 对外是一个 Rust 包 `acdert` (rlib + `libacdert.so` + `include/acdert.h`),
 由前端 acdebin-dbg / acdebin-system 接上平台.
 
