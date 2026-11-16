@@ -51,7 +51,8 @@ describe('acde mcp', () => {
       expect(outside.text).toContain('is not inside the working directory')
       const checked = await call('doctor')
       expect(checked.error).toBe(false)
-      expect(checked.text).toContain(`ok     acdert: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
+      expect(checked.text)
+        .toContain(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
       expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acde check finds nothing wrong')
       expect(checked.text.split('\n').at(-1)).toMatch(/^acde doctor: /)
 
