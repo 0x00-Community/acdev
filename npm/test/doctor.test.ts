@@ -256,6 +256,20 @@ describe('acde doctor', () => {
       .toEqual([1, 'acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde test without --headed'])
   }, 60_000)
 
+  test('an npm install: the @dopame/acde wrapper on PATH runs this platform package', () => {
+    const lib = join(tmp(), 'lib', 'node_modules', '@dopame', 'acde')
+    const home = join(lib, 'node_modules', '@dopame', 'acde-linux-x64')
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'package.json'), JSON.stringify({ name: '@dopame/acde-linux-x64', version: '0.0.0' }))
+    writeFileSync(join(lib, 'acde.mjs'), '')
+    const other = join(tmp(), 'acde.mjs')
+    writeFileSync(other, '')
+    expect(Doctor.fromNpm(home)).toBe(true)
+    expect(Doctor.fromNpm(join(tmp(), 'versions', '0.0.0'))).toBe(false)
+    expect(Doctor.npmWrapper(join(lib, 'acde.mjs'), home)).toBe(true)
+    expect(Doctor.npmWrapper(other, home)).toBe(false)
+  })
+
   test('format: one line per check, a fix under it, a last line that counts', () => {
     const checks: Check[] = [
       Doctor.ok('acde', 'acde', '0.0.9'),

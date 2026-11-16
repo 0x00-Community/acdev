@@ -41,6 +41,9 @@
 - **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acde 一律是重跑安装器 (`curl -fsSL $ACDE_DIST/install.sh | sh`, Windows
   `irm …/install.ps1 | iex`), 检出的 acde 是编 acdebin-dbg 再设 `ACDERT`; `ACDERT` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
   `xattr -d com.apple.quarantine <路径>`; stderr 有 `error while loading shared libraries` 时是装那个库. 不替用户下载或批准任何东西.
+- **npm 装的 acde** (`Doctor.fromNpm`: 包根是 `node_modules/@dopame/acde-<os>-<cpu>`, 布局和安装器的版本目录一样, `installed()` 照认):
+  `PATH` 上的 `acde` 是 `@dopame/acde` 的 `acde.mjs` 而它解析到的平台包就是这一个 (`Doctor.npmWrapper`) 时算「是这一个」; 重装和升级的修法是
+  `npm install -g @dopame/acde[@<版本>]`, `pathFix` 指向 `npm prefix -g` 的 bin; 不挂 `reinstall` 修复 (安装器不该往 `node_modules` 里装).
 - **`acde dev` 指向 doctor**: 找不到 acdebin-dbg 的错误末尾那句; acdebin-dbg 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
   时打 `acde: acdebin-dbg exited (<码>) before it was ready; acde doctor checks the runtime, the GPU and this setup`, 退出码跟 acdebin-dbg.
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).

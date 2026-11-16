@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { createRequire } from 'node:module'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
 import {
   BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
@@ -157,7 +158,7 @@ export class Doctor {
     const home = Doctor.home()
     const found = which('acde', env)
     if (!found) return Doctor.warn('path', 'PATH', `no acde on PATH (this one is in ${home})`, Doctor.pathFix(home))
-    if (Doctor.inside(Doctor.real(found), Doctor.real(home)))
+    if (Doctor.inside(Doctor.real(found), Doctor.real(home)) || Doctor.npmWrapper(found, home))
       return Doctor.ok('path', 'PATH', `acde on PATH is this one (${found})`)
     return Doctor.warn('path', 'PATH', `acde on PATH is another one (${found}), not this one (${home})`,
       'remove the other acde from PATH, or put this one first')
@@ -450,14 +451,30 @@ export class Doctor {
     return Doctor.ok('latest', 'latest release', `acde ${current} is ${relation}`)
   }
 
-  static installer(env: NodeJS.ProcessEnv = process.env): string {
+  static fromNpm(home: string = Doctor.home()): boolean {
+    return basename(dirname(home)) === '@dopame' && basename(home).startsWith('acde-')
+  }
+
+  static npmWrapper(found: string, home: string): boolean {
+    const file = Doctor.real(found)
+    if (basename(file) !== 'acde.mjs' || !Doctor.fromNpm(home)) return false
+    try {
+      const resolved = createRequire(file).resolve(`${basename(dirname(home))}/${basename(home)}/package.json`)
+      return Doctor.real(dirname(resolved)) === Doctor.real(home)
+    } catch {
+      return false
+    }
+  }
+
+  static installer(env: NodeJS.ProcessEnv = process.env, version?: string): string {
+    if (Doctor.fromNpm()) return `install it again from npm: npm install -g @dopame/acde${version ? `@${version}` : ''}`
     const base = (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
     if (process.platform === 'win32') return `run the installer again: irm ${base}/install.ps1 | iex`
     return `run the installer again: curl -fsSL ${base}/install.sh | sh`
   }
 
   static reinstallable(found: FoundAcdert): boolean {
-    return installed(packageRoot()) && found.from !== 'ACDERT'
+    return installed(packageRoot()) && !Doctor.fromNpm() && found.from !== 'ACDERT'
   }
 
   static reinstall(env: NodeJS.ProcessEnv = process.env): Repair {
@@ -593,13 +610,15 @@ export class Doctor {
   static acdertFix(found: FoundAcdert): string {
     if (found.from === 'ACDERT') return 'point ACDERT at an acdebin-dbg binary, or unset it'
     if (installed(packageRoot()))
-      return `${Doctor.installer()} (it puts the acdebin-dbg that pairs with acde next to it)`
+      return `${Doctor.installer(process.env, Versions.acde())} ` +
+        '(it puts the acdebin-dbg that pairs with acde next to it)'
     return 'build acdebin-dbg (cargo build --release -p acdebin-dbg in an acdebin-dbg checkout, with acdert ' +
       'beside it) and set ACDERT to its target/release/acdebin-dbg, or put acdebin-dbg on PATH'
   }
 
   static pairFix(sdk: string): string {
-    if (installed(packageRoot())) return `${Doctor.installer()} (it installs the acdebin-dbg that pairs with acde)`
+    if (installed(packageRoot()))
+      return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdebin-dbg that pairs with acde)`
     return `use acdebin-dbg ${sdk}: set ACDERT to it, or put it on PATH`
   }
 
@@ -617,6 +636,7 @@ export class Doctor {
 
   static pathFix(home: string): string {
     if (!installed(packageRoot())) return `bun link (in ${home}) puts this checkout's acde on PATH`
+    if (Doctor.fromNpm()) return 'add the bin directory of npm\'s global prefix (npm prefix -g) to PATH'
     const root = Doctor.installRoot()
     const bin = process.platform === 'win32' ? join(root, 'current', 'bin') : join(root, 'bin')
     return `add ${bin} to PATH (the installer does that unless it is told not to)`

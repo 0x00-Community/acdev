@@ -70,6 +70,18 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 & ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.0.9 -NoModifyPath
 ```
 
+## With npm
+
+Where tools are installed with npm (a CI image, a container, a machine set up by a script that already uses npm), install acde from the npm registry instead of running the installer:
+
+```sh
+npm install -g @dopame/acde
+```
+
+This needs Node.js 22.3 or later: the `acde` command npm puts on PATH starts with Node.js. It installs `@dopame/acde` and, through it, the package for this platform (`@dopame/acde-linux-x64`, `@dopame/acde-darwin-arm64`, `@dopame/acde-darwin-x64` or `@dopame/acde-win32-x64`), which holds acde, the runtime `acdebin-dbg` and its host files laid out as the installer lays them out, so acde finds the runtime next to it and `acde doctor` checks it the same way. The platforms are the ones above; npm skips the packages of the others. The versions are those of the installer's releases, from 0.0.10: `npm install -g @dopame/acde@0.0.11` installs that one, and running the command again upgrades acde and the runtime together. No shell startup file is changed; acde is wherever npm puts global commands (`npm prefix -g`). To remove it: `npm uninstall -g @dopame/acde`.
+
+The installer below is still the way for a machine without npm, and the one the rest of these pages assume (`~/.acde`, the PATH lines, the upgrade notes).
+
 ## Installer options
 
 Both installers take the same options, each in its own form:
