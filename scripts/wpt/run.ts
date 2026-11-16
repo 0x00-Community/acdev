@@ -162,8 +162,8 @@ class Worker {
   }
 
   async settle(waitClass: string, budget: number): Promise<'ready' | 'noload' | 'timeout'> {
-    const loaded = await this.poll<number>(`window.__old === 1 || document.readyState !== 'complete' ? 0 : document.querySelector('meta[name=wpt-runner]') ? 2 : 1`, (v) => v !== 0, Math.min(LOAD_MS * SCALE, budget))
-    if (loaded !== 1) return 'noload'
+    const loaded = await this.poll<number>(`window.__old === 1 || document.readyState !== 'complete' ? 0 : 1`, (v) => v === 1, Math.min(LOAD_MS * SCALE, budget))
+    if (loaded === null) return 'noload'
     await this.eval(
       `window.__settled = 0; (async () => { try { await document.fonts?.ready } catch {} ; const root = document.documentElement; while (root && root.classList.contains(${JSON.stringify(waitClass)})) await new Promise((r) => setTimeout(r, 20)); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); window.__settled = 1 })(); 1`,
     ).catch((e) => {
@@ -249,13 +249,12 @@ class Worker {
       await sleep(loaded ? 40 : 25)
       let got: unknown
       try {
-        got = await this.eval(`window.__old === 1 ? 0 : document.querySelector('meta[name=wpt-runner]') ? 2 : typeof window.__wpt === 'string' ? window.__wpt : window.__wptdrv && window.__wptdrv.queue.length ? { drive: window.__wptdrv.queue.splice(0) } : 1`)
+        got = await this.eval(`window.__old === 1 ? 0 : typeof window.__wpt === 'string' ? window.__wpt : window.__wptdrv && window.__wptdrv.queue.length ? { drive: window.__wptdrv.queue.splice(0) } : 1`)
       } catch (e) {
         if (gone(e)) return res('CRASH', { message: text(e) })
         if (Date.now() - t0 > budget + 8000) return res('HANG', { message: text(e) })
         continue
       }
-      if (got === 2) return res('NOLOAD', { message: 'the runtime opened the app entry instead of the test (it does not load this kind of document)' })
       if (got === 1) loaded = true
       if (!loaded && got === 0 && Date.now() - t0 > Math.min(LOAD_MS * SCALE, budget)) return res('NOLOAD', { message: 'the test page never loaded' })
       if (got && typeof got === 'object' && 'drive' in got) {
@@ -348,13 +347,42 @@ function record(r: Result) {
   }
 }
 
+const SERVE = JSON.parse(readFileSync(join(STATE, 'work', 'serve.json'), 'utf8')) as { wpt: string; http: number }
+const BIND = (http: number) => ({ 80: http, 8001: http + 1, 8443: http + 2, 8444: http + 3, 8002: http + 4, 8445: http + 5 })
+
+async function wptserve(): Promise<() => void> {
+  const http = SERVE.http
+  const config = join(STATE, 'work', 'wptserve.json')
+  writeFileSync(config, JSON.stringify({ browser_host: 'acde.local', server_host: '127.0.0.1', alternate_hosts: {}, check_subdomains: false, ports: { http: [80, 8001], https: [8443, 8444], ws: [8002], wss: [8445], h2: [9000] } }) + '\n')
+  const log = Bun.file(join(OUT, 'wptserve.log'))
+  const child = Bun.spawn([join(SERVE.wpt, '_venv3', 'bin', 'python'), join(import.meta.dir, 'serve.py'), SERVE.wpt, config, JSON.stringify(BIND(http))], { stdout: log, stderr: log, detached: true })
+  for (let i = 0; i < 600; i++) {
+    if (child.exitCode !== null) throw new Error(`wptserve exited (${child.exitCode}); see ${join(OUT, 'wptserve.log')}`)
+    const up = await fetch(`http://127.0.0.1:${http}/resources/testharness.js`, { method: 'HEAD' }).then((r) => r.ok, () => false)
+    if (up) {
+      console.log(`wptserve on 127.0.0.1:${http} (advertised as acde.local:80), log ${join(OUT, 'wptserve.log')}`)
+      return () => {
+        try {
+          process.kill(-child.pid, 'SIGINT')
+        } catch {}
+      }
+    }
+    await sleep(100)
+  }
+  child.kill()
+  throw new Error(`wptserve did not answer on ${http} within 60 s; see ${join(OUT, 'wptserve.log')}`)
+}
+
+const stopServe = await wptserve()
 const workers = Array.from({ length: WORKERS }, (_, i) => new Worker(FIRST + i))
 const stop = async () => {
   await Promise.all(workers.map((w) => w.close()))
+  stopServe()
   process.exit(130)
 }
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
 await Promise.all(workers.map((w) => w.work()))
+stopServe()
 writeFileSync(join(OUT, 'meta.json'), JSON.stringify({ ...meta, finished: new Date().toISOString(), seconds: Math.round((Date.now() - started) / 1000) }, null, 2) + '\n')
 console.log(`done in ${Math.round((Date.now() - started) / 1000)} s`)

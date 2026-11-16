@@ -22,7 +22,7 @@ fetch() {
     git -C "$checkout" fetch --quiet --depth 1 --filter=blob:none origin "$revision"
     git -C "$checkout" -c advice.detachedHead=false checkout --quiet "$revision"
   fi
-  (cd "$checkout" && ./wpt manifest --no-download -p "$state/MANIFEST.json")
+  (cd "$checkout" && ./wpt manifest --no-download -p "$state/MANIFEST.json" && ./wpt serve --help > /dev/null)
   printf 'wpt %s in %s\n' "$revision" "$checkout"
 }
 
@@ -36,7 +36,7 @@ case "$command" in
   fetch) fetch ;;
   prepare | run | report | compare | expectations) exec bun "$here/$command.ts" "$@" ;;
   *)
-    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--kinds testharness,reftest,crashtest] [--tests FILE] [--timeout-scale S] | report LABEL | compare OLD NEW | expectations check LABEL | update LABEL… | gate | summary\n' >&2
+    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] [--serve-port P] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--kinds testharness,reftest,crashtest] [--tests FILE] [--timeout-scale S] | report LABEL | compare OLD NEW | expectations check LABEL | update LABEL… | gate | summary\n' >&2
     exit 2
     ;;
 esac
