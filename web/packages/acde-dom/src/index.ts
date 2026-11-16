@@ -93,7 +93,7 @@ import {
   Window,
   type NavigatorOptions,
 } from './dom/window'
-import { clockHandle, isInstalled as isClockInstalled, now as clockNow, type ClockRequest, type ClockState } from './core/clock'
+import { clockHandle, now as clockNow, type ClockRequest, type ClockState } from './core/clock'
 import { adoptTimers } from './core/timers'
 
 export { hostTime, type ClockRequest, type ClockState } from './core/clock'
@@ -283,13 +283,13 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     idOf,
     nodeOf: (id: number) => wrap(id),
     loadPage,
-    frame(time) {
+    frame() {
       frames.wanted = false
       let animating = false
       moved()
       try {
         deliverScrolls()
-        if (!gpuContexts.behind()) runAnimationFrames(isClockInstalled() ? clockNow() : time, report)
+        if (!gpuContexts.behind()) runAnimationFrames(clockNow(), report)
         deliverObservations()
         animating = deliverCssEvents()
       } catch (error) {

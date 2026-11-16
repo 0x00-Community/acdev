@@ -34,6 +34,26 @@ test('timers, microtasks and animation frames run in browser order', async () =>
   assert.ok(!log.includes('cancelled') && !log.includes('dropped'))
 })
 
+test('rAF timestamps share the page time origin with performance.now(), whatever time the host reports', async () => {
+  using web = await page()
+  web.run(`
+    globalThis.stamps = []
+    globalThis.before = performance.now()
+    requestAnimationFrame((t) => stamps.push([t, performance.now()]))
+    requestAnimationFrame((t) => stamps.push([t, performance.now()]))
+  `)
+  web.frame(589583.85)
+  web.run('requestAnimationFrame((t) => stamps.push([t, performance.now()]))')
+  await web.wait(5)
+  web.frame(589599.85)
+  const before = web.run<number>('before')
+  const [first, second, third] = web.json<[number, number][]>('stamps')
+  assert.ok(first && second && third, 'three callbacks ran')
+  assert.equal(first[0], second[0], 'one timestamp for every callback of a frame')
+  for (const [t, now] of [first, second, third]) assert.ok(t >= before && t <= now, `rAF time ${t} is on the page clock (${before}..${now})`)
+  assert.ok(third[0] > first[0], 'later frames have later timestamps')
+})
+
 test('frame order: scroll events, rAF, ResizeObserver, IntersectionObserver; image load events', async () => {
   using web = await page('<!doctype html><html><body><div id="scroller" data-scroll-height="1000"><div id="box"></div></div><img id="img"></body></html>')
   const id = (sel: string) => web.internals.idOf(web.run(`document.querySelector('${sel}')`))
