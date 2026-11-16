@@ -25,8 +25,11 @@ const { values } = parseArgs({
     flag: { type: 'string', default: '' },
     rerun: { type: 'boolean', default: false },
     'skip-slow': { type: 'string', default: '' },
+    shard: { type: 'string', default: '1/1' },
   },
 })
+const [SHARD, SHARDS] = values.shard!.split('/').map(Number) as [number, number]
+if (!(SHARDS >= 1 && SHARD >= 1 && SHARD <= SHARDS)) throw new Error(`--shard ${values.shard}: want i/n with 1 <= i <= n`)
 if (!values.acdert) throw new Error('--acdert <path to acdebin-dbg> (or ACDERT) is required')
 if (!existsSync(join(values.app!, 'broker.js'))) throw new Error(`${values.app}: no broker.js; build acdert's web (cd web && bun run build) or pass --app <acde-host dist>`)
 const WORKERS = Number(values.workers)
@@ -88,9 +91,14 @@ for (const t of list) {
   groups.get(key)!.push(t)
 }
 const queue: [string, Test[]][] = []
-for (const [key, tests] of groups) for (let i = 0; i < tests.length; i += CHUNK) queue.push([`${key}#${i / CHUNK}`, tests.slice(i, i + CHUNK)])
+const shardOf = (key: string) => [...key].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7) % SHARDS
+for (const [key, tests] of groups)
+  for (let i = 0; i < tests.length; i += CHUNK) {
+    const chunk = `${key}#${i / CHUNK}`
+    if (shardOf(chunk) === SHARD - 1) queue.push([chunk, tests.slice(i, i + CHUNK)])
+  }
 queue.sort((a, b) => b[1].length - a[1].length)
-const total = list.length
+const total = queue.reduce((n, [, tests]) => n + tests.length, 0)
 let finished = 0
 const started = Date.now()
 const previous = existsSync(join(OUT, 'meta.json')) ? JSON.parse(readFileSync(join(OUT, 'meta.json'), 'utf8')) : null
@@ -106,7 +114,7 @@ const meta = {
   platform: process.platform,
 }
 writeFileSync(join(OUT, 'meta.json'), JSON.stringify(meta, null, 2) + '\n')
-console.log(`${total} tests in ${queue.length} chunks, ${done.size} already done, ${WORKERS} workers -> ${OUT}`)
+console.log(`${total} tests in ${queue.length} chunks${SHARDS > 1 ? ` (shard ${SHARD} of ${SHARDS})` : ''}, ${done.size} already done, ${WORKERS} workers -> ${OUT}`)
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const gone = (e: unknown) => /closed the connection|no longer connected|not connected|ECONNREFUSED|EPIPE|no web|no page|exited/i.test(String((e as Error)?.message ?? e))
