@@ -34,6 +34,16 @@ import { createServer } from 'node:http'
 createServer((req, res) => res.end('hi')).listen(3000)
 ```
 
+## Pages from the backend
+
+To have the backend render the pages themselves (server-side HTML with Hono, JSX, templates, ... without a framework acde recognizes), set the entry to `/`:
+
+```jsonc
+{ "type": "app", "id": "my-app", "label": "My app", "icon": "app", "entry": "/" }
+```
+
+The window then opens `/` from the backend, and every page it navigates to (links, `location.href`, forms) comes from the backend too; `public/` is still served at the app root. Without a backend, `acde check` and `acde build` stop with an error; `/` is the only entry ending in `/` that is accepted. Frameworks that render on the server (Next.js, Nuxt, SvelteKit, ...) are set up this way automatically; see [Frameworks](frameworks.md).
+
 ## Discovery
 
 Without a `backend` field, acde uses the first of these that exists:
