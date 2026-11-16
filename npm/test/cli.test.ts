@@ -175,6 +175,43 @@ describe('backends', () => {
     expect(readFileSync(join(out, 'backend/server.js'), 'utf8')).toMatch(/from\s*["'](node:)?http["']/)
     expect(await answer(out, '/')).toBe('hi')
   })
+
+  test('entry "/": the backend renders the pages, public/ is still served at the app root', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), '{"name": "rendered"}')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/" }')
+    writeFileSync(
+      join(dir, 'server.ts'),
+      "export default { fetch: (r: Request) => new Response(`<!doctype html><title>${new URL(r.url).pathname}</title>`, { headers: { 'content-type': 'text/html' } }) }\n",
+    )
+    mkdirSync(join(dir, 'public'))
+    writeFileSync(join(dir, 'public/robots.txt'), 'nothing\n')
+    const out = join(dir, '.acde')
+    const built = await cli(['build', '--out', out], dir)
+    expect(built.stderr).toBe('')
+    expect(built.code).toBe(0)
+    const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+    expect(manifest.acde.apps[0]).toMatchObject({ id: 'rendered', entry: '/app/rendered/', backend: { entry: '/app/rendered/backend/server.js', port: 3000 } })
+    expect(typeof Manifest.app(manifest.acde.apps[0])).toBe('object')
+    expect(readFileSync(join(out, 'web/robots.txt'), 'utf8')).toBe('nothing\n')
+    expect(await answer(out, '/a/b.html')).toBe('<!doctype html><title>/a/b.html</title>')
+    expect((await cli(['check'], dir)).code).toBe(0)
+  })
+
+  test('entry "/" without a backend, or another path ending in /, is an error of acde check and acde build', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), '{"name": "rendered"}')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/" }')
+    const checked = await cli(['check'], dir)
+    expect(checked.code).not.toBe(0)
+    expect(checked.stdout + checked.stderr).toContain('entry "/" in acde.config.jsonc means the backend renders the pages, but there is no backend')
+    expect((await cli(['build', '--out', join(dir, '.acde')], dir)).code).not.toBe(0)
+    writeFileSync(join(dir, 'server.ts'), 'export default { fetch: () => new Response("x") }\n')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/home/" }')
+    const other = await cli(['check'], dir)
+    expect(other.code).not.toBe(0)
+    expect(other.stdout + other.stderr).toContain('an entry ending in / means the backend renders the pages, and it is "/"')
+  })
 })
 
 describe('acde install / dev', () => {

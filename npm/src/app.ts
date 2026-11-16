@@ -126,6 +126,10 @@ export class Project {
     })
   }
 
+  static rendered(entry: string | undefined): boolean {
+    return entry !== undefined && entry.endsWith('/')
+  }
+
   static idOf(name: string): string | null {
     const id = name
       .replace(/^@[^/]*\//, '')
@@ -165,8 +169,12 @@ export class Project {
       } catch (error) {
         return [...errors, (error as Error).message]
       }
-      need(config.entry ?? 'index.html', 'entry')
       if (config.backend) need(config.backend.entry, 'backend.entry')
+      if (!Project.rendered(config.entry)) need(config.entry ?? 'index.html', 'entry')
+      else if (config.entry !== '/')
+        errors.push(`entry ${JSON.stringify(config.entry)} in ${this.from}: an entry ending in / means the backend renders the pages, and it is "/"`)
+      else if (!this.#server(config.backend))
+        errors.push(`entry "/" in ${this.from} means the backend renders the pages, but there is no backend (server.ts, or "backend": { "entry": … })`)
       return errors
     }
     need(config.entry ?? 'index.html', 'entry')
@@ -231,6 +239,16 @@ export class Project {
       } finally {
         rmSync(scratch, { recursive: true, force: true })
       }
+    }
+    if (own && Project.rendered(config.entry)) {
+      const backend = await this.#ownBackend(config, out, dir, base, assets)
+      if (!backend) throw new Error(`app ${id}: entry "/" means the backend renders the pages, but there is no backend`)
+      const web = join(out, `${dir}web`)
+      mkdirSync(web, { recursive: true })
+      const publicDir = join(this.dir, this.config.public ?? 'public')
+      if (existsSync(publicDir)) cpSync(publicDir, web, { recursive: true })
+      assets[base] = [`${dir}web`]
+      return Project.#manifestOf(config, id, { entry: base, backend, icon: this.#icon(config.icon, web, base) })
     }
     const page = await this.#web(resolve(this.dir, config.entry ?? 'index.html'), join(out, `${dir}web`), base, own)
     const backend = await this.#ownBackend(config, out, dir, base, assets)

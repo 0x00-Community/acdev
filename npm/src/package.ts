@@ -174,7 +174,7 @@ export class AppPackage {
       return (config.apps ?? []).map((app) =>
         ({ raw: raw(app.id, app), system: true, entries: [resolve(project.dir, app.entry)] }))
     }
-    const entries = framework ? Imports.sources(project.dir) : [resolve(project.dir, config.entry ?? 'index.html')]
+    const entries = framework || Project.rendered(config.entry) ? Imports.sources(project.dir) : [resolve(project.dir, config.entry ?? 'index.html')]
     return [{ raw: raw(id, config), system: false, entries }]
   }
 
