@@ -58,9 +58,10 @@ jobs:
           DBG: ${{ github.event.inputs.dbg }}
         run: |
           set -eu
+          export GIT_TERMINAL_PROMPT=0
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           git -c http.extraHeader="Authorization: basic ${auth}" -C acdert submodule update --init --depth 1
-          git -c http.extraHeader="Authorization: basic ${auth}" clone --filter=blob:none --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" acdebin-dbg
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --quiet --no-checkout "$GITHUB_SERVER_URL/AC/acdebin-dbg.git" acdebin-dbg
           git -C acdebin-dbg checkout --quiet --detach "${DBG:-origin/main}"
           echo "acdert $(git -C acdert rev-parse HEAD), acdebin-dbg $(git -C acdebin-dbg rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve's manifest
@@ -88,7 +89,9 @@ jobs:
           (cd acdert/web && bun install --frozen-lockfile && bun run build)
           (cd acdebin-dbg/npm && bun install --frozen-lockfile && bun link)
           (cd acdert/scripts/wpt && bun install --frozen-lockfile)
-      - name: WPT checkout at scripts/wpt/revision, manifest, runner apps
+      - name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
+        env:
+          GIT_TERMINAL_PROMPT: '0'
         run: |
           set -eu
           acdert/scripts/wpt/wpt.sh fetch
