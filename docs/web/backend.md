@@ -49,7 +49,7 @@
     不用 `%LOCALAPPDATA%` 本身: 从 MSIX 打包应用 (例如 Claude 桌面版) 派生的进程 (含经 `Start-Process` / `cmd /c start` 再起的) 写
     `%APPDATA%` / `%LOCALAPPDATA%` 时被重定向到 `Packages\<包>\LocalCache`, 在那里建的 AF_UNIX 套接字连不上 (Bun 自己的客户端也一样);
     临时目录不被重定向. 实测 (2026-11-10): 普通进程 (不在包环境里) 两处都能连, 包环境里只有临时目录能连.
-  - **运行时连接**: 套接字模式和 unix 同一段: `fetch.rs` 的 `ntex::rt::unix_connect` (Windows 上 ntex 的 IOCP 反应器用 socket2 建 AF_UNIX
+  - **运行时连接**: 套接字模式和 unix 同一段: runtime `fetch/` 的 `ntex::rt::unix_connect` (Windows 上 ntex 的 IOCP 反应器用 socket2 建 AF_UNIX
     再 `ConnectEx`), 不用线程桥接; `Dial::check` 接受 Windows 的绝对路径. 通道模式经通道开流. web 初始化参数: 套接字模式照旧给 `sockets`
     (只表示有后端, 值是 base), 通道模式不给 `sockets`, 给 `channel: true` (`AppBackends.webInit`). Windows 上两种 web 都按 `init.app.id` 拨
     `Dial::App`, 运行时的登记表 (runtime `channel::register`, 每代一个 `Route::Channel` / `Route::Sockets(本代目录)`) 给出当前一代, 所以重起后换了
@@ -58,7 +58,7 @@
   - **停止**: 两种模式都在 fd 3 上发 SHUTDOWN (预加载停止接受新连接、让在途请求做完、关 server 后退出), 等 3 秒 (`STOP_MS`), 然后终止作业对象
     (旧预加载不读控制帧, 就是等满 3 秒再终止). 后端退出时注销这一代的通道 / 目录, 上面还没完的流失败.
 - **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 都由这个 web 自己的线程发 (src/host `backend.rs` 的 `natives.backend`,
-  每个 web 都有 → runtime `fetch.rs` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net/index.ts` 的 `route`). 去哪:
+  每个 web 都有 → runtime `fetch/` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net/index.ts` 的 `route`). 去哪:
   - 同源非资源路径、有后端时的 `localhost:<port>` (和 127.0.0.1、[::1]、0.0.0.0) → 自己应用的 unix socket (`Dial::Socket`, `init.sockets`; 没出现或
     拒绝连接时重试 10 秒). 没有后端的 web 同源非资源路径失败, `localhost` 走下面的网络.
   - 别的主机 (`Dial::Url`, http / https / ws / wss) → 宿主的网络: 系统 DNS, TCP, https / wss 用 `http.rs` 的 `tls()` (只给 http/1.1 的 ALPN,

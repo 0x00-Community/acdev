@@ -17,8 +17,8 @@
   `windowstate {window, state, previous}` (旧的 `windowfullscreen` / `windowunfullscreen` / `windowminimize` 已随第 0 级去掉). 宿主窗口的窗框按钮
   (最小化、全屏 / 还原) 由运行时直接改状态, 只有关闭交给页面. `requestMode` 只收 `free` / `fixed` / `pinned` (`fullscreen` 抛 TypeError,
   全屏用 `requestState`); 改模式时当前状态在新模式下不允许就回到 `normal`. 独立应用的窗口 (`acdert app`) 内部仍是 `fullscreen` 模式, 页面改不了.
-  会话 (crates/window) 把请求映射成标准 xdg_toplevel 请求 (`set_fullscreen` / `set_maximized` / `set_minimized` / 取消), 按 configure 里的
-  fullscreen / maximized 给页面发 `state`. 合成器 (crates/shell `compositor/windows.rs`, 同一套 `WindowState` + `Restore`) 执行四种状态, 规则同上;
+  会话 (acdebin-system 的 `crates/window`) 把请求映射成标准 xdg_toplevel 请求 (`set_fullscreen` / `set_maximized` / `set_minimized` / 取消), 按 configure 里的
+  fullscreen / maximized 给页面发 `state`. 合成器 (acdebin-system 的 `crates/shell` `compositor/windows.rs`, 同一套 `WindowState` + `Restore`) 执行四种状态, 规则同上;
   原生客户端 (Firefox 等) 的最大化 / 全屏 / 最小化请求、acde 窗口的请求和桌面的 `acde:windows.requestState` (napi `Shell.setState` →
   `acde_shell.set_state`) 走同一个 `set_state`, 每次变化经 `acde_shell.window_state` 给 Broker 发 `windowstate` (已经做完的变化), 拒绝的请求也回一个
   configure. `filled` 是 xdg 的 maximized, 铺满工作区 (见 `docs/runtime/webs.md`「钉住的面板」); `fullscreen` 铺满输出. 只有 `normal` 的窗口能拖动、拖边改尺寸;
@@ -48,7 +48,7 @@
   调应用窗口的 `menu` (同桌面的 `invokeMenu`), 所以应用另用 `self.shortcut()` 注册了同一组合也只跑一次 (菜单项赢). 有桌面时不绑:
   菜单归桌面管 (Dopame 的编辑器给「编辑」菜单配了 `mod+C` / `mod+V` 等, 页面自己也处理这些键, 运行时抢走它们会改变编辑器的行为).
 
-## 协议 `acde_window` (客户端 ↔ 框架, `src/model/protocol/acde-window.xml`)
+## 协议 `acde_window` (客户端 ↔ 框架, `protocol/acde-window.xml`)
 
 只有一种窗口角色 `xdg_toplevel` (菜单、面板、桌面都是). 标准协议管缓冲、damage、opaque / input 区域、configure、parent / modal、激活、
 输入、data-device、fifo、presentation、syncobj、pointer-constraints、text-input. 扩展只带框架才能做的:
@@ -62,7 +62,7 @@
 | `request_activate` | 提到最前并请求焦点 |
 | `reserve(edge, thickness)` | 面板在输出的一条边上占 `thickness` 逻辑像素 (从那条边量起), 显示着才算; 同一条边取最大, edge 为 none 或厚度 0 时撤回 |
 
-## 协议 `acde_shell` (Broker ↔ 合成器, `src/model/protocol/acde-shell.xml`)
+## 协议 `acde_shell` (Broker ↔ 合成器, `protocol/acde-shell.xml`)
 
 只对 runtime 那条连接可见 (`can_view`). 合成器侧 shell `compositor/acde_shell.rs` (Broker 没绑上时攒最多 256 条事件), Broker 侧 shell
 `link.rs` 包成 napi `Shell`, 请求和事件和 `docs/graphics/render-gpu.md`「shell」一节的方法 / 事件一一对应 (坐标是 canvas 逻辑像素, int -1 是没有, 小数走 wl_fixed).

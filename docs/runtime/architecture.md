@@ -4,9 +4,9 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个�
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
-| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`src/host/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
+| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`src/host/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
 | [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acdebin-dbg` |
-| [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acdebin-system` |
+| [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器是 smithay + GLES, 只有网页的光栅化 (`crates/paint`) 用 acgpu | 二进制 `acdebin-system` |
 | acdebin-dbg 的 `npm/` | 开发者 CLI `acde` (bun) | `acde` |
 
 平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
@@ -20,7 +20,7 @@ runtime 的手动检查脚本 `tests/runtime/`), Wayland 协议在 `protocol/`. 
 C 接口见 `docs/runtime/ffi.md`; 发布到 cargo 源 ac 见 `docs/dev/release.md`「cargo 源 ac」.
 
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
-会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 两个前端的 `[patch]` 都指 `../acdert/vendor/blitz`.
+会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 前端的 Cargo.toml 里不再 `[patch]` 它.
 
 acdert 和开发者 CLI `acde` ([acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 的 `npm/`)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
@@ -32,12 +32,11 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 
 | 跑法 | 命令 | 平台 | 输出 | 合成器 |
 | --- | --- | --- | --- | --- |
-| **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdert 自己 (crates/shell) |
+| **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdebin-system 的 `crates/shell` |
 | **调试桌面** (`acde dev`) | `acdebin-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdebin-dbg 的 crates/hostwin |
 | **调试窗口** | `acdebin-dbg app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
 
-选哪种看跑的是哪个二进制: `acdebin-dbg` 一律宿主窗口, `acdert` (过渡期, 只在 Linux) 一律会话 (有 `WAYLAND_DISPLAY` / `DISPLAY` 又没设
-`ACDE_BACKEND` 时合成器嵌在宿主桌面里). 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
+选哪种看跑的是哪个二进制: `acdebin-dbg` 一律宿主窗口, `acdebin-system` (只在 Linux; Arch 包里 `/usr/bin/acdert` 链到它) 一律会话, 怎么起见 acdebin-system 的 `docs/architecture.md`. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
 
 调试桌面用桌面的模块、服务和 `acde:windows` / `acde:desktop` 事件. 调试窗口用清单授权的模块和 `acde:window` 事件.
 宿主窗口的 `native.Shell` 带 `hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」: 不起 fcitx5、
@@ -49,23 +48,14 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 ## 进程与线程
 
 ```
-会话:
-acdert (主进程, src/host supervise.rs)   合成器线程 (crates/shell, smithay): canvas / 窗口表 / 输入 / 外设. 没有 V8
- └─ acdert runtime (子进程, 自己的进程组)      一个 V8. 主线程: Broker isolate (web/packages/acde-host): 会话、桌面服务、窗口记录;
-     │                                          经 napi `Shell` (acde_shell 连接) 管合成器; 系统接口 src/runtime (napi)
-     ├─ web desktop (线程 `acde` + isolate)     桌面页面: render 文档 + 光栅化 (crates/paint) + Wayland 客户端 (crates/window)
-     └─ web <app>#<窗口> (线程 + isolate)        每个应用窗口一个, 只拿清单允许的 `acde:` 模块
-原生程序                                        普通 Wayland 客户端
+会话: 主进程 (`supervise.rs`)、合成器线程和运行时子进程怎么分在 acdebin-system 里, 见它的 docs/architecture.md.
 
 宿主窗口:
 acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 winit); `acde` 线程 (栈 64 MiB): Broker;
                     每个 web 一条 JS 线程 + 一条出帧线程 `acde-host-<id>`; `acde-compose` 合成到宿主窗口的 surface
 ```
 
-- **主进程** (`Supervisor`): 定好 `WAYLAND_DISPLAY` 后建一对 socketpair, 起 `acdert runtime <同样的参数>` (`ACDE_SHELL_FD` 是继承下来的
-  那头, napi `Shell.broker()` 接过去; 没有这个变量时在自己进程里起合成器). 合成器等 runtime 发来第一条消息才起 (`desktops`、交出会话
-  这些不碰 DRM 的路径不起). SIGINT / SIGTERM / SIGHUP 转给 runtime; runtime 正常退出时主进程停合成器、用它的退出码退出; 被别的信号
-  杀掉 (崩溃) 时新建一条 `acde_shell` 连接重起它, 60 秒内最多 3 次. runtime 设了 PDEATHSIG.
+- **主进程** (会话): 在 acdebin-system 的 `src/supervise.rs`, 起停和重起运行时子进程的规则见它的 `docs/architecture.md`.
 - **web** (src/host `web.rs` `spawnWeb`): runtime 里的一条 JS 线程 `acde` (栈 8 MiB), 自己的 isolate (堆上限 `heapMb`) 和事件循环.
   和 Broker 之间是结构化克隆的字节, 投进对方事件循环 (没有 socket). `terminate` 置停止并 `terminate_execution` (退出码 137);
   线程 panic 只结束这个 web (134, `panic: …`). 句柄带 `busyMs` (当前任务跑了多久, 判卡死) 和 `cpuMs` (`/proc/self/task/<tid>/schedstat`).

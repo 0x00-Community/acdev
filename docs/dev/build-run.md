@@ -32,6 +32,8 @@ Bun 的本代目录在默认 base 下, DACL 读回只有 SYSTEM 和当前用户,
 
 ## 命令
 
+命令行由前端的 `main.rs` 解析 (调试运行时在 acdebin-dbg 的 `src/main.rs`, 会话在 acdebin-system), 两边共用的部分交给 `acdert_common` / `acdert::common` (见 `docs/runtime/ffi.md`).
+
 ```sh
 acdert                                    # 会话: 桌面按 `docs/runtime/packages.md`「桌面包」的规则选
 acdert --desktop dopame                   # 那个桌面 (id 或包目录)
@@ -39,7 +41,7 @@ acdert --greeter                          # 登录页 (greetd)
 acdert desktop <id|目录>                  # 调试桌面 (acde dev)
 acdert app <id|目录>                      # 调试窗口: 只跑一个应用
 acdert desktops                           # 装了的桌面和外部会话 (不要显示器)
-acdert --version                          # 发行版本和契约级别: acdert 0.0.5 (contract level 1)
+acdert --version                          # 发行版本和契约级别: acdert <版本> (contract level 1)
 acdert --help                             # 用法 (main.rs 直接回, 不起 V8); 不认的选项: 一行原因加一行用法到 stderr, 退出 2
 acdert doctor [--json]                    # 自检: 宿主文件、GPU (真画一帧)、Linux 的显示; 有错误退出 1 (见下)
 acdert sessions DIR --package PKG         # 给包的每个桌面写 acdert-<id>.desktop
@@ -50,7 +52,7 @@ acdert --size 1920x1080 --scale 1         # shell 报输出之前的 CSS 尺寸
 acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打印 stats 和窗口表
 ```
 
-**`acdert doctor`** (`doctor.rs`, main.rs 直接分派, 不起 V8 也不起 Broker): 查这台机器上 `acdert app` / `acdert desktop` 起得来要的东西,
+**`acdert doctor`** (acdebin-dbg 的 `src/doctor.rs`, 由它的 `main.rs` 直接分派, 不起 V8 也不起 Broker): 查这台机器上 `acdert app` / `acdert desktop` 起得来要的东西,
 给 `acde doctor` 用 (acde 看 `acdert --help` 里有没有 `acdert doctor` 判断支不支持, 不按版本号). 每项 `ok` / `warn` / `error`, 可带一条 `fix`:
 - `host` (宿主文件): `web::app_dir()` (和起 Broker 同一个函数) 里有没有 `broker.js` 和 `web.js`; 缺了是错误, fix 按设没设 `ACDE_APP` 分两种.
 - `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`, 不认 CPU 适配器, 找不到时的原因和提示就是 `no_adapter` 那句), 再用 `Offscreen` 经 vello
@@ -91,14 +93,14 @@ Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追�
 页面错误 (`host.rs` `reportError`, 兜底 `rt.rs`) 每行以 isolate 名开头 (`[files#1048576] page error: …`); 不是 Error 的值写「类型 + 值」, 补上
 `thrown at` / `rejected at:` 的位置.
 
-计时是 debug 级、target `perf::<段>`, `RUST_LOG=perf=debug` 打开. `packaging/qemu/perf-log.sh [日志]` 按种类汇总 (次数、ms 的 p50 / p95 / max).
+计时是 debug 级、target `perf::<段>`, `RUST_LOG=perf=debug` 打开. acdebin-system 的 `packaging/qemu/perf-log.sh [日志]` 按种类汇总 (次数、ms 的 p50 / p95 / max).
 
 | target | 哪里 | 一行是 |
 | --- | --- | --- |
-| `perf::latency` | crates/window | 输入到上屏: `<kind> owner= ms=`, 分段 `queue` `js` `render` `raster` `present` |
+| `perf::latency` | acdebin-system 的 crates/window | 输入到上屏: `<kind> owner= ms=`, 分段 `queue` `js` `render` `raster` `present` |
 | `perf::task` | src/host | 事件循环里超过 8 ms 的任务: `task ms= hook=`, V8 自己的 `v8` |
 | `perf::frame` | render | `<web> commit= resolve= paint= finish= ms=`, 面板的 `panel <id> commands= damage ms=` |
-| `perf::raster` | crates/paint、crates/window、hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
+| `perf::raster` | acdebin-system 的 crates/paint、crates/window, acdebin-dbg 的 hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
 | `perf::layers` | hostwin `present.rs` | 有 layers 的页面 / 面板: `window= region= layers=重画的/全部 ms=` |
 | `perf::compose` | shell | `<输出> elements= ms=`, `rdp elements= rects= ms=`, `plan inputs= layers= damage= route=`, `backdrop window= w= h= blur= ms=` |
 | `perf::rpc` | acde-host | web 侧 `call <服务>.<方法> error= ms=`, Broker 侧 `serve …` |
@@ -106,7 +108,7 @@ Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追�
 `perf::latency` 来自 `acde_log::Trace`: 进队列 → JS 取走 → commit → 出帧 → 光栅化完 → vblank.
 
 JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler (`profile.rs`, 250 µs), 每 `ACDE_PROFILE_SECONDS` (默认 30) 秒和结束时写
-`<名字>-<n>.cpuprofile`; `bun packaging/qemu/profile-top.mjs [--top N] [--callers 函数名] 文件...` 汇总. 原生调用的时间多半记在调用它的 JS 函数上.
+`<名字>-<n>.cpuprofile`; acdebin-system 的 `bun packaging/qemu/profile-top.mjs [--top N] [--callers 函数名] 文件...` 汇总. 原生调用的时间多半记在调用它的 JS 函数上.
 
 ## 构建不从外网取东西
 

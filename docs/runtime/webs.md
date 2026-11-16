@@ -2,10 +2,10 @@
 
 每个 web 有自己的 DOM、CSS、JS 堆、render 文档和 surface.
 
-- **渲染 (会话)**: 每个 web 一个 xdg_toplevel, 自己光栅化 (crates/paint, 三块轮转的 GBM 画布), 经 linux-dmabuf 交给合成器. 窗口 id:
+- **渲染 (会话)**: 每个 web 一个 xdg_toplevel, 自己光栅化 (acdebin-system 的 `crates/paint`, 三块轮转的 GBM 画布), 经 linux-dmabuf 交给合成器. 窗口 id:
   桌面 0, web 窗口从 `1<<20` 起 (Broker 发), 和原生窗口同一空间. 应用窗口先是居中的 `free` 窗口, 页面尺寸是清单的 `size` (默认 800x600),
   Broker `grant` 时加上窗框的高 (`Frame.windowSize`), 整个窗口不超过屏幕.
-- **输入**: 合成器按 z 找到指针下的窗口; crates/window 转成 shell 事件; 滚轮的默认滚动和 :hover 在 render 线程上. pointermove 对齐到帧
+- **输入**: 合成器按 z 找到指针下的窗口; acdebin-system 的 `crates/window` 转成 shell 事件; 滚轮的默认滚动和 :hover 在 render 线程上. pointermove 对齐到帧
   (acde-host `host.ts`: 只留最新的, 下一个 `frame` 或别的事件前才派发).
 - **记住位置** (`src/places.ts`): 窗口没了时合成器发 `windowgone`, Broker 按应用 id 记最后的 rect (全屏的记进全屏之前的) 到
   `$XDG_STATE_HOME/acde/windows.json` (`ACDE_STORAGE` 为空时只在内存); 下次打开且没有别的窗口开着时摆回 (露出屏幕不到 48 像素或标题栏
@@ -13,7 +13,7 @@
   会话里由合成器执行, 发 `windowstate`).
 - **窗框**: 应用窗口 (清单 `frame` 不是 false; 桌面和面板没有) 有一条标题栏, **不在页面的文档里**: `<html>`、`innerHeight`、`100vh`、`resize`
   都只是内容区. 窗口表的 rect、grab hint、backdrop 是含窗框的整个窗口; 页面给的 `setGrabHint` / `setBackdrop` 是页面坐标, 加上窗框高再交出去,
-  窗框的 hint (标题栏移动, 四边 4 px / 四角 10 px 改大小) 优先. 会话里是 crates/window `decoration.rs` 在页面 surface 上开的同步 `wl_subsurface`
+  窗框的 hint (标题栏移动, 四边 4 px / 四角 10 px 改大小) 优先. 会话里是 acdebin-system 的 `crates/window` `decoration.rs` 在页面 surface 上开的同步 `wl_subsurface`
   (`set_window_geometry(0, -H, W, 整高)`, 自己的画布 plane `usize::MAX`); 宿主窗口里见 `docs/runtime/window-model.md`「宿主窗口」. 三个按钮 (样式见 render 的「窗框」, `ACDE_FRAME_STYLE`: 红绿灯或 Windows 的最小化 / 最大化 / 关闭) 按下和松开在同一个上时发
   `framebutton {key}` (`close` / `minimize` / `fullscreen` / `restore`), acde-host 调 `acde.window` 的 `close()` / `minimize()` / `requestMode`.
   标题是 `document.title` 或 `acde.window.setTitle` (没有时用 `label`), 经 surface 的 `setTitle`. 高度只在 acde-host `frame.ts` 的
@@ -21,7 +21,7 @@
   (页面坐标加 `contentOffset`).
 - **钉住的面板** (Dock、菜单栏、弹出层): 桌面页面调 `acde.desktop.pin(element, {margin?})` → `{update(), unpin()}`, 元素成为单独的 `pinned`
   窗口, 状态和 React 树还在同一个文档里. `pinned.ts` 量元素 (并上 render 报的绘制范围 `panelmove`), 要令牌 (`Shell.grant({mode: 'pinned', rect})`),
-  再开一个 toplevel (crates/window `panel.rs`; 宿主窗口里是 owner 为桌面的表项), `Dom::set_panel` 让 render 单独画它 (`Frame.panels`). 输入区域只是
+  再开一个 toplevel (acdebin-system 的 `crates/window` `panel.rs`; 宿主窗口里是 owner 为桌面的表项), `Dom::set_panel` 让 render 单独画它 (`Frame.panels`). 输入区域只是
   元素的盒子 (`pointer-events: none` / 不可见时为空), 指针送回同一个文档; 主窗口或任一面板有焦点就算 `activate`. 元素变了 (ResizeObserver +
   MutationObserver, 700 ms 后补量) 重新量, 量不到时 `hide`. backdrop-filter 转成 `set_backdrop`.
   `pin(element, {reserve: {edge, thickness?}})` 让面板在输出的一条边上占一条 (像 layer-shell 的 exclusive zone; 不给 thickness 时是从那条边到面板远端的距离,
@@ -57,7 +57,7 @@
   节点的创建和改样式, 每边多轮中位数); 设 `BASE_ACDERT` / `BASE_APP` 时与基准版本交替跑, 任一项比值超过 `DOM_PERF_LIMIT` (默认 1.1, 即 #206 的验收线: 不超过基准版本的 110%) 退出码非零. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
   `acde.desktop.on('edge', fn)` (SDK `ScreenEdgeEvent` `{type: 'screenedge', edge: 'top' | 'right' | 'bottom' | 'left', entered, output}`, #113):
   指针进入、离开屏幕的一条边时各发一次 (角上是两条边各一次), 给桌面藏起菜单栏和 Dock 时用; 只发事件, 不动焦点和输入. 边的判断在 acde-model
-  `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (crates/shell `input.rs`
+  `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (acdebin-system 的 `crates/shell` `input.rs`
   `screen_edges`) 在指针移动后按所在输出算, 经 acde_shell 的 `screen_edge(output, edge, entered)` 交给 Broker, `output` 是输出名 (如 `HDMI-A-1`),
   换了输出先离开旧输出的边; 宿主窗口 (hostwin `App::moved`) 按宿主内容区算, 指针离开宿主窗口时离开所有边, `output` 是 `host`, 宿主窗口不论是否全屏都发
   (运行时不抓窗口外的输入). 两边都给 Broker 推 `edgeenter` / `edgeleave` (`key` 是边, `title` 是输出), Broker 转给桌面和声明了 `acde:desktop` 的系统应用.
@@ -124,7 +124,7 @@
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
   模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 不认识的名字和服务名都是错误)、
   `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
-  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算; 单应用模式的主窗口铺满宿主窗口, 设了 `size` 时它是宿主窗口内容区的初始尺寸, 见「坐标」)、`multiple`、`frame` (默认 true)、`backend`.
+  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算; 单应用模式的主窗口铺满宿主窗口, 设了 `size` 时它是宿主窗口内容区的初始尺寸)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (`broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块), 要批准的能力 (见「批准」) 另有 `not-asked` (还没问过用户)、`asking` (提示已经弹出, 在等回答)、`denied` (用户拒绝或撤销);
@@ -185,4 +185,4 @@
 - **内存和生命周期**: 堆超了只停这个 web (窗口的发 `windowcrash {reason: 'memory'}`, 桌面的重起). 关闭先问 `beforeclose` (3 秒不答就关),
   再停线程、放掉 surface, 它起的原生窗口一起关. 当前任务超过 5 秒报 `windowhang`, 回到循环报 `windowresponsive`, 桌面可以 `kill`.
   desktop web 停了 Broker 重起它 (一分钟最多 3 次). 隐藏的窗口不出帧、画布放掉; 隐藏久了丢弃还没有.
-- **调试**: 每个 web 有名字 (`files#1048576`, 也是事件循环和日志里的名字); 运行中的会话用 `ACDE_DEBUG_DIR` 和 `packaging/qemu/drive.sh`.
+- **调试**: 每个 web 有名字 (`files#1048576`, 也是事件循环和日志里的名字); 运行中的会话用 `ACDE_DEBUG_DIR` 和 acdebin-system 的 `packaging/qemu/drive.sh`.

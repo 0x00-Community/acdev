@@ -12,7 +12,7 @@
 blitz fork 和上游结构的不同: HTML 解析用 src/render 自己的 html5ever TreeSink; `build_inline_layout_into` 在 `layout/inline/build.rs`; `paint_scene`
 先录进 acgpu 的 `Scene` 再回放 (没有 anyrender, 它的 SVG 画法成了 blitz-paint 的 `svg.rs`); blitz-dom 重新导出 `taffy`. 验证: 在
 `vendor/blitz` 里 `cargo clippy --workspace --all-targets`、`cargo check -p blitz-dom --no-default-features`、
-`cargo test -p blitz-dom -p blitz-paint`、`cargo clippy -p blitz-paint --all-targets --features scrollbars`; 再 `cargo test --release -p acde-render`
+`cargo test -p blitz-dom -p blitz-paint`、`cargo clippy -p blitz-paint --all-targets --features scrollbars`; 再 `cargo test --release -p acdert --test 'render_*'`
 (加 `ACDE_PAINT_VERIFY=1` 再一遍).
 
 **blitz-paint**
@@ -98,7 +98,7 @@ blitz fork 和上游结构的不同: HTML 解析用 src/render 自己的 html5ev
 | `assets/default.css`, `node/node.rs` `has_native_appearance`, `layout/construct.rs`, `layout/mod.rs`, `layout/damage.rs` | 复选框和单选框默认 `appearance: auto`, 不带 input 的边框、内边距和背景 (控件的边框盒仍是 20px / 18px); `appearance: none` 时是普通的盒子: 不当叶子、`::before` / `::after` 照常构造和排版, `appearance` 变了重建盒子 |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
-**src/webgl `src/glsl`**: naga 30.0.1 的 GLSL 前端整个搬进来 (原 `front/glsl`, MIT OR Apache-2.0), 跑在 crates.io 原版 naga 的公开接口上
+**`src/webgl/glsl`**: naga 30.0.1 的 GLSL 前端整个搬进来 (原 `front/glsl`, MIT OR Apache-2.0), 跑在 crates.io 原版 naga 的公开接口上
 (naga 私有的几样在 `glsl/compat.rs` 重写); 改动处加 `acde:` 注释. 加的是 WebGL 方言 (`Frontend::parse_webgl`、`WebGlOptions`: `front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界.
 std140 下比步长窄的 scalar / vec2 数组元素包进 16 字节的结构体 `acde_padded { value }` (`offset::PADDED`), 取元素时自动接上 `.value`,
 webgl 枚举 uniform 时 (`shader.rs` `unpadded`) 解开这层; 这样各后端 (MSL 没有自己的数组步长) 都保持 std140 布局, 不用改 naga 后端.

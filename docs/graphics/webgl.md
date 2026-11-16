@@ -6,7 +6,7 @@ WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 
   对象包装和扩展对象; 状态、校验和 GL 错误都在 acde-webgl 的 `Context` (Rust, 不依赖 V8, 能单测); acdert `webgl.rs` 把它绑成 `natives.webgl`
   (每个 canvas 一个 `Context`, 调用的第一个参数是上下文编号). `getError` 同步, 所以每个调用自己校验; 会失败的 wgpu 调用 (建纹理 / 渲染缓冲 /
   绘制缓冲 / 管线 / 绑定组、提交) 都在错误范围 (`Context::scoped`) 里, 失败时报 GL 错误 (`OUT_OF_MEMORY` / `INVALID_OPERATION`) 并记日志.
-- **着色器**: GLSL ES 1.00 / 3.00 经 `src/glsl` 的 WebGL 方言 (`Frontend::parse_webgl`, 见 `docs/graphics/vendor.md` 末尾) 变成 naga IR, 直接交给 wgpu
+- **着色器**: GLSL ES 1.00 / 3.00 经 `src/webgl/glsl` 的 WebGL 方言 (`Frontend::parse_webgl`, 见 `docs/graphics/vendor.md` 末尾) 变成 naga IR, 直接交给 wgpu
   (`ShaderSource::Naga`). `compileShader` 只解析校验, `linkProgram` 按两个着色器重新解析一遍: attribute 位置 (`bindAttribLocation` / layout / 依次)、
   varying 按名字配位置、不活跃的 attribute 和对面没有的 varying 降成普通全局. 活跃与否 (`getActiveUniform` 等) 按 `live.rs` 从语句往回追的表达式算.
   每个阶段的散 uniform 是一个 uniform 块 (第 0 组, 顶点 0、片元 1, 动态偏移; std140, 但 matCx2 按 WGSL 的自然布局, bool 存成 uint);
@@ -30,7 +30,7 @@ WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 
   `EXT_disjoint_timer_query`、带数据上传到 depth24 / depth32f (只有 depth16 能写)、copyTexImage 到 LUMINANCE / ALPHA 不换算、模板的 blit 解析、
   索引或实例化的宽点 (一个像素)、uniform 里的 bool 数组和含 bool 的结构、std140 块里的 matCx2、着色器校验比 ANGLE 宽松 (隐式转换照
   GLSL 4.x), origin-clean (跨源图片能读出来, 和 2D canvas 一样还没有), 上下文丢失后不恢复 (`restoreContext` 什么也不做).
-- **检查**: `cargo test --release -p acde-webgl` (着色器翻译、渲染、uniform、查询、多重采样、宽点); `ACDE_WEBGL_SHADERS=<目录>` 时再把目录里
+- **检查**: `cargo test --release -p acdert webgl` (加 `--test 'webgl_*'` 只跑根 `tests/` 里的) (着色器翻译、渲染、uniform、查询、多重采样、宽点); `ACDE_WEBGL_SHADERS=<目录>` 时再把目录里
   `name_NNN.vert` / `name_NNN+1.frag` 一对对链接并生成 MSL / SPIR-V / HLSL (three.js 0.187 的 36 个程序是从 Chrome 里拦 `shaderSource` 得到的).
   2026-11-12 three.js (标准 / 物理 / Phong / Lambert / Toon / Matcap / 法线 / 深度材质、三种阴影、实例化、变形、蒙皮、点、线、精灵、
   EffectComposer + UnrealBloomPass + 4 倍多重采样的半浮点目标、PNG / SVG / 2D canvas 纹理) 和 pixi 8.23 在 macOS (Metal) 和 .234 (Vulkan)

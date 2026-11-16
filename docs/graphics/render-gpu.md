@@ -53,19 +53,16 @@
   有焦点的; `style` / `side` (`ButtonSide`) / `align` (`TitleAlign`) 没给时按 `Bar.style`: `Mac` 是左边、居中, `Windows` 是右边、靠左) 和
   `Bar.active` 只改样子; 按钮放在哪一边时命中和 `FrameTheme::grab_hints` 跟着换边. `buttons` 给圆点上色 (不给是红黄绿), 给图标上色 (不给是标题色).
 
-## shell (`crates/shell`, napi 类 `Shell`)
+## shell (napi 类 `Shell`)
 
-完整的 Wayland 合成器 (smithay), 自己的线程 (calloop). 上机 DRM/KMS + libinput, 无显示器用 RDP 后端 (`ACDE_BACKEND=rdp`).
+合成器本身 (smithay + GLES, DRM/KMS、RDP、支持的协议、HiDPI 和它的环境变量) 在 acdebin-system 的 `crates/shell`, 见它的 `docs/compositor.md`;
+宿主窗口里是 acdebin-dbg 的 `crates/hostwin`, 见它的 `docs/hostwin.md`. 下面是 Broker 和 web 看到的接口.
 
-- 协议: xdg-shell / xdg-dialog / xdg-decoration (回 client-side)、`acde_window`、linux-dmabuf v4、wl_drm、syncobj、presentation、fifo /
-  commit-timing、viewporter、fractional-scale、pointer-constraints / relative-pointer / gestures、data-device、xdg-activation、cursor-shape、
-  wlr-layer-shell、ext-session-lock、idle、text-input-v3 + input-method-v2 + virtual-keyboard、keyboard-shortcuts-inhibit、xdg-output.
-  第三方的 popup 和 layer-shell surface 在表里是 `pinned`. maximize 不理.
 - Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?, parent?, modal?})` → `{window, token}` (随机 64 位令牌,
   客户端在 `acde_window.bind` 里交回一次; `parent` / `modal` 在窗口绑上时写进窗口表, 客户端自己的 xdg parent 优先); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
-- web 侧: `claimSurface(token, {frame?})` (src/host `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
+- web 侧: `claimSurface(token, {frame?})` (src/host `webnative.rs` → 前端的 `Platform::claim`, 会话里是 acdebin-system 的 `crates/window` `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
   一条 `acde-window` 线程管 Wayland 和光栅化) 给出 surface: `pump`、`wait()` (队列非空时落定)、`waitThen(cb)` (队列非空时在一个新任务里调 cb, 不在微任务里: acde-host `Host.run` 每轮取一批输入就是一个任务, 输入事件经 acde-dom `Input` 用 `fireFromTask` 派发, 每个监听器后跑微任务检查点, React 的离散事件在下一个按键前就提交; 原先循环 `await wait()` 之后都在微任务里, 检查点不生效, 连按三次只算一次)、`requestFrame`、`setClipboard`、
   `readClipboard()`、`startDrag(data, icon?)`、`setTitle`、`setImeArea`、`window`、`hosted`、`contentOffset`.
 - 事件 (`Event`, 坐标逻辑像素, button / code 是 evdev 码). 给 surface 的: `pointermove` / `pointerdown` / `pointerup` / `wheel` /
@@ -77,9 +74,6 @@
   `windowcloserequest` (宿主窗口)、`devreload` / `devrequest`、`milestone`、`inputtarget` (`ACDE_DEBUG_INPUT`)、`exit`.
 - 注入 `inject({type, x, y, button, dx, dy, source, code})`: `move` / `motion` (相对) / `down` / `up` / `wheel` (source `wheel` / `finger` /
   `continuous`) / `keydown` / `keyup`, 和真实输入同一条路由.
-- HiDPI: 整数缩放 `floor(DPI / 96 + 0.3)` (1 到 3), `ACDE_SCALE` 指定 (可以是分数); 多块输出按逻辑宽度从左往右排. 光标一律合成进画面
-  (DRM 光标平面在带 T2 的 Mac 上 2 倍缩放时出错). 环境变量 `ACDE_SOCKET`、`ACDE_RENDER_NODE`, 调试用 `ACDE_WEB_FULL` / `ACDE_WEB_POLL` /
-  `ACDE_SCANOUT=0`.
 
 ## GPU 与性能 (硬约束)
 
@@ -87,7 +81,7 @@
   `toDataURL`).
 - **网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定 2026-11-13): 没有 vello_cpu; `acdert::gpu::adapters` 真 GPU 排前, CPU 类型的设备 (lavapipe)
   排最后, 只有它时用它 (虚拟机 / VNC, 慢). 什么设备都没有时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
-  合成器自己 (GLES) 不在此列.
+  合成器自己 (GLES) 不在此列. acdebin-system 的会话不走这条: 没有 GPU 时它在 CPU 上画页面, 不用 lavapipe (见它的 `crates/paint`).
 - **用 acgpu 的类型和回退, 不带专用驱动** (用户定 2026-11-14): 依赖 acgpu 不开 `compiler` (没有 MLIR / 驱动), 只开 `fallback-vulkan`, 即只经标准图形接口
   (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal (`acdert::gpu::BACKEND`). 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` /
   `Filter`, blitz-paint 和 render 直接画进它) 和渲染器 (`Vello` / `Raster` / `Composer` / `Device` / `Offscreen` / `GpuImage`, Linux 上 dma-buf 画布导入和

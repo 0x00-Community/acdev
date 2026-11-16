@@ -5,6 +5,6 @@
 Xe3 驱动只在 acdebin-system 里用.
 
 用户定 2026-11-13: 网页优先在 GPU 上画, 不带 vello_cpu. 真 GPU 排前, lavapipe 这类 CPU 类型的设备排最后, 只有它时才用 (虚拟机 / VNC, 慢);
-什么设备都没有时网页图层不可用, 页面不出帧. 整条链路仍不许 CPU 拷像素、不许 GPU 回读 (RDP、截屏、要同步给像素的标准接口除外).
+什么设备都没有时网页图层不可用, 页面不出帧. acdebin-system 的会话另有做法: 没有 GPU 时在 CPU 上画页面, 不用 lavapipe. 整条链路仍不许 CPU 拷像素、不许 GPU 回读 (RDP、截屏、要同步给像素的标准接口除外).
 
 见 `docs/graphics/render-gpu.md`「GPU 与性能 (硬约束)」.

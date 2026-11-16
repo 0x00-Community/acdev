@@ -33,7 +33,7 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 - 构建不从外网取东西 (2026-11-14): 依赖都从内网 Gitea 取 (blitz 子模块、rusty_v8 预编译库、CI 的 action), 见 `docs/dev/build-run.md`「构建不从外网取东西」.
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
-- 改 `crates/shell`、`src/render`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
+- 改 `src/render`、`src/gpu`、`src/vello`、`src/webgl`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
   什么、没验什么. 汇报时分开写「已验证 / 未验证」.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
