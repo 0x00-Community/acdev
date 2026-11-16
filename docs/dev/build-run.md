@@ -52,18 +52,7 @@ acdert --size 1920x1080 --scale 1         # shell 报输出之前的 CSS 尺寸
 acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打印 stats 和窗口表
 ```
 
-**`acdert doctor`** (acdebin-dbg 的 `src/doctor.rs`, 由它的 `main.rs` 直接分派, 不起 V8 也不起 Broker): 查这台机器上 `acdert app` / `acdert desktop` 起得来要的东西,
-给 `acde doctor` 用 (acde 看 `acdert --help` 里有没有 `acdert doctor` 判断支不支持, 不按版本号). 每项 `ok` / `warn` / `error`, 可带一条 `fix`:
-- `host` (宿主文件): `web::app_dir()` (和起 Broker 同一个函数) 里有没有 `broker.js` 和 `web.js`; 缺了是错误, fix 按设没设 `ACDE_APP` 分两种.
-- `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`, 不认 CPU 适配器, 找不到时的原因和提示就是 `no_adapter` 那句), 再用 `Offscreen` 经 vello
-  画一张 16x16 的纯色图、回读中心像素和画的颜色比 (每通道差 ≤ 2). 所以着色器编译 (Metal / DXC / Vulkan)、提交、回读都走过一遍. 在 `acde-doctor`
-  线程上做, 30 s 没结果算错误 (驱动挂住时不卡死), 回读是 doctor 自己要的像素, 不在 GPU 硬约束的禁止之列.
-- `display` (只在 Linux): 和 `session()` 同一个判断 (`main.rs` 的 `outer()`: `WAYLAND_DISPLAY` / `DISPLAY` / `ACDE_HEADLESS`); 都没有时是警告:
-  这时 `acdert app` / `desktop` 不开宿主窗口, 而是去试着起 DRM 会话 (按 `session()` 的分支读出来的, 没在共用的机器上实测抢屏), fix 是 `acde dev --headless` 或在图形会话里跑.
-不查的: 视频解码器 (只影响 `<video>`, 不影响起得来)、存储目录 (位置由 JS 的 `places.ts` 定, Rust 这边重算一份会分叉)、缺动态库 (那时 acdert 自己就起不来,
-由 acde 从 stderr 读出原因). 输出: 第一行 `acdert <版本> (contract level N): <exe>`, 每项一行 `<状态> <标题>: <内容>`, 有 fix 时下一行 `fix: …`;
-`--json` 是一个对象 `{acdert, level, platform, exe, checks: [{id, title, status, summary, fix}]}` (`fix` 可为 null), stdout 上只有它.
-有 `error` 退出 1, 否则 0; 不认的参数一行原因加用法, 退出 2.
+前端的 `doctor` 子命令见 acdebin-dbg `docs/doctor.md`.
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
 内存, 见 `docs/web/storage.md`「网页存储」)、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acde: <message>`, 不带 `Error:`, 和 acde 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
@@ -75,7 +64,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   还是没有时 `en-US` (acde-dom 的默认同样是 `en-US`). `acde:session` 的 `setLanguage(tag)` 写 `locale.conf` 并发 `languagechange`.
   运行时自己的文字跟着页面语言 (acde-host `language.ts` `HostStrings`, 中文或英文, 别的语言用英文): `acde:fs` / `acde:office` 的根的 `label`
   (runtime 给英文, web 侧按 `source` / `place` 换: 应用数据、桌面、文档…; 选的文件夹用文件夹名不换), 文件夹 / 打开 / 保存选择器的标题.
-- **远程桌面**: `ACDE_BACKEND=rdp` 离屏合成用 RDP 送出 (shell `compositor/rdp.rs`). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书
+- **远程桌面**: `ACDE_BACKEND=rdp` 离屏合成用 RDP 送出 (acdebin-system 的 shell `compositor/rdp.rs`, 见它的 `docs/rdp.md`). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书
   (`ACDE_RDP_CERT` / `ACDE_RDP_KEY`, 默认 `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`); `ACDE_RDP_ADDR` (0.0.0.0:3390)、`ACDE_SIZE`
   (默认 1440x900)、`ACDE_RDP_SECURITY` (tls / nla). 还没有: 光标形状、Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.
 - **调试运行中的会话** (`ACDE_DEBUG_DIR=<目录>`): 放进去的 `<name>.mjs` 由 Broker import, 默认导出拿 `DebugApi` (`debug.ts`: `broker`、`shell`、
@@ -93,7 +82,7 @@ Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追�
 页面错误 (`host.rs` `reportError`, 兜底 `rt.rs`) 每行以 isolate 名开头 (`[files#1048576] page error: …`); 不是 Error 的值写「类型 + 值」, 补上
 `thrown at` / `rejected at:` 的位置.
 
-计时是 debug 级、target `perf::<段>`, `RUST_LOG=perf=debug` 打开. acdebin-system 的 `packaging/qemu/perf-log.sh [日志]` 按种类汇总 (次数、ms 的 p50 / p95 / max).
+计时是 debug 级、target `perf::<段>`, `RUST_LOG=perf=debug` 打开. acdebin-system 的 `packaging/qemu/perf-log.sh [日志]` (见它的 `docs/qemu.md`) 按种类汇总 (次数、ms 的 p50 / p95 / max).
 
 | target | 哪里 | 一行是 |
 | --- | --- | --- |

@@ -2,7 +2,7 @@
 
 每个 web 有自己的 DOM、CSS、JS 堆、render 文档和 surface.
 
-- **渲染 (会话)**: 每个 web 一个 xdg_toplevel, 自己光栅化 (acdebin-system 的 `crates/paint`, 三块轮转的 GBM 画布), 经 linux-dmabuf 交给合成器. 窗口 id:
+- **渲染 (会话)**: 每个 web 一个 xdg_toplevel, 自己光栅化 (acdebin-system 的 `crates/paint`, 三块轮转的 GBM 画布, 见它的 `docs/window-paint.md`), 经 linux-dmabuf 交给合成器. 窗口 id:
   桌面 0, web 窗口从 `1<<20` 起 (Broker 发), 和原生窗口同一空间. 应用窗口先是居中的 `free` 窗口, 页面尺寸是清单的 `size` (默认 800x600),
   Broker `grant` 时加上窗框的高 (`Frame.windowSize`), 整个窗口不超过屏幕.
 - **输入**: 合成器按 z 找到指针下的窗口; acdebin-system 的 `crates/window` 转成 shell 事件; 滚轮的默认滚动和 :hover 在 render 线程上. pointermove 对齐到帧
@@ -29,7 +29,7 @@
   面板隐藏、挪动、改尺寸、取消钉住或输出变了时重算 (`refill`): `filled` 的窗口跟着改 rect, 全屏不管工作区; 工作区变了给 Broker 发
   `workarea {x, y, width, height}`, Broker (`broker/output.ts`) 把它放进发给每个 web 的 `screen` 消息和 `WebInit.screen.workArea`
   (`acde:window.output.workArea`). 不写 reserve 的面板什么都不占. 钉住后用句柄的 `reserve({edge, thickness?} | null)` 就地换占的边或厚度 (不用 unpin 再钉,
-  工作区只变一次, 中间没有整个输出的一步; `null` 不再占, 不认识的边或负的厚度抛 TypeError). 一个宿主窗口就是一个输出. 会话里 crates/window 把 `reservePanel` 经面板的 `acde_window.reserve` 交给合成器, 工作区
+  工作区只变一次, 中间没有整个输出的一步; `null` 不再占, 不认识的边或负的厚度抛 TypeError). 一个宿主窗口就是一个输出. 会话里 acdebin-system 的 `crates/window` 把 `reservePanel` 经面板的 `acde_window.reserve` 交给合成器 (工作区怎么算见它的 `docs/workspace.md`), 工作区
   (shell `compositor/workarea.rs`) 是输出减去 layer-shell 的独占区, 再减去显示着的面板占的边 (同一条边取最大); 面板占的边变了、面板隐藏 / 显示 /
   关掉或输出变了时重算, 变了经 `acde_shell.work_area` 给 Broker, 铺满的窗口跟着改 rect. 元素要是 stacking context, 不带祖先的裁剪和透明度.
   `acde.desktop.setDoubleClick('fill' | 'minimize' | 'none')` (SDK `DoubleClickAction`) 声明双击标题栏做什么, 随时可以再设, 下一次双击就按新的;
@@ -185,4 +185,4 @@
 - **内存和生命周期**: 堆超了只停这个 web (窗口的发 `windowcrash {reason: 'memory'}`, 桌面的重起). 关闭先问 `beforeclose` (3 秒不答就关),
   再停线程、放掉 surface, 它起的原生窗口一起关. 当前任务超过 5 秒报 `windowhang`, 回到循环报 `windowresponsive`, 桌面可以 `kill`.
   desktop web 停了 Broker 重起它 (一分钟最多 3 次). 隐藏的窗口不出帧、画布放掉; 隐藏久了丢弃还没有.
-- **调试**: 每个 web 有名字 (`files#1048576`, 也是事件循环和日志里的名字); 运行中的会话用 `ACDE_DEBUG_DIR` 和 acdebin-system 的 `packaging/qemu/drive.sh`.
+- **调试**: 每个 web 有名字 (`files#1048576`, 也是事件循环和日志里的名字); 运行中的会话用 `ACDE_DEBUG_DIR` 和 acdebin-system 的 `packaging/qemu/drive.sh` (见它的 `docs/qemu.md`).

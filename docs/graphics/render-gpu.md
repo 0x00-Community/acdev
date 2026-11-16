@@ -81,7 +81,7 @@
   `toDataURL`).
 - **网页优先在 GPU 上画, 没有 GPU 时回退 CPU** (用户定 2026-11-13): 没有 vello_cpu; `acdert::gpu::adapters` 真 GPU 排前, CPU 类型的设备 (lavapipe)
   排最后, 只有它时用它 (虚拟机 / VNC, 慢). 什么设备都没有时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
-  合成器自己 (GLES) 不在此列. acdebin-system 的会话不走这条: 没有 GPU 时它在 CPU 上画页面, 不用 lavapipe (见它的 `crates/paint`).
+  合成器自己 (GLES) 不在此列. acdebin-system 的会话不走这条: 没有 GPU 时它在 CPU 上画页面, 不用 lavapipe (见它的 `docs/window-paint.md`).
 - **用 acgpu 的类型和回退, 不带专用驱动** (用户定 2026-11-14): 依赖 acgpu 不开 `compiler` (没有 MLIR / 驱动), 只开 `fallback-vulkan`, 即只经标准图形接口
   (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal (`acdert::gpu::BACKEND`). 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` /
   `Filter`, blitz-paint 和 render 直接画进它) 和渲染器 (`Vello` / `Raster` / `Composer` / `Device` / `Offscreen` / `GpuImage`, Linux 上 dma-buf 画布导入和
