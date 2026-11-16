@@ -31,6 +31,8 @@ The session is ready when `acde webs`, run from the project directory, lists the
 
 On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acde shot`, `acde screen` and `acde inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acde dev` without `--headless` (and `acde test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdebin-dbg exits with an error anyway, `acde dev` adds the same `--headless` hint after acdebin-dbg's own messages.
 
+A headless session can run beside one with a window, for example the window on your main checkout for you to use and a headless session on a git worktree for an agent to build, test and inspect. Sessions on different directories do not get in each other's way; a second session on the same directory needs `--force`. Both runtimes share the web storage, window places, folder grants and permission decisions kept in your user directories; start the agent's session with `ACDE_STORAGE=` (empty) to keep its storage, places and grants in memory, and with its own `XDG_CONFIG_HOME` to keep its permission decisions apart too. The tools pick the session that runs the current directory, or take `--session <pid>`.
+
 ## Reloading
 
 - Changes within 150 ms are merged into one build, and only the project that changed is rebuilt.

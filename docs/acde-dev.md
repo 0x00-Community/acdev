@@ -39,6 +39,13 @@
   照旧报 `exited (<码>) before it was ready`. 第一次构建失败时打 `acde: build failed: …` 和 `acde: waiting for a change to build again`, 监听工程, 有改动再构建,
   成功后照常起运行时 (`#firstBuild`). 页面报错、未捕获异常本来就只进日志; 之后的构建失败本来就只打一行、窗口留着上一次好的构建. 无头会话和测试会话照旧:
   运行时退出 acde dev 跟着退出, 第一次构建失败直接退出, 给脚本、agent 和 `acde test` 看到失败.
+- **同时开有窗口和无头的两个会话**: dev socket (`<会话目录>/<pid>.sock`)、会话文件、后端的 socket 目录 (运行时按自己的 pid 分) 和 DevTools 端口
+  (`127.0.0.1` 上系统挑的) 各自独立; 截图、调试工具、热重载在无头会话里走同一条 dev IPC, 和有窗口的一样. 同一个工程目录第二个 `acde dev` 要
+  `--force` (一个工程一个会话, 见下). 两个运行时共用的是用户目录下的状态: 网页存储 `$XDG_DATA_HOME/acde/storage` (`ACDE_STORAGE` 改根目录)、
+  窗口位置 `$XDG_STATE_HOME/acde/windows.json`、文件夹授权 `$XDG_STATE_HOME/acde/grants/`、批准决定 `$XDG_CONFIG_HOME/acde/permissions.json`
+  (不看 `ACDE_STORAGE`), 会互相改写. 给 agent 的那个会话照 `acde test` 的做法 (`E2eRun.env`) 设 `ACDE_STORAGE=` (空: 前三样只在内存),
+  要连批准决定也分开再设自己的 `XDG_CONFIG_HOME`. 推荐用户的有窗口会话跑主检出, agent 的无头会话跑各自的工作树: 目录不同就不用 `--force`,
+  监听互不触发, 半成品也不会出现在用户屏幕上.
 - acdebin-dbg 退出 acde 跟着退出 (退出码跟它; 有窗口的会话崩溃时重起, 见上), acde 的连接断了 acdebin-dbg 也退出. SIGTERM / SIGHUP 转给 acdebin-dbg. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdebin-dbg 发 SIGTERM (只发给 acde dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acde dev 一直不退),
   第二次中断发 SIGKILL; Windows 上 Ctrl+C 同时到 acdebin-dbg, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
