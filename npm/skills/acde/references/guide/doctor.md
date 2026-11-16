@@ -7,17 +7,17 @@ acde doctor
 ```
 
 ```text
-ok     acde: 0.0.9 on Bun 1.4.4 (/Users/me/.acde/versions/0.0.9)
+ok     acde: 0.0.10 on Bun 1.4.4 (/Users/me/.acde/versions/0.0.10)
 ok     PATH: acde on PATH is this one (/Users/me/.acde/bin/acde)
 ok     Bun and Node.js: Bun 1.4+ at /Users/me/.bun/bin/bun; Node.js 22.3+ at /opt/homebrew/bin/node
-ok     acdert: acdert 0.0.9 (contract level 1) at /Users/me/.acde/versions/0.0.9/bin/acdert (installed next to acde)
-ok     contract level: level 1 on both sides (acdert 0.0.9, SDK 0.0.9)
-ok     host files: /Users/me/.acde/versions/0.0.9/bin/app/dist
+ok     acdebin-dbg: acdebin-dbg 0.0.10 (contract level 1) at /Users/me/.acde/versions/0.0.10/bin/acdebin-dbg (installed next to acde)
+ok     contract level: level 1 on both sides (acdebin-dbg 0.0.10, SDK 0.0.10)
+ok     host files: /Users/me/.acde/versions/0.0.10/bin/app/dist
 ok     gpu: Apple M3 Pro (Metal, integrated GPU): drew a test frame in 38 ms
 ok     acde dev sessions: none running
 ok     project: notes, app (acde.config.jsonc): acde check finds nothing wrong
 ok     platform: macos (desktop, standalone) has every required capability
-ok     dependencies: installed with bun (runs on Bun 1.4+), @dopame/acde-api 0.0.9
+ok     dependencies: installed with bun (runs on Bun 1.4+), @dopame/acde-api 0.0.10
 ok     git: .acde/ (the build output) is ignored
 ok     agent skill: current in /Users/me/.agents/skills/acde, /Users/me/.claude/skills/acde
 acde doctor: everything acde needs is here
@@ -41,9 +41,9 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 | `acde` | The version of acde and the JavaScript runtime it runs on |
 | `PATH` | Whether the `acde` on PATH is this one, not another install or checkout |
 | `Bun and Node.js` | Bun 1.4+ and Node.js 22.3+ on PATH; `acde test` and projects that use bun need Bun |
-| `acdert` | The runtime `acde dev` would run (`ACDERT`, else the one installed next to acde, else PATH), and whether it runs |
+| `acdebin-dbg` | The runtime `acde dev` would run (`ACDERT`, else the one installed next to acde, else PATH), and whether it runs |
 | `contract level` | Whether the runtime runs the contract level this acde builds, and whether it is the release this acde pairs with |
-| `host files`, `gpu`, `display` | The runtime's own check, `acdert doctor`: its host files, the GPU (it draws a small frame and reads it back), and on Linux whether a host window can open |
+| `host files`, `gpu`, `display` | The runtime's own check, `acdebin-dbg doctor`: its host files, the GPU (it draws a small frame and reads it back), and on Linux whether a host window can open |
 | `acde dev sessions`, `approval` | The running `acde dev` sessions, and every camera or microphone prompt that waits for an answer |
 | `project` | `acde check` of the project |
 | `platform` | Whether this platform has every capability the project's apps require |
@@ -57,8 +57,8 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 No runtime:
 
 ```text
-error  acdert: acde dev needs the Dopame runtime (acdert) and found none: no /Users/me/.acde/versions/0.0.9/bin/acdert, which the acde installer puts there: run the installer again, set ACDERT to an acdert binary, or put acdert on PATH
-       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdert that pairs with acde next to it)
+error  acdebin-dbg: acde dev needs the Dopame runtime (acdebin-dbg) and found none: no /Users/me/.acde/versions/0.0.10/bin/acdebin-dbg, which the acde installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH
+       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdebin-dbg that pairs with acde next to it)
 ```
 
 A runtime that does not start reports why: a missing system library (`it exited with code 127: … error while loading shared libraries: …`), a file that is not executable (`EACCES`), or on macOS a binary that a download left in quarantine, with `xattr -d com.apple.quarantine <path>` as the fix.
@@ -80,7 +80,7 @@ Install the driver (see [The runtime](../start/install.md#the-runtime)); there i
 On Linux in a shell with no graphical session (over SSH, for example):
 
 ```text
-warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set, so acdert app and acdert desktop cannot open a host window here: they would try to start a session on the screen (DRM) instead
+warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set, so acdebin-dbg app and acdebin-dbg desktop cannot open a host window here: they would try to start a session on the screen (DRM) instead
        fix: run acde dev --headless, or run it inside a graphical session
 ```
 
@@ -123,7 +123,7 @@ ok     acde: 0.0.9 on Bun 1.4.4 (/Users/me/.acde/versions/0.0.9)
 When `acde dev` finds no runtime, its error ends with `(acde doctor checks the whole setup)`. When the runtime exits before the session is ready, `acde dev` prints the runtime's log line and then:
 
 ```text
-acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup
+acde: acdebin-dbg exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup
 ```
 
 ## In scripts and agents
@@ -134,11 +134,11 @@ acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the
 {
   "ok": false,
   "checks": [
-    { "id": "acdert", "title": "acdert", "status": "error", "summary": "…", "fix": "…" }
+    { "id": "acdert", "title": "acdebin-dbg", "status": "error", "summary": "…", "fix": "…" }
   ]
 }
 ```
 
-`ok` is false when a check is an error. A check that `--fix` can repair carries `"repair": {"action", "target", "ask", "does"}` (`ask` is true for the fixes that ask first), and with `--fix` the object also has `"fixed": [{"repair", "result", "said"}]`, `result` being `fixed`, `failed` or `skipped`; the progress lines then go to stderr. The ids are `acde`, `path`, `runtimes`, `acdert`, `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool, and the fixes that do not ask as `doctor_fix` (it names the others and leaves them to the user); see [MCP](mcp.md).
+`ok` is false when a check is an error. A check that `--fix` can repair carries `"repair": {"action", "target", "ask", "does"}` (`ask` is true for the fixes that ask first), and with `--fix` the object also has `"fixed": [{"repair", "result", "said"}]`, `result` being `fixed`, `failed` or `skipped`; the progress lines then go to stderr. The ids are `acde`, `path`, `runtimes`, `acdert` (the runtime binary; its title is `acdebin-dbg`), `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool, and the fixes that do not ask as `doctor_fix` (it names the others and leaves them to the user); see [MCP](mcp.md).
 
-The runtime's part also runs on its own, `acdert doctor` (or `acdert doctor --json`), with the same exit codes.
+The runtime's part also runs on its own, `acdebin-dbg doctor` (or `acdebin-dbg doctor --json`), with the same exit codes.

@@ -82,9 +82,9 @@ export class PageTools {
     server.registerTool(
       'dialog',
       {
-        description: "Answer a page's next alert / confirm / prompt before it comes (acdert has no dialog to click: "
-          + 'without an answer confirm is false and prompt null), or list the dialogs it showed and how they were '
-          + 'answered.',
+        description: "Answer a page's next alert / confirm / prompt before it comes (acdebin-dbg has no dialog to "
+          + 'click: without an answer confirm is false and prompt null), or list the dialogs it showed and how they '
+          + 'were answered.',
         inputSchema: z.object({
           accept: z.boolean().optional().describe('answer the next one: true accepts (OK), false dismisses (Cancel); '
             + 'leave out to only list'),

@@ -149,7 +149,7 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
     const fake = await acdert()
     const tool = await DevClient.connect(fake.endpoint, 100)
     const timeout = await tool.request('eval', { web: 'x', code: '1' }).catch((error: Error) => error.message)
-    expect(timeout).toBe('timed out: acdert did not answer "eval" within 0 s')
+    expect(timeout).toBe('timed out: acdebin-dbg did not answer "eval" within 0 s')
     const asked = tool.request('snapshot').catch((error: Error) => error)
     await until('the request', () => fake.got.length === 2)
     for (const socket of fake.sockets) socket.destroy()
@@ -888,20 +888,20 @@ describe('acde dev with a stand-in acdert', () => {
     await until('the session file', () => existsSync(closing.file))
     const closed = await closing.tool(['act', 'w1', 'close'], alpha)
     expect(closed.stderr).toBe('')
-    expect(closed.stdout).toBe(`closed w1; acdert exited with it, so acde dev ${closing.child.pid} ended\n`)
+    expect(closed.stdout).toBe(`closed w1; acdebin-dbg exited with it, so acde dev ${closing.child.pid} ended\n`)
     expect(closed.code).toBe(0)
     expect(await closing.child.exited).toBe(0)
 
     const crashing = start([], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
     await until('the session file', () => existsSync(crashing.file))
     const lost = await crashing.tool(['act', 'w1', 'focus'], alpha)
-    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acde: acdert closed the connection\n'])
+    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acde: acdebin-dbg closed the connection\n'])
     await crashing.child.exited
 
     const desktop = start(['--desktop', 'dopame'], alpha, { FAKE_ACDERT_DIES_ON: 'close' })
     await until('the session file', () => existsSync(desktop.file))
     const crashed = await desktop.tool(['act', 'w1', 'close'], alpha)
-    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acde: acdert closed the connection\n'])
+    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acde: acdebin-dbg closed the connection\n'])
     await desktop.child.exited
 
     const stopping = start([], alpha)

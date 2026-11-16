@@ -157,7 +157,7 @@ export class E2eRun {
   }
 
   static async #video(video: Video, dir: string): Promise<string> {
-    const late = () => new Error(`acdert did not answer within the ${E2eRun.VIDEO_MS / 1000} s left for the video`)
+    const late = () => new Error(`acdebin-dbg did not answer within the ${E2eRun.VIDEO_MS / 1000} s left for the video`)
     try {
       await E2eRun.within(E2eRun.VIDEO_MS, () => video.stop(), late)
     } catch (failure) {
@@ -223,7 +223,7 @@ export class E2eRun {
       ]
       const until = Date.now() + E2eRun.KEEP_MS
       const left = `the ${E2eRun.KEEP_MS / 1000} s left for what a failing test leaves`
-      const late = () => new Error(`not saved: acdert did not answer within ${left}`)
+      const late = () => new Error(`not saved: acdebin-dbg did not answer within ${left}`)
       for (const [file, step] of steps) {
         try {
           await E2eRun.within(until - Date.now(), step, late)

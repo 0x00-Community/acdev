@@ -12,8 +12,9 @@
 _Avoid_: 用 acde 指它 (acde 是 CLI)
 
 **acdert**:
-通用运行时库, 拥有清单、`acde:` 模块、窗口模型和 dev IPC 的全部契约; 本仓库把它当 path 依赖. CLI 的代码和文档沿用这个名字称呼它找到的
-运行时二进制 (`ACDERT`、`findAcdert`), 现在找到的通常是 `acdebin-dbg`.
+通用运行时库, 拥有清单、`acde:` 模块、窗口模型和 dev IPC 的全部契约; 本仓库把它当 path 依赖. 环境变量 `ACDERT` 和代码里的
+`findAcdert` 等名字沿用它, 指的却是运行时二进制 `acdebin-dbg` (也认旧的 `acdert` 二进制).
+_Avoid_: 用 acdert 指运行时二进制
 
 **acde**:
 开发者 CLI (`npm/`), 建工程、构建、装包, `acde dev` 拉起调试运行时. 和运行时的关系像 wrangler 和 workerd.
@@ -46,7 +47,7 @@ acdert 唯一认的产物: package.json 的 `acde` 字段 (`PackageManifest`), `
 没有配置、package.json 的 `acde` 里直接写了 `apps` 的目录; `acde install` 装它时只放一个指向工程的符号链接.
 
 **契约级别**:
-运行时和 SDK 约定的整数级别: 清单的 `apiLevel`、SDK 的 `API_LEVEL`、`acdert --version` 的 `(contract level N)`; 不同时 `acde dev` 拒绝起.
+运行时和 SDK 约定的整数级别: 清单的 `apiLevel`、SDK 的 `API_LEVEL`、`acdebin-dbg --version` 的 `(contract level N)`; 不同时 `acde dev` 拒绝起.
 
 **SDK**:
 `@dopame/acde-api` (源码在 acdert 的 `web/packages/acde-api`), 发在 pkgs 上 (tarball) 和 npm 上; 工程依赖写配对版本在 pkgs 上的 tarball 地址.

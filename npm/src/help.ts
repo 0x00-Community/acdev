@@ -121,9 +121,9 @@ export class Help {
         name: 'dev',
         group: 'Develop',
         args: '[dir...]',
-        summary: 'Run the project in acdert and reload on change',
+        summary: 'Run the project in acdebin-dbg and reload on change',
         about: [
-          'Builds, runs in acdert, and rebuilds and reloads what changed. One project: its desktop or app. '
+          'Builds, runs in acdebin-dbg, and rebuilds and reloads what changed. One project: its desktop or app. '
             + 'Several projects or --desktop: all in that desktop (default: the desktop project among them, '
             + 'else dopame).',
         ],
@@ -170,7 +170,7 @@ export class Help {
         args: '[dir]',
         summary: 'Check this machine for acde dev and say how to fix it',
         about: [
-          'Checks acde on PATH, Bun and Node.js, acdert (found, runs, pairs with this acde, its own check of the '
+          'Checks acde on PATH, Bun and Node.js, acdebin-dbg (found, runs, pairs with this acde, its own check of the '
             + 'GPU and its files), running sessions, the project in dir and the agent skill. Exit code 1 on an error.',
         ],
         options: [
@@ -181,7 +181,7 @@ export class Help {
         ],
         examples: ['acde doctor', 'acde doctor --fix'],
       },
-      inspecting('webs', '', 'List the pages acdert runs', ['The webs (windows\' pages) of the session, and the '
+      inspecting('webs', '', 'List the pages acdebin-dbg runs', ['The webs (windows\' pages) of the session, and the '
         + 'camera or microphone prompts that wait.'], [], ['acde webs']),
       inspecting('inspect', '', 'Print the screen as text, with refs', [
         'The windows, then the elements of the focused window, one per line with a ref such as w1.12 that act takes.',
@@ -271,7 +271,7 @@ export class Help {
       inspecting('revoke', '<app> <capability>', 'Take back a decision', ['Takes back a decision, so the app is asked '
         + 'again.'], [], ['acde revoke recorder microphone']),
       inspecting('stop', '', 'End the session', [
-        'Ends the acde dev and its acdert, as closing its last window does; for one started in the background.',
+        'Ends the acde dev and its acdebin-dbg, as closing its last window does; for one started in the background.',
       ], [], ['acde stop']),
       inspecting('devtools', '[web]', 'Open DevTools on a page', [
         'Opens the DevTools of Chrome or Edge on a page of the session: web (a web name, an app id, desktop, '
@@ -365,7 +365,7 @@ export class Help {
     }
     const options = [
       ['-h, --help', 'Print this help; after a command (acde new --help), print that command\'s help'],
-      ['-v, --version', 'Print the versions of acde, the SDK and the acdert it finds'],
+      ['-v, --version', 'Print the versions of acde, the SDK and the acdebin-dbg it finds'],
     ] as const
     const flags = ' '.repeat(17)
     out.push('', c.heading('Options:'))

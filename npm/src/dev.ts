@@ -183,7 +183,7 @@ export class DevSession {
   }
 
   static readonly WINDOW_HINT =
-    'if acdert could not open a window here (no display, e.g. over ssh), run acde dev --headless'
+    'if acdebin-dbg could not open a window here (no display, e.g. over ssh), run acde dev --headless'
 
   static runtimeLevel(acdert: string): Promise<RuntimeProbe> {
     return Runtime.level(acdert)
@@ -204,7 +204,7 @@ export class DevSession {
     const told = said ? `says ${JSON.stringify(said)}` : 'printed nothing'
     const why = failed ? `\n${this.#acdert} --version: ${failed} (acde doctor checks the whole setup)`
       : level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
-        'it is older than contract levels; use an acdert that has them' : ''
+        'it is older than contract levels; use an acdebin-dbg that has them' : ''
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
@@ -296,14 +296,15 @@ export class DevSession {
         () => running,
         () =>
           console.error(
-            `acde: acdert has not opened ${this.#endpoint} after 10 s; an acdert older than acde dev never does ` +
-              '(no reload, no acde webs / eval …): use a newer one',
+            `acde: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
+              'an acdebin-dbg older than acde dev never does (no reload, no acde webs / eval …): use a newer one',
           ),
       )
       if (!this.#link) {
         const code = await started.exited
         if (code !== 0)
-          console.error(`acde: acdert exited (${code}) before it was ready; acde doctor checks the runtime, the GPU and this setup`)
+          console.error(`acde: acdebin-dbg exited (${code}) before it was ready; ` +
+            'acde doctor checks the runtime, the GPU and this setup')
         this.#hint(code)
         return code
       }

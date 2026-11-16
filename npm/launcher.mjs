@@ -56,7 +56,8 @@ export function findAcdert(root = ROOT, env = process.env) {
     if (existsSync(set)) return { path: set, from: 'ACDERT' }
     const named = /[\\/]/.test(set) ? null : which(set, env)
     if (named) return { path: named, from: 'ACDERT' }
-    return { path: null, from: 'ACDERT', problem: `ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it` }
+    const problem = `ACDERT=${set}: no such file; point ACDERT at an acdebin-dbg binary, or unset it`
+    return { path: null, from: 'ACDERT', problem }
   }
   const beside = acdertBeside(root)
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
@@ -66,8 +67,8 @@ export function findAcdert(root = ROOT, env = process.env) {
   return {
     path: null,
     from: null,
-    problem: `acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
-      'set ACDERT to an acdert binary, or put acdert on PATH',
+    problem: `acde dev needs the Dopame runtime (acdebin-dbg) and found none: ${missing}` +
+      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
   }
 }
 

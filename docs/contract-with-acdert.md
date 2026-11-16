@@ -9,9 +9,9 @@
   不隔离进程. 只装、只跑信得过的代码.
 - `acde check` 对有配置的工程也用 SDK 的 `Manifest.check` (按构建会写的 `apiLevel`): 配置换成临时清单 (入口、图标、资源不查, 那些由
   `Project.check` 管), 第 1 级的规则 (`fs.roots` 只许公共位置名、能力名、第三方应用的外壳模块、服务的保留名) 在构建前报出, 文字与构建时相同.
-- 命令行 `acdert app <id>` / `acdert desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`、`ACDE_RUNTIME`; dev IPC 见 `acde-dev.md`.
-- 后端: acdert 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
-  盘符路径不是合法的模块说明符). `acde dev` 给 acdert 设 `ACDE_RUNTIME` (`bun` / `node`, acde 自己跑在哪个上), `node` 时 acdert 先找 node. 没有 `acde-listen.js` 的旧包不起.
+- 命令行 `acdebin-dbg app <id>` / `acdebin-dbg desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`、`ACDE_RUNTIME`; dev IPC 见 `acde-dev.md`.
+- 后端: acdebin-dbg 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
+  盘符路径不是合法的模块说明符). `acde dev` 给 acdebin-dbg 设 `ACDE_RUNTIME` (`bun` / `node`, acde 自己跑在哪个上), `node` 时 acdebin-dbg 先找 node. 没有 `acde-listen.js` 的旧包不起.
 - **Windows 后端契约** (2026-11-09 定, 和 acdert AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 预加载的通道模式
   和套接字模式已实现 (acde#4、#5, 见 `acde-build.md` 的「preload」), 两种模式的优雅停止也已实现 (acde#6); 运行时一侧见 acdert#23、#24、#25).
   不变量: 后端运行期间没有 TCP 监听、没有命名管道, 套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变.

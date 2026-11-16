@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "http://gitea.dopamine/AC/acdebin-dbg",
-    "directory": "cli"
+    "directory": "npm"
   },
   "engines": {
     "node": ">=22.3",

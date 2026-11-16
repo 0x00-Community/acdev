@@ -29,7 +29,7 @@ There is a single manifest validator: the runtime and `acde check` / `acde build
 
 ## Contract level
 
-`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@dopame/acde-api`; `acde --version` and `acdert --version` print theirs). The runtime loads only packages of its own level:
+`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@dopame/acde-api`; `acde --version` and `acdebin-dbg --version` print theirs). The runtime loads only packages of its own level:
 
 | Package | What the runtime and `acde check` say |
 | --- | --- |

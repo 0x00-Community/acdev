@@ -17,7 +17,7 @@ const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = [
-  `acde: see and drive the desktop and apps of an acde dev session (acdert runs them, not a browser). For Chrome `
+  `acde: see and drive the desktop and apps of an acde dev session (acdebin-dbg runs them, not a browser). For Chrome `
     + `DevTools on a page, the user runs acde devtools in a terminal (an acdert from 0.0.9 or older has none).`,
   `- A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde `
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
@@ -133,9 +133,9 @@ export class Mcp {
       'doctor',
       {
         description: 'Check this machine for acde dev, one line per check (ok, warn, error, skip) with a fix for '
-          + 'what is wrong: acde on PATH, Bun and Node.js, acdert (found, runs, pairs with this acde, and its own '
-          + 'check of the GPU and its files), running sessions and approvals they wait for, the project, the agent '
-          + 'skill. Call it first when acde dev or start does not come up.',
+          + 'what is wrong: acde on PATH, Bun and Node.js, acdebin-dbg (found, runs, pairs with this acde, and its '
+          + 'own check of the GPU and its files), running sessions and approvals they wait for, the project, the '
+          + 'agent skill. Call it first when acde dev or start does not come up.',
         inputSchema: z.object({
           dir: z.string().optional().describe('the project directory to check, relative to the working directory '
             + '(default: the working directory)'),
@@ -155,10 +155,10 @@ export class Mcp {
       {
         description: 'Check this machine as doctor does, then fix what acde may fix without asking: install the acde '
           + 'skill, add .acde/ to .gitignore, make the sessions directory again. What downloads, installs or stops '
-          + 'something (the acde installer again for a missing or mismatched acdert, the project\'s install, stopping '
-          + 'a session that does not answer) is skipped here and named: that needs the user, who runs acde doctor '
-          + '--fix in a terminal (it asks) or agrees to acde doctor --fix --yes. Approvals, GPU drivers and the '
-          + 'project\'s code are never touched. Answers what it did, then the checks again.',
+          + 'something (the acde installer again for a missing or mismatched acdebin-dbg, the project\'s install, '
+          + 'stopping a session that does not answer) is skipped here and named: that needs the user, who runs acde '
+          + 'doctor --fix in a terminal (it asks) or agrees to acde doctor --fix --yes. Approvals, GPU drivers and '
+          + 'the project\'s code are never touched. Answers what it did, then the checks again.',
         inputSchema: z.object({
           dir: z.string().optional().describe('the project directory, inside the working directory (default: the '
             + 'working directory)'),
@@ -183,11 +183,11 @@ export class Mcp {
     s.registerTool(
       'start',
       {
-        description: 'Run acde dev (build, start acdert, rebuild and reload on change) and use that session. Without '
-          + 'dirs it runs the project in the working directory. Its output is kept for logs. Stops when this server '
-          + 'stops. When an acde dev already runs exactly this (the same projects, desktop, app and headless), start '
-          + 'uses that session instead (it says so; logs and stop are only for one start ran); when one runs these '
-          + 'projects otherwise, start fails and names it; force: true starts another.',
+        description: 'Run acde dev (build, start acdebin-dbg, rebuild and reload on change) and use that session. '
+          + 'Without dirs it runs the project in the working directory. Its output is kept for logs. Stops when this '
+          + 'server stops. When an acde dev already runs exactly this (the same projects, desktop, app and '
+          + 'headless), start uses that session instead (it says so; logs and stop are only for one start ran); when '
+          + 'one runs these projects otherwise, start fails and names it; force: true starts another.',
         inputSchema: z.object({
           dirs: z.array(z.string()).optional().describe('project directories, relative to the working directory '
             + '(default: the working directory)'),
@@ -217,7 +217,7 @@ export class Mcp {
     s.registerTool(
       'webs',
       {
-        description: 'The pages acdert runs: NAME (app#window, or desktop), KIND, APP, WINDOW number, TITLE.',
+        description: 'The pages acdebin-dbg runs: NAME (app#window, or desktop), KIND, APP, WINDOW number, TITLE.',
         inputSchema: z.object({}),
         annotations: look,
       },
@@ -686,9 +686,9 @@ export class Mcp {
     s.registerTool(
       'logs',
       {
-        description: 'Output of the acde dev that start ran and of its acdert: builds, reloads, page console.* (target '
-          + 'js), page errors ([app#window] page error: …), app backends ([app#backend]). Answers the last lines, or '
-          + 'those from since on; next is what to pass as since to read only newer ones.',
+        description: 'Output of the acde dev that start ran and of its acdebin-dbg: builds, reloads, page console.* '
+          + '(target js), page errors ([app#window] page error: …), app backends ([app#backend]). Answers the last '
+          + 'lines, or those from since on; next is what to pass as since to read only newer ones.',
         inputSchema: z.object({
           tail: z.number().int().min(1).max(5000).optional().describe('how many lines (default 100)'),
           since: z.number().int().min(1).optional().describe('only lines from this number on (the next of an earlier '

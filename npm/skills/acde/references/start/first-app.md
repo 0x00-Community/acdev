@@ -27,14 +27,14 @@ Framework templates run the latest version of the framework's scaffolding tool t
 
 ## Run
 
-`acde dev` runs your app in the runtime, acdert, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
+`acde dev` runs your app in the runtime, acdebin-dbg, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
 
 ```sh
 cd my-app
 acde dev
 ```
 
-`acde dev` builds the project, starts acdert, and opens a window on your computer with your app inside. Leave it running, then edit and save `index.html` or `src/main.js`; the window reloads automatically.
+`acde dev` builds the project, starts acdebin-dbg, and opens a window on your computer with your app inside. Leave it running, then edit and save `index.html` or `src/main.js`; the window reloads automatically.
 
 Press Ctrl+C or close the window to stop, or run `acde stop` from another terminal in the project directory.
 

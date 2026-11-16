@@ -221,7 +221,7 @@ describe('acde mcp', () => {
       const pid = Number(/^acde dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
       const closed = await started.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acde dev ${pid} ended`])
       const next = await started.call('webs')
       expect(next.error).toBe(true)
       expect(next.text).toStartWith(`the acde dev started here (pid ${pid}) stopped; last output:\n`)
@@ -235,7 +235,7 @@ describe('acde mcp', () => {
       const pid = outside.session.pid
       const closed = await attached.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acde dev ${pid} ended`])
       const next = await attached.call('snapshot')
       expect(next.error).toBe(true)
       expect(next.text).toStartWith(`acde dev ${pid} stopped; no acde dev is running (`)
@@ -249,7 +249,7 @@ describe('acde mcp', () => {
     try {
       const pid = Number(/^acde dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
       const lost = await crashing.call('act', { ref: 'w1.3', action: 'click' })
-      expect([lost.error, lost.text]).toEqual([true, 'acdert closed the connection'])
+      expect([lost.error, lost.text]).toEqual([true, 'acdebin-dbg closed the connection'])
       expect((await crashing.call('webs')).text).toStartWith(`the acde dev started here (pid ${pid}) stopped;`)
     } finally {
       await crashing.client.close()

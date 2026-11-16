@@ -16,11 +16,12 @@ describe('the download address', () => {
       ])
   })
 
-  test('install.md, AGENTS.md and the skill name no other address for acde or acdert', () => {
+  test('install.md, AGENTS.md, docs/ and the skill name no other address for acde or acdert', () => {
     const skill = join('skills', 'acde')
-    const pages = [`${INSTALLERS}/install.md`, 'AGENTS.md', join(skill, 'SKILL.md'),
-      ...readdirSync(join(ROOT, skill, 'references'), { recursive: true, encoding: 'utf8' })
-        .filter((file) => file.endsWith('.md')).map((file) => join(skill, 'references', file))]
+    const markdown = (dir: string) => readdirSync(join(ROOT, dir), { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.md')).map((file) => join(dir, file))
+    const pages = [`${INSTALLERS}/install.md`, 'AGENTS.md', '../AGENTS.md', join(skill, 'SKILL.md'),
+      ...markdown(join(skill, 'references')), ...markdown('../docs')]
     const stale = pages.filter((page) => /https?:\/\/[^\s`'"]+\/(?:acde|acdert)\/install\.(?:sh|ps1|md)/.test(
       read(page).replaceAll(`${Pkgs.ACDE}/install.`, '')))
     expect(stale).toEqual([])

@@ -90,8 +90,8 @@ describe('launcher: where acdert comes from', () => {
 
   test('nothing found: an English error names where the installer puts it, ACDERT and PATH', () => {
     expect(failure()).toBe(
-      'acde dev needs the Dopame runtime (acdert) and found none: ' +
-      'set ACDERT to an acdert binary, or put acdert on PATH (acde doctor checks the whole setup)',
+      'acde dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
+      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH (acde doctor checks the whole setup)',
     )
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
@@ -103,9 +103,9 @@ describe('launcher: where acdert comes from', () => {
     }
     const beside = join(root, '..', '..', 'bin', `acdebin-dbg${EXE}`)
     expect(message).toBe(
-      `acde dev needs the Dopame runtime (acdert) and found none: no ${beside}, which the acde installer puts there: ` +
-      'run the installer again, set ACDERT to an acdert binary, or put acdert on PATH ' +
-      '(acde doctor checks the whole setup)',
+      `acde dev needs the Dopame runtime (acdebin-dbg) and found none: no ${beside}, ` +
+      'which the acde installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, ' +
+      'or put acdebin-dbg on PATH (acde doctor checks the whole setup)',
     )
     expect(message).not.toContain('not part of acde')
   })
@@ -123,13 +123,13 @@ describe('launcher: where acdert comes from', () => {
     const gone = findAcdert(root, { PATH: dir, ACDERT: join(dir, 'gone') })
     expect(gone.path).toBeNull()
     expect(gone.from).toBe('ACDERT')
-    expect(gone.problem).toMatch(/^ACDERT=.*gone: no such file; point ACDERT at an acdert binary, or unset it$/)
+    expect(gone.problem).toMatch(/^ACDERT=.*gone: no such file; point ACDERT at an acdebin-dbg binary, or unset it$/)
     const none = findAcdert(checkout(), { PATH: '' })
     expect(none).toEqual({
       path: null,
       from: null,
-      problem: 'acde dev needs the Dopame runtime (acdert) and found none: ' +
-        'set ACDERT to an acdert binary, or put acdert on PATH',
+      problem: 'acde dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
+        'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
     })
   })
 })

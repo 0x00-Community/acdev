@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up acde (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdert, which runs your apps. The installer needs no npm and no root. See [The runtime](#the-runtime).
+The installer sets up acde (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdebin-dbg, which runs your apps. The installer needs no npm and no root. See [The runtime](#the-runtime).
 
 ## With a coding agent
 
@@ -98,13 +98,13 @@ It checks what `acde dev` and `acde test` need: acde on PATH, Bun and Node.js, t
 
 ## The runtime
 
-`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so installing a specific version of acde (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
+`acde dev` and `acde test` run your app in the runtime, acdebin-dbg. The installer puts the acdebin-dbg release that this acde pairs with next to it: the binary as `bin/acdebin-dbg` (`acdebin-dbg.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so installing a specific version of acde (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
 
 acde looks for the runtime in this order:
 
-1. `ACDERT`: the path of an acdert binary, or the name of one on PATH;
-2. the acdert the installer put next to acde;
-3. `acdert` on PATH.
+1. `ACDERT`: the path of an acdebin-dbg binary, or the name of one on PATH;
+2. the acdebin-dbg the installer put next to acde (or the `acdert` an older installer put there);
+3. `acdebin-dbg` on PATH, then an older `acdert` on PATH.
 
 There is no other place: acde does not look for a runtime built in a source checkout next to it, even when acde itself runs from source; set `ACDERT` to use one.
 
@@ -216,7 +216,7 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use. After 0.0.9, the installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acde dev` started from it) stays until the next install.
 
-`acde uninstall` removes installed apps and desktops, not acde itself (see [Local install](../guide/install.md#uninstall)). To uninstall acde, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
+`acde uninstall` removes installed apps and desktops, not acde itself (see [Local install](../guide/install.md#uninstall)). To uninstall acde, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdebin-dbg` and remove the `ACDERT` line.
 
 acde and the runtime keep data outside the install directory. Delete these too to remove everything; otherwise a later install finds the old apps, desktops and their data again. The same paths are used on macOS; on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names (`%USERPROFILE%\.local\share\acde` and so on):
 

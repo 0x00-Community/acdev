@@ -327,7 +327,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdebin-dbg released with it, ` +
       'checks it against SHA256SUMS and puts it next to acde'
     const checked = await run(['sh', acde, 'doctor'], vars, home)
-    expect(checked.stdout).toContain(`error  acdert: acde dev needs the Dopame runtime (acdert) and found none: no ${realpathSync(home)}`)
+    const none = 'error  acdebin-dbg: acde dev needs the Dopame runtime (acdebin-dbg) and found none: '
+    expect(checked.stdout).toContain(`${none}no ${realpathSync(home)}`)
     const asked = await run(['sh', acde, 'doctor', '--fix'], vars, home)
     expect(asked.stdout).toContain(`skipped: ${does} (it asks first: pass --yes to allow it)\n`)
     expect(asked.stdout).toContain('fixed: install the acde skill for the coding agents found here (acde skills install)\n')
@@ -541,8 +542,8 @@ describe('the release archive and the installed CLI', () => {
       ...s.env, ACDERT: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
     }, s.project)
     expect(ran.code).toBe(1)
-    expect(ran.out).toContain('acde dev needs the Dopame runtime (acdert) and found none')
-    expect(ran.out).toContain('set ACDERT to an acdert binary')
+    expect(ran.out).toContain('acde dev needs the Dopame runtime (acdebin-dbg) and found none')
+    expect(ran.out).toContain('set ACDERT to an acdebin-dbg binary')
     expect(home).toBeTruthy()
   }, 60_000)
 })

@@ -9,7 +9,7 @@ acde 的开发者 CLI, 是 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) �
 
 - 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
 - 启动快 (gitea acde#94): `src/cli.ts` 只静态导入轻模块 (`test/launcher.test.ts` 核对清单), 其余在用到的命令里 `await import()`;
-  `-v` 探 acdert 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
+  `-v` 探 acdebin-dbg 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
   发布包的 cli.js 开 splitting (`chunk-<hash>.js`), 懒导入的模块才真的晚加载. `bun run startup [acde 路径] [--max-version-ms N] [--max-help-ms N]`
   (`scripts/startup.ts`) 量 `acde -v` 和 `acde --help` 的中位数 (先跑一次热身), 超过上限退出 1.
 - 仓库脚本: `bun run acde <命令> [参数]` 从源码跑 CLI (即 `bun bin/acde.mjs`, 经 launcher 的 `run`, 退出码原样传回);
@@ -23,7 +23,7 @@ acde 的开发者 CLI, 是 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) �
 生成的工程只有这三个脚本，经工程自己的包管理器运行，`acde` 的退出码由包管理器传回。
 
 开发流程（acde#3）：`acde new` 建工程 → `acde dev` 预览和调试（跑着时可用 `acde inspect` / `eval` / `console` / `network` / `shot`，
-或 driver、MCP）→ `acde test` 端到端测试（每个测试自己起一个隔离的 acdert）→ `acde build` 构建，`acde install` 构建并装进本机桌面。
+或 driver、MCP）→ `acde test` 端到端测试（每个测试自己起一个隔离的 acdebin-dbg）→ `acde build` 构建，`acde install` 构建并装进本机桌面。
 `acde new` 打完下一步提示后再打 `acde: then:` 和后三步，一步一行（交互时是 `Then` 一栏，`Creator.LATER`）；每步不超过 70 字符，这样 clack 的框不超过 80 列，终端更窄时按宽度折行（`Help.block`）。
 
 不新增 `prod` / `start` / `preview` 命令或脚本：`acde dev` 和 `acde build` 用同一种构建（都压缩、`NODE_ENV` 是 `"production"`），

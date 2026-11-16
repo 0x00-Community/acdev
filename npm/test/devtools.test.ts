@@ -81,7 +81,7 @@ describe('acde devtools', () => {
     expect(Devtools.endpoint({ port: 9300, token: 'abc' })).toEqual({ port: 9300, token: 'abc' })
     expect(Devtools.endpoint({ port: 9300 })).toEqual({ port: 9300 })
     expect(Devtools.endpoint({ port: 9300, token: '' })).toEqual({ port: 9300 })
-    expect(() => Devtools.endpoint({ token: 'abc' })).toThrow('acdert answered devtools without a port')
+    expect(() => Devtools.endpoint({ token: 'abc' })).toThrow('acdebin-dbg answered devtools without a port')
   })
 
   test('without a token the list and the socket are used as given', async () => {

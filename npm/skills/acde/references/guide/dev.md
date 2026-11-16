@@ -7,7 +7,7 @@ acde dev
 This does three things:
 
 1. Builds the project (into `.acde/`).
-2. Starts acdert, which opens **one** window on your computer: the **host window**, standing in for the screen of a Dopame OS machine.
+2. Starts acdebin-dbg, which opens **one** window on your computer: the **host window**, standing in for the screen of a Dopame OS machine.
 3. Watches the project's files, and on every change rebuilds and reloads the affected windows.
 
 A running `acde dev` is a **dev session**: the [debugging commands](tools.md), [MCP](mcp.md), and `acde test` all work with one.
@@ -29,7 +29,7 @@ The session is ready when `acde webs`, run from the project directory, lists the
 
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
-On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acde shot`, `acde screen` and `acde inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acde dev` without `--headless` (and `acde test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdert exits with an error anyway, `acde dev` adds the same `--headless` hint after acdert's own messages.
+On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acde shot`, `acde screen` and `acde inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acde dev` without `--headless` (and `acde test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdebin-dbg exits with an error anyway, `acde dev` adds the same `--headless` hint after acdebin-dbg's own messages.
 
 ## Reloading
 
@@ -41,11 +41,11 @@ On a machine without a display, such as a Linux server over ssh, use `--headless
 
 ## Build output
 
-By default the build goes into the project's `.acde/`. `--out DIR` changes that: an absolute path is used as is, and a relative path is resolved against **the project being built**. Dev session builds reach acdert only through `ACDE_PATH`; they are **not** installed into the local package directory.
+By default the build goes into the project's `.acde/`. `--out DIR` changes that: an absolute path is used as is, and a relative path is resolved against **the project being built**. Dev session builds reach acdebin-dbg only through `ACDE_PATH`; they are **not** installed into the local package directory.
 
 ## Stopping
 
-`acde dev` ends on Ctrl+C, when you close the window, or when acdert exits. Its exit code is the same as acdert's. To end one running in the background, run `acde stop` from the project directory (or `acde stop --session <pid>`): it asks acdert to quit, waits for `acde dev` to exit, and prints `acde: stopped acde dev <pid>`.
+`acde dev` ends on Ctrl+C, when you close the window, or when acdebin-dbg exits. Its exit code is the same as acdebin-dbg's. To end one running in the background, run `acde stop` from the project directory (or `acde stop --session <pid>`): it asks acdebin-dbg to quit, waits for `acde dev` to exit, and prints `acde: stopped acde dev <pid>`.
 
 ## Logs
 
@@ -61,6 +61,6 @@ DevTools open in a browser profile of acde's own, not your everyday one. `ACDE_B
 
 ## Runtime
 
-`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds, and `acde doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+`acde dev` runs the acdebin-dbg named by `ACDERT` (a path, or a name on PATH), otherwise the acdebin-dbg the installer put next to acde, otherwise the `acdebin-dbg` (or an older `acdert`) on PATH. `acde --version` shows which one it finds, and `acde doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
 
-When acdert exits before the session is ready (for example because it cannot use the GPU), `acde dev` prints its log line, then `acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup`, and exits with that code.
+When acdebin-dbg exits before the session is ready (for example because it cannot use the GPU), `acde dev` prints its log line, then `acde: acdebin-dbg exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup`, and exits with that code.

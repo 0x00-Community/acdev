@@ -101,7 +101,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. 下载不用 `Invoke-WebRequest` (5.1 上它的进度条每块重画, 下载慢几倍, 所以以前全程
   `SilentlyContinue`, 87 MB 一声不吭): `Save-Remote` 用 `System.Net.Http.HttpClient` 流式写文件, 每个异步操作按 250 ms 轮询等 (Ctrl+C 能停),
   30 s 没数据算卡住 (`TimeoutException`), 连接失败、卡住、5xx/408/429、提前断开重试, 共 3 次, 其他 HTTP 错误直接失败 (`HTTP 404`).
-  `-Shown` 的下载 (acde 包、acdert、host 包) 在终端里每 200 ms 一次 `Write-Progress` (标题是文件名, 已下/总量、速度、剩余秒数), 条件是调用方的
+  `-Shown` 的下载 (acde 包、acdebin-dbg、host 包) 在终端里每 200 ms 一次 `Write-Progress` (标题是文件名, 已下/总量、速度、剩余秒数), 条件是调用方的
   `$ProgressPreference` 不是 `SilentlyContinue` (开头先记下, 再为脚本本身设成静默) 且输出没被重定向; 每个下完校验后一行
   `acde: <文件>: <大小>, SHA-256 matches`, 和 install.sh 一样. Linux 上的 pwsh 7.4 / 7.6 跑过下载部分 (跳过 Windows 检查); Windows PowerShell 5.1 没在真机上跑过. triple 按 `PROCESSOR_ARCHITECTURE` (WOW64 下看 `PROCESSOR_ARCHITEW6432`):
   `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`, 取 `acdebin-dbg-<triple>.tar.gz` (不用 xz: 安装器只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz), 用 `tar.exe` 解出 `acdebin-dbg.exe`; 同样先在临时目录拼好整个版本目录 (`bin\acdebin-dbg.exe`、`bin\app`) 再换. 同版本已在时整体改名挪开 (`<版本>.old-<guid>`, 改名失败才报「还在运行」), 装好再删,
