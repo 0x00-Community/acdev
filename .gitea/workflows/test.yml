@@ -78,15 +78,17 @@ jobs:
           key: wpt
           workspaces: acdebin-dbg -> target
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - name: build acdebin-dbg (release) and acdert's web
+      - name: resolve and download the crates (the only step with the registry token; acdebin-dbg keeps no Cargo.lock)
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
+        run: cd acdebin-dbg && cargo update --quiet && cargo fetch --locked
+      - name: build acdebin-dbg (release, offline, no token in the environment of build scripts) and acdert's web
         run: |
           set -eu
-          (cd acdebin-dbg && cargo update --quiet && cargo build --release -p acdebin-dbg)
+          (cd acdebin-dbg && cargo build --release --offline --locked -p acdebin-dbg)
           (cd acdert/web && bun install --frozen-lockfile && bun run build)
           (cd acdebin-dbg/npm && bun install --frozen-lockfile && bun link)
-          (cd acdert/scripts/wpt && bun install)
+          (cd acdert/scripts/wpt && bun install --frozen-lockfile)
       - name: WPT checkout at scripts/wpt/revision, manifest, runner apps
         run: |
           set -eu
