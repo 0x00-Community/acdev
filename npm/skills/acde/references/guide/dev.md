@@ -47,7 +47,7 @@ By default the build goes into the project's `.acde/`. `--out DIR` changes that:
 
 ## Stopping
 
-`acde dev` ends on Ctrl+C, when you close the window, or when acdebin-dbg exits. Its exit code is the same as acdebin-dbg's. To end one running in the background, run `acde stop` from the project directory (or `acde stop --session <pid>`): it asks acdebin-dbg to quit, waits for `acde dev` to exit, and prints `acde: stopped acde dev <pid>`.
+`acde dev` ends on Ctrl+C, when you close the window, or when acdebin-dbg exits. Its exit code is the same as acdebin-dbg's. A session with a window keeps running through mistakes: when acdebin-dbg crashes it starts it again (up to three times within a minute; the fourth crash ends the session), and when the first build fails it prints the error and waits for the next change instead of exiting. With `--headless` (and in `acde test`) either one ends the session, so scripts and agents see it. To end one running in the background, run `acde stop` from the project directory (or `acde stop --session <pid>`): it asks acdebin-dbg to quit, waits for `acde dev` to exit, and prints `acde: stopped acde dev <pid>`.
 
 ## Logs
 

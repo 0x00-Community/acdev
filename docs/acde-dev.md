@@ -33,7 +33,13 @@
   工程拍整个产物目录 (`.acde`); 手写的包 (`package.json` 的 `acde`, 产物由仓库自己的脚本构建, 如 Dopame 的 `dist/`) 拍清单点名的目录
   (`Changes.served`: 桌面入口、`assets`、后端、服务所在的顶层目录, 加 `package.json`; 有落在包根上的就拍整个包), 这些目录即使叫 `dist` /
   `build` 也照样监听. 手写的包快照没变 (改的是 `src/` 这类源码) 时不重载, 等它自己的构建写出产物再比; 工程快照没变时照旧整页重载.
-- acdebin-dbg 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdebin-dbg 也退出. SIGTERM / SIGHUP 转给 acdebin-dbg. SIGINT (acde#91) 和 SIGTERM 一样:
+- **有窗口的会话不轻易退出** (`DevSession.#resilient`: 不带 `--headless`、不是测试会话): acdebin-dbg 以非 0 退出 (崩溃、被外面杀掉), 又不是
+  acde dev 自己转发信号让它停的, 就打 `acde: acdebin-dbg exited (<码>); starting it again …`, 等 `REVIVE_MS` (1 s) 后删掉旧 socket 重新起它, 连上后照常
+  `hello`、写会话文件; 已有的构建和监听沿用. 60 s 内第 4 次退出就放弃, 照旧以它的退出码结束 (`#revives`). 第一次起就没连上 (GPU、宿主文件、动态库) 不重起,
+  照旧报 `exited (<码>) before it was ready`. 第一次构建失败时打 `acde: build failed: …` 和 `acde: waiting for a change to build again`, 监听工程, 有改动再构建,
+  成功后照常起运行时 (`#firstBuild`). 页面报错、未捕获异常本来就只进日志; 之后的构建失败本来就只打一行、窗口留着上一次好的构建. 无头会话和测试会话照旧:
+  运行时退出 acde dev 跟着退出, 第一次构建失败直接退出, 给脚本、agent 和 `acde test` 看到失败.
+- acdebin-dbg 退出 acde 跟着退出 (退出码跟它; 有窗口的会话崩溃时重起, 见上), acde 的连接断了 acdebin-dbg 也退出. SIGTERM / SIGHUP 转给 acdebin-dbg. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdebin-dbg 发 SIGTERM (只发给 acde dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acde dev 一直不退),
   第二次中断发 SIGKILL; Windows 上 Ctrl+C 同时到 acdebin-dbg, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
   unix 上 `DevSession.SAME_INTERRUPT_MS` (500 ms) 内的几个 SIGINT 算同一次中断 (从上一次算数的那个起算): 经 launcher 跑时 (`bun run acde`、

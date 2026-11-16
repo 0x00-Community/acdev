@@ -44,6 +44,12 @@ interface Unit {
   watcher?: Watching
 }
 
+interface Running {
+  child: Child | null
+  running: boolean
+  stopping: boolean
+}
+
 interface Served {
   readonly snapshot: Snapshot
   readonly fixed: readonly string[]
@@ -55,6 +61,9 @@ export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
   static readonly INTERRUPT_MS = 2_000
   static readonly SAME_INTERRUPT_MS = 500
+  static readonly REVIVE_MS = 1_000
+  static readonly CRASHES = 3
+  static readonly CRASH_WINDOW_MS = 60_000
   static readonly RECORD = /^\d+\.\d{3} ([EWIDT]) \S+ (\S+): (.*)$/
   static readonly PAGE = 'js'
   static readonly HOST = 'acde_host'
@@ -249,23 +258,23 @@ export class DevSession {
     }
   }
 
+  get #resilient(): boolean {
+    return !this.#headless && !this.#test
+  }
+
   async #run(): Promise<number> {
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)
     }
-    for (const unit of this.#units) {
-      unit.built = await unit.pkg.build(unit.out, { dev: true })
-      unit.served = DevSession.#served(unit.pkg, unit.built)
-    }
+    await this.#firstBuild()
     const target = this.#plan()
     await this.#checkLevels()
     this.#shown = target.kind === 'desktop' ? target.id : null
     DevClient.prepare(this.#endpoint)
     const watchers: Watching[] = []
     const signals: [NodeJS.Signals, () => void][] = []
-    let child: Child | null = null
-    let running = false
+    const runtime: Running = { child: null, running: false, stopping: false }
     try {
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']]
         .filter(Boolean)
@@ -281,14 +290,6 @@ export class DevSession {
         ...(this.#headless && { ACDE_HEADLESS: '1' }),
       }
       delete env[Sessions.TEST_ENV]
-      const stdio: StdioOptions = this.#verbose ? 'inherit' : ['inherit', 'inherit', 'pipe']
-      const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio })
-      if (!this.#verbose) DevSession.quiet(started.process.stderr!, process.stderr)
-      child = started
-      running = true
-      void started.exited.finally(() => {
-        running = false
-      })
       let interrupted = 0
       let counted = -Infinity
       signals.push(['SIGINT', () => {
@@ -296,43 +297,65 @@ export class DevSession {
         if (process.platform !== 'win32' && now - counted < DevSession.SAME_INTERRUPT_MS) return
         counted = now
         interrupted++
-        if (process.platform !== 'win32') started.kill(interrupted > 1 ? 'SIGKILL' : 'SIGTERM')
-        else if (interrupted > 1) started.kill()
-        else setTimeout(() => started.kill(), DevSession.INTERRUPT_MS).unref()
+        runtime.stopping = true
+        if (process.platform !== 'win32') runtime.child?.kill(interrupted > 1 ? 'SIGKILL' : 'SIGTERM')
+        else if (interrupted > 1) runtime.child?.kill()
+        else setTimeout(() => runtime.child?.kill(), DevSession.INTERRUPT_MS).unref()
       }])
-      if (process.platform !== 'win32')
-        for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => started.kill(signal)])
+      if (process.platform !== 'win32') {
+        for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
+          signals.push([signal, () => {
+            runtime.stopping = true
+            runtime.child?.kill(signal)
+          }])
+        }
+      }
       for (const [signal, handler] of signals) process.on(signal, handler)
-      this.#link = await DevClient.reach(
-        this.#endpoint,
-        () => running,
-        () =>
-          console.error(
-            `acde: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
-              'an acdebin-dbg older than acde dev never does (no reload, no acde webs / eval …): use a newer one',
-          ),
-      )
-      if (!this.#link) {
+      const crashes: number[] = []
+      for (let first = true; ; first = false) {
+        const started = this.#spawn(target, env, runtime)
+        this.#link = await DevClient.reach(
+          this.#endpoint,
+          () => runtime.running,
+          () =>
+            console.error(
+              `acde: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
+                'an acdebin-dbg older than acde dev never does (no reload, no acde webs / eval …): use a newer one',
+            ),
+        )
+        if (!this.#link && first) {
+          const code = await started.exited
+          if (code !== 0)
+            console.error(`acde: acdebin-dbg exited (${code}) before it was ready; ` +
+              'acde doctor checks the runtime, the GPU and this setup')
+          this.#hint(code)
+          return code
+        }
+        if (this.#link) {
+          this.#link.onEvent = (message) => this.#event(message)
+          this.#link.send({ type: 'hello', role: 'dev' })
+          this.#publish()
+        }
+        if (first) {
+          for (const unit of this.#units) {
+            const skip = (dir: string) => DevSession.#skipped(unit, basename(dir), dir) || contains(unit.out, dir)
+            unit.watcher = TreeWatch.start(unit.pkg.dir, skip, (file) => this.#changed(unit, file))
+          }
+          watchers.push(...this.#units.map((u) => u.watcher!))
+        }
         const code = await started.exited
-        if (code !== 0)
-          console.error(`acde: acdebin-dbg exited (${code}) before it was ready; ` +
-            'acde doctor checks the runtime, the GPU and this setup')
-        this.#hint(code)
-        return code
+        this.#link?.close()
+        this.#link = null
+        if (!this.#revives(code, runtime.stopping, crashes)) {
+          this.#hint(code)
+          return code
+        }
+        console.error(`acde: acdebin-dbg exited (${code}); starting it again (acde dev keeps a window session running)`)
+        await new Promise((done) => setTimeout(done, DevSession.REVIVE_MS))
+        DevClient.prepare(this.#endpoint)
       }
-      this.#link.onEvent = (message) => this.#event(message)
-      this.#link.send({ type: 'hello', role: 'dev' })
-      this.#publish()
-      for (const unit of this.#units) {
-        const skip = (dir: string) => DevSession.#skipped(unit, basename(dir), dir) || contains(unit.out, dir)
-        unit.watcher = TreeWatch.start(unit.pkg.dir, skip, (file) => this.#changed(unit, file))
-      }
-      watchers.push(...this.#units.map((u) => u.watcher!))
-      const code = await started.exited
-      this.#hint(code)
-      return code
     } finally {
-      if (running) child?.kill('SIGTERM')
+      if (runtime.running) runtime.child?.kill('SIGTERM')
       for (const [signal, handler] of signals) process.off(signal, handler)
       for (const watcher of watchers) watcher.close()
       for (const unit of this.#units) clearTimeout(unit.timer)
@@ -340,6 +363,67 @@ export class DevSession {
       this.#link?.close()
       this.#link = null
       if (process.platform !== 'win32') rmSync(this.#endpoint, { force: true })
+    }
+  }
+
+  #spawn(target: Target, env: NodeJS.ProcessEnv, runtime: Running): Child {
+    const stdio: StdioOptions = this.#verbose ? 'inherit' : ['inherit', 'inherit', 'pipe']
+    const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio })
+    if (!this.#verbose) DevSession.quiet(started.process.stderr!, process.stderr)
+    runtime.child = started
+    runtime.running = true
+    void started.exited.finally(() => {
+      if (runtime.child === started) runtime.running = false
+    })
+    return started
+  }
+
+  #revives(code: number, stopping: boolean, crashes: number[]): boolean {
+    if (!this.#resilient || stopping || code === 0) return false
+    const now = performance.now()
+    crashes.push(now)
+    while (crashes.length && now - crashes[0]! > DevSession.CRASH_WINDOW_MS) crashes.shift()
+    if (crashes.length <= DevSession.CRASHES) return true
+    const within = DevSession.CRASH_WINDOW_MS / 1000
+    console.error(`acde: acdebin-dbg exited ${crashes.length} times within ${within} s; giving up`)
+    return false
+  }
+
+  async #firstBuild(): Promise<void> {
+    for (;;) {
+      try {
+        for (const unit of this.#units) {
+          unit.built = await unit.pkg.build(unit.out, { dev: true })
+          unit.served = DevSession.#served(unit.pkg, unit.built)
+        }
+        return
+      } catch (error) {
+        if (!this.#resilient) throw error
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`acde: build failed: ${message}\nacde: waiting for a change to build again`)
+        await this.#nextChange()
+      }
+    }
+  }
+
+  async #nextChange(): Promise<void> {
+    const watchers: Watching[] = []
+    try {
+      await new Promise<void>((done) => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        for (const unit of this.#units) {
+          const skip = (dir: string) => DevSession.#skipped(unit, basename(dir), dir) || contains(unit.out, dir)
+          watchers.push(TreeWatch.start(unit.pkg.dir, skip, (file) => {
+            const path = resolve(unit.pkg.dir, file)
+            const skipped = file.split(/[\\/]/).some((part) => DevSession.#skipped(unit, part, path))
+            if (skipped || contains(unit.out, path)) return
+            clearTimeout(timer)
+            timer = setTimeout(done, SETTLE_MS)
+          }))
+        }
+      })
+    } finally {
+      for (const watcher of watchers) watcher.close()
     }
   }
 
