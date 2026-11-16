@@ -194,8 +194,8 @@ test('requests: the private request kinds an app accepts', () => {
     assert.match(String(app(bad)), /requests/, JSON.stringify(bad))
   }
 })
-test('only the camera and the microphone need consent; the rest are granted on declaration', () => {
-  assert.deepEqual([...APPROVAL_CAPABILITIES], ['camera', 'microphone'])
+test('the camera, the microphone and idle detection need consent; the rest are granted on declaration', () => {
+  assert.deepEqual([...APPROVAL_CAPABILITIES], ['camera', 'microphone', 'idleDetection'])
   for (const name of APPROVAL_CAPABILITIES) assert.ok(Manifest.CAPABILITIES.has(name), name)
   const granted = ['office', 'open', 'openFiles', 'fs', 'launch', 'slots', 'terminal', 'network']
   for (const name of granted) assert.ok(!(APPROVAL_CAPABILITIES as readonly string[]).includes(name), name)

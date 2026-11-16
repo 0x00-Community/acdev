@@ -40,7 +40,7 @@ test('openPath and handlers need openFiles', () => {
 })
 
 test('capability modules need their capability', () => {
-  assert.deepEqual([...CAPABILITY_MODULES], ['fs', 'terminal', 'network', 'office'])
+  assert.deepEqual([...CAPABILITY_MODULES], ['fs', 'terminal', 'network', 'system', 'bluetooth', 'audio', 'devices', 'power', 'input', 'display', 'office'])
   for (const name of CAPABILITY_MODULES) {
     for (const origin of [third, system]) {
       assert.deepEqual(Manifest.importRule(name, app(), origin), no(name, `acde:${name} needs "${name}" in ${declared}`))
