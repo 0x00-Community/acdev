@@ -41,7 +41,7 @@
         },
         "entry": {
           "type": "string",
-          "description": "HTML 页面 (默认 index.html) 或默认导出 WindowApp 的模块; 认出框架时不用"
+          "description": "HTML 页面 (默认 index.html) 或默认导出 WindowApp 的模块; \"/\" 表示页面由后端渲染 (要有后端); 认出框架时不用"
         },
         "framework": {
           "type": "string",
