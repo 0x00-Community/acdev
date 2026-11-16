@@ -123,6 +123,25 @@ jobs:
       - name: check against scripts/wpt/expectations/linux
         if: github.event.inputs.wpt != 'baseline'
         run: acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
+      - name: acde-demo beside acdert (the only step of the two with the token)
+        if: always() && github.event.inputs.wpt != 'gate'
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -eu
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/acde-demo.git" acde-demo
+          echo "acde-demo $(git -C acde-demo rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: acde-demo's e2e (its apps and the regression cells)
+        if: always() && github.event.inputs.wpt != 'gate'
+        working-directory: acde-demo
+        env:
+          CI: '1'
+        run: |
+          bun install --frozen-lockfile
+          ACDERT="$GITHUB_WORKSPACE/acdebin-dbg/target/release/acdebin-dbg" ACDE_APP="$GITHUB_WORKSPACE/acdert/web/packages/acde-host/dist" bun scripts/apps.ts e2e
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: always()
         with:
@@ -130,4 +149,5 @@ jobs:
           path: |
             ${{ env.WPT_STATE }}/results
             ${{ env.WPT_STATE }}/expectations
+            acde-demo/apps/*/.acde/test-results
           retention-days: 14
