@@ -15,15 +15,15 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 >   类型在 SDK `@dopame/acde-api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 workerd 的 binding, 直接注入页面所在的 V8 isolate, 调用直接进 Rust 原生实现, 不经 socket /
 >   IPC / 别的进程代办.
-> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, `vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有 devtools、
->   远程调试端口、浏览器外壳.
+> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, `vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有 Chromium 的 devtools 和浏览器外壳;
+>   正式运行没有远程调试端口, 只在开发模式 (`ACDE_DEV`) 下在本机 `127.0.0.1` 开 CDP 端点 (见 `docs/dev/devtools.md`).
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
 ## 协作规则
 
-- 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
-  (都 `publish = false`), 仓库和 release 不公开. npm 上发的包见 `docs/dev/release.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些). `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
+- 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`,
+  只发到内网 cargo 源 ac (`publish = ["ac"]`, 见 `docs/dev/release.md`「cargo 源 ac」), 仓库和 release 不公开. npm 上发的包见 `docs/dev/release.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些). `vendor/` 和 src/napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行 (src/napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
@@ -36,11 +36,11 @@ acdert 是 acde (Dopame 的桌面基座) 的通用运行时库: 内嵌 V8、自�
 - 改 `src/render`、`src/gpu`、`src/vello`、`src/webgl`、`vendor/blitz` 或 `web/` 的提交, 先在这棵树编出来的 acdert (或并排 acdebin-dbg) 上起一次, 提交信息里写验了
   什么、没验什么. 汇报时分开写「已验证 / 未验证」.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
-- 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
+- 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendor/` 的 crate 和配套的 (blitz-*、stylo*、
   parley、html5ever、cssparser) 用 `=` 钉住.
 - `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过; clippy 要过.
-  本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编. workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖,
-  只写主版本号的 0.x 依赖 (`rand = "0"`、`sha2 = "0"`、`hmac = "0"`) 会落到旧锁里已有的老版本上, 只在 Linux 编的 `voice`、`office` 就编不过
+  本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编. 0.x 写到次版本正是因为这个: 只写 `"0"` 时,
+  workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖, 它们会落到旧锁里已有的老版本上, 只在 Linux 编的 `voice`、`office` 就编不过
   (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
   `web/bun.lock` 进 git, 改依赖时放在同一个提交里.
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
