@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
+import { crateBinary } from '../src/vm/binary.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -302,6 +303,14 @@ describe('the QEMU command line', () => {
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
   })
 
+  test('--viewer gives QEMU a peer-to-peer D-Bus display; the viewer binary comes from ACDEV_VIEWER', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    expect(machine.args({ display: 'viewer' }, true).join(' ')).toContain('-display dbus,p2p=yes')
+    const wanted = { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }
+    expect(crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: CLI })).toBe(CLI)
+    expect(() => crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: '/no/such/viewer' })).toThrow('ACDEV_VIEWER=/no/such/viewer: no such file')
+  })
+
   test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
     const unix = machine.args({}, true, { kind: 'unix', path: '/r/devd.sock' }).join(' ')
@@ -322,6 +331,8 @@ describe('the QEMU command line', () => {
     expect((await run(['stop'])).stderr).toBe('acdev vm: not running\n')
     expect((await run(['status'])).stdout).toContain('guest: not running')
     expect((await run(['run', 'true'])).stderr).toContain(`no guest is running from ${dir}`)
+    expect((await run(['view'])).stderr).toContain(`no guest is running from ${dir}`)
+    expect((await run(['start', '--headless', '--viewer'])).stderr).toContain('one of --headless, --vnc, --viewer, not --headless and --viewer')
   })
 })
 

@@ -327,6 +327,7 @@ export class Help {
             + 'then builds, pushes and restarts again whenever a source file changes; push LOCAL [REMOTE] copies a file '
             + 'or directory in (default /opt/acdev/<name>); pull REMOTE [LOCAL] copies a guest file or directory out '
             + '(default ./<name>; into LOCAL/<name> when LOCAL is a directory); '
+            + 'view opens acdev\'s own window again on a guest started with --viewer; '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
@@ -335,6 +336,7 @@ export class Help {
         options: [
           { flag: '--headless', about: 'start: no window (screenshots still work)' },
           { flag: '--vnc', about: 'start: a VNC display on 127.0.0.1:5900 instead of a window' },
+          { flag: '--viewer', about: 'start: show the guest in acdev\'s own window (QEMU\'s D-Bus display; Linux for now)' },
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first' },

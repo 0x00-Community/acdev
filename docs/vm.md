@@ -14,7 +14,8 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - `qemu-system-x86_64`、`qemu-img` (Debian / Ubuntu: `qemu-system-x86 qemu-utils`; Arch: `qemu-full` 或 `qemu-base`)、UEFI 固件 OVMF
   (`ovmf` / `edk2-ovmf`; 找不到时设 `OVMF_CODE`、`OVMF_VARS`)、`setsid` (util-linux).
 - `/dev/kvm` 可读写. 打不开时退回 TCG 软件模拟, 能跑但慢得多, `start` 和 `status` 会说.
-- 窗口用 QEMU 的 gtk 显示; 没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
+- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdev-viewer`, 取 `ACDEV_VIEWER`, 否则检出里 `crates/viewer` 编出的);
+  没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
 
 ## 目录与镜像
 
@@ -35,6 +36,8 @@ os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` �
 acdev vm fetch                                  # 下载并校验最新镜像
 acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 和 acdevd 应答 (--wait 秒, 默认 300; 0 不等)
 acdev vm start --headless --share ~/winman/target/release
+acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdev-viewer, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
+acdev vm view                                   # 关掉之后再开一个 acdev-viewer
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序

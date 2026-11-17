@@ -103,6 +103,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 | 写运行时的回归测试、跑或更新 WPT 期望、改 `.github/workflows/test.yml` 或 `.github/actions/wpt-setup` | `docs/dev/testing.md` |
 | 把 `acdert` 发到 cargo 源 ac, 或了解运行时怎么随 acdev 发版 | `docs/dev/release.md` |
 | 改客户机设备守护进程 acdevd (`crates/devd`): vsock、推送、运行、停止的协议 | `docs/devd.md` |
+| 改 acdev 自己的客户机窗口 `acdev-viewer` (`crates/viewer`): QEMU 的 D-Bus 显示、画面、键鼠 | `docs/viewer.md` |
 | 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
 | 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acdev` 怎么找运行时 | `docs/architecture.md` |
 | 在本地编译、运行 `acdev runtime`, 或让源码跑的 `acdev dev` 用上它; 选编译配置 (`dev` / `guest` / `release`)、产物目录 `CARGO_TARGET_DIR` | `docs/runtime-build.md` |

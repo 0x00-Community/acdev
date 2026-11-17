@@ -24,17 +24,19 @@ function count(sub: string, rest: readonly string[], min: number, max: number, u
 
 async function start(machine: Machine, rest: readonly string[], flags: Flags): Promise<number> {
   count('start', rest, 0, 0, 'options only')
-  if (flags.has('headless') && flags.has('vnc')) throw new Error('vm start: --headless or --vnc, not both')
+  const shown = ['headless', 'vnc', 'viewer'].filter((flag) => flags.has(flag))
+  if (shown.length > 1) throw new Error(`vm start: one of --headless, --vnc, --viewer, not ${shown.map((flag) => `--${flag}`).join(' and ')}`)
   const options: StartOptions = {
     ...(flags.has('image') && { image: flags.get('image')! }),
     ...(flags.has('share') && { share: Machine.directory(flags.get('share')!) }),
     ...(flags.has('fresh') && { fresh: true }),
     ...(flags.has('gl') && { gl: true }),
-    display: flags.has('headless') ? 'none' : flags.has('vnc') ? 'vnc' : 'window',
+    display: flags.has('headless') ? 'none' : flags.has('vnc') ? 'vnc' : flags.has('viewer') ? 'viewer' : 'window',
   }
   const wait = seconds(flags.get('wait'))
   const pid = await machine.start(options, say)
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
+  if (options.display === 'viewer') say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {
     say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over ${machine.describeLink()}`)
@@ -178,6 +180,11 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     count('pull', rest, 1, 2, 'REMOTE [LOCAL]')
     const { target, files } = await machine.pull(rest[0]!, rest[1])
     say(`guest:${rest[0]} -> ${target} (${files} file${files === 1 ? '' : 's'})`)
+    return 0
+  },
+  async view(machine, rest) {
+    count('view', rest, 0, 0, 'no arguments')
+    say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
     return 0
   },
   async mount(machine, rest) {

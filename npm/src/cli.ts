@@ -61,7 +61,7 @@ class Cli {
     vm: {
       args: [1, Infinity],
       flags: ['image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile'],
-      switches: ['fresh', 'headless', 'vnc', 'gl', 'detach', 'force', 'follow'],
+      switches: ['fresh', 'headless', 'vnc', 'viewer', 'gl', 'detach', 'force', 'follow'],
     },
     test: {
       args: [0, Infinity],

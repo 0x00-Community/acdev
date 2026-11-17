@@ -11,13 +11,14 @@ import { Readable } from 'node:stream'
 import { which } from 'acdev/launcher'
 import { Runtime } from '../runtime.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
+import { crateBinary } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
 export interface StartOptions {
   readonly image?: string
   readonly fresh?: boolean
   readonly share?: string
-  readonly display?: 'window' | 'none' | 'vnc'
+  readonly display?: 'window' | 'none' | 'vnc' | 'viewer'
   readonly gl?: boolean
 }
 
@@ -236,8 +237,7 @@ export class Machine {
     const display = options.display ?? 'window'
     const accel = kvm ? ['-accel', 'kvm', '-cpu', 'host'] : ['-accel', 'tcg,thread=multi', '-cpu', 'max']
     const gpu = options.gl ? ['-device', 'virtio-vga-gl'] : ['-device', 'virtio-vga']
-    const shown = display === 'none' ? ['-display', 'none'] : display === 'vnc' ? ['-display', 'vnc=127.0.0.1:0']
-      : ['-display', options.gl ? 'gtk,gl=on' : 'gtk']
+    const shown = ['-display', Machine.#display(display, options.gl ?? false)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
@@ -258,6 +258,13 @@ export class Machine {
       '-pidfile', join(this.run, 'qemu.pid'),
       ...gpu, ...shown, ...share,
     ]
+  }
+
+  static #display(display: NonNullable<StartOptions['display']>, gl: boolean): string {
+    if (display === 'none') return 'none'
+    if (display === 'vnc') return 'vnc=127.0.0.1:0'
+    if (display === 'viewer') return 'dbus,p2p=yes'
+    return gl ? 'gtk,gl=on' : 'gtk'
   }
 
   static #forward(link: Link): string {
@@ -292,6 +299,7 @@ export class Machine {
     writeFileSync(join(this.logs, 'qemu.cmd'), `${['qemu-system-x86_64', ...args].join(' ')}\n`)
     writeFileSync(this.serial, '')
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
+    writeFileSync(join(this.run, 'display'), `${options.display ?? 'window'}\n`)
     const log = openSync(join(this.logs, 'qemu.log'), 'w')
     const child = Runtime.spawn(['setsid', 'qemu-system-x86_64', ...args], { stdio: ['ignore', log, log] })
     child.process.unref()
@@ -314,6 +322,20 @@ export class Machine {
     }
     process.kill(pid, 'SIGTERM')
     return 'killed'
+  }
+
+  view(): number {
+    this.running()
+    const display = join(this.run, 'display')
+    if (!existsSync(display) || readFileSync(display, 'utf8').trim() !== 'viewer') {
+      throw new Error('vm: the guest was started without --viewer (its screen is in QEMU\'s own window or none)')
+    }
+    const viewer = crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
+    const log = openSync(join(this.logs, 'viewer.log'), 'a')
+    const title = `acdev: ${basename(this.dir)}`
+    const child = Runtime.spawn(['setsid', viewer, '--qmp', this.qmp, '--title', title], { stdio: ['ignore', log, log], env: this.env })
+    child.process.unref()
+    return child.pid
   }
 
   async ready(seconds: number): Promise<boolean> {

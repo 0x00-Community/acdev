@@ -5,7 +5,7 @@ resolver = "3"
 # acdert/vendor/blitz would be loaded into this workspace and its crates' rust-version.workspace would fail
 members = ["crates/*"]
 # npm/: the acde CLI (bun); acdert/vendor: the blitz fork (submodule), not built as members
-exclude = ["npm", "acdert/vendor", "crates/devd"]
+exclude = ["npm", "acdert/vendor", "crates/devd", "crates/viewer"]
 
 [workspace.package]
 version = "0.0.11"
