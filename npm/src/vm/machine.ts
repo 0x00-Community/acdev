@@ -395,9 +395,14 @@ export class Machine {
     return { target, files: await this.devd().pull(remote, target) }
   }
 
-  async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
+  devdBinary(): string {
     const binary = Devd.binary(Machine.ROOT, this.env)
     Devd.checkVersion(binary, Machine.ROOT)
+    return binary
+  }
+
+  async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
+    const binary = this.devdBinary()
     const data = readFileSync(binary)
     const sum = createHash('sha256').update(data).digest('hex')
     const agent = await GuestAgent.open(this.qga)

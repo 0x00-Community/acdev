@@ -51,6 +51,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
     outputs: outputsFor(flags, display),
   }
   const wait = seconds(flags.get('wait'))
+  if (wait !== 0) machine.devdBinary()
   const pid = await machine.start(options, say)
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
   if (options.display === 'viewer') say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)

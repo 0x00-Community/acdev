@@ -357,6 +357,25 @@ describe('the QEMU command line', () => {
     expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`is acdevd 0.1.0, this acdev needs ${want}: rebuild it`)
   })
 
+  test('start checks acdevd\'s version before it starts QEMU', async () => {
+    const dir = tmp()
+    const bin = join(dir, 'bin')
+    mkdirSync(bin)
+    const script = (name: string, body: string) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+    script('qemu-system-x86_64', `touch ${join(dir, 'qemu-ran')}`)
+    script('qemu-img', 'exit 0')
+    script('acdevd-old', 'echo "acdevd 0.0.1"')
+    writeFileSync(join(dir, 'image.qcow2'), '')
+    const started = await collect([process.execPath, CLI, 'vm', 'start', '--headless', '--image', join(dir, 'image.qcow2')], {
+      cwd: dir,
+      env: env({ ACDEV_VM_DIR: join(dir, 'vm'), ACDEV_DEVD: join(bin, 'acdevd-old'), PATH: `${bin}:${process.env['PATH']}`,
+        OVMF_CODE: join(dir, 'image.qcow2'), OVMF_VARS: join(dir, 'image.qcow2') }),
+    })
+    expect(started.code).toBe(1)
+    expect(started.stderr).toContain('is acdevd 0.0.1, this acdev needs')
+    expect(existsSync(join(dir, 'qemu-ran'))).toBe(false)
+  })
+
   test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
     const unix = machine.args({}, true, { kind: 'unix', path: '/r/devd.sock' }).join(' ')
