@@ -1,0 +1,180 @@
+[workspace]
+resolver = "3"
+exclude = ["vendor"]
+
+[workspace.package]
+version = "0.0.11"
+edition = "2024"
+repository = "https://github.com/dopame-org/acdert"
+publish = ["ac"]
+
+[workspace.dependencies]
+# blitz: our fork (submodule vendor/blitz, Gitea AC/blitz), published to ac with the same names
+blitz-dom = { path = "vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
+blitz-paint = { path = "vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
+blitz-traits = { path = "vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
+
+# 对外唯一的包: src/ 下的模块 (host / render / runtime / webgl / …) (gpu 是 detour 之上的设备注册表和合成器接口) 平铺导出 (Rust 用 rlib), 并以 cdylib 出 libacdert.so
+# (C 接口在 src/ffi.rs, 头文件 include/acdert.h 由 build.rs 经 cbindgen 生成)
+[package]
+name = "acdert"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+# the package is the library: its sources, the header, the Wayland protocols, and the API level src/host reads from web/
+include = ["/src/**", "/build.rs", "/cbindgen.toml", "/include/**", "/protocol/**", "/LICENSE", "/web/packages/acde-api/src/runtime/level.js"]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# the 2D scene, filters, compose types, GPU images, the compositor and the page rasterizer are detour's (src/gpu, src/vello);
+# no `compiler`, so no MLIR and no jemalloc; its Vulkan fallback is plain wgpu off Linux
+detour = { package = "detour-gpu", version = "0.1.6", default-features = false, features = ["fallback-vulkan"] }
+v8 = "152"
+log = { version = "0.4", features = ["std"] }
+# log: env_logger behind the log module (written on its own thread)
+env_logger = { version = "0.11", default-features = false }
+# napi: the Node-API that the built-in napi modules link against
+napi_sym = "0.190"
+parking_lot = "0.13"
+# model's #[napi(object)] (feature napi), runtime's exports
+napi = { version = "3", default-features = false, features = ["napi8", "async-runtime", "serde-json"] }
+napi-derive = "3"
+# render: blitz is our fork, pinned and re-exported; stylo / parley / html5ever / cssparser at the versions blitz-dom uses
+blitz-dom = { workspace = true, features = ["svg", "woff", "system-fonts", "file-input", "text-transform-icu", "complex-scripts", "floats"] }
+blitz-paint = { workspace = true, default-features = true, features = ["scrollbars"] }
+blitz-traits = { workspace = true, default-features = true }
+stylo = "=0.22.0"
+style_dom = { version = "=0.22.0", package = "stylo_dom" }
+style_traits = { version = "=0.22.0", package = "stylo_traits" }
+parley = { version = "=0.12.0", default-features = false, features = ["std"] }
+html5ever = "=0.40.1"
+cssparser = "=0.38.0"
+data-url = "0.3"
+png = "0.18"
+bytemuck = "1"
+kurbo = "0.13"
+peniko = "0.6"
+# vello / webgl: wgpu on the same device as src/gpu
+vello = { version = "0.12", default-features = false, features = ["wgpu"] }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "naga-ir"] }
+pollster = "0.4"
+# webgl: src/webgl/glsl is naga's GLSL frontend with the WebGL dialect
+naga = "30"
+pp-rs = "0.2"
+half = "2"
+thiserror = { version = "2", default-features = false }
+bitflags = "2"
+# runtime
+jiff = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+ntex = { version = "4", features = ["openssl"] }
+openssl = "0.10"
+async-channel = "2"
+futures-lite = "2"
+futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+async-io = "2"
+uuid = { version = "1", features = ["v4"] }
+icu_collator = "2"
+icu_locale_core = "2"
+url = "2"
+sha2 = "0.11"
+hmac = "0.13"
+rand = "0.10"
+flate2 = "1"
+base64 = "0.23"
+# storage
+rusqlite = { version = "0.42", features = ["bundled"] }
+indexmap = "2"
+# host
+encoding_rs = "0.8"
+getrandom = "0.4"
+signal-hook = "0.4"
+symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+ash = "0.38"
+wgpu-types = { version = "30", features = ["serde"] }
+pipewire = { version = "0.10", features = ["v0_3_49"] }
+zbus = "5"
+roxmltree = "0.21"
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+gstreamer-video = "0.25"
+gstreamer-audio = "0.25"
+gio = "0.22"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios", "stdio", "thread"] }
+libc = "0.2"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0.18"
+openssl = { version = "0.10", features = ["vendored"] }
+rustls-native-certs = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+# src/gpu: Direct3D 12 for the device WebGPU and the compositor share
+wgpu = { version = "30", default-features = false, features = ["dx12", "static-dxc"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Networking_WinHttp",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Environment",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# src/gpu: Metal for the device WebGPU and the compositor share
+wgpu = { version = "30", default-features = false, features = ["metal"] }
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSError", "NSLocale", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-foundation", "objc2-core-media", "objc2-core-video", "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetResourceLoader", "AVAssetTrack", "AVAsynchronousKeyValueLoading", "AVMediaFormat", "AVAudioSettings", "AVCaptureDevice", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureVideoDataOutput", "AVCaptureAudioDataOutput", "AVCaptureSession"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "objc2-core-video", "CMBase", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "CMTimeRange"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFDictionary", "CFNumber", "CFString"] }
+
+[dev-dependencies]
+env_logger = "0.11"
+naga = { version = "30", features = ["msl-out", "spv-out", "hlsl-out"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+socket2 = { version = "0.6", features = ["all"] }
+
+[features]
+# model's #[napi(object)] derives (the napi crate itself is always there, runtime needs it)
+napi = []
+# render: blitz-dom's per-phase timings in the log
+phase-times = ["blitz-dom/log-phase-times"]
+
+[build-dependencies]
+cbindgen = { version = "0", default-features = false }
+
+[profile.release]
+opt-level = "s"
+debug = 0
+strip = true
+lto = "thin"
+
+[profile.dist]
+inherits = "release"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "symbols"
+lto = "fat"
+codegen-units = 1
