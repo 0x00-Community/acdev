@@ -1,5 +1,7 @@
 # 架构: 三个仓库、两种跑法、进程与线程
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个仓库 (测试期间的架构, 用户定 2026-11-13):
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |

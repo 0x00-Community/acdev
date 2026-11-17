@@ -1,5 +1,7 @@
 # 构建、运行、平台
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 ```sh
 cargo build --release -p acdert                # target/release/acdert
 cd web && bun install && bun run build         # packages/acde-host/dist/{broker,web}.js

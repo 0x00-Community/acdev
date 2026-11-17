@@ -1,5 +1,7 @@
 # WebGL (`src/webgl` `acde-webgl`, acdert `webgl.rs`, acde-dom `webgl/`)
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 GL 状态机, 用 `Gpu::shared()` 那台设备 (和画布、页面共用), 不用 ANGLE、不用系统 OpenGL.
 
 - **分层**: acde-dom `webgl/index.ts` 是标准的 `WebGLRenderingContext` / `WebGL2RenderingContext` 和 WebGL 对象 (`WebGLBuffer` …), 只管参数换算、

@@ -1,5 +1,7 @@
 # 窗口模型与协议
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 框架只有两个抽象: **canvas** (工作区) 和 **window**. 都是 Rust 的表项 (src/model), 不映射到 DOM / JS 对象; 窗口的内容只是客户端交的
 一块缓冲, 框架不跑 JS、不持有文档. 桌面、面板、菜单都是窗口.
 

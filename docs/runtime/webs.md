@@ -1,5 +1,7 @@
 # desktop web / window web
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 每个 web 有自己的 DOM、CSS、JS 堆、render 文档和 surface.
 
 - **渲染 (会话)**: 每个 web 一个 xdg_toplevel, 自己光栅化 (acdebin-system 的 `crates/paint`, 三块轮转的 GBM 画布, 见它的 `docs/window-paint.md`), 经 linux-dmabuf 交给合成器. 窗口 id:

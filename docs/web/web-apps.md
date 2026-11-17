@@ -1,5 +1,7 @@
 # 网页应用 (清单, 浏览器接口)
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 网页存储见 `docs/web/storage.md`, 应用后端和请求路由见 `docs/web/backend.md`.
 
 工程、构建和 `acde dev` 是 acde 仓库的事 (`acde new / check / build / install / dev`, 框架识别、模板、listen preload). 本仓库对外只发 SDK

@@ -1,5 +1,7 @@
 # C 接口 (`src/ffi.rs`, `include/acdert.h`)
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 `src/ffi.rs` 是 C 接口, `build.rs` 用 cbindgen (`cbindgen.toml`, 只解析 `src/ffi.rs`) 每次构建重写 `include/acdert.h` (进 git, 随 so 发):
 
 - 入口: `acdert_start(script, argc, argv, platform)` (script 为 NULL 即 Broker; argv 是 script 之后的参数) / `acdert_common(argc, argv, platform, &code)`

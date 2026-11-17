@@ -1,5 +1,7 @@
 # 组件契约: render、shell、GPU 与性能
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 改接口先改这里.
 
 ## render (`src/render`, Rust 接口)

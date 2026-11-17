@@ -1,5 +1,7 @@
 # DevTools 端点 (Chrome DevTools Protocol)
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 acde dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
 
 - **DevTools 端点** (只在有 `ACDE_DEV` 时, Chrome DevTools Protocol, #172): runtime 模块 `devtools/` (napi `DevTools.open()` /

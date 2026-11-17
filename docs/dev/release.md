@@ -1,5 +1,7 @@
 # 发版
 
+> 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
+
 本仓库不发二进制, 也不往 pkgs.dopame.ai 上传东西 (用户定, 2026-11-14): 调试运行时 (acdebin-dbg 的二进制)、页面资源 (`acde-host-<版本>.tar.gz`, 由
 本仓库 `web/packages/acde-host` 的 `build:release` 打)、SDK (`acde-api-<版本>.tar.gz`, `web/packages/acde-api` 的 `build`)、acde 命令行和安装器, 由
 acdebin-dbg 的 `.github/workflows/release.yml` 一次发到 `pkgs.dopame.ai/acde/<版本>/` (S3 桶 `dopame-pkgs` 的 `acde/`) 和 npm, 它在 `acdert_commit` (缺省本仓库 main) 检出本仓库.
