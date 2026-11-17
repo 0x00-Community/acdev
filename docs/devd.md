@@ -17,7 +17,8 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 用户 2026-11-18 定 (三平台模拟器规范): 协议不变, 只换传输. Linux 宿主用 vsock; Windows、macOS 上的 QEMU 没有 vsock (Windows 编不出 vhost,
 macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-emulator.md`), 改走 QEMU 用户态网络的端口转发 (`hostfwd`)
-到客户机的 TCP 端口. 选哪种由宿主一侧的 `acdev vm start` 决定 (见 `docs/vm.md`), 守护进程两种都听.
+到客户机的 TCP 端口 (宿主一侧默认是 `127.0.0.1` 上的端口; 转到 Unix 套接字要较新的 QEMU 和 libslirp, 条件见 `docs/vm.md`「调试通道」).
+选哪种由宿主一侧的 `acdev vm start` 决定, 守护进程两种都听.
 
 - **密钥**: `acdev vm start` 每次生成一个随机密钥 (32 字节的十六进制), 经 `-fw_cfg name=opt/acdev/key,file=…` 交给客户机.
   守护进程启动时读 `/sys/firmware/qemu_fw_cfg/by_name/opt/acdev/key/raw` (内核模块 `qemu_fw_cfg`, systemd 单元先 `modprobe` 它),

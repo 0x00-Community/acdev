@@ -55,10 +55,20 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 - 串口里默认只有固件和 systemd-boot 的输出: 装好的系统是静默启动 (`quiet loglevel=3`, 没有 `console=ttyS0`). `console` 在客户机启动项命令行
   末尾加 `console=tty0 console=ttyS0,115200 loglevel=6` (写在覆盖盘里, 重复跑不叠加).
 - 调试通道 (用户 2026-11-18 定): `start` 按平台选传输, 记在 `run/link.json`, 之后的命令照它连. Linux 用 vsock (`vhost-vsock-pci`);
-  Windows、macOS 的 QEMU 没有 vsock, 改用用户态网络的端口转发到客户机 acdevd 的 TCP 端口 5252: macOS (和其余非 Linux) 转到
-  `run/devd.sock` (`hostfwd=unix:…`, 文件权限挡住别的本机用户), Windows 转到 `127.0.0.1` 上一个空闲端口 (`hostfwd=tcp:…`).
-  `ACDEV_VM_TRANSPORT=vsock|unix|tcp` 强制选一种 (Linux 上用来验证转发). 转发时不加 vsock 设备. 每次 `start` 生成一个密钥写到
+  Windows、macOS 的 QEMU 没有 vsock, 改用用户态网络的端口转发 (`hostfwd=tcp:…`), 把 `127.0.0.1` 上一个空闲端口转到客户机 acdevd 的
+  TCP 端口 5252, 靠握手密钥挡住本机别的进程 (acdev-lead 2026-11-18 定: macOS 和 Windows 一样默认走 TCP). 转发时不加 vsock 设备.
+  `ACDEV_VM_TRANSPORT=vsock|unix|tcp` 强制选一种 (Linux 上用来验证转发). 每次 `start` 生成一个密钥写到
   `run/key` (只有自己能读), 经 `-fw_cfg name=opt/acdev/key,file=run/key` 交给客户机; 每条连接先发它 (见 `docs/devd.md`「传输与密钥」).
+- `unix` 只在显式设了时用: 转到 `run/devd.sock` (`hostfwd=unix:…`, 文件权限另挡一层), 条件是
+  - QEMU 带这个功能: 2025-08 写成、2025-10-05 合入主线 (QEMU 提交 6d10e021318b, "Add a feature for mapping a host unix socket to a
+    guest tcp socket"), 第一个带它的发行版大概是 10.2 (未核实); 不支持时 QEMU 起不来, 报 `Invalid host forwarding rule 'unix:…' (Bad
+    protocol name)` (本机 Ubuntu 24.04 的 QEMU 8.2.2, 2026-11-18 实测);
+  - libslirp 4.7.0 或更新 (同一提交里的 `SLIRP_CHECK_VERSION(4, 7, 0)`), 而且不是 Windows 宿主 (`!defined(WIN32)`);
+  - 套接字路径里没有 `-`: 转发规则按第一个 `-` 切开宿主一侧和客户机一侧, 直到 2026-06-12 合入的提交 2ec80ad92840 ("net/slirp: allow
+    hostfwd socket paths with dashes") 才改成按最后一个切, 哪个发行版起带它未核实. `ACDEV_VM_DIR` 的路径里有 `-` 时 (如测试的临时目录)
+    要用更新的 QEMU.
+  出处: https://github.com/qemu/qemu/commit/6d10e021318b16e3e90f98b7b2fa187826e26c0a ,
+  https://github.com/qemu/qemu/commit/2ec80ad92840df9750e9ad5beed494cb0b202ba9 .
   `status` 写出走的是哪种.
 - 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,
   systemd 单元 `acdevd.service`, 开机自启, 起之前 `modprobe qemu_fw_cfg`), 等它在调试通道上应答 (见 `docs/devd.md`). vsock 时 QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
@@ -115,7 +125,7 @@ glibc 较新); 不放心就静态链接 (musl).
 QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有客户机时的子命令.
 设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机 (`start --headless` 等到 acdevd
 应答、`run` 的输出与退出码、`push`、`--detach` 加 `kill` 和日志、`status`、错的密钥被拒、`screenshot`、`stop`), 约 20 s.
-设 `ACDEV_VM_TRANSPORT=unix` (或 `tcp`) 再跑一遍就是端口转发. 守护进程自己的进程内测试在
+设 `ACDEV_VM_TRANSPORT=tcp` 再跑一遍就是端口转发 (2026-11-18 在本机 vsock、tcp 两遍都过; `unix` 要满足上面的条件, 本机 QEMU 8.2.2 不行). 守护进程自己的进程内测试在
 `crates/devd` (`cargo test`).
 
 ## 验证过的 (2026-11-17, Ubuntu 24.04 的 WSL2, QEMU 8.2.2, OVMF 4M)

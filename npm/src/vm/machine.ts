@@ -25,6 +25,10 @@ export type Link = { readonly kind: 'vsock' } | { readonly kind: 'unix'; readonl
 
 const LINKS = ['vsock', 'unix', 'tcp'] as const
 
+export function defaultLink(platform: NodeJS.Platform): Link['kind'] {
+  return platform === 'linux' ? 'vsock' : 'tcp'
+}
+
 export class Machine {
   static readonly DIST = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/iso'
   static readonly MOUNT_TAG = 'acdev'
@@ -86,7 +90,7 @@ export class Machine {
       if (!(LINKS as readonly string[]).includes(given)) throw new Error(`vm: ACDEV_VM_TRANSPORT=${given}: ${LINKS.join(', ')}`)
       return given as Link['kind']
     }
-    return process.platform === 'linux' ? 'vsock' : process.platform === 'win32' ? 'tcp' : 'unix'
+    return defaultLink(process.platform)
   }
 
   async newLink(): Promise<Link> {
