@@ -58,6 +58,7 @@ class Cli {
     devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
+    vm: { args: [1, Infinity], flags: ['image', 'share', 'wait'], switches: ['fresh', 'headless', 'vnc', 'gl'] },
     test: {
       args: [0, Infinity],
       flags: ['desktop', 'test-name-pattern', 'timeout', 'workers', 'retries', 'video'],
@@ -189,6 +190,7 @@ class Cli {
       })
     }
     if (command === 'skills') return (await import('./skills.ts')).Skills.run(args, flags)
+    if (command === 'vm') return (await import('./vm/command.ts')).runVm(args, flags)
     if (command === 'uninstall') {
       const { Uninstall } = await import('./uninstall.ts')
       const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true

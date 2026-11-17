@@ -26,7 +26,7 @@ export class Help {
   static readonly WIDTH = 80
   static readonly MAX = 100
   static readonly MIN = 40
-  static readonly GROUPS = ['Project', 'Develop', 'Inspect a running session', 'Agents'] as const
+  static readonly GROUPS = ['Project', 'Develop', 'Inspect a running session', 'Emulator', 'Agents'] as const
 
   static commands(templates: readonly string[], actions: readonly string[]): readonly HelpCommand[] {
     const inspecting = (name: string, args: string, summary: string, about: string[], options: HelpOption[] = [],
@@ -308,6 +308,35 @@ export class Help {
           { flag: '--copy', about: 'A copy, not a link' },
         ],
         examples: ['acde skills install'],
+      },
+      {
+        name: 'vm',
+        group: 'Emulator',
+        args: '<subcommand> [args]',
+        summary: 'Run a Dopame OS guest under QEMU (Linux, KVM)',
+        about: [
+          'fetch downloads the newest Dopame OS x86_64 disk image. start boots it in the background under an overlay '
+            + 'disk (the image stays as it is) and waits until the guest is ready; stop powers it off; status, wait. '
+            + 'screenshot FILE.png takes the guest screen. run COMMAND runs a command as root in the guest and '
+            + 'prints its output; push LOCAL [REMOTE] copies a file or directory in (default /opt/acdev/<name>); '
+            + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
+            + 'port from the next boot.',
+          'The images, the overlay disk, the sockets and the logs live in $ACDE_VM_DIR (default '
+            + '~/.local/share/acde/vm). Needs qemu-system-x86_64, qemu-img and OVMF; without /dev/kvm it emulates.',
+        ],
+        options: [
+          { flag: '--headless', about: 'start: no window (screenshots still work)' },
+          { flag: '--vnc', about: 'start: a VNC display on 127.0.0.1:5900 instead of a window' },
+          { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acde vm mount)' },
+          { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
+          { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first' },
+          { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },
+          { flag: '--gl', about: 'start: virtio-vga-gl with an OpenGL window (virgl; not on the roadmap)' },
+        ],
+        examples: [
+          'acde vm fetch', 'acde vm start --headless --share target/release', 'acde vm run -- uname -a',
+          'acde vm screenshot screen.png', 'acde vm stop',
+        ],
       },
     ]
   }

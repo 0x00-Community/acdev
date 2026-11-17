@@ -99,7 +99,7 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 | 改 DevTools 端点、页面一侧的 CDP 域 (DOM / CSS / Network / Overlay)、断点或重载不断开 | `docs/dev/devtools.md` |
 | 写运行时的回归测试、跑或更新 WPT 期望、改 `.github/workflows/test.yml` 或 `.github/actions/wpt-setup` | `docs/dev/testing.md` |
 | 把 `acdert` 发到 cargo 源 ac, 或了解运行时怎么随 acdev 发版 | `docs/dev/release.md` |
-| 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、看串口日志或截图 (`scripts/vm.sh`) | `docs/vm.md` |
+| 改 `acde vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
 | 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acde` 怎么找运行时 | `docs/architecture.md` |
 | 在本地编译、运行 `acdebin-dbg`, 或让源码跑的 `acde dev` 用上它 | `docs/runtime-build.md` |
 | 改宿主窗口、合成、出帧、GPU、输入、窗框、菜单、headless 或系统能力 (`crates/hostwin`) | `docs/hostwin.md` |

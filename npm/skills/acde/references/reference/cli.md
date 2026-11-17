@@ -198,6 +198,12 @@ acde skills [install|remove|path] [--agent ID,...] [--dir DIR] [--copy]
 
 See [Coding agents](../guide/agents.md).
 
+## Emulator
+
+### acde vm
+
+A Dopame OS guest under QEMU on a Linux host with KVM (the emulator's first piece; Windows and macOS come later). `acde vm fetch` downloads the newest x86_64 disk image; `acde vm start [--headless | --vnc] [--share DIR] [--image FILE] [--fresh] [--wait SECONDS] [--gl]` boots it in the background under an overlay disk (the image is not changed) and waits until the guest is ready (`--gl`: virgl, kept as an option, not on the roadmap); `acde vm stop` powers it off; `acde vm status`, `acde vm wait [SECONDS]`. `acde vm screenshot FILE.png` takes the guest screen, also without a window. `acde vm run -- COMMAND` runs a command as root in the guest and exits with its exit code; `acde vm push LOCAL [REMOTE]` copies a file or a directory in (default `/opt/acdev/<name>`); `acde vm mount` mounts the `--share` directory at `/mnt/acdev`; `acde vm console` makes the guest kernel log to the serial port from the next boot. Everything lives in `$ACDE_VM_DIR` (default `~/.local/share/acde/vm`): the images, the overlay disk, the sockets and `logs/serial.log`. Needs `qemu-system-x86_64`, `qemu-img` and OVMF; without access to `/dev/kvm` it emulates, much slower.
+
 ## Testing
 
 ```text
