@@ -18,6 +18,7 @@
 | `src/napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `js/dom` | 网页接口层: web 里的浏览器全局对象和 DOM (原 acde-dom) |
 | `js/page` | 页面一侧的胶水: 在 web 里起页面、`acde:` 模块、和启动方的 rpc、输入与窗框 (原 acde-host 的 `worker.ts` 及其依赖) |
+| `js/launcher` | 单应用启动器: 一个进程开一个应用一个窗口 (临时代替原管理中枢, 见下) |
 
 ## js: 运行时自带的 JS
 
@@ -30,6 +31,16 @@
 `@dopame/acde-api` 指向 SDK 的声明 `npm/acde-api/src`, `@dopame/acde-api/manifest` 指向命令行的清单模块 `npm/src/manifest`
 (和命令行共用一份清单规则); 窗框主题的解析 (`FrameThemes`) 只有页面用, 在 `js/page/src/frametheme.ts`. 页面和启动方之间的类型
 (`WebInit`、服务形状、菜单、权限等级) 在 `js/page/src/contract.ts`; 管理中枢 (原 `broker.js`) 没有取回: 管家部分归 system (工作项 09).
+
+单应用启动器 (`js/launcher`, 用户 2026-11-17 定的临时做法, 总仓 `.scratch/acdev/issues/09-temporary-launcher-and-old-js.md`) 和页面包一样由
+`build.rs` 打成 `$OUT_DIR/launcher.js` 嵌进二进制 (`src/host/bundle.rs` 管这两个地址), `acdev app …` / `desktop …` 这类原来进管理中枢的
+入口 (`Entry::Broker`) 现在都从 `acde-runtime:/launcher.js` 起. 它只认 `app <id|目录> [--size WxH] [--scale N] [--seconds N]
+[--shot 文件] [--shot-after 毫秒]`: 目录取其 package.json 里第一个应用, id 在 `ACDE_PATH` 的各目录及其下一层找; 资源前缀按 `acde.assets`,
+没有 `/` 时 `/` 指包目录. 它向宿主窗口系统要一个占满宿主窗口的窗口, 拼好 `WebInit` (没有服务、最低权限等级、存储在
+`$ACDE_STORAGE` 或 `~/.local/share/acde/storage` 的 `app-<id>`), 经 `spawnWeb` 起页面; 页面经 rpc 来的调用里 `window.ready`、`window.setTitle`、`page.shown` 直接应答, 其余一律回
+`unsupported` (501). 它在启动方的 isolate 里先装好核心全局对象 (定时器、console 等, `installCore`). 窗口关闭、页面退出或 `--seconds` 到时退出, 退出码是页面的. `--shot` 在 `--shot-after` (默认 2000) 毫秒后存一张宿主窗口截图,
+无头 (`ACDE_HEADLESS=1`) 也行; 首帧没画完时截到的是空屏 (WSL 的 Dozen 上调试版首帧要 5～6 秒, 验证时用 `--shot-after 15000`). 桌面、`desktops` / `sessions` / `applications` / `open`、调试通道 (`acdev dev` 的请求、DevTools) 都没有,
+所以 `acdev dev` 和 WPT 现在跑不了. 测试在 `js/launcher/test`.
 
 在 `acdert/js`: `bun install` (只装测试用的 happy-dom、React、CodeMirror 等和 esbuild), `bun test` (`js/dom/test` 和
 `js/page/test`, 预加载 `dom/test/gc.ts`), `bun run typecheck`. 原 acde-host 的测试只带来了只涉及页面一侧的那几个.
