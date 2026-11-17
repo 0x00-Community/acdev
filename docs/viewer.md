@@ -58,14 +58,16 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
   104)` 和 `Exit Failure: 1`; 关掉第一个窗口时也是这两行. `Exit Failure` 是 winit 事件循环的错误, `Io error` 不带我们的前缀, 所以断的是
   窗口系统 (Wayland / X) 的连接, 不是 QEMU: 对照 QEMU 8.2.2 源码, 第二次 `add_client` 会取消没建完的上一个、在新连接上重新导出对象
   (`ui/dbus.c` `dbus_display_add_client`), 点对点时 `RegisterListener` 的发送者为空, 不查重复注册 (`ui/dbus-console.c`), QMP `getfd`
-  同名时换掉旧的. 原因待查: 日志现在带上依赖库的警告; 对照试一次 `env -u WAYLAND_DISPLAY acdev vm view` (走 X11).
+  同名时换掉旧的. 复测 (2026-11-18 acdev-test): 只在 WSLg 的 Wayland 下失败, `env -u WAYLAND_DISPLAY acdev vm view` (走 X11) 连开
+  两次都正常; 失败时日志里有 sctk_adwaita 的警告 `XDG Settings Portal did not return response in time` (取窗框配色超时). 怀疑是
+  winit 在 Wayland 下用 adwaita 画窗框这一路, 待查 (可试无装饰窗口或改走 X11). 现在在 WSLg 上重开窗口请用 X11.
 
 ## 测试
 
 `cargo test` (在 `crates/viewer`): 键号换算、`Scanout` / `Update` 落到像素、缩放. 命令行一侧 `test/vm.test.ts`: `--viewer` 的 QEMU 参数、
 `ACDEV_VIEWER`、`view` 和参数冲突的报错. 窗口本身要在有图形环境的机器上起一台客户机看 (见总仓工作项 11 的验收).
 
-## 构建依赖的代价 (估计, 待测试 Agent 实测)
+## 构建依赖的代价
 
 新增 winit、softbuffer、zbus (带 `p2p`、`serde_bytes`)、rustix、serde_bytes、log. winit 和 zbus 在根工作区已有 (hostwin), 但这是独立工作区,
-要另编一份. 冷编估计 1～2 分钟、发布版二进制估计 3～6 MB; 不进 `acdev` 主程序的依赖图.
+要另编一份. 发布版二进制 5.4 MB (2026-11-18 acdev-test 实测); 冷编时间未单独量. 不进 `acdev` 主程序的依赖图.
