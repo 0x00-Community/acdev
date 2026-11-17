@@ -49,7 +49,7 @@ const OBFUSCATION = {
 
 const { values } = parseArgs({
   options: {
-    api: { type: 'string', default: join(ROOT, '../acdert/web/packages/acde-api/dist') },
+    api: { type: 'string', default: join(ROOT, 'acde-api') },
     sdk: { type: 'string' },
     runtime: { type: 'string' },
     version: { type: 'string', default: SELF.version },

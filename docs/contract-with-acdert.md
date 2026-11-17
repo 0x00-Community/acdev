@@ -2,9 +2,9 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
-- 清单校验只有一份: `@dopame/acde-api/manifest` (acdert 的 `web/packages/acde-api`), acdert 的 Broker 和 acde 用同一段 (打进 `cli.js`). 检出的
-  package.json 用 `file:../acdert/web/packages/acde-api` (仓内的 `acdert/`). **现在失效**: acdert 的 `web/` 已删除 (acdert 91e7dd1e), 取代
-  方案未定, 这个依赖装不上, 用到 SDK 的测试和 `dist.ts` 的默认 `--api` 也找不到它.
+- SDK: package.json 用 `file:./acde-api` (仓内的 `npm/acde-api/`, 只有类型声明, 见仓库根 `docs/acde-api.md`). 原来的清单校验
+  `@dopame/acde-api/manifest` (Broker 和 acde 共用一段, 打进 `cli.js`) 和 Vite 插件 `@dopame/acde-api/vite` 是 JS 逻辑, 没进新包;
+  用到它们的代码 (`app.ts`、`package.ts`、`imports.ts`、`bundler.ts` 等) 现在类型检查不通, 逻辑放哪待定.
 - **运行时还不是安全边界**: 第三方沙箱 (acdert#30) 做好之前, `acde install` 装的包和 `acde build` / `acde dev` 的开发构建都按开发者自己的
   代码对待: 构建执行工程的构建工具和依赖, 后端是有开发者全部权限的普通进程; 清单的 capabilities 和 `fs` 的根只管 `acde:` 模块给什么,
   不隔离进程. 只装、只跑信得过的代码.
