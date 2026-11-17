@@ -299,7 +299,7 @@ describe('the QEMU command line', () => {
       expect(args).toContain(part)
     }
     expect(machine.args({}, false).join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
-    expect(machine.args({ gl: true }, true).join(' ')).toContain('-device virtio-vga-gl -display gtk,gl=on')
+    expect(machine.args({ gl: true }, true).join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display gtk,gl=on')
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
   })
 
@@ -309,6 +309,15 @@ describe('the QEMU command line', () => {
     const wanted = { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }
     expect(crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: CLI })).toBe(CLI)
     expect(() => crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: '/no/such/viewer' })).toThrow('ACDEV_VIEWER=/no/such/viewer: no such file')
+  })
+
+  test('--outputs N gives the display device N heads; one is the default', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    const one = machine.args({}, true).join(' ')
+    expect(one).toContain('-device virtio-vga,id=gpu0 ')
+    expect(one).not.toContain('max_outputs')
+    expect(machine.args({ outputs: 2 }, true).join(' ')).toContain('-device virtio-vga,id=gpu0,max_outputs=2 ')
+    expect(machine.args({ outputs: 3, gl: true }, true).join(' ')).toContain('-device virtio-vga-gl,id=gpu0,max_outputs=3 ')
   })
 
   test('two PCIe root ports, rp1 and rp2, take hot-plugged devices', () => {
@@ -369,6 +378,10 @@ describe('the QEMU command line', () => {
     expect((await run(['status'])).stdout).toContain('guest: not running')
     expect((await run(['run', 'true'])).stderr).toContain(`no guest is running from ${dir}`)
     expect((await run(['view'])).stderr).toContain(`no guest is running from ${dir}`)
+    expect((await run(['start', '--outputs', '0'])).stderr).toContain('--outputs 0: a whole number from 1 to 16')
+    expect((await run(['start', '--outputs', '2.5'])).stderr).toContain('--outputs 2.5: a whole number from 1 to 16')
+    expect((await run(['start', '--outputs', '2', '--viewer'])).stderr).toContain('--viewer shows only the first output')
+    expect((await run(['screenshot', 'x.png', '--output', '1.5'])).stderr).toContain('--output 1.5: a whole number from 0 to 15')
     expect((await run(['start', '--headless', '--viewer'])).stderr).toContain('one of --headless, --vnc, --viewer, not --headless and --viewer')
   })
 })

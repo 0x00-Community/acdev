@@ -20,6 +20,7 @@ export interface StartOptions {
   readonly share?: string
   readonly display?: 'window' | 'none' | 'vnc' | 'viewer'
   readonly gl?: boolean
+  readonly outputs?: number
 }
 
 export type Link = { readonly kind: 'vsock' } | { readonly kind: 'unix'; readonly path: string } | { readonly kind: 'tcp'; readonly port: number }
@@ -46,6 +47,8 @@ export class Machine {
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..', '..'))
   static readonly DEVD = '/usr/local/bin/acdevd'
   static readonly HOTPLUG = ['rp1', 'rp2'] as const
+  static readonly GPU = 'gpu0'
+  static readonly MAX_OUTPUTS = 16
   static readonly UNIT = '/etc/systemd/system/acdevd.service'
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
@@ -237,7 +240,8 @@ export class Machine {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
     const accel = kvm ? ['-accel', 'kvm', '-cpu', 'host'] : ['-accel', 'tcg,thread=multi', '-cpu', 'max']
-    const gpu = options.gl ? ['-device', 'virtio-vga-gl'] : ['-device', 'virtio-vga']
+    const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
+    const gpu = ['-device', `${options.gl ? 'virtio-vga-gl' : 'virtio-vga'},id=${Machine.GPU}${heads}`]
     const shown = ['-display', Machine.#display(display, options.gl ?? false)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
@@ -302,6 +306,7 @@ export class Machine {
     writeFileSync(this.serial, '')
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
     writeFileSync(join(this.run, 'display'), `${options.display ?? 'window'}\n`)
+    writeFileSync(join(this.run, 'outputs'), `${options.outputs ?? 1}\n`)
     const log = openSync(join(this.logs, 'qemu.log'), 'w')
     const child = Runtime.spawn(['setsid', 'qemu-system-x86_64', ...args], { stdio: ['ignore', log, log] })
     child.process.unref()
@@ -345,11 +350,21 @@ export class Machine {
     return GuestAgent.ping(this.qga, seconds)
   }
 
-  async screenshot(file: string): Promise<string> {
+  outputs(): number {
+    const file = join(this.run, 'outputs')
+    return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) || 1 : 1
+  }
+
+  async screenshot(file: string, output = 0): Promise<string> {
     this.running()
+    const outputs = this.outputs()
+    if (!Number.isInteger(output) || output < 0 || output >= outputs) {
+      throw new Error(`vm: --output ${output}: the guest has ${outputs} output${outputs === 1 ? '' : 's'}, 0 to ${outputs - 1}`)
+    }
     const target = resolve(file)
     mkdirSync(dirname(target), { recursive: true })
-    await monitor(this.qmp, 'screendump', { filename: target, format: 'png' })
+    const head = output > 0 ? { device: Machine.GPU, head: output } : {}
+    await monitor(this.qmp, 'screendump', { filename: target, format: 'png', ...head })
     return target
   }
 

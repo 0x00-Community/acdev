@@ -18,6 +18,21 @@ function seconds(text: string | undefined): number {
   return value
 }
 
+function whole(flag: string, text: string | undefined, min: number, max: number, fallback: number): number {
+  if (text === undefined) return fallback
+  const value = Number(text)
+  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`vm: --${flag} ${text}: a whole number from ${min} to ${max}`)
+  return value
+}
+
+function outputsFor(flags: Flags, display: StartOptions['display']): number {
+  const outputs = whole('outputs', flags.get('outputs'), 1, Machine.MAX_OUTPUTS, 1)
+  if (outputs > 1 && (display === 'viewer' || display === 'vnc')) {
+    throw new Error(`vm start: --outputs ${outputs} needs QEMU's window or --headless; --${display} shows only the first output`)
+  }
+  return outputs
+}
+
 function count(sub: string, rest: readonly string[], min: number, max: number, usage: string): void {
   if (rest.length < min || rest.length > max) throw new Error(`vm ${sub}: ${usage} (acdev vm --help)`)
 }
@@ -26,12 +41,14 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   count('start', rest, 0, 0, 'options only')
   const shown = ['headless', 'vnc', 'viewer'].filter((flag) => flags.has(flag))
   if (shown.length > 1) throw new Error(`vm start: one of --headless, --vnc, --viewer, not ${shown.map((flag) => `--${flag}`).join(' and ')}`)
+  const display: StartOptions['display'] = flags.has('headless') ? 'none' : flags.has('vnc') ? 'vnc' : flags.has('viewer') ? 'viewer' : 'window'
   const options: StartOptions = {
     ...(flags.has('image') && { image: flags.get('image')! }),
     ...(flags.has('share') && { share: Machine.directory(flags.get('share')!) }),
     ...(flags.has('fresh') && { fresh: true }),
     ...(flags.has('gl') && { gl: true }),
-    display: flags.has('headless') ? 'none' : flags.has('vnc') ? 'vnc' : flags.has('viewer') ? 'viewer' : 'window',
+    display,
+    outputs: outputsFor(flags, display),
   }
   const wait = seconds(flags.get('wait'))
   const pid = await machine.start(options, say)
@@ -139,9 +156,9 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     if (!ready) say('the guest agent does not answer')
     return ready ? 0 : 1
   },
-  async screenshot(machine, rest) {
+  async screenshot(machine, rest, flags) {
     count('screenshot', rest, 1, 1, 'FILE.png')
-    console.log(await machine.screenshot(rest[0]!))
+    console.log(await machine.screenshot(rest[0]!, whole('output', flags.get('output'), 0, Machine.MAX_OUTPUTS - 1, 0)))
     return 0
   },
   async run(machine, rest, flags) {

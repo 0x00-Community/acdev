@@ -38,6 +38,8 @@ acdev vm start                                  # 后台起客户机, 开一个�
 acdev vm start --headless --share ~/winman/target/release
 acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdev-viewer, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
 acdev vm view                                   # 关掉之后再开一个 acdev-viewer
+acdev vm start --outputs 2                      # 两个显示输出 (多屏验收), QEMU 窗口里每个输出一个标签页
+acdev vm screenshot second.png --output 1       # 取第二个输出
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
@@ -73,6 +75,11 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
   出处: https://github.com/qemu/qemu/commit/6d10e021318b16e3e90f98b7b2fa187826e26c0a ,
   https://github.com/qemu/qemu/commit/2ec80ad92840df9750e9ad5beed494cb0b202ba9 .
   `status` 写出走的是哪种.
+- 多个显示输出: `--outputs N` (1–16, 默认 1) 给显卡加 `max_outputs=N` (`virtio-vga` / `virtio-vga-gl` 的属性, 默认 1; 上限是 QEMU 的
+  `VIRTIO_GPU_MAX_SCANOUTS` 16, 本机 QEMU 8.2.2 的 `-device virtio-vga,help` 核对过). 显卡固定 `id=gpu0`, 截图 `--output K` 就是 QMP
+  `screendump` 的 `device: "gpu0", head: K` (`head` 必须和 `device` 一起给, QEMU `qapi/ui.json`). 显示后端: QEMU 的 GTK 窗口每个输出一个
+  标签页 (`ui/gtk.c` 按控制台建页); `--headless` 没有窗口, 截图照样按输出取; `--vnc` 和 `--viewer` 只显示第一个输出 (VNC 服务端绑一个
+  控制台〔未核实〕, acdev-viewer 只接 `Console_0`), 和 `--outputs` 2 以上一起用时直接报错.
 - 热插拔: q35 的根总线 `pcie.0` 不能热插拔 (`device_add` 报 `Bus 'pcie.0' does not support hotplugging`), 所以 `start` 预留两个
   PCIe 根端口 `rp1`、`rp2` (`chassis` / `slot` 11、12). 热插拔时 `device_add` 带 `bus=rp1` 或 `bus=rp2`, 一个端口挂一个设备.
 - 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,
