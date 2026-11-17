@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
+import { API_LEVEL, platformSupport, RUNNING_MODES } from '../src/manifest/index.ts'
 import { Project } from '../src/app.ts'
 import { Color } from '../src/color.ts'
 import { ACTIONS } from '../src/driver/acde.ts'

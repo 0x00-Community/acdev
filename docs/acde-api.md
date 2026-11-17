@@ -23,32 +23,31 @@
 原来是 `validate.ts` 里 `ICON_NAMES`、`SHELL_MODULES` 的元素类型)、`types/places.d.ts` (`SharedPlace`、`PlaceCapability`, 原来出自
 `runtime/places.js` 的 `SHARED_PLACES`); `types/modules.d.ts` 的 `AcdeModules` 原在 `runtime/load.d.ts`.
 
-## 没有搬的 (不是纯类型声明)
+## 没有进这个包的 (不是纯类型声明)
 
-| 原文件 | 原来做什么 |
-| --- | --- |
-| `src/runtime/load.js` (`load()`, 及各入口里 `load` 的声明) | 可选的 `acde:*` 模块: `import('acde:<name>')` 的默认导出, 拿不到时是 null |
-| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert `src/host/mod.rs:60` 编译时读它, Broker 和 `acde check/build/dev/doctor` 也用 |
-| `src/runtime/places.js` (`SHARED_PLACES`) | 共享位置的列表 (类型留下了) |
-| `src/runtime/platforms.js` (`PLATFORM_SUPPORT`、`RUNNING_MODES`、`platformSupport()`) | 各平台、各跑法下有哪些模块 |
-| `src/vite.js` (`@dopame/acde-api/vite`) | Vite 插件: 构建时把 `acde:*` 留作外部模块, dev 时换成会 reject 的替身 |
-| `src/validate.ts` (`@dopame/acde-api/manifest`) | 清单校验 (`Manifest`、`ICON_NAMES`、`SHELL_MODULES`、`APP_MODULES`、能力列表、导入规则), Broker 和 `acde check/build` 共用 |
-| `src/frame.ts` (`FrameThemes`) | 窗框主题的颜色、样式解析成传给原生的格式 |
-| `src/index.js` | 上面那些值的再导出 |
-| `scripts/build.mjs` | esbuild 打 `dist/` 并检查产物 |
-| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (模板的 `$schema` 指向它); 不是 `.d.ts`, 没搬 |
-| `test/` | 上面逻辑的测试 |
+命令行要用的那部分搬进了命令行自己的源码 (用户 2026-11-17 定): 清单校验在 `npm/src/manifest/`, Vite 插件在 `npm/src/vite-plugin.ts`.
+
+| 原文件 | 原来做什么 | 现在 |
+| --- | --- | --- |
+| `src/runtime/load.js` (`load()`, 及各入口里 `load` 的声明) | 可选的 `acde:*` 模块: `import('acde:<name>')` 的默认导出, 拿不到时是 null | 没有 |
+| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert `src/host/mod.rs:60` 编译时读它, Broker 和 `acde check/build/dev/doctor` 也用 | `npm/src/manifest/level.ts` |
+| `src/runtime/places.js` (`SHARED_PLACES`) | 共享位置的列表 (类型留下了) | `npm/src/manifest/places.ts` |
+| `src/runtime/platforms.js` (`PLATFORM_SUPPORT`、`RUNNING_MODES`、`platformSupport()`) | 各平台、各跑法下有哪些模块 | `npm/src/manifest/platforms.ts` |
+| `src/vite.js` (`@dopame/acde-api/vite`) | Vite 插件: 构建时把 `acde:*` 留作外部模块, dev 时换成会 reject 的替身 | `npm/src/vite-plugin.ts` (`acde build` 用) |
+| `src/validate.ts` (`@dopame/acde-api/manifest`) | 清单校验 (`Manifest`、`ICON_NAMES`、`SHELL_MODULES`、`APP_MODULES`、能力列表、导入规则), Broker 和 `acde check/build` 共用 | `npm/src/manifest/index.ts` |
+| `src/frame.ts` (`FrameThemes`) | 窗框主题的颜色、样式解析成传给原生的格式 | 没有 (运行时一侧的逻辑) |
+| `src/index.js` | 上面那些值的再导出 | 没有 |
+| `scripts/build.mjs` | esbuild 打 `dist/` 并检查产物 | 没有 |
+| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (模板的 `$schema` 指向它); 不是 `.d.ts`, 没搬 | 没有 |
+| `test/` | 上面逻辑的测试 | 没有 |
 
 `acde-dom` (DOM, 改用 blitz, 属系统侧) 和 `acde-host` (窗口表与策略归 winman; 应用登记、权限、服务宿主、应用互相打开归 acdebin-system)
 是实现, 不搬.
 
 ## 现在因此不通的
 
-- 命令行 `npm/` 的类型检查: 它从 `@dopame/acde-api/manifest` 取 `Manifest`、`API_LEVEL` 和清单类型, 从 `@dopame/acde-api/vite` 取 Vite
-  插件 (`src/app.ts`、`bundler.ts`、`changes.ts`、`cli.ts`、`dev.ts`、`doctor.ts`、`frameworks.ts`、`imports.ts`、`package.ts` 和几个测试).
-  这些逻辑放哪 (命令行自己、acdebin-system, 或不要) 待定.
-- 发版: `npm/scripts/dist.ts` 要求 `--api` 是带 `src/index.js` 的构建产物, 和只有声明的包对不上; 模板的 `$schema` 指向的
-  `config.schema.json` 不在包里.
+- 发版: `npm/scripts/dist.ts` 要求 `--api` 是带 `src/index.js` 的构建产物, 和只有声明的包对不上. 这个包暂不发 npm, 按路径引用
+  (用户 2026-11-17 定).
 
 ## 成员说明 (原声明里的注释)
 

@@ -3,7 +3,7 @@ import {
 } from 'node:fs'
 import { basename, delimiter, dirname, join, relative } from 'node:path'
 import { which } from 'acde/launcher'
-import acdeVite from '@dopame/acde-api/vite'
+import acdeVite from './vite-plugin.ts'
 import { ViteBundler, type Bundler } from './bundler.ts'
 import { up } from './paths.ts'
 import { PackageManager } from './pm.ts'

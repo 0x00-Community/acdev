@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { Manifest, type AppManifest } from '@dopame/acde-api/manifest'
+import { Manifest, type AppManifest } from './manifest/index.ts'
 import { E2E_FILE, SKIPPED } from './paths.ts'
 
 export interface AcdeImport {

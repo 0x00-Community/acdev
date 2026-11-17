@@ -8,7 +8,7 @@ import type {
   AcdeConfig, AppManifest as AppEntry, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest,
   WindowAppConfig,
 } from '@dopame/acde-api'
-import { API_LEVEL, Manifest, type ConfiguredService } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest, type ConfiguredService } from './manifest/index.ts'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'

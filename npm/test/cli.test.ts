@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, delimiter, dirname, join, relative, sep } from 'node:path'
-import { API_LEVEL, Manifest, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest } from '../src/manifest/index.ts'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'

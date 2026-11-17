@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, delimiter, join, resolve } from 'node:path'
-import type { PackageManifest } from '@dopame/acde-api/manifest'
+import type { PackageManifest } from './manifest/index.ts'
 import type { StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'

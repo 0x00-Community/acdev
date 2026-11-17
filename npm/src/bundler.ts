@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmdirSync, rmSync, stat
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import acdeVite from '@dopame/acde-api/vite'
+import acdeVite from './vite-plugin.ts'
 import { InlineStyles } from './inline-styles.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'

@@ -8,7 +8,7 @@ import {
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { API_LEVEL } from '../src/manifest/index.ts'
 import { DevSession } from '../src/dev.ts'
 import { Devtools } from '../src/devtools.ts'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'

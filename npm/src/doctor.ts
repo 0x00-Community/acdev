@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { API_LEVEL } from './manifest/index.ts'
 import {
   BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
 } from 'acde/launcher'

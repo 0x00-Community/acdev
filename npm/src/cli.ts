@@ -115,7 +115,7 @@ class Cli {
   }
 
   static async versions(): Promise<string[]> {
-    const { API_LEVEL } = await import('@dopame/acde-api/manifest')
+    const { API_LEVEL } = await import('./manifest/index.ts')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
     const acdert = findAcdert().path
     if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDERT, next to acde, PATH)']

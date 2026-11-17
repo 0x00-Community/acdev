@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, type Stats } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
-import type { PackageManifest } from '@dopame/acde-api/manifest'
+import type { PackageManifest } from './manifest/index.ts'
 import { AppPackage } from './package.ts'
 
 export type Snapshot = ReadonlyMap<string, string>

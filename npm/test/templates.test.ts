@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { API_LEVEL, Manifest, SHARED_PLACES, type PackageManifest } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest, SHARED_PLACES, type PackageManifest } from '../src/manifest/index.ts'
 import { Creator } from '../src/create.ts'
 import { AppPackage } from '../src/package.ts'
 import { Jsonc } from '../src/runtime.ts'

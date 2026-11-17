@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { PackageManifest } from '@dopame/acde-api/manifest'
+import type { PackageManifest } from '../src/manifest/index.ts'
 import * as Changes from '../src/changes.ts'
 import { cleanup, tmp } from './helpers.ts'
 

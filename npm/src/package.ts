@@ -7,7 +7,7 @@ import type { AppManifest as AppEntry, WindowAppConfig } from '@dopame/acde-api'
 import {
   API_LEVEL, Manifest, platformSupport, RUNNING_MODES,
   type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
-} from '@dopame/acde-api/manifest'
+} from './manifest/index.ts'
 import { Project, type BuildOptions } from './app.ts'
 import { Imports, type ImportFindings, type ImportOwner } from './imports.ts'
 import { Output } from './output.ts'

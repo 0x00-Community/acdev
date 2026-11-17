@@ -2,7 +2,7 @@ import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { isAbsolute } from 'node:path'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { API_LEVEL } from '../../../src/manifest/index.ts'
 import { Png } from '../../../src/driver/png.ts'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='

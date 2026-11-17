@@ -28,8 +28,8 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
 `acdert/web/` (acde-api、acde-dom、acde-host) 已于 acdert 91e7dd1e 删除 (CTO 决定). SDK 的替代品是 `npm/acde-api/` 的 `@dopame/acde-api`, 只有类型声明
-(见 `docs/acde-api.md`); acde-dom、acde-host 不搬. `acdert` 仍编不过 (`acdert/src/host/mod.rs` 读 `web/` 里的 `level.js`), 命令行的类型检查也不通
-(它用的清单校验和 Vite 插件不在新包里), 发不了新版本. 文档里其余指向 `web/` 的地方按删除前写.
+(见 `docs/acde-api.md`); acde-dom、acde-host 不搬. `acdert` 仍编不过 (`acdert/src/host/mod.rs` 读 `web/` 里的 `level.js`), 发不了新版本;
+命令行用的清单校验、契约级别和 Vite 插件搬进了 `npm/src/manifest/`、`npm/src/vite-plugin.ts`. 文档里其余指向 `web/` 的地方按删除前写.
 
 ## 代码约定
 
