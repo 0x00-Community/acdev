@@ -26,6 +26,8 @@
   [--dirs a,b] [--kinds …] [--tests gate.json] [--skip-slow <期望目录>]` (`--skip-slow` 跳过期望里记成 TIMEOUT / NOLOAD / HANG 的: 它们大多等满 10 / 60 秒的超时, 全量里大半时间花在这上面, 比如 acdert 没有的老式多字节编码; 只有 `baseline` 全跑) (`--app` 缺省是本仓库的 `web/packages/acde-host/dist`, 要先 `cd web && bun run build`) →
   `report L` (按目录的通过率、缺的接口、常见失败) / `expectations check L` (对期望文件, 回退就退出 1) / `expectations update L [L2 L3]` (几次结果合并,
   不一致的标 flaky) / `expectations gate` (守门的测试表).
+- 钉的版本 (`scripts/wpt/revision`) 要选 wpt.fyi 上 Chrome、Firefox、Safari、Servo 四家都有结果的提交 (`https://wpt.fyi/api/runs?sha=<提交>&products=chrome,firefox,safari,servo`
+  返回四条), 这样每个测试都能和它们逐个比. 现在是 `a17acfbc8a` (2026-11-12). 换版本后期望文件要重新生成.
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开
   (字体、GPU 不同, reftest 结果不同): `linux` 由 CI 的 `baseline` 生成 (跑全量, 再跑两遍 gate, 三次合并; 产物里的 `expectations/linux` 拷进来提交),
   `darwin` 在 Mac 上照样做. 修好东西后跑 `update` 把改进记下来, 一起提交.
