@@ -55,13 +55,17 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 
 ## 已知问题
 
-- `acdev vm view` 重开 (2026-11-18 acdev-test 在 WSLg 上): 第二个 viewer 马上退出, 日志是 `Io error: Connection reset by peer (os error
-  104)` 和 `Exit Failure: 1`; 关掉第一个窗口时也是这两行. `Exit Failure` 是 winit 事件循环的错误, `Io error` 不带我们的前缀, 所以断的是
-  窗口系统 (Wayland / X) 的连接, 不是 QEMU: 对照 QEMU 8.2.2 源码, 第二次 `add_client` 会取消没建完的上一个、在新连接上重新导出对象
-  (`ui/dbus.c` `dbus_display_add_client`), 点对点时 `RegisterListener` 的发送者为空, 不查重复注册 (`ui/dbus-console.c`), QMP `getfd`
-  同名时换掉旧的. 复测 (2026-11-18 acdev-test): 只在 WSLg 的 Wayland 下失败, `env -u WAYLAND_DISPLAY acdev vm view` (走 X11) 连开
-  两次都正常; 失败时日志里有 sctk_adwaita 的警告 `XDG Settings Portal did not return response in time` (取窗框配色超时). 怀疑是
-  winit 在 Wayland 下用 adwaita 画窗框这一路, 待查 (可试无装饰窗口或改走 X11). 现在在 WSLg 上重开窗口请用 X11.
+- WSLg 的 Wayland 合成器会崩 (2026-11-18): acdev-test 复测时 `acdev vm view` 重开失败 (`Io error: Connection reset by peer`、winit 的
+  `Exit Failure: 1`), 走 X11 (`env -u WAYLAND_DISPLAY`) 两次都正常. 原因不在 QEMU, 也不在窗框配色: WSLg 的 `/mnt/wslg/stderr.log` 里,
+  每次都是 weston 本身段错误 (`pid … terminated with signal 11, /usr/bin/weston --backend=rdp-backend.so … --shell=rdprail-shell.so`),
+  时间紧跟在 acdev-viewer 的窗口出现之后 (`/mnt/wslg/weston.log` 的 `ClientGetAppidReq: … appId:acdev-viewer` 后 8～70 秒: 01:54:51 →
+  01:56:05, 02:28:22 → 02:28:53, 02:29:17 → 02:29:25); 合成器一崩, 所有 Wayland 客户端的连接都被重置, 连 Xwayland 也断 (`failed to read
+  Wayland events: Broken pipe`). 第一次开窗也会崩, 只是晚一些 (关窗时). `XDG Settings Portal did not return response in time` 只是 sctk-adwaita
+  取配色时 `dbus-send` 等 100 ms 没等到, 不相干. weston 9 (WSLg 的 rdprail 外壳) 为什么崩, 我们查不到它的崩溃现场; 这个窗口在
+  Wayland 下和 QEMU 的 GTK 窗口不同的地方是 sctk-adwaita 画的客户端窗框 (日志里每个窗口带 5 个"不是顶层窗口"的子表面) 和自定义指针,
+  嫌疑在这两处〔推论〕.
+- 所以在 WSLg 上 (`/mnt/wslg` 是目录、有 `DISPLAY`) viewer 默认走 X11 (winit `EventLoopBuilderExtX11::with_x11`), 日志里写一句;
+  设 `ACDEV_VIEWER_WAYLAND=1` 才用 Wayland. 别的 Linux 照 winit 的默认 (有 `WAYLAND_DISPLAY` 就用 Wayland).
 
 ## 测试
 

@@ -59,6 +59,12 @@ fn args() -> Result<Args, String> {
     Ok(Args { qmp: qmp.ok_or(USAGE)?, title, outputs })
 }
 
+#[cfg(target_os = "linux")]
+fn on_wslg() -> bool {
+    let asked = std::env::var_os("ACDEV_VIEWER_WAYLAND").is_some();
+    !asked && std::env::var_os("DISPLAY").is_some() && std::path::Path::new("/mnt/wslg").is_dir()
+}
+
 fn switch_on(args: &Args, outputs: u32) -> Result<(), String> {
     let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
     display::switch_on(stream, outputs).map_err(|e| format!("acdev-viewer: D-Bus display: {e}"))
@@ -69,7 +75,13 @@ fn run() -> Result<(), String> {
     if let Some(outputs) = args.outputs {
         return switch_on(&args, outputs);
     }
-    let event_loop = EventLoop::with_user_event().build().map_err(|e| format!("acdev-viewer: event loop: {e}"))?;
+    let mut builder = EventLoop::<display::Event>::with_user_event();
+    #[cfg(target_os = "linux")]
+    if on_wslg() {
+        log::info!("WSLg: using X11 (its Wayland compositor crashes on this window; ACDEV_VIEWER_WAYLAND=1 to try Wayland)");
+        winit::platform::x11::EventLoopBuilderExtX11::with_x11(&mut builder);
+    }
+    let event_loop = builder.build().map_err(|e| format!("acdev-viewer: event loop: {e}"))?;
     let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
     let frame = Arc::new(Mutex::new(display::Frame::default()));
     let display = display::connect(stream, frame.clone(), event_loop.create_proxy()).map_err(|e| format!("acdev-viewer: D-Bus display: {e}"))?;
