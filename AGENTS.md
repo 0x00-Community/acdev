@@ -105,7 +105,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 | 改客户机设备守护进程 acdevd (`crates/devd`): vsock、推送、运行、停止的协议 | `docs/devd.md` |
 | 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
 | 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acdev` 怎么找运行时 | `docs/architecture.md` |
-| 在本地编译、运行 `acdev runtime`, 或让源码跑的 `acdev dev` 用上它 | `docs/runtime-build.md` |
+| 在本地编译、运行 `acdev runtime`, 或让源码跑的 `acdev dev` 用上它; 选编译配置 (`dev` / `guest` / `release`)、产物目录 `CARGO_TARGET_DIR` | `docs/runtime-build.md` |
 | 改宿主窗口、合成、出帧、GPU、输入、窗框、菜单、headless 或系统能力 (`crates/hostwin`) | `docs/hostwin.md` |
 | 改运行时自检 `acdev runtime doctor` (`src/doctor.rs`) 的检查项或输出 | `docs/doctor.md` |
 | 了解命令行的启动速度、仓库脚本、工程与安装目录, 或写要在 bun 和 Node 上都跑的代码 | `docs/cli-overview.md` |

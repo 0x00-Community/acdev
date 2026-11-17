@@ -102,7 +102,8 @@ async function dev(machine: Machine, rest: readonly string[], flags: Flags): Pro
   count('dev', rest, 0, 1, 'at most the Cargo project DIR')
   machine.running()
   const bins = (flags.get('bin') ?? '').split(',').map((bin) => bin.trim()).filter(Boolean)
-  const loop = new DevLoop(machine.devd(), { dir: rest[0] ?? '.', bins, run: flags.get('run') ?? null }, say)
+  const options = { dir: rest[0] ?? '.', bins, run: flags.get('run') ?? null, ...(flags.has('profile') && { profile: flags.get('profile')! }) }
+  const loop = new DevLoop(machine.devd(), options, say)
   const stopped = new AbortController()
   const stop = () => stopped.abort()
   process.on('SIGINT', stop).on('SIGTERM', stop)

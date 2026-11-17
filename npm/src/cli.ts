@@ -60,7 +60,7 @@ class Cli {
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     vm: {
       args: [1, Infinity],
-      flags: ['image', 'share', 'wait', 'grep', 'lines', 'bin', 'run'],
+      flags: ['image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile'],
       switches: ['fresh', 'headless', 'vnc', 'gl', 'detach', 'force', 'follow'],
     },
     test: {

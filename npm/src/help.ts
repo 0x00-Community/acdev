@@ -322,7 +322,7 @@ export class Help {
             + '(--detach: in the background, its output in a log; kill PID stops it); shell [COMMAND] opens an '
             + 'interactive terminal (a pty that follows the window size; exits with its code); logs [SOURCE] shows the '
             + 'journal, a systemd unit, a guest file or a --detach program\'s log (--follow, --grep); dev [DIR] builds the '
-            + 'Cargo project in DIR on the host, pushes its binaries to /opt/acdev/bin, runs them and shows their output, '
+            + 'Cargo project in DIR on the host (its guest profile when it has one), pushes its binaries to /opt/acdev/bin, runs them and shows their output, '
             + 'then builds, pushes and restarts again whenever a source file changes; push LOCAL [REMOTE] copies a file '
             + 'or directory in (default /opt/acdev/<name>); '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
@@ -345,6 +345,7 @@ export class Help {
           { flag: '--lines N', about: 'logs: how many earlier lines first (default 50)' },
           { flag: '--bin A,B', about: 'dev: only these binaries of the project (default: all)' },
           { flag: '--run COMMAND', about: 'dev: what to run in the guest, with /opt/acdev/bin on PATH (default: the first binary)' },
+          { flag: '--profile NAME', about: 'dev: the cargo profile (default: guest when the project has one, else release)' },
         ],
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',

@@ -8,7 +8,7 @@ import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, type Frame, type Transport } from '../src/vm/devd.ts'
 import { Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
-import { BIN, executables, snapshot, startCommand } from '../src/vm/loop.ts'
+import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -200,6 +200,14 @@ describe('acdev vm dev', () => {
       { name: 'winman-test-client', path: '/t/winman-test-client' }])
     expect(executables(lines, ['winman-test-client'])).toEqual([{ name: 'winman-test-client', path: '/t/winman-test-client' }])
     expect(() => executables(lines, ['nope'])).toThrow('cargo built no binary nope')
+  })
+
+  test('the guest profile when the project has one, else release', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "a"\n\n[profile.release]\ndebug = 1\n')
+    expect(profileFor(dir)).toBe('release')
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "a"\n\n[profile.guest]\ninherits = "release"\n')
+    expect(profileFor(dir)).toBe('guest')
   })
 
   test('a change to a source file shows, one under target does not; the program runs from the pushed binaries', () => {

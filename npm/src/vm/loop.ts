@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { Devd } from './devd.ts'
@@ -17,6 +17,12 @@ export interface LoopOptions {
   readonly dir: string
   readonly bins: readonly string[]
   readonly run: string | null
+  readonly profile?: string
+}
+
+export function profileFor(dir: string): string {
+  const manifest = join(dir, 'Cargo.toml')
+  return existsSync(manifest) && /^\[profile\.guest\]/m.test(readFileSync(manifest, 'utf8')) ? 'guest' : 'release'
 }
 
 interface CargoMessage {
@@ -60,8 +66,8 @@ export function startCommand(options: LoopOptions, built: readonly Executable[])
   return `export PATH=${BIN}:$PATH; ${options.run ?? built[0]!.name}`
 }
 
-function cargo(dir: string, bins: readonly string[]): Promise<Executable[]> {
-  const args = ['build', '--release', '--message-format', 'json-render-diagnostics', '--manifest-path', join(dir, 'Cargo.toml'),
+function cargo(dir: string, bins: readonly string[], profile: string): Promise<Executable[]> {
+  const args = ['build', '--profile', profile, '--message-format', 'json-render-diagnostics', '--manifest-path', join(dir, 'Cargo.toml'),
     ...bins.flatMap((bin) => ['--bin', bin])]
   const child = spawn('cargo', args, { cwd: dir, stdio: ['ignore', 'pipe', 'inherit'] })
   const lines: string[] = []
@@ -86,7 +92,7 @@ export class DevLoop {
   async cycle(stopped?: AbortSignal): Promise<void> {
     let built: Executable[]
     try {
-      built = await cargo(this.dir, this.options.bins)
+      built = await cargo(this.dir, this.options.bins, this.options.profile ?? profileFor(this.dir))
     } catch (error) {
       this.say(`${(error as Error).message}; ${this.#pid === null ? 'nothing runs' : `process group ${this.#pid} keeps running`}`)
       return
