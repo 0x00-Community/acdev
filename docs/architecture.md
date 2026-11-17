@@ -6,7 +6,7 @@
 
 acdev 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通用运行时 lib)、acdebin-dbg (本仓库, 跨平台调试运行时)、acdebin-system
 (Dopame OS 特化运行时), 开发者 CLI `acdev` 在本仓库的 `npm/` (bun, 说明见 `docs/cli-overview.md`). acdebin-dbg 产出二进制 `acdebin-dbg`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
-跑一个应用 (`acdebin-dbg app <id>`) 或一个桌面 (`acdebin-dbg desktop <id|包目录>`); `acdev dev` 拉起的就是它 (`acdev` 先找 `ACDERT`,
+跑一个应用 (`acdebin-dbg app <id>`) 或一个桌面 (`acdebin-dbg desktop <id|包目录>`); `acdev dev` 拉起的就是它 (`acdev` 先找 `ACDEV_RUNTIME`,
 再找装在旁边的、PATH 上的 `acdebin-dbg`, 最后才是旧的 `acdert`).
 
 ## 仓库结构

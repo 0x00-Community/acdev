@@ -7,9 +7,9 @@
   Ctrl+C 退出码 3 (`Exit.DECLINED`, acde#85). 不在终端里什么都不问: 目录必填, 模板默认 html, 不装依赖、不建仓库.
 - **运行时和包管理器**: 工程跑在 bun 或 Node 上, 由包管理器定 (bun → bun, npm / pnpm / yarn → Node). 新工程: `--pm`, 否则 `npm_config_user_agent`;
   在终端里问的时候按 PATH (`runtimes()`: ≥ 1.4 的 bun, 和 ≥ 22.3 的 node; 其实是 bun 的 `node` 软链接不算): 只有一个就用它, 两个都有问 `Run this project on` (Bun → bun, Node.js → npm,
-  默认是跑 acdev 的那个); 不在终端里是跑 acdev 的运行时 (bun → bun, Node → npm; launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDE_HOST_RUNTIME` 传原来的).
+  默认是跑 acdev 的那个); 不在终端里是跑 acdev 的运行时 (bun → bun, Node → npm; launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDEV_HOST_RUNTIME` 传原来的).
   建好写上 `packageManager: <pm>@<版本>` (已经有的不动). 已有工程 (`PackageManager.of`): lockfile, 再 `packageManager` 字段, 都没有是跑 acdev 的那个.
-  `acdev dev` / `build` / `install` 跑在别的运行时上时 (`bin/acdev` 两个都有时用 bun), `Cli.follow` 换到工程的运行时重新跑一遍 (`run(argv, exe)`, 带 `ACDE_FOLLOWED=1` 只换一次;
+  `acdev dev` / `build` / `install` 跑在别的运行时上时 (`bin/acdev` 两个都有时用 bun), `Cli.follow` 换到工程的运行时重新跑一遍 (`run(argv, exe)`, 带 `ACDEV_FOLLOWED=1` 只换一次;
   只对打好的 `cli.js`, `cli.ts` 只能 bun 跑); 那个运行时不在 PATH 上就打一行, 接着在现在的上面跑.
   yarn 的工程写 `.yarnrc.yml` `nodeLinker: node-modules` (PnP 下 bun 和框架的构建找不到依赖).
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acdev <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
@@ -23,7 +23,7 @@
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
 - `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acdev 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
   `Sdk.dir()`): 检出跑的是 acdev 自己 `file:` 依赖的 `npm/acde-api` (acdev 检出里), 全局装的是安装目录的 `current/lib/acde-api`; 设了
-  `ACDE_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
+  `ACDEV_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
   开发 acdev 的人 `bun link` / `npm link` 把 `bin/acdev.mjs` 放上 PATH.
   版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读
   `node_modules` 里装的). 依赖不是这个 acdev 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acdev check` 打警告、`acdev dev` 开始时打一行

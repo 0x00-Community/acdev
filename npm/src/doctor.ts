@@ -81,7 +81,7 @@ interface RuntimeReport {
 type Available = Readonly<Record<'bun' | 'node', string | null>>
 
 const FROM: Readonly<Record<NonNullable<FoundAcdert['from']>, string>> = {
-  ACDERT: 'from ACDERT',
+  ACDEV_RUNTIME: 'from ACDEV_RUNTIME',
   install: 'installed next to acdev',
   PATH: 'on PATH',
 }
@@ -434,7 +434,7 @@ export class Doctor {
   }
 
   static async latest(env: NodeJS.ProcessEnv = process.env): Promise<Check> {
-    const base = (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
+    const base = (env['ACDEV_DIST'] || Doctor.DIST).replace(/\/+$/, '')
     const current = Versions.acde()
     let latest: string
     try {
@@ -468,13 +468,13 @@ export class Doctor {
 
   static installer(env: NodeJS.ProcessEnv = process.env, version?: string): string {
     if (Doctor.fromNpm()) return `install it again from npm: npm install -g @dopame/acdev${version ? `@${version}` : ''}`
-    const base = (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
+    const base = (env['ACDEV_DIST'] || Doctor.DIST).replace(/\/+$/, '')
     if (process.platform === 'win32') return `run the installer again: irm ${base}/install.ps1 | iex`
     return `run the installer again: curl -fsSL ${base}/install.sh | sh`
   }
 
   static reinstallable(found: FoundAcdert): boolean {
-    return installed(packageRoot()) && !Doctor.fromNpm() && found.from !== 'ACDERT'
+    return installed(packageRoot()) && !Doctor.fromNpm() && found.from !== 'ACDEV_RUNTIME'
   }
 
   static reinstall(env: NodeJS.ProcessEnv = process.env): Repair {
@@ -490,7 +490,7 @@ export class Doctor {
   }
 
   static dist(env: NodeJS.ProcessEnv = process.env): string {
-    return (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
+    return (env['ACDEV_DIST'] || Doctor.DIST).replace(/\/+$/, '')
   }
 
   static installRoot(): string {
@@ -575,7 +575,7 @@ export class Doctor {
       const argv = windows
         ? ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file, '-Version', version, '-NoModifyPath']
         : ['sh', file, '--version', version, '--no-modify-path']
-      return await Doctor.#run(argv, { env: { ...process.env, ACDE_INSTALL: Doctor.installRoot() } }, output, Doctor.INSTALL_MS)
+      return await Doctor.#run(argv, { env: { ...process.env, ACDEV_INSTALL: Doctor.installRoot() } }, output, Doctor.INSTALL_MS)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -608,18 +608,18 @@ export class Doctor {
   }
 
   static acdertFix(found: FoundAcdert): string {
-    if (found.from === 'ACDERT') return 'point ACDERT at an acdebin-dbg binary, or unset it'
+    if (found.from === 'ACDEV_RUNTIME') return 'point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it'
     if (installed(packageRoot()))
       return `${Doctor.installer(process.env, Versions.acde())} ` +
         '(it puts the acdebin-dbg that pairs with acdev next to it)'
     return 'build acdebin-dbg (cargo build --release -p acdebin-dbg in an acdebin-dbg checkout, with acdert ' +
-      'beside it) and set ACDERT to its target/release/acdebin-dbg, or put acdebin-dbg on PATH'
+      'beside it) and set ACDEV_RUNTIME to its target/release/acdebin-dbg, or put acdebin-dbg on PATH'
   }
 
   static pairFix(sdk: string): string {
     if (installed(packageRoot()))
       return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdebin-dbg that pairs with acdev)`
-    return `use acdebin-dbg ${sdk}: set ACDERT to it, or put it on PATH`
+    return `use acdebin-dbg ${sdk}: set ACDEV_RUNTIME to it, or put it on PATH`
   }
 
   static runFix(found: FoundAcdert, probe: RuntimeProbe): string {

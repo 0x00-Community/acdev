@@ -383,7 +383,7 @@ describe('acdev dev with a stand-in acdert', () => {
     const acdert = fakeAcdert(root)
     writeFileSync(log, '')
     const vars = {
-      TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log, ACDE_PATH: '/inherited', ...extra,
+      TMPDIR: root, XDG_RUNTIME_DIR: root, ACDEV_RUNTIME: acdert, FAKE_ACDERT_LOG: log, ACDE_PATH: '/inherited', ...extra,
     }
     const child = Bun.spawn([process.execPath, CLI, 'dev', ...args], {
       cwd, env: env(vars), stdout: 'pipe', stderr: 'pipe',
@@ -447,11 +447,11 @@ describe('acdev dev with a stand-in acdert', () => {
       expect(webs.code).toBe(0)
       const frontend = (id: number) => new RegExp('^devtools://devtools/bundled/devtools_app\\.html\\?ws='
         + `127\\.0\\.0\\.1%3A\\d+%2Fdevtools%2Fpage%2F${id}%3Ftoken%3Dfake-token\\n$`)
-      const noBrowser = { ACDE_BROWSER: 'none' }
+      const noBrowser = { ACDEV_BROWSER: 'none' }
       const focused = await dev.tool(['devtools'], alpha, undefined, noBrowser)
       expect(focused.code, focused.stderr).toBe(0)
       expect(focused.stdout).toMatch(frontend(7))
-      expect(focused.stderr).toContain('acdev: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste')
+      expect(focused.stderr).toContain('acdev: DevTools for Alpha: ACDEV_BROWSER=none: no browser opened; paste')
       const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, noBrowser)
       expect(desk.code, desk.stderr).toBe(0)
       expect(desk.stdout).toMatch(frontend(0))
@@ -570,7 +570,7 @@ describe('acdev dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions)).toEqual([])
     expect(readdirSync(dev.root).filter((f) => f.endsWith('.sock'))).toEqual([])
     expect((await dev.tool(['webs'], base)).stderr).toContain('no acdev dev is running')
-    const gone = await dev.tool(['devtools'], base, undefined, { ACDE_BROWSER: 'none' })
+    const gone = await dev.tool(['devtools'], base, undefined, { ACDEV_BROWSER: 'none' })
     expect(gone.code).toBe(1)
     expect(gone.stderr).toContain('no acdev dev is running')
   }, 120_000)
@@ -828,7 +828,7 @@ describe('acdev dev with a stand-in acdert', () => {
       expect(existsSync(Sessions.file(process.pid, dev.sessions))).toBe(false)
       const acdert = fakeAcdert(dev.root)
       const pid = dev.child.pid
-      const second = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
+      const second = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDEV_RUNTIME: acdert })
       expect(second.code).toBe(1)
       expect(second.stderr).toBe(`acdev: acdev dev ${pid} already runs ${realpathSync(alpha)}; `
         + `stop it first (acdev stop --session ${pid}), or pass --force to start another\n`)
@@ -848,13 +848,13 @@ describe('acdev dev with a stand-in acdert', () => {
     'a plain acdev dev starts beside it and the tools in the project pick the plain one', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
-    const tested = start([alpha, '--headless', '--force'], base, { ACDE_TEST_SESSION: '1' })
+    const tested = start([alpha, '--headless', '--force'], base, { ACDEV_TEST_SESSION: '1' })
     try {
       await until('the session file of the test', () => existsSync(tested.file))
       const marked = JSON.parse(readFileSync(tested.file, 'utf8')) as Session
       expect(marked.test).toBe(true)
       const started = tested.entries().find((e) => e.argv) as { env?: Record<string, string | null> }
-      expect(started.env!['ACDE_TEST_SESSION']).toBeNull()
+      expect(started.env!['ACDEV_TEST_SESSION']).toBeNull()
       const only = await tested.tool(['webs'], alpha)
       expect(only.code).toBe(1)
       expect(only.stderr).toContain('no acdev dev is running, only sessions of acdev test')
@@ -905,7 +905,7 @@ describe('acdev dev with a stand-in acdert', () => {
       const file = forced.file
       await until('the session file of the forced one', () => existsSync(file))
       expect(await next.stop()).toBe(0)
-      const plain = await next.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: fakeAcdert(root) })
+      const plain = await next.tool(['dev', alpha, '--headless'], base, undefined, { ACDEV_RUNTIME: fakeAcdert(root) })
       expect(plain.code).toBe(1)
       expect(plain.stderr).toContain(`acdev: acdev dev ${forced.child.pid} already runs ${alpha}`)
     } finally {
@@ -926,7 +926,7 @@ describe('acdev dev with a stand-in acdert', () => {
       const log = join(root, 'fake.log')
       writeFileSync(log, '')
       const vars = {
-        TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: fakeAcdert(root), FAKE_ACDERT_LOG: log,
+        TMPDIR: root, XDG_RUNTIME_DIR: root, ACDEV_RUNTIME: fakeAcdert(root), FAKE_ACDERT_LOG: log,
         FAKE_ACDERT_LINGER_MS: String(linger),
       }
       const launcher = spawn(process.execPath, [LAUNCHER, 'dev', alpha, '--headless'], {
@@ -1024,7 +1024,7 @@ describe('acdev dev with a stand-in acdert', () => {
     const dev = start([], alpha, { FAKE_ACDERT_DEVTOOLS_TOKENLESS: '1' })
     try {
       await until('the session file', () => existsSync(dev.file))
-      const opened = await dev.tool(['devtools', 'alpha'], alpha, undefined, { ACDE_BROWSER: 'none' })
+      const opened = await dev.tool(['devtools', 'alpha'], alpha, undefined, { ACDEV_BROWSER: 'none' })
       expect(opened.code, opened.stderr).toBe(0)
       expect(opened.stdout)
         .toMatch(/^devtools:\/\/devtools\/bundled\/devtools_app\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7\n$/)
@@ -1044,7 +1044,7 @@ describe('acdev dev with a stand-in acdert', () => {
     writeFileSync(log, '')
     const browser = fakeBrowser(base)
     const vars = {
-      ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base,
+      ACDEV_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base,
       USERPROFILE: base,
     }
     type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string; targetId?: string } }
@@ -1077,7 +1077,7 @@ describe('acdev dev with a stand-in acdert', () => {
       const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, vars)
       expect(desk.stderr).toContain(`acdev: opened DevTools for Desk in ${browser}`)
       expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(2)
-      const nowhere = { ...vars, ACDE_BROWSER: join(base, 'nope') }
+      const nowhere = { ...vars, ACDEV_BROWSER: join(base, 'nope') }
       const missing = await dev.tool(['devtools', 'alpha'], alpha, undefined, nowhere)
       expect(missing.code, missing.stderr).toBe(0)
       expect(missing.stdout.trim()).toBe(url)
@@ -1097,7 +1097,7 @@ describe('acdev dev with a stand-in acdert', () => {
     + 'opens it, once per press, and a page with no target only prints why', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
-    const dev = start([], alpha, { ACDE_BROWSER: 'none' })
+    const dev = start([], alpha, { ACDEV_BROWSER: 'none' })
     let link: DevClient | null = null
     try {
       await until('the session file', () => existsSync(dev.file))
@@ -1118,7 +1118,7 @@ describe('acdev dev with a stand-in acdert', () => {
     const output = await dev.output
     const address = /devtools:\/\/devtools\/bundled\/devtools_app\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7%3Ftoken%3Dfake-token\n/g
     expect(output.match(address)).toHaveLength(2)
-    expect(output.split('acdev: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste').length - 1).toBe(2)
+    expect(output.split('acdev: DevTools for Alpha: ACDEV_BROWSER=none: no browser opened; paste').length - 1).toBe(2)
     expect(output).toContain('acdev: F12: no DevTools target for gone#3; the targets are:')
   }, 60_000)
 
@@ -1130,7 +1130,7 @@ describe('acdev dev with a stand-in acdert', () => {
     writeFileSync(log, '')
     const browser = fakeBrowser(base)
     const dev = start([], alpha, {
-      ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base, USERPROFILE: base,
+      ACDEV_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base, USERPROFILE: base,
     })
     type Said = { pid?: number; method?: string; params?: { url?: string } }
     const said = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Said)

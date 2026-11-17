@@ -74,7 +74,7 @@
     被别的进程复用时会话文件留着; 所以连一下各自的 `endpoint` (`Sessions.answers`, 最多 `PROBE_MS` 1 s; 只连上就断开, 不发东西), `ECONNREFUSED` /
     `ENOENT` 算死, 用 `removeIfCurrent` 删掉它的会话文件, 连上、超时或别的错算活 (拿不准不删). 会话文件是连上 acdebin-dbg 之后才写的, 活着的会话总连得上.
   - `acdev test` 的会话 (`Acde.launch({force: true})`) 用自己的输出目录, 带 `--force`, 不认领 (`--workers` 时同一工程同时有几个); 它们还是**测试会话**:
-    `E2eRun.env` 设 `ACDE_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdebin-dbg 的环境去掉
+    `E2eRun.env` 设 `ACDEV_TEST_SESSION=1` (`Sessions.TEST_ENV`), `cli.ts` 见到它给 `DevOptions.test`, 会话文件写 `test: true`, 给 acdebin-dbg 的环境去掉
     这个变量; 测试会话不带 `--force` 时也不认领, 但照样查会话文件. 一个工程一个会话的判断 (`Sessions.running`)、按目录挑会话 (`Sessions.pick` 没给 pid
     的各支, 含"只有一个"和报错里的计数与列表) 和 MCP 的 `start` 都跳过测试会话 (它跑着时不挡 `acdev dev`, `acdev eval` 等也不会挑中这个转瞬即逝的
     会话); 只有 `--session <pid>` (MCP 的 `sessions {use}`) 到得了它. 只剩测试会话时报 `no acdev dev is running, only sessions of acdev test, which

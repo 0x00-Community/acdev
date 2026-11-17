@@ -4,7 +4,7 @@
 
 一条命令查完「`acdev dev` 为什么起不来」的常见原因, 每项 `ok` / `warn` / `error` / `skip` 加一条 `fix`. 原则: **和 `acdev dev` 用同一份逻辑, 不另写一套**,
 所以 doctor 说的就是 dev 会遇到的:
-- 找 acdebin-dbg: launcher 的 `findAcdert()` (返回 `{path, from: 'ACDERT' | 'install' | 'PATH' | null, problem}`), `requireAcdert()` 就是它加上抛错,
+- 找 acdebin-dbg: launcher 的 `findAcdert()` (返回 `{path, from: 'ACDEV_RUNTIME' | 'install' | 'PATH' | null, problem}`), `requireAcdert()` 就是它加上抛错,
   抛的消息末尾加 `(acdev doctor checks the whole setup)`; doctor 直接显示 `problem` (不带这句).
 - 探测 acdebin-dbg: `DevSession.runtimeLevel` (`acdebin-dbg --version`, 经 `Runtime.capture`: 带超时跑一个程序、收 stdout / stderr, 起不来时给出原因而不是抛错).
   它现在还回 `failed`: 起不来 (`EACCES`、`ENOENT`)、10 s 没退出、退出码不是 0 (加上 stderr 最后一行, Linux 缺动态库时就是动态链接器那句). `acdev dev` 的契约
@@ -19,7 +19,7 @@
 运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdebin-dbg 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
 `acdev dev sessions` (`sessions`: 会话目录有问题是错误; 列出在跑的; 每个会话连上去问 `permissions`, 3 s 不答是警告) 和每个待答提示一条 `approval` 警告
 (应用答之前不开窗口, fix 说批准是用户的决定) → 工程 (见下) → `agent skill` (`skill`: 没装、`outdated` / `broken` 是警告) → `--online` 时 `latest release`
-(`latest`: GET `$ACDE_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
+(`latest`: GET `$ACDEV_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
 有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
 `acdev doctor: N errors, M warnings` / `no errors, M warnings` / `everything acdev needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
 
@@ -38,8 +38,8 @@
   不崩. SDK 警告只在要写 `run <pm> install` 时才找包管理器 (`Sdk.warning` 收的是函数), 所以 `acdev sdk` / `check` / `dev` 平时不碰它;
   `Cli.follow` (打好的 `cli.js` 换运行时) 遇到它打这一行加 `: going on with <现在的运行时>`, 接着跑)、`gitignore` (在 git 仓库里
   且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
-- **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acdev 一律是重跑安装器 (`curl -fsSL $ACDE_DIST/install.sh | sh`, Windows
-  `irm …/install.ps1 | iex`), 检出的 acdev 是编 acdebin-dbg 再设 `ACDERT`; `ACDERT` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
+- **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acdev 一律是重跑安装器 (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows
+  `irm …/install.ps1 | iex`), 检出的 acdev 是编 acdebin-dbg 再设 `ACDEV_RUNTIME`; `ACDEV_RUNTIME` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
   `xattr -d com.apple.quarantine <路径>`; stderr 有 `error while loading shared libraries` 时是装那个库. 不替用户下载或批准任何东西.
 - **npm 装的 acdev** (`Doctor.fromNpm`: 包根是 `node_modules/@dopame/acde-<os>-<cpu>`, 布局和安装器的版本目录一样, `installed()` 照认):
   `PATH` 上的 `acdev` 是 `@dopame/acdev` 的 `acde.mjs` 而它解析到的平台包就是这一个 (`Doctor.npmWrapper`) 时算「是这一个」; 重装和升级的修法是
@@ -55,10 +55,10 @@
   - `skill` (不问): 子进程跑 `acdev skills install` (`cliRuntime()` + `cliFile()`), 和用户敲的同一条路, 不在这里另装一份.
   - `gitignore` (不问): `Creator.ignoreBuild` (`acdev new` 的框架模板也用它).
   - `sessions-dir` (不问): 只在它是链接或文件时 (别的用户的目录不修), 删掉再 `Sessions.prepare`.
-  - `reinstall` (问): 全局装的 acdev、`ACDERT` 没指定时, 挂在 acdebin-dbg 找不到 / 起不来 (macOS 隔离的除外: 重装不解决, 那是用户的安全决定) / 没有契约级别、
-    契约级别或版本不配对、`runtime.host` 错误、旧 acdert 版本也不对 这几处. 从 `$ACDE_DIST` 取 `install.sh` (Windows `install.ps1`) 存进临时目录,
+  - `reinstall` (问): 全局装的 acdev、`ACDEV_RUNTIME` 没指定时, 挂在 acdebin-dbg 找不到 / 起不来 (macOS 隔离的除外: 重装不解决, 那是用户的安全决定) / 没有契约级别、
+    契约级别或版本不配对、`runtime.host` 错误、旧 acdert 版本也不对 这几处. 从 `$ACDEV_DIST` 取 `install.sh` (Windows `install.ps1`) 存进临时目录,
     `sh <它> --version <这个 acdev 的版本> --no-modify-path` (Windows `powershell -NoProfile -ExecutionPolicy Bypass -File <它> -Version … -NoModifyPath`),
-    `ACDE_INSTALL` 设成这个 acdev 的安装根. 只修当前版本, 不顺手升级; 不改 shell 启动文件. 下载、校验、原子替换都是安装器自己的, TS 里不另写一份.
+    `ACDEV_INSTALL` 设成这个 acdev 的安装根. 只修当前版本, 不顺手升级; 不改 shell 启动文件. 下载、校验、原子替换都是安装器自己的, TS 里不另写一份.
   - `dependencies` (问): 工程包管理器的 `install` (`PackageManager.install`).
   - `stop` (问): 子进程跑 `acdev stop --session <pid>`.
   子进程的输出: 文字模式直接给终端; `--json` 时 stdout 指到 fd 2, stdout 上只有最后的 JSON (`{ok, fixed: [{repair, result, said}], checks}`);
@@ -70,4 +70,4 @@
   (含 `@dopame/acde-api` 版本不对, 要改 package.json).
 - 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
   Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);
-  一个不可执行的 `ACDERT`、退出码 127 加动态库报错的、启动就退出的假 acdert. 没在 Windows 上跑.
+  一个不可执行的 `ACDEV_RUNTIME`、退出码 127 加动态库报错的、启动就退出的假 acdert. 没在 Windows 上跑.

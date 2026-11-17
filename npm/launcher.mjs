@@ -19,7 +19,7 @@ export function runtime() {
 }
 
 export function installDir(env = process.env) {
-  return env.ACDE_INSTALL || join(homedir(), '.acdev')
+  return env.ACDEV_INSTALL || join(homedir(), '.acdev')
 }
 
 export function installed(root = ROOT) {
@@ -51,13 +51,13 @@ export function acdertBeside(root = ROOT) {
 }
 
 export function findAcdert(root = ROOT, env = process.env) {
-  const set = env.ACDERT
+  const set = env.ACDEV_RUNTIME
   if (set) {
-    if (existsSync(set)) return { path: set, from: 'ACDERT' }
+    if (existsSync(set)) return { path: set, from: 'ACDEV_RUNTIME' }
     const named = /[\\/]/.test(set) ? null : which(set, env)
-    if (named) return { path: named, from: 'ACDERT' }
-    const problem = `ACDERT=${set}: no such file; point ACDERT at an acdebin-dbg binary, or unset it`
-    return { path: null, from: 'ACDERT', problem }
+    if (named) return { path: named, from: 'ACDEV_RUNTIME' }
+    const problem = `ACDEV_RUNTIME=${set}: no such file; point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it`
+    return { path: null, from: 'ACDEV_RUNTIME', problem }
   }
   const beside = acdertBeside(root)
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
@@ -68,7 +68,7 @@ export function findAcdert(root = ROOT, env = process.env) {
     path: null,
     from: null,
     problem: `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ${missing}` +
-      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
+      'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH',
   }
 }
 
@@ -117,7 +117,7 @@ export function cliEnv(exe, env = process.env, platform = process.platform) {
   return {
     ...out,
     PATH: `${dirname(exe)}${delimiter}${path || ''}`,
-    ACDE_HOST_RUNTIME: env.ACDE_HOST_RUNTIME || runtime(),
+    ACDEV_HOST_RUNTIME: env.ACDEV_HOST_RUNTIME || runtime(),
   }
 }
 

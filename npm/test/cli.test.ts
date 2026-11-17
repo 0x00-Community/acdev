@@ -226,9 +226,9 @@ describe('acdev install / dev', () => {
     expect(existsSync(join(dest, 'web/index.html'))).toBe(true)
   })
 
-  test('dev with an ACDERT that does not exist fails before building', async () => {
+  test('dev with an ACDEV_RUNTIME that does not exist fails before building', async () => {
     const out = join(tmp(), 'out')
-    const result = await cli(['dev', '--out', out], APP, { ACDERT: join(tmp(), 'no-acdert') })
+    const result = await cli(['dev', '--out', out], APP, { ACDEV_RUNTIME: join(tmp(), 'no-acdert') })
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('no-acdert: no such file')
     expect(existsSync(out)).toBe(false)
@@ -544,20 +544,20 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is this acdev\'s npm/acde-api, by path; ACDE_SDK names another', () => {
+  test('the SDK is this acdev\'s npm/acde-api, by path; ACDEV_SDK names another', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
-    const saved = process.env['ACDE_SDK']
-    delete process.env['ACDE_SDK']
+    const saved = process.env['ACDEV_SDK']
+    delete process.env['ACDEV_SDK']
     try {
       expect(Sdk.spec()).toBe(`file:${realpathSync(API)}`)
       const other = tmp()
-      process.env['ACDE_SDK'] = other
+      process.env['ACDEV_SDK'] = other
       expect(Sdk.spec()).toBe(`file:${realpathSync(other)}`)
     } finally {
-      if (saved === undefined) delete process.env['ACDE_SDK']
-      else process.env['ACDE_SDK'] = saved
+      if (saved === undefined) delete process.env['ACDEV_SDK']
+      else process.env['ACDEV_SDK'] = saved
     }
   })
 
@@ -590,7 +590,7 @@ describe('a project made by acde from its checkout', () => {
   test('which package manager: the user agent, else the runtime acdev runs on', () => {
     const saved = {
       agent: process.env['npm_config_user_agent'],
-      runtime: process.env['ACDE_HOST_RUNTIME'],
+      runtime: process.env['ACDEV_HOST_RUNTIME'],
       path: process.env['PATH'],
     }
     const bin = tmp()
@@ -599,9 +599,9 @@ describe('a project made by acde from its checkout', () => {
       process.env['npm_config_user_agent'] = 'pnpm/10.23.0 npm/? node/v24.0.0 darwin arm64'
       expect(PackageManager.invoking().name).toBe('pnpm')
       process.env['npm_config_user_agent'] = 'other/1.0.0 darwin arm64'
-      delete process.env['ACDE_HOST_RUNTIME']
+      delete process.env['ACDEV_HOST_RUNTIME']
       expect(PackageManager.invoking().name).toBe('bun')
-      process.env['ACDE_HOST_RUNTIME'] = 'node'
+      process.env['ACDEV_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
       expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
       process.env['PATH'] = bin
@@ -634,7 +634,7 @@ describe('a project made by acde from its checkout', () => {
     } finally {
       for (const [key, value] of [
         ['npm_config_user_agent', saved.agent],
-        ['ACDE_HOST_RUNTIME', saved.runtime],
+        ['ACDEV_HOST_RUNTIME', saved.runtime],
         ['PATH', saved.path],
       ] as const) {
         if (value === undefined) delete process.env[key]

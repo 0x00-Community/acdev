@@ -39,7 +39,7 @@ export function cleanup(): void {
 }
 
 const SCRUBBED =
-  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_DIST|ACDE_SDK|ACDE_INSTALL|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
+  /^(PORT|BUN_PORT|NODE_PORT|ACDEV_RUNTIME|ACDEV_DIST|ACDEV_SDK|ACDEV_INSTALL|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
 
 export function env(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
@@ -180,6 +180,6 @@ export function standIn(): { root: string; env: Record<string, string>; project:
   mkdirSync(project)
   writeFileSync(join(project, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'alpha' }))
   writeFileSync(join(project, 'index.html'), '<!doctype html><title>Alpha</title><p>alpha</p>')
-  const vars = env({ TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log })
+  const vars = env({ TMPDIR: root, XDG_RUNTIME_DIR: root, ACDEV_RUNTIME: acdert, FAKE_ACDERT_LOG: log })
   return { root, project: realpathSync(project), env: vars }
 }

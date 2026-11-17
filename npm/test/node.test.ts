@@ -11,7 +11,7 @@ import { cleanup, collect, env, inetSockets, line, skipping, tmp, WINDOWS } from
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
 
 function realNode(): string | null {
-  const candidates = [process.env['ACDE_TEST_NODE'], which('node')].filter((c): c is string => !!c)
+  const candidates = [process.env['ACDEV_TEST_NODE'], which('node')].filter((c): c is string => !!c)
   for (const node of candidates) {
     const probe = Bun.spawnSync([node, '-p', 'process.versions.bun ? "bun" : process.versions.node'])
     const version = probe.stdout.toString().trim()
@@ -22,7 +22,7 @@ function realNode(): string | null {
 
 const UNIX_SOCKETS = 'Node.js backends on Unix sockets: Windows support is tracked in acdert#4'
 const NODE = skipping(WINDOWS, UNIX_SOCKETS) ? null : realNode()
-if (!WINDOWS && !NODE) console.warn('no Node.js >= 22; set ACDE_TEST_NODE or put a real node first on PATH')
+if (!WINDOWS && !NODE) console.warn('no Node.js >= 22; set ACDEV_TEST_NODE or put a real node first on PATH')
 
 const children: Subprocess[] = []
 afterEach(async () => {
@@ -175,7 +175,7 @@ describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
   })
 })
 
-describe('acdev build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, with acde\'s own vite)', () => {
+describe('acdev build with Vite (as on Node.js; here ACDEV_BUNDLER=vite on bun, with acde\'s own vite)', () => {
   const CLI = join(import.meta.dir, '../src/cli.ts')
   const MODULES = join(import.meta.dir, '../node_modules')
   const PNG = Buffer.from(
@@ -197,7 +197,7 @@ describe('acdev build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, w
   async function build(dir: string, extra: Record<string, string> = {}) {
     const out = join(dir, '.acde')
     const ran = await collect([process.execPath, CLI, 'build', '--out', out], {
-      cwd: dir, env: env({ ACDE_BUNDLER: 'vite', ...extra }),
+      cwd: dir, env: env({ ACDEV_BUNDLER: 'vite', ...extra }),
     })
     return { code: ran.code, stdout: ran.stdout, stderr: ran.stderr, out }
   }
@@ -311,7 +311,7 @@ describe('acdev build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, w
         'export default () => ({ api: { clock: { now: () => [windows, tick()] } } })\n',
       'tick.ts': "export const tick = async () => (await import('acde:fs')).default\n",
     })
-    const runs = [await build(dir, { ACDE_BUNDLER: 'bun' }), await build(dir)]
+    const runs = [await build(dir, { ACDEV_BUNDLER: 'bun' }), await build(dir)]
     for (const ran of runs) {
       expect(ran.code).toBe(1)
       expect(ran.stderr).toContain('service clock: clock.ts imports acde:windows, tick.ts imports acde:fs: ' +

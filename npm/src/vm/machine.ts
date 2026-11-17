@@ -36,7 +36,7 @@ export class Machine {
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.env = env
     const data = env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share')
-    this.dir = resolve(env['ACDE_VM_DIR'] || join(data, 'acdev', 'vm'))
+    this.dir = resolve(env['ACDEV_VM_DIR'] || join(data, 'acdev', 'vm'))
   }
 
   get images(): string {
@@ -82,7 +82,7 @@ export class Machine {
   }
 
   async fetch(say: (line: string) => void): Promise<string> {
-    const dist = (this.env['ACDE_VM_DIST'] || Machine.DIST).replace(/\/+$/, '')
+    const dist = (this.env['ACDEV_VM_DIST'] || Machine.DIST).replace(/\/+$/, '')
     mkdirSync(this.images, { recursive: true })
     const name = (await Machine.#text(`${dist}/latest-qcow2`)).trim()
     if (!/^[\w.-]+\.qcow2$/.test(name)) throw new Error(`vm: ${dist}/latest-qcow2 names no qcow2 image (${name})`)
@@ -170,7 +170,7 @@ export class Machine {
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
       '-name', 'acdev', '-machine', 'q35', ...accel,
-      '-smp', this.env['ACDE_VM_CPUS'] || '4', '-m', this.env['ACDE_VM_MEMORY'] || '8G',
+      '-smp', this.env['ACDEV_VM_CPUS'] || '4', '-m', this.env['ACDEV_VM_MEMORY'] || '8G',
       '-drive', `if=pflash,format=raw,readonly=on,file=${code}`,
       '-drive', `if=pflash,format=raw,file=${join(this.dir, 'vars.fd')}`,
       '-drive', `file=${join(this.dir, 'disk.qcow2')},format=qcow2,if=none,id=hd0`,

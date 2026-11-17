@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
-ACDE_DIST=${ACDE_DIST%/}
+ACDEV_DIST=${ACDEV_DIST:-https://pkgs.dopame.ai/acde}
+ACDEV_DIST=${ACDEV_DIST%/}
 
 say() {
   printf 'acdev-install: %s\n' "$*"
@@ -39,17 +39,17 @@ prune() {
 
 usage() {
   cat <<EOF
-usage: curl -fsSL $ACDE_DIST/install.sh | sh
-       curl -fsSL $ACDE_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
+usage: curl -fsSL $ACDEV_DIST/install.sh | sh
+       curl -fsSL $ACDEV_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
 Installs acdev (the developer CLI and its SDK) and the debug runtime released with it
-(acdebin-dbg) into \$ACDE_INSTALL (default ~/.acdev) and puts \$ACDE_INSTALL/bin on
+(acdebin-dbg) into \$ACDEV_INSTALL (default ~/.acdev) and puts \$ACDEV_INSTALL/bin on
 PATH. No root needed. Every download is checked against its SHA256SUMS; if any part
 fails, nothing is installed and an earlier install stays as it was.
   --version X.Y.Z    that version of acdev (and its acdebin-dbg) instead of the latest
   --no-modify-path   do not touch any shell startup file
-  ACDE_DIST          where to download acdev from (now $ACDE_DIST)
+  ACDEV_DIST          where to download acdev from (now $ACDEV_DIST)
 EOF
 }
 
@@ -86,7 +86,7 @@ main() {
 
   os=$(uname -s)
   case $os in
-    MINGW* | MSYS* | CYGWIN*) die "this is Windows: in PowerShell run  irm $ACDE_DIST/install.ps1 | iex" ;;
+    MINGW* | MSYS* | CYGWIN*) die "this is Windows: in PowerShell run  irm $ACDEV_DIST/install.ps1 | iex" ;;
   esac
   arch=$(uname -m)
   case $arch in
@@ -199,8 +199,8 @@ main() {
   trap 'exit 130' INT TERM HUP
 
   if [ -z "$version" ]; then
-    say "looking up the latest acdev at $ACDE_DIST"
-    fetch "$ACDE_DIST/latest" "$tmp/latest" || die "could not download $ACDE_DIST/latest (is ACDE_DIST right?)"
+    say "looking up the latest acdev at $ACDEV_DIST"
+    fetch "$ACDEV_DIST/latest" "$tmp/latest" || die "could not download $ACDEV_DIST/latest (is ACDEV_DIST right?)"
     version=$(tr -d ' \t\r\n' <"$tmp/latest")
   fi
   case $version in
@@ -226,10 +226,10 @@ main() {
 
   file=acdev-$version.tar.gz
   say "installing acdev $version"
-  fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
-    die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acdev $version?)"
+  fetch "$ACDEV_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
+    die "could not download $ACDEV_DIST/$version/SHA256SUMS (is there an acdev $version?)"
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acdev $version is not in its SHA256SUMS ($file)"
-  download "$ACDE_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDE_DIST/$version/$file"
+  download "$ACDEV_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDEV_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
   binary=acdebin-dbg-$triple
   if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
@@ -246,12 +246,12 @@ main() {
   fi
   host=acde-host-$version.tar.gz
   say "getting acdebin-dbg $version for $triple"
-  download "$ACDE_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDE_DIST/$version/$binary"
+  download "$ACDEV_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDEV_DIST/$version/$binary"
   got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
-  download "$ACDE_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDE_DIST/$version/$host"
+  download "$ACDEV_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDEV_DIST/$version/$host"
   got "$tmp/SHA256SUMS" "$host" "$tmp/$host"
 
-  root=${ACDE_INSTALL:-$HOME/.acdev}
+  root=${ACDEV_INSTALL:-$HOME/.acdev}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
   case $root in
     /*) ;;

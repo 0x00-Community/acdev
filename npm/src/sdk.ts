@@ -34,7 +34,7 @@ export class Sdk {
   }
 
   static dir(): string {
-    const given = process.env['ACDE_SDK']
+    const given = process.env['ACDEV_SDK']
     if (given) return realpathSync(resolve(given))
     const lib = dirname(Sdk.ROOT)
     if (installed(Sdk.ROOT)) {

@@ -77,10 +77,10 @@ export abstract class Bundler {
   static readonly SERVE = 'acde.serve'
 
   static for(dir: string, env: Readonly<Record<string, string | undefined>> = process.env): Bundler {
-    const wanted = env['ACDE_BUNDLER'] || (Runtime.bun ? 'bun' : 'vite')
+    const wanted = env['ACDEV_BUNDLER'] || (Runtime.bun ? 'bun' : 'vite')
     if (wanted === 'vite') return new ViteBundler(dir)
     if (wanted === 'bun' && Runtime.bun) return new BunBundler()
-    throw new Error(`ACDE_BUNDLER=${wanted}: vite, or bun when acdev runs on bun`)
+    throw new Error(`ACDEV_BUNDLER=${wanted}: vite, or bun when acdev runs on bun`)
   }
 
   static isHtml(entry: string): boolean {
@@ -246,7 +246,7 @@ export class BunBundler extends Bundler {
   }
 
   protected async server(job: BackendJob, wrapper: string): Promise<void> {
-    const onBun = (process.env['ACDE_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')) === 'bun'
+    const onBun = (process.env['ACDEV_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')) === 'bun'
     const result = await Bun.build({
       ...BunBundler.OPTIONS,
       target: job.dev && onBun ? 'bun' : 'node',

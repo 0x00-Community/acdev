@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { packageRoot } from 'acdev/launcher'
 
-declare const ACDE_SDK_VERSION: string | undefined
+declare const ACDEV_SDK_VERSION: string | undefined
 
 export class Versions {
   static acde(): string {
@@ -11,7 +11,7 @@ export class Versions {
   }
 
   static sdk(): string {
-    if (typeof ACDE_SDK_VERSION === 'string') return ACDE_SDK_VERSION
+    if (typeof ACDEV_SDK_VERSION === 'string') return ACDEV_SDK_VERSION
     const file = join(packageRoot(), 'node_modules', '@dopame', 'acde-api', 'package.json')
     try {
       return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version

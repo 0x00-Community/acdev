@@ -52,7 +52,7 @@ describe('acdev mcp', () => {
       const checked = await call('doctor')
       expect(checked.error).toBe(false)
       expect(checked.text)
-        .toContain(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
+        .toContain(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDEV_RUNTIME']} (from ACDEV_RUNTIME)`)
       expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acdev check finds nothing wrong')
       expect(checked.text.split('\n').at(-1)).toMatch(/^acdev doctor: /)
 

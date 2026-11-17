@@ -119,7 +119,7 @@ class Cli {
     const { API_LEVEL } = await import('./manifest/index.ts')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
     const acdert = findAcdert().path
-    if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDERT, next to acdev, PATH)']
+    if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDEV_RUNTIME, next to acdev, PATH)']
     const { said, failed } = await Runtime.level(acdert)
     if (failed) return [...lines, `acdebin-dbg does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
@@ -270,7 +270,7 @@ class Cli {
 
   static async follow(command: string, dir: string, argv: readonly string[]): Promise<number | null> {
     const bundled = import.meta.url.endsWith('.js')
-    if (!['dev', 'build', 'install'].includes(command) || !bundled || process.env['ACDE_FOLLOWED']) return null
+    if (!['dev', 'build', 'install'].includes(command) || !bundled || process.env['ACDEV_FOLLOWED']) return null
     const current = Runtime.bun ? 'bun' : 'node'
     let wanted: 'bun' | 'node'
     try {
@@ -283,7 +283,7 @@ class Cli {
     if (wanted === current) return null
     const exe = runtimes()[wanted]
     if (exe) {
-      process.env['ACDE_FOLLOWED'] = '1'
+      process.env['ACDEV_FOLLOWED'] = '1'
       return await run(argv, exe)
     }
     const needed = wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'

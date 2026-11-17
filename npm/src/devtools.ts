@@ -103,7 +103,7 @@ export class Devtools {
   }
 
   static browser(lookup: Lookup = Devtools.lookup()): Browser | null {
-    const chosen = lookup.env['ACDE_BROWSER']
+    const chosen = lookup.env['ACDEV_BROWSER']
     if (chosen === Devtools.NONE) return null
     if (chosen) return { name: chosen, path: chosen }
     const found = Devtools.candidates(lookup).find((browser) => lookup.exists(browser.path))
@@ -173,8 +173,8 @@ export class Devtools {
       console.error(`acdev: DevTools for ${title}: ${why}; ${paste}`)
     }
     if (!browser) {
-      const off = lookup.env['ACDE_BROWSER'] === Devtools.NONE
-      return fallback(off ? 'ACDE_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDE_BROWSER names one)')
+      const off = lookup.env['ACDEV_BROWSER'] === Devtools.NONE
+      return fallback(off ? 'ACDEV_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDEV_BROWSER names one)')
     }
     let how: unknown
     try {

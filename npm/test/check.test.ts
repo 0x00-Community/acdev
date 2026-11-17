@@ -123,7 +123,7 @@ describe('acdev check on a project', () => {
     const bun = project(`bun@${process.versions.bun}`)
     writeFileSync(join(bun, 'bun.lock'), 'the old lock\n')
     const before = readFileSync(join(bun, 'package.json'), 'utf8')
-    const failed = await cli(['sdk', 'update'], bun, { ACDE_SDK: broken })
+    const failed = await cli(['sdk', 'update'], bun, { ACDEV_SDK: broken })
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain(`so the update to ${Sdk.paired()} was undone: package.json and bun.lock are as `
       + 'before (@dopame/acde-api 0.0.7); node_modules may be half updated: run bun install to match them')
@@ -132,7 +132,7 @@ describe('acdev check on a project', () => {
     expect(existsSync(join(bun, '.npmrc'))).toBe(false)
     if (!which('npm')) return
     const npm = project('npm@11.0.0')
-    const npmFailed = await cli(['sdk', 'update'], npm, { ACDE_SDK: broken, npm_config_install_links: 'true' })
+    const npmFailed = await cli(['sdk', 'update'], npm, { ACDEV_SDK: broken, npm_config_install_links: 'true' })
     expect(npmFailed.code).toBe(1)
     expect(npmFailed.stderr).toContain('package.json are as before (@dopame/acde-api 0.0.7)')
     expect(existsSync(join(npm, '.npmrc'))).toBe(false)

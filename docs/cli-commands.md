@@ -18,7 +18,7 @@
 | `acdev skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见 `skills.md`) |
 
 参数解析在 `src/cli.ts` (`Cli.SPECS`), 用法文字在 `src/help.ts` (`Help.commands`: 每个命令的分组、一行摘要、说明、选项和默认值、例子; acde#68). `acdev --version` (`-v`、`version`, acde#23) 第一行是 acdev 版本号 (脚本可只取第一行),
-再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDE_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdebin-dbg
+再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDEV_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdebin-dbg
 (`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdebin-dbg does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
 版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acdev --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 `acdev --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
@@ -42,8 +42,8 @@
 stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
 (`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
 不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acdev: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdebin-dbg 转来的错误
-带着它); 调用栈只在 `ACDE_DEBUG` 非空且不是 `0` 时接着打. acdebin-dbg 自己启动失败时 (acdert `web/packages/acde-host/src/main.ts`, acdert#207) 按同一条规则只打一行 `acdev: <message>`,
-`ACDE_DEBUG` 非空且不是 `0` 时才打整个调用栈; 这行经继承的 stderr 直接出去.
+带着它); 调用栈只在 `ACDEV_DEBUG` 非空且不是 `0` 时接着打. acdebin-dbg 自己启动失败时 (acdert `web/packages/acde-host/src/main.ts`, acdert#207) 按同一条规则只打一行 `acdev: <message>`,
+`ACDEV_DEBUG` 非空且不是 `0` 时才打整个调用栈; 这行经继承的 stderr 直接出去.
 `acdev build`、`acdev install`、非交互 `acdev new` 的最后一行带耗时 (`(840 ms)`, 1 s 起 `(1.2 s)`; 交互式 `acdev new` 从答完问题算起, 写在结尾一行);
 落在当前目录里的路径打相对路径 (`Cli.shown`, 先取真实路径再比, macOS 的 `/var` → `/private/var` 不算在外面), 外面的打绝对路径.
 不带命令打三行快速上手 (版本、`acdev new my-app` → `cd my-app` → `acdev dev`、指向 `acdev --help`), 退出码 0; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acdev --help` 或 `acdev <命令> --help`), 退出码 1.

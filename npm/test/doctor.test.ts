@@ -41,32 +41,32 @@ function fixAfter(out: string, title: string): string {
 describe('acdev doctor', () => {
   test('no acdert: an error that says where it looked and how to get one; the checks that need it are skipped', async () => {
     const s = standIn()
-    const ran = await doctor([], s.project, { ...s.env, ACDERT: '', PATH: NO_ACDERT })
+    const ran = await doctor([], s.project, { ...s.env, ACDEV_RUNTIME: '', PATH: NO_ACDERT })
     expect(ran.code).toBe(1)
     expect(line(ran.stdout, 'acdebin-dbg')).toBe(
       'error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
+      'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH',
     )
-    expect(fixAfter(ran.stdout, 'acdebin-dbg')).toContain('set ACDERT to its target/release/acdebin-dbg')
+    expect(fixAfter(ran.stdout, 'acdebin-dbg')).toContain('set ACDEV_RUNTIME to its target/release/acdebin-dbg')
     expect(line(ran.stdout, 'contract level')).toBe('skip   contract level: needs an acdebin-dbg that runs')
     expect(line(ran.stdout, 'runtime check')).toBe('skip   runtime check: needs an acdebin-dbg that runs')
     expect(ran.stdout.trim().split('\n').at(-1)).toMatch(/^acdev doctor: 1 error, \d+ warnings?$/)
   }, 60_000)
 
-  test('ACDERT that is not there, or that does not run, is an error with the reason', async () => {
+  test('ACDEV_RUNTIME that is not there, or that does not run, is an error with the reason', async () => {
     const s = standIn()
     const gone = join(tmp(), 'gone')
-    const missing = await doctor([], s.project, { ...s.env, ACDERT: gone })
+    const missing = await doctor([], s.project, { ...s.env, ACDEV_RUNTIME: gone })
     expect(missing.code).toBe(1)
     expect(line(missing.stdout, 'acdebin-dbg'))
-      .toBe(`error  acdebin-dbg: ACDERT=${gone}: no such file; point ACDERT at an acdebin-dbg binary, or unset it`)
+      .toBe(`error  acdebin-dbg: ACDEV_RUNTIME=${gone}: no such file; point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it`)
     if (WINDOWS) return
     const broken = join(tmp(), 'acdert')
     writeFileSync(broken, '#!/bin/sh\necho "acdert: error while loading shared libraries: libgbm.so.1" >&2\nexit 127\n', { mode: 0o755 })
-    const ran = await doctor([], s.project, { ...s.env, ACDERT: broken })
+    const ran = await doctor([], s.project, { ...s.env, ACDEV_RUNTIME: broken })
     expect(ran.code).toBe(1)
     expect(line(ran.stdout, 'acdebin-dbg')).toBe(
-      `error  acdebin-dbg: ${broken} (from ACDERT) does not run: it exited with code 127: ` +
+      `error  acdebin-dbg: ${broken} (from ACDEV_RUNTIME) does not run: it exited with code 127: ` +
       'acdert: error while loading shared libraries: libgbm.so.1',
     )
     expect(fixAfter(ran.stdout, 'acdebin-dbg'))
@@ -77,7 +77,7 @@ describe('acdev doctor', () => {
     const s = standIn()
     const ran = await doctor([], s.project, { ...s.env, FAKE_ACDERT_DOCTOR: 'ok' })
     expect(line(ran.stdout, 'acdebin-dbg'))
-      .toBe(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
+      .toBe(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDEV_RUNTIME']} (from ACDEV_RUNTIME)`)
     expect(line(ran.stdout, 'contract level')).toBe(
       `warn   contract level: level ${API_LEVEL} on both sides, but acdev ${Versions.acde()} is built with SDK ${Versions.sdk()}, ` +
       `which pairs with acdebin-dbg ${Versions.sdk()} and this one is 0.0.0`,

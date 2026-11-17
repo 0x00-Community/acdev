@@ -1,8 +1,8 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Version = $env:ACDE_VERSION,
-    [switch]$NoModifyPath = [bool]$env:ACDE_NO_MODIFY_PATH
+    [string]$Version = $env:ACDEV_VERSION,
+    [switch]$NoModifyPath = [bool]$env:ACDEV_NO_MODIFY_PATH
 )
 
 function Install-Acde {
@@ -17,8 +17,8 @@ function Install-Acde {
     $progress = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
 
-    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
-    $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acdev' }
+    $dist = if ($env:ACDEV_DIST) { $env:ACDEV_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
+    $install = if ($env:ACDEV_INSTALL) { $env:ACDEV_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acdev' }
 
     $shell = $PSVersionTable.PSVersion
     $desktop = $PSVersionTable.PSEdition -ne 'Core'
@@ -224,7 +224,7 @@ function Install-Acde {
         if (-not (Get-Listed $sums $binary)) {
             if (Get-Listed $sums 'acdert-version') {
                 throw ("acdev: acdev $Version comes from before acdev and its runtime were released together: " +
-                    'leave out -Version and ACDE_VERSION for the latest')
+                    'leave out -Version and ACDEV_VERSION for the latest')
             }
             $supported = @(Get-Content -LiteralPath $sums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
@@ -357,7 +357,7 @@ function Install-Acde {
         } finally {
             $key.Close()
         }
-        [Environment]::SetEnvironmentVariable('ACDE_INSTALL', $install, [EnvironmentVariableTarget]::User)
+        [Environment]::SetEnvironmentVariable('ACDEV_INSTALL', $install, [EnvironmentVariableTarget]::User)
         $env:Path = (@($bin) + @($env:Path -split ';' | Where-Object { $_ -and $_ -ne $bin })) -join ';'
         $system = [string][Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
         foreach ($dir in @($system -split ';' | Where-Object { $_ -and $_ -ne $bin })) {

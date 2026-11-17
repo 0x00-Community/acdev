@@ -1,3 +1,3 @@
-declare const ACDE_LISTEN_JSON: string
+declare const ACDEV_LISTEN_JSON: string
 
-export const LISTEN_JS: string = JSON.parse(ACDE_LISTEN_JSON)
+export const LISTEN_JS: string = JSON.parse(ACDEV_LISTEN_JSON)

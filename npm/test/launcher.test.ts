@@ -42,13 +42,13 @@ function install(): { root: string } {
 
 describe('launcher: where acdert comes from', () => {
   const saved = {
-    ACDERT: process.env['ACDERT'],
+    ACDEV_RUNTIME: process.env['ACDEV_RUNTIME'],
     PATH: process.env['PATH'],
     PATHEXT: process.env['PATHEXT'],
   }
 
   beforeEach(() => {
-    delete process.env['ACDERT']
+    delete process.env['ACDEV_RUNTIME']
     process.env['PATH'] = ''
     if (WINDOWS) process.env['PATHEXT'] = '.EXE'
   })
@@ -60,12 +60,12 @@ describe('launcher: where acdert comes from', () => {
     }
   })
 
-  test('ACDERT wins; one that does not exist is an error, not a silent fallback', () => {
+  test('ACDEV_RUNTIME wins; one that does not exist is an error, not a silent fallback', () => {
     const mine = binary(join(tmp(), 'mine', `acdert${EXE}`))
-    process.env['ACDERT'] = mine
+    process.env['ACDEV_RUNTIME'] = mine
     expect(requireAcdert()).toBe(mine)
-    process.env['ACDERT'] = join(tmp(), 'gone')
-    expect(failure()).toMatch(/^ACDERT=.*gone: no such file/)
+    process.env['ACDEV_RUNTIME'] = join(tmp(), 'gone')
+    expect(failure()).toMatch(/^ACDEV_RUNTIME=.*gone: no such file/)
   })
 
   test('then acdert on PATH', () => {
@@ -75,7 +75,7 @@ describe('launcher: where acdert comes from', () => {
     expect(requireAcdert()).toBe(onPath)
   })
 
-  test('an installed acdev takes the acdert the installer put beside it, before PATH; ACDERT still wins', () => {
+  test('an installed acdev takes the acdert the installer put beside it, before PATH; ACDEV_RUNTIME still wins', () => {
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
     const beside = binary(join(root, '..', '..', 'bin', `acdert${EXE}`))
@@ -84,14 +84,14 @@ describe('launcher: where acdert comes from', () => {
     const env = { PATH: dir, PATHEXT: '.EXE' }
     expect(requireAcdert(root, env)).toBe(beside)
     const mine = binary(join(tmp(), `acdert${EXE}`))
-    expect(requireAcdert(root, { ...env, ACDERT: mine })).toBe(mine)
+    expect(requireAcdert(root, { ...env, ACDEV_RUNTIME: mine })).toBe(mine)
     expect(requireAcdert(checkout(), env)).toBe(join(dir, `acdert${EXE}`))
   })
 
-  test('nothing found: an English error names where the installer puts it, ACDERT and PATH', () => {
+  test('nothing found: an English error names where the installer puts it, ACDEV_RUNTIME and PATH', () => {
     expect(failure()).toBe(
       'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
+      'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
     )
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
@@ -104,7 +104,7 @@ describe('launcher: where acdert comes from', () => {
     const beside = join(root, '..', '..', 'bin', `acdebin-dbg${EXE}`)
     expect(message).toBe(
       `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no ${beside}, ` +
-      'which the acdev installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, ' +
+      'which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdebin-dbg binary, ' +
       'or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
     )
     expect(message).not.toContain('not part of acde')
@@ -117,19 +117,19 @@ describe('launcher: where acdert comes from', () => {
     const dir = tmp()
     const onPath = binary(join(dir, `acdert${EXE}`))
     const mine = binary(join(tmp(), `acdert${EXE}`))
-    expect(findAcdert(root, { PATH: dir, ACDERT: mine })).toEqual({ path: mine, from: 'ACDERT' })
+    expect(findAcdert(root, { PATH: dir, ACDEV_RUNTIME: mine })).toEqual({ path: mine, from: 'ACDEV_RUNTIME' })
     expect(findAcdert(root, { PATH: dir })).toEqual({ path: beside, from: 'install' })
     expect(findAcdert(checkout(), { PATH: dir })).toEqual({ path: onPath, from: 'PATH' })
-    const gone = findAcdert(root, { PATH: dir, ACDERT: join(dir, 'gone') })
+    const gone = findAcdert(root, { PATH: dir, ACDEV_RUNTIME: join(dir, 'gone') })
     expect(gone.path).toBeNull()
-    expect(gone.from).toBe('ACDERT')
-    expect(gone.problem).toMatch(/^ACDERT=.*gone: no such file; point ACDERT at an acdebin-dbg binary, or unset it$/)
+    expect(gone.from).toBe('ACDEV_RUNTIME')
+    expect(gone.problem).toMatch(/^ACDEV_RUNTIME=.*gone: no such file; point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it$/)
     const none = findAcdert(checkout(), { PATH: '' })
     expect(none).toEqual({
       path: null,
       from: null,
       problem: 'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-        'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
+        'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH',
     })
   })
 })
@@ -149,23 +149,23 @@ describe('launcher: the environment of the CLI', () => {
     Object.keys(env).filter((k) => k.toUpperCase() === 'PATH')
 
   test('Windows: PATH is found under any case and left as one PATH key, the runtime first', () => {
-    const one = cliEnv(exe, { Path: 'C:\a;C:\b', ACDE_HOST_RUNTIME: 'bun' }, 'win32')
+    const one = cliEnv(exe, { Path: 'C:a;C:\b', ACDEV_HOST_RUNTIME: 'bun' }, 'win32')
     expect(pathKeys(one)).toEqual(['PATH'])
     expect(one['PATH']).toBe(`${bin}${delimiter}C:\a;C:\b`)
   })
 
   test('Windows: of several spellings the one given last wins, as a later spread does', () => {
-    const both = cliEnv(exe, { Path: 'system', ACDE_HOST_RUNTIME: 'bun', PATH: 'given' }, 'win32')
+    const both = cliEnv(exe, { Path: 'system', ACDEV_HOST_RUNTIME: 'bun', PATH: 'given' }, 'win32')
     expect(pathKeys(both)).toEqual(['PATH'])
     expect(both['PATH']).toBe(`${bin}${delimiter}given`)
   })
 
   test('no PATH at all: just the runtime directory', () => {
-    expect(cliEnv(exe, { ACDE_HOST_RUNTIME: 'bun' }, 'win32')['PATH']).toBe(`${bin}${delimiter}`)
+    expect(cliEnv(exe, { ACDEV_HOST_RUNTIME: 'bun' }, 'win32')['PATH']).toBe(`${bin}${delimiter}`)
   })
 
   test('elsewhere names are case-sensitive: only PATH is PATH', () => {
-    const env = cliEnv(exe, { PATH: '/usr/bin', Path: 'other', ACDE_HOST_RUNTIME: 'bun' }, 'linux')
+    const env = cliEnv(exe, { PATH: '/usr/bin', Path: 'other', ACDEV_HOST_RUNTIME: 'bun' }, 'linux')
     expect(env['PATH']).toBe(`${bin}${delimiter}/usr/bin`)
     expect(env['Path']).toBe('other')
   })

@@ -140,7 +140,7 @@ export class Mcp {
           dir: z.string().optional().describe('the project directory to check, relative to the working directory '
             + '(default: the working directory)'),
           online: z.boolean().optional()
-            .describe('also ask the acdev download site (ACDE_DIST) whether a newer acdev is out'),
+            .describe('also ask the acdev download site (ACDEV_DIST) whether a newer acdev is out'),
         }),
         annotations: { readOnlyHint: true, openWorldHint: true },
       },

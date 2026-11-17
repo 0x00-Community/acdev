@@ -38,7 +38,7 @@ const BUNDLERS = ['bun', 'vite'] as const
 async function each(dir: string) {
   const check = await cli(['check'], dir)
   const builds = await Promise.all(
-    BUNDLERS.map((bundler) => cli(['build', '--out', join(tmp(), 'out')], dir, { ACDE_BUNDLER: bundler })),
+    BUNDLERS.map((bundler) => cli(['build', '--out', join(tmp(), 'out')], dir, { ACDEV_BUNDLER: bundler })),
   )
   return { check, builds }
 }

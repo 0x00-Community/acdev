@@ -61,10 +61,10 @@ To watch them from another terminal, or to read them from a script, use `acdev c
 
 After 0.0.9, press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acdev: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acdev devtools [web]` does the same from another terminal (see [DevTools](tools.md#devtools)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
 
-DevTools open in a browser profile of acdev's own, not your everyday one. `ACDE_BROWSER` names another browser; without Chrome or Edge, or with `ACDE_BROWSER=none`, the terminal prints the address to paste into one instead.
+DevTools open in a browser profile of acdev's own, not your everyday one. `ACDEV_BROWSER` names another browser; without Chrome or Edge, or with `ACDEV_BROWSER=none`, the terminal prints the address to paste into one instead.
 
 ## Runtime
 
-`acdev dev` runs the acdebin-dbg named by `ACDERT` (a path, or a name on PATH), otherwise the acdebin-dbg the installer put next to acdev, otherwise the `acdebin-dbg` (or an older `acdert`) on PATH. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+`acdev dev` runs the acdebin-dbg named by `ACDEV_RUNTIME` (a path, or a name on PATH), otherwise the acdebin-dbg the installer put next to acdev, otherwise the `acdebin-dbg` (or an older `acdert`) on PATH. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
 
 When acdebin-dbg exits before the session is ready (for example because it cannot use the GPU), `acdev dev` prints its log line, then `acdev: acdebin-dbg exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, and exits with that code.

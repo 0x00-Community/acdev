@@ -75,7 +75,7 @@ describe('colour and error output', () => {
     expect(painted.text).toBe('\x1b[1;31merror:\x1b[22;39m x\n')
   })
 
-  test('an error says its message: no Error: prefix, a stack only with ACDE_DEBUG', () => {
+  test('an error says its message: no Error: prefix, a stack only with ACDEV_DEBUG', () => {
     const error = new Error('Error: no web nope (acdev webs lists them)')
     const plain = sink(false)
     Output.fail(error, plain, {})
@@ -84,7 +84,7 @@ describe('colour and error output', () => {
     Output.fail('no desktop nope', terminal, {})
     expect(terminal.text).toBe('\x1b[1;31macdev:\x1b[22;39m no desktop nope\n')
     const debugging = sink(false)
-    Output.fail(error, debugging, { ACDE_DEBUG: '1' })
+    Output.fail(error, debugging, { ACDEV_DEBUG: '1' })
     expect(debugging.text).toStartWith('acdev: no web nope (acdev webs lists them)\nError: Error: no web nope')
     expect(debugging.text).toContain('    at ')
   })

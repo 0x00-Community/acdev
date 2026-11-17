@@ -4,7 +4,7 @@ export class Pkgs {
 
   static scriptProblems(sh: string, ps1: string): string[] {
     const wanted: [string, string, string][] = [
-      ['install.sh', sh, `ACDE_DIST=\${ACDE_DIST:-${Pkgs.ACDE}}`],
+      ['install.sh', sh, `ACDEV_DIST=\${ACDEV_DIST:-${Pkgs.ACDE}}`],
       ['install.ps1', ps1, `} else { '${Pkgs.ACDE}' }`],
     ]
     return wanted.filter(([, text, line]) => !text.includes(line))

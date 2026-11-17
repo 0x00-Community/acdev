@@ -251,7 +251,7 @@ acdev devtools services   # the desktop's services (or one service, by its name)
 
 It prints the DevTools address on stdout, and on stderr `acdev: opened DevTools for <page> in <browser>`. Asked again for a page whose DevTools are open, it brings them to the front instead (`acdev: brought DevTools for <page> to the front in <browser>`). F12 in the host window of `acdev dev` does the same for the page in that window; see [acdev dev](dev.md#devtools).
 
-The browser runs with a profile of acdev's own, not your everyday one. `ACDE_BROWSER` names another browser (a path to it). Without Chrome or Edge, or with `ACDE_BROWSER=none`, nothing opens: paste the printed address into the address bar of Chrome or Edge on this machine.
+The browser runs with a profile of acdev's own, not your everyday one. `ACDEV_BROWSER` names another browser (a path to it). Without Chrome or Edge, or with `ACDEV_BROWSER=none`, nothing opens: paste the printed address into the address bar of Chrome or Edge on this machine.
 
 Elements shows the element tree, the computed styles and the box model, read only. It does not list the CSS rules that matched an element (only its inline style); change styles from the page code or the Console.
 

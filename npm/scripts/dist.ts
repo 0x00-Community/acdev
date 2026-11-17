@@ -92,8 +92,8 @@ for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, 
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
 const preload = {
-  ACDE_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())),
-  ACDE_SDK_VERSION: JSON.stringify(sdk.version),
+  ACDEV_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())),
+  ACDEV_SDK_VERSION: JSON.stringify(sdk.version),
 }
 await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
 await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')

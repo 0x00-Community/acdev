@@ -179,15 +179,15 @@ describe('mistakes', () => {
   })
 
   test('--version: acde, then the SDK and the acdert it finds; --help: all, or one command', async () => {
-    const version = await cli(['--version'], APP, { ACDERT: join(tmp(), 'gone') })
+    const version = await cli(['--version'], APP, { ACDEV_RUNTIME: join(tmp(), 'gone') })
     expect(version.code).toBe(0)
     const [acde, sdk] = version.stdout.trim().split('\n')
     expect(acde).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
     const api = join(import.meta.dirname, '..', 'node_modules', '@dopame', 'acde-api', 'package.json')
     expect(sdk).toBe(`sdk ${JSON.parse(readFileSync(api, 'utf8')).version} (contract level ${API_LEVEL})`)
     const s = standIn()
-    const found = await cli(['-v'], APP, { ACDERT: s.env['ACDERT']! })
-    expect(found.stdout.trim().split('\n')[2]).toBe(`acdert 0.0.0 (contract level ${API_LEVEL}): ${s.env['ACDERT']}`)
+    const found = await cli(['-v'], APP, { ACDEV_RUNTIME: s.env['ACDEV_RUNTIME']! })
+    expect(found.stdout.trim().split('\n')[2]).toBe(`acdert 0.0.0 (contract level ${API_LEVEL}): ${s.env['ACDEV_RUNTIME']}`)
     for (const argv of [['--help'], ['help'], ['-h']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
@@ -251,7 +251,7 @@ describe('mistakes', () => {
 describe('acdev new when a step fails', () => {
   test('a failed install keeps the project and says how to finish it', async () => {
     const dir = join(tmp(), 'no-deps')
-    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDE_SDK: brokenSdk() })
+    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDEV_SDK: brokenSdk() })
     expect(made.code).toBe(1)
     expect(made.stdout).toBe('')
     expect(made.stderr).toStartWith(`acdev: the project is in ${dir}, but its dependencies are not installed; `

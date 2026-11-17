@@ -16,7 +16,7 @@ export class Output {
   }
 
   static debug(env: NodeJS.ProcessEnv = process.env): boolean {
-    const value = env['ACDE_DEBUG']
+    const value = env['ACDEV_DEBUG']
     return value !== undefined && value !== '' && value !== '0'
   }
 

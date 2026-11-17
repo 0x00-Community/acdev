@@ -33,7 +33,7 @@ export class PackageManager {
   static invoking(): PackageManager {
     const agent = process.env['npm_config_user_agent']?.split(/[/ ]/, 1)[0] ?? ''
     if ((PackageManager.NAMES as readonly string[]).includes(agent)) return new PackageManager(agent as PmName)
-    const runtime = process.env['ACDE_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')
+    const runtime = process.env['ACDEV_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')
     return new PackageManager(PackageManager.RUNTIMES[runtime] ?? 'npm')
   }
 

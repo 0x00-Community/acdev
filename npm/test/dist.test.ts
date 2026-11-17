@@ -12,7 +12,7 @@ import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
-const API = process.env['ACDE_TEST_API'] ?? join(ROOT, 'acde-api')
+const API = process.env['ACDEV_TEST_API'] ?? join(ROOT, 'acde-api')
 const SDK = (JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }).version
 const FETCHER = which('curl') ?? which('wget')
 
@@ -101,7 +101,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
 
   function install(home: string, args: string[] = [], extra: Record<string, string> = {}) {
     return run(['sh', join(out, 'install.sh'), ...args], {
-      HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base,
+      HOME: home, SHELL: '/bin/zsh', ACDEV_DIST: base,
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '', XDG_CONFIG_HOME: join(home, '.config'), ...extra,
     }, home)
   }
@@ -248,7 +248,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const proc = Bun.spawn(['sh', join(out, 'install.sh'), '--no-modify-path'], {
       cwd: home,
       env: env({
-        HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base,
+        HOME: home, SHELL: '/bin/zsh', ACDEV_DIST: base,
         PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '',
       }),
       terminal: { cols: 100, rows: 30, data(_terminal, data) { shown += decoder.decode(data, { stream: true }) } },
@@ -275,7 +275,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       },
     })
     try {
-      const bad = await install(home, [], { ACDE_DIST: `http://127.0.0.1:${tamperedServer.port}` })
+      const bad = await install(home, [], { ACDEV_DIST: `http://127.0.0.1:${tamperedServer.port}` })
       expect(bad.code).toBe(1)
       expect(bad.stderr).toContain('does not match its checksum')
       expect(existsSync(join(home, '.acdev', 'current'))).toBe(false)
@@ -294,13 +294,13 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       ['hollow', 'does not hold acdebin-dbg'],
     ]
     for (const [mirror, said] of failing) {
-      const bad = await install(home, ['--no-modify-path'], { ACDE_DIST: `${base}/${mirror}` })
+      const bad = await install(home, ['--no-modify-path'], { ACDEV_DIST: `${base}/${mirror}` })
       expect(bad.code, bad.out).toBe(1)
       expect(bad.stderr).toContain(said)
       expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.1')
       expect(existsSync(join(home, '.acdev', 'versions', '0.0.2'))).toBe(false)
     }
-    const unsupported = await install(home, ['--no-modify-path'], { ACDE_DIST: `${base}/elsewhere` })
+    const unsupported = await install(home, ['--no-modify-path'], { ACDEV_DIST: `${base}/elsewhere` })
     expect(unsupported.stderr).toContain('it is built for: x86_64-pc-windows-msvc')
   }, 120_000)
 
@@ -321,7 +321,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     rmSync(runtime)
     const acde = join(home, '.acdev', 'bin', 'acdev')
     const vars = {
-      HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ACDE_DIST: base,
+      HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ACDEV_DIST: base,
       XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
     }
     const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdebin-dbg released with it, ` +
@@ -394,11 +394,11 @@ describe('the release archive and the installed CLI', () => {
   function installPs1(home: string, mirror: string, extra: Record<string, string> = {}) {
     const powershell = which('pwsh') ?? which('powershell')
     expect(powershell).not.toBeNull()
-    const dist = mirror === 'release' ? extra['ACDE_DIST']! : `${extra['ACDE_DIST']}/${mirror}`
+    const dist = mirror === 'release' ? extra['ACDEV_DIST']! : `${extra['ACDEV_DIST']}/${mirror}`
     return run([
       powershell!, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(out, 'install.ps1'),
       '-NoModifyPath',
-    ], { ACDE_INSTALL: home, ...extra, ACDE_DIST: dist }, root)
+    ], { ACDEV_INSTALL: home, ...extra, ACDEV_DIST: dist }, root)
   }
 
   afterAll(cleanup)
@@ -429,7 +429,7 @@ describe('the release archive and the installed CLI', () => {
     const home = join(root, 'acde installation')
     const server = serve(out)
     try {
-      const result = await installPs1(home, 'release', { ACDE_DIST: server.url.origin })
+      const result = await installPs1(home, 'release', { ACDEV_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
       expect(result.out).toContain('installed acde 0.0.2 with acdebin-dbg 0.0.2')
       expect(result.out).toMatch(/acdev: acdebin-dbg-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
@@ -472,7 +472,7 @@ describe('the release archive and the installed CLI', () => {
       ['new', withApi, '--template', 'html', '--backend', '--yes', '--no-install', '--id', 'with-api', '--pm', 'bun'],
       ['build', withApi, '--out', apiBuild],
     ]) {
-      const ran = await run([shim, ...args], { ACDE_INSTALL: home, PATH: path }, root)
+      const ran = await run([shim, ...args], { ACDEV_INSTALL: home, PATH: path }, root)
       expect(ran.code, ran.out).toBe(0)
     }
     expect(existsSync(join(build, 'web', 'index.html'))).toBe(true)
@@ -493,9 +493,9 @@ describe('the release archive and the installed CLI', () => {
     const home = join(root, 'pruned installation')
     mkdirSync(join(home, 'versions', '0.0.0', 'bin'), { recursive: true })
     const server = serve(out)
-    const dist = { ACDE_DIST: server.url.origin }
+    const dist = { ACDEV_DIST: server.url.origin }
     try {
-      expect((await installPs1(home, 'release', { ...dist, ACDE_VERSION: '0.0.1' })).code).toBe(0)
+      expect((await installPs1(home, 'release', { ...dist, ACDEV_VERSION: '0.0.1' })).code).toBe(0)
       const second = await installPs1(home, 'release', dist)
       expect(second.code, second.out).toBe(0)
       expect(second.out).toContain(`removed acde 0.0.0 (${join(home, 'versions', '0.0.0')})`)
@@ -510,7 +510,7 @@ describe('the release archive and the installed CLI', () => {
     if (process.platform !== 'win32' || process.arch !== 'x64') return
     const home = join(root, 'kept installation')
     const server = serve(out)
-    const dist = { ACDE_DIST: server.url.origin }
+    const dist = { ACDEV_DIST: server.url.origin }
     try {
       expect((await installPs1(home, 'release', dist)).code).toBe(0)
       const before = readFileSync(join(home, 'current', 'bin', 'acdebin-dbg.exe'))
@@ -539,11 +539,11 @@ describe('the release archive and the installed CLI', () => {
     const s = standIn()
     const home = tmp()
     const ran = await run([process.execPath, join(ROOT, 'src', 'cli.ts'), 'dev'], {
-      ...s.env, ACDERT: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
+      ...s.env, ACDEV_RUNTIME: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
     }, s.project)
     expect(ran.code).toBe(1)
     expect(ran.out).toContain('acdev dev needs the Dopame runtime (acdebin-dbg) and found none')
-    expect(ran.out).toContain('set ACDERT to an acdebin-dbg binary')
+    expect(ran.out).toContain('set ACDEV_RUNTIME to an acdebin-dbg binary')
     expect(home).toBeTruthy()
   }, 60_000)
 })

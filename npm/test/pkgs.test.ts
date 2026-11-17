@@ -12,7 +12,7 @@ describe('the download address', () => {
     expect(Pkgs.scriptProblems(read(`${INSTALLERS}/install.sh`), read(`${INSTALLERS}/install.ps1`))).toEqual([])
     expect(Pkgs.scriptProblems(read(`${INSTALLERS}/install.sh`).replaceAll(Pkgs.BASE, 'https://elsewhere'), read(`${INSTALLERS}/install.ps1`)))
       .toEqual([
-        `install.sh: the default download address is not ACDE_DIST=\${ACDE_DIST:-${Pkgs.ACDE}}`,
+        `install.sh: the default download address is not ACDEV_DIST=\${ACDEV_DIST:-${Pkgs.ACDE}}`,
       ])
   })
 

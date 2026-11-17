@@ -51,8 +51,8 @@
     不碰用户日常的配置
     (Chrome 136 起默认配置目录不许开远程调试), 长期复用. 端口从配置目录的 `DevToolsActivePort` 读 (第一行端口, 第二行浏览器端点路径);
     文件在且 `/json/version` 答得上就复用那个浏览器, 不再起第二个进程; 否则删掉旧文件再起, 最多等 20 s. 起不来、连不上或
-    `createTarget` 报错时打印地址和原因, 退出 0. `ACDE_BROWSER=none` 只打印地址.
-  - 浏览器查找顺序 (`Devtools.candidates`): `ACDE_BROWSER` 优先 (路径; `none`: 不打开, 只打印地址, 提示也说明是它的缘故);
+    `createTarget` 报错时打印地址和原因, 退出 0. `ACDEV_BROWSER=none` 只打印地址.
+  - 浏览器查找顺序 (`Devtools.candidates`): `ACDEV_BROWSER` 优先 (路径; `none`: 不打开, 只打印地址, 提示也说明是它的缘故);
     Windows 依次查 `ProgramFiles(x86)`、`ProgramFiles`、`LOCALAPPDATA` 下的 Edge, 再同样三处的 Chrome; macOS 是 `/Applications`、
     `~/Applications` 里的 Google Chrome.app, 再 Microsoft Edge.app; Linux 在 PATH 上依次找 `google-chrome`、`google-chrome-stable`、
     `chrome`、`chromium`、`chromium-browser`、`microsoft-edge`、`microsoft-edge-stable`. 都没有时打印地址和说明, 退出 0.
@@ -61,10 +61,10 @@
     `Authorization: Bearer`), WebSocket 地址没带 `?token=` 时补上 (DevTools 前端连 WebSocket 不能加请求头), 这时打印的地址含令牌,
     别贴进议题、日志或聊天.
   - 测试: 假 acdert 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`; `FAKE_ACDERT_DEVTOOLS_TOKENLESS=1` 时只回端口、不查令牌);
-    命令行用例设 `ACDE_BROWSER=none`; 启动浏览器的用例用假浏览器 (`test/fixtures/dev/fake-browser.ts`, `fakeBrowser()`): 它按
+    命令行用例设 `ACDEV_BROWSER=none`; 启动浏览器的用例用假浏览器 (`test/fixtures/dev/fake-browser.ts`, `fakeBrowser()`): 它按
     `--user-data-dir` 写 `DevToolsActivePort`, 记下启动参数和收到的 CDP 调用, 闲 15 s 自己退出; 进程内的用例经 `launch` 注入只记录.
 - **driver** (`acdev/driver`, `src/driver/`, 只用 `node:` 模块; 公开的接口类型、`ACTIONS`、`ActError` 和 `LaunchError` 在 `types.ts`, `acde.ts` 原样再导出, 只放 `Acde` 类): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
-  `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acdev dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
+  `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDEV_FOLLOWED=1`: 会话文件按子进程 pid 找, `acdev dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
   等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdebin-dbg 先答 `webs`, 窗口稍后进表; 有待答的批准提示 (只剩摄像头 / 麦克风会问) 也算起来了; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 见下文 `Acde.#stop`).
   **起不来** (`LaunchError`, 是 `Error`, `name` 仍是 `Error`: 0.0.8 的输出里是 `error:` / `Error:`; `phase` / `code` / `logs` 是 getter, bun 打错误时
@@ -155,7 +155,7 @@
   只读根元素的这三个属性: 跑了的 = tests − skipped, 通过 = 跑了的 − failures. 不解析 bun 给人看的输出. 文件加载就出错 (顶层抛错) 或进程被杀时
   bun 不写报告 (实测), 这样的文件不计数, 点名: `; not counted: <文件> (bun test left no report: the file did not load, or its run was killed)`.
   被 `-t` 整个跳过的文件不计.
-  `-t`: 子进程把登记的、名字匹配 `-t` 的、真正跑了的测试写进 `ACDE_TEST_MARKS` 指的文件 (`E2e.mark`); 登记过测试却一个也没匹配、一个也没跑的文件
+  `-t`: 子进程把登记的、名字匹配 `-t` 的、真正跑了的测试写进 `ACDEV_TEST_MARKS` 指的文件 (`E2e.mark`); 登记过测试却一个也没匹配、一个也没跑的文件
   算跳过 (bun 对这种文件退出码非 0), 不算失败; 所有文件都跳过时报 `no test matches -t` 并退出 1. 匹配按 JS 正则只看测试自己的名字, 正则无效当匹配
   (只会少算跳过; describe 名匹配时 bun 会跑, 有 `ran` 也不算跳过).
   启动 `acdev dev` 的限时是测试限时减 3 s (至少一半, `E2eRun.startTimeout`), 起不来时报的是 `Acde.launch` 的原因和输出 (`LaunchError`, 见 driver),
@@ -167,7 +167,7 @@
   文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdebin-dbg 要截图、快照、console、network
   这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdebin-dbg 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
   `--workers N` 同时跑几个文件 (默认核数的一半, 最多 4; `--headed` / `--bail` 时 1): 每个 worker 构建进自己的目录 (`.acde/test`、`.acde/test-2` …,
-  `ACDE_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acdev dev 再跑
+  `ACDEV_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acdev dev 再跑
   (后来过了就打 flaky, 结果目录只留最后一次), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,
   和上一张一样的不要, 最多 600 张, 拼成 APNG, `Png.animate` 只搬 PNG 的块不重编码), `--video=on` 每个测试都留; 失败时停录像最多等
   `VIDEO_MS` (5 s, 在 `keep` 之前, 两者都在宽限期里), 录像在 `acde.close()` 之后才收尾 (会话关了录像的循环才一定结束).

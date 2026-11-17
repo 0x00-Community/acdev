@@ -49,7 +49,7 @@ export class Sessions {
   static readonly RETRY_MS = 50
   static readonly READS = 3
   static readonly PROBE_MS = 1_000
-  static readonly TEST_ENV = 'ACDE_TEST_SESSION'
+  static readonly TEST_ENV = 'ACDEV_TEST_SESSION'
 
   static dir(env: NodeJS.ProcessEnv = process.env): string {
     const runtime = env['XDG_RUNTIME_DIR']

@@ -82,7 +82,7 @@ describe('the guest agent and QMP over their sockets', () => {
 
 describe('the QEMU command line', () => {
   test('KVM, virtio display, keyboard and tablet, the serial log, the share', () => {
-    const machine = new Machine({ ACDE_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
     const args = machine.args({ display: 'none', share: '/srv/out' }, true).join(' ')
     for (const part of ['-accel kvm', '-device virtio-vga', '-device virtio-keyboard-pci', '-device virtio-tablet-pci',
       '-display none', `path=${machine.serial}`, 'local,path=/srv/out,mount_tag=acdev', 'file=/c.fd']) {
@@ -94,7 +94,7 @@ describe('the QEMU command line', () => {
 
   test('acdev vm: an unknown subcommand, and stop or status with no guest', async () => {
     const dir = tmp()
-    const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDE_VM_DIR: dir }) })
+    const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDEV_VM_DIR: dir }) })
     const unknown = await run(['bogus'])
     expect(unknown.code).toBe(1)
     expect(unknown.stderr).toContain('unknown subcommand "bogus": fetch, start, stop')
@@ -104,13 +104,13 @@ describe('the QEMU command line', () => {
   })
 })
 
-const IMAGE = process.env['ACDE_VM_TEST_IMAGE'] ?? ''
+const IMAGE = process.env['ACDEV_VM_TEST_IMAGE'] ?? ''
 const QEMU = which('qemu-system-x86_64') !== null && Machine.kvm() && IMAGE !== '' && existsSync(IMAGE)
 
-describe('a real guest (ACDE_VM_TEST_IMAGE, QEMU and KVM)', () => {
+describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
   test.skipIf(!QEMU)('start --headless waits until ready; run, push, screenshot; stop', async () => {
     const dir = tmp()
-    const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDE_VM_DIR: dir }) })
+    const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDEV_VM_DIR: dir }) })
     try {
       const started = await run(['start', '--headless', '--image', IMAGE])
       expect(started.code, started.out).toBe(0)

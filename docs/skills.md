@@ -82,4 +82,4 @@ skills/acdev/references/<组>/<页>.md     组是 start / guide / reference; 路
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acdev on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
 `acdev` 能跑、`acdev skills install`、`acdev doctor` 查一遍 (找到的运行时、它的 GPU 自检等; 安装器已把配对的 acdebin-dbg 装在 acdev 旁边; `acdebin-dbg` 那项是错误时先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acdev dev --headless`
 截图、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acdev skills`、运行时怎么找变了, 这个文件一起改;
-要验证时在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).
+要验证时在临时 `HOME` 里照着走一遍 (`ACDEV_DIST` 指向本地 `dist.ts --out` 的目录).

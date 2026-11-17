@@ -29,7 +29,7 @@ Windows, in PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDE_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDE_NO_MODIFY_PATH=1`), and another install directory (`ACDE_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
+Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDEV_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDEV_NO_MODIFY_PATH=1`), and another install directory (`ACDEV_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
 
 If the user asked for npm, or the machine installs its tools with npm (a CI image, a container), run `npm install -g @dopame/acdev` instead (Node.js 22.3 or later; add `@X.Y.Z` for a version). It installs acdev with the runtime for this platform, acdebin-dbg, next to it, puts `acdev` where npm puts global commands (`npm prefix -g`), and changes no shell startup file; the steps below are the same.
 
@@ -64,7 +64,7 @@ Most agents load new skills when a session starts. For the rest of this session,
 
 ## 5. Check the setup
 
-`acdev dev` and `acdev test` run apps in the Dopame runtime, acdebin-dbg. The installer put the acdebin-dbg that this acdev pairs with next to it, so they should work now. acdev looks for acdebin-dbg in this order: `ACDERT`, the acdebin-dbg installed next to acdev, then `acdebin-dbg` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already on PATH). Check everything acdev needs:
+`acdev dev` and `acdev test` run apps in the Dopame runtime, acdebin-dbg. The installer put the acdebin-dbg that this acdev pairs with next to it, so they should work now. acdev looks for acdebin-dbg in this order: `ACDEV_RUNTIME`, the acdebin-dbg installed next to acdev, then `acdebin-dbg` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already on PATH). Check everything acdev needs:
 
 ```sh
 acdev doctor

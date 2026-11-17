@@ -41,7 +41,7 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 | `acdev` | The version of acdev and the JavaScript runtime it runs on |
 | `PATH` | Whether the `acdev` on PATH is this one, not another install or checkout |
 | `Bun and Node.js` | Bun 1.4+ and Node.js 22.3+ on PATH; `acdev test` and projects that use bun need Bun |
-| `acdebin-dbg` | The runtime `acdev dev` would run (`ACDERT`, else the one installed next to acdev, else PATH), and whether it runs |
+| `acdebin-dbg` | The runtime `acdev dev` would run (`ACDEV_RUNTIME`, else the one installed next to acdev, else PATH), and whether it runs |
 | `contract level` | Whether the runtime runs the contract level this acdev builds, and whether it is the release this acdev pairs with |
 | `host files`, `gpu`, `display` | The runtime's own check, `acdebin-dbg doctor`: its host files, the GPU (it draws a small frame and reads it back), and on Linux whether a host window can open |
 | `acdev dev sessions`, `approval` | The running `acdev dev` sessions, and every camera or microphone prompt that waits for an answer |
@@ -57,7 +57,7 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 No runtime:
 
 ```text
-error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no /Users/me/.acdev/versions/0.0.10/bin/acdebin-dbg, which the acdev installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH
+error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no /Users/me/.acdev/versions/0.0.10/bin/acdebin-dbg, which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH
        fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdebin-dbg that pairs with acdev next to it)
 ```
 
@@ -100,7 +100,7 @@ warn   approval: recorder waits for approval of microphone in acdev dev 4242, so
 | `acdev skills install` | The acdev skill is not installed for any coding agent, or an installed one is outdated or broken | No |
 | Add `.acde/` to the project's `.gitignore` | git does not ignore the build output | No |
 | Remove and make again the sessions directory | It is a link or a file, not a directory | No |
-| Run the installer of this acdev version again (`install.sh --version <this version> --no-modify-path`, `install.ps1 -Version … -NoModifyPath` on Windows) | The runtime next to acdev is missing, does not run, is of another contract level or release, or lacks its host files; only for an installed acdev, and not when `ACDERT` names the runtime | Yes: it downloads the runtime and replaces the install, all or nothing, as the installer always does |
+| Run the installer of this acdev version again (`install.sh --version <this version> --no-modify-path`, `install.ps1 -Version … -NoModifyPath` on Windows) | The runtime next to acdev is missing, does not run, is of another contract level or release, or lacks its host files; only for an installed acdev, and not when `ACDEV_RUNTIME` names the runtime | Yes: it downloads the runtime and replaces the install, all or nothing, as the installer always does |
 | The project's install (`bun install`, `npm install`, …) | Its dependencies are not installed | Yes: it downloads packages and runs their install scripts |
 | `acdev stop --session <pid>` | A running `acdev dev` does not answer | Yes: it ends a process you started |
 

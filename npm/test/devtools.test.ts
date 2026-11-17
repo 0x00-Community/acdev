@@ -34,10 +34,10 @@ describe('acdev devtools', () => {
     expect(Devtools.browser(lookup('linux', [], env))).toBeNull()
   })
 
-  test('ACDE_BROWSER names the browser; none opens nothing', () => {
+  test('ACDEV_BROWSER names the browser; none opens nothing', () => {
     const chromium = join('/usr/bin', 'chromium')
-    expect(Devtools.browser(lookup('linux', [chromium], { PATH: '/usr/bin', ACDE_BROWSER: 'none' }))).toBeNull()
-    expect(Devtools.browser(lookup('linux', [], { ACDE_BROWSER: '/opt/brave' })))
+    expect(Devtools.browser(lookup('linux', [chromium], { PATH: '/usr/bin', ACDEV_BROWSER: 'none' }))).toBeNull()
+    expect(Devtools.browser(lookup('linux', [], { ACDEV_BROWSER: '/opt/brave' })))
       .toEqual({ name: '/opt/brave', path: '/opt/brave' })
   })
 

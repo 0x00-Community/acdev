@@ -227,7 +227,7 @@ describe('channel streams', () => {
 })
 
 function realNode(): string | null {
-  const node = process.env['ACDE_TEST_NODE'] || which('node')
+  const node = process.env['ACDEV_TEST_NODE'] || which('node')
   if (!node) return null
   const probe = Bun.spawnSync([node, '-p', 'process.versions.bun ? "bun" : process.versions.node'])
   const version = probe.stdout.toString().trim()

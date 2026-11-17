@@ -34,7 +34,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 调 acdev 自己的 `build` 脚本 (`acdev`、`bunx acdev`、`npx acdev`) 不算, 否则 `acdev build` 调自己. 后端渲染的应用清单 `entry` 是 `/app/<id>/`
 (文档从后端取). 都不认 (或 `"framework": "none"`) 时 acdev 自己打:
 
-- `Bundler.for`: bun 上 `BunBundler`, Node 上 `ViteBundler` (`ACDE_BUNDLER=vite` 在 bun 上也用 Vite). `ViteBundler` 从工程往上找 `node_modules/vite`
+- `Bundler.for`: bun 上 `BunBundler`, Node 上 `ViteBundler` (`ACDEV_BUNDLER=vite` 在 bun 上也用 Vite). `ViteBundler` 从工程往上找 `node_modules/vite`
   (不打进 acdev, 没有就报 `add it with <pm> add -D vite`), `configFile: false` (规则和 bun 上一样), Vite 8 起 `rolldownOptions`, 之前 `rollupOptions`.
   两边文件名不同, 规则相同:
 - HTML 入口: `base` 是 `/app/<id>/` (桌面页 `/desktop/<id>/`), `acde:*` 外部, `NODE_ENV` `"production"`, `import.meta.env` 照 Vite (bun 上 define

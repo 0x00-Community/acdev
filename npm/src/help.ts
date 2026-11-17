@@ -279,7 +279,7 @@ export class Help {
       inspecting('devtools', '[web]', 'Open DevTools on a page', [
         'Opens the DevTools of Chrome or Edge on a page of the session: web (a web name, an app id, desktop, '
           + 'a window title, or services or a service name for the services), else the focused page. Prints the '
-          + 'DevTools address; without Chrome or Edge it prints only the address to paste into one. ACDE_BROWSER '
+          + 'DevTools address; without Chrome or Edge it prints only the address to paste into one. ACDEV_BROWSER '
           + 'names the browser to use; none opens nothing. F12 in a window of acdev dev does the same for the page '
           + 'in that window (fn+F12 on a Mac keyboard), and brings its DevTools to the front when they are open.',
       ], [], ['acdev devtools', 'acdev devtools notes', 'acdev devtools services']),
@@ -321,7 +321,7 @@ export class Help {
             + 'prints its output; push LOCAL [REMOTE] copies a file or directory in (default /opt/acdev/<name>); '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
-          'The images, the overlay disk, the sockets and the logs live in $ACDE_VM_DIR (default '
+          'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
             + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and OVMF; without /dev/kvm it emulates.',
         ],
         options: [

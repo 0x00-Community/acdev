@@ -6,7 +6,7 @@
 在 Linux 宿主上用 KVM 起一台 x86_64 的 Dopame OS 客户机, virtio-gpu 显示、virtio 键盘和平板、串口日志, 再把宿主上的文件
 (winman 和测试客户端的二进制) 送进去跑. 实现在命令行 `src/vm/`: `machine.ts` (目录、镜像、覆盖盘、QEMU 命令行、起停)、`channel.ts`
 (QMP 和 QEMU guest agent 的按行 JSON 协议)、`command.ts` (`acdev vm` 的子命令). 仓库根的 `scripts/vm.sh` 只是从检出跑 `acdev vm` 的入口
-(`scripts/vm.sh logs` 跟着看串口日志; 目录默认是仓库里的 `.vm/`, 旧名 `ACDEV_VM_DIR` 也认). 以后加 vsock 上的设备守护进程 (工作项 02)、
+(`scripts/vm.sh logs` 跟着看串口日志; 目录默认是仓库里的 `.vm/`). 以后加 vsock 上的设备守护进程 (工作项 02)、
 virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 
 ## 要什么
@@ -18,13 +18,13 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 
 ## 目录与镜像
 
-一切在 `$ACDE_VM_DIR` (默认 `$XDG_DATA_HOME/acde/vm`, 即 `~/.local/share/acde/vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
+一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acde/vm`, 即 `~/.local/share/acde/vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
 `disk.qcow2` (以基础镜像为底的覆盖盘) 和 `disk.base`、`vars.fd` (UEFI 变量)、`run/` (`qemu.pid`、`qmp.sock`、`qga.sock`、`share`)、
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 winman-lead 共用, 起之前先 `acdev vm status`).
 
 `fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
-AGENTS.md「CI」, `ACDE_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
+AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
 根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdev 的登录页 (acdebin-system). 用户 `dopame` 的密码是
 os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
@@ -47,7 +47,7 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 - 设备: q35、virtio-blk 系统盘、`virtio-vga` (客户机用 CPU 软件渲染, 不用 Mesa; 以后由 detour 做虚拟显卡转发, 用户 2026-11-17 定.
   `--gl` 换成 `virtio-vga-gl` 加 gtk 的 OpenGL 即 virgl, 只是留着的选项, 不在路线上)、`virtio-keyboard-pci`、`virtio-tablet-pci`
   (绝对坐标, 指针跟着宿主鼠标)、virtio-net (用户态网络)、guest agent 的 virtio-serial 通道、`-virtfs` (有 `--share` 时).
-  CPU 和内存用 `ACDE_VM_CPUS` (4)、`ACDE_VM_MEMORY` (8G). QEMU 经 `setsid` 起在后台, 不随 `acdev` 退出.
+  CPU 和内存用 `ACDEV_VM_CPUS` (4)、`ACDEV_VM_MEMORY` (8G). QEMU 经 `setsid` 起在后台, 不随 `acdev` 退出.
 - guest agent 的套接字一次只接一个客户端: `GuestAgent.open` 先发 `guest-sync` 跳过前一个客户端留下的输出, 等不到就关掉连接, 不然后来的都连不上.
 - 串口里默认只有固件和 systemd-boot 的输出: 装好的系统是静默启动 (`quiet loglevel=3`, 没有 `console=ttyS0`). `console` 在客户机启动项命令行
   末尾加 `console=tty0 console=ttyS0,115200 loglevel=6` (写在覆盖盘里, 重复跑不叠加).
@@ -76,7 +76,7 @@ glibc 较新); 不放心就静态链接 (musl).
 ## 测试
 
 `test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); QEMU 命令行的组成;
-没有客户机时的子命令. 设了 `ACDE_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机
+没有客户机时的子命令. 设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机
 (`start --headless` 等到就绪、`run` 的退出码、`push`、`screenshot`、`stop`), 约 20 s.
 
 ## 验证过的 (2026-11-17, Ubuntu 24.04 的 WSL2, QEMU 8.2.2, OVMF 4M)

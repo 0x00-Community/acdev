@@ -98,7 +98,7 @@ export class Acde {
       ...(options.force ? ['--force'] : []),
       '--verbose',
     ]
-    const env = cliEnv(runtime, { ...process.env, ...options.env, ACDE_FOLLOWED: '1' })
+    const env = cliEnv(runtime, { ...process.env, ...options.env, ACDEV_FOLLOWED: '1' })
     const child = Runtime.spawn(argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     const logs = new Logs()
     logs.follow(child.process.stdout!, 'stdout')
