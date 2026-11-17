@@ -7,7 +7,7 @@ const MAX = 16 << 20
 const CHUNK = 1 << 20
 
 export const Kind = {
-  VERSION: 'V', PUSH: 'P', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K',
+  VERSION: 'V', PUSH: 'P', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
   OK: 'O', ERROR: 'X', PID: 'I', STDOUT: '1', STDERR: '2', EXIT: 'Q',
 } as const
 
@@ -52,6 +52,19 @@ export interface RunHandlers {
   readonly pid?: (pid: number) => void
 }
 
+export interface ShellOptions {
+  readonly argv: readonly string[]
+  readonly rows: number
+  readonly cols: number
+  readonly term: string
+}
+
+export interface ShellSession {
+  input(data: Buffer): void
+  resize(rows: number, cols: number): void
+  readonly exit: Promise<number>
+}
+
 export interface Transport {
   open(): { write(data: Buffer): void; end(): void; frames: AsyncIterable<Frame>; close(): void }
 }
@@ -61,6 +74,7 @@ export class RelayTransport implements Transport {
 
   open() {
     const child: ChildProcess = spawn(this.binary, ['connect', String(this.cid), String(this.port)], { stdio: ['pipe', 'pipe', 'pipe'] })
+    child.stdin!.on('error', () => {})
     let failed = ''
     child.stderr!.on('data', (chunk: Buffer) => {
       failed += chunk.toString()
@@ -83,6 +97,17 @@ export class RelayTransport implements Transport {
 function fail(frame: Frame | undefined, what: string): never {
   if (frame?.kind === Kind.ERROR) throw new Error(`acdevd: ${frame.body.toString()}`)
   throw new Error(`acdevd: ${frame ? `unexpected ${frame.kind}` : 'no answer'} to ${what}`)
+}
+
+function words(list: readonly string[]): Buffer[] {
+  return list.map((word) => Buffer.from(`${word}\0`))
+}
+
+function size(rows: number, cols: number): Buffer {
+  const body = Buffer.alloc(4)
+  body.writeUInt16LE(Math.min(rows, 0xffff), 0)
+  body.writeUInt16LE(Math.min(cols, 0xffff), 2)
+  return body
 }
 
 async function first(frames: AsyncIterable<Frame>): Promise<Frame | undefined> {
@@ -127,7 +152,7 @@ export class Devd {
   async run(argv: readonly string[], handlers: RunHandlers = {}): Promise<number> {
     const conn = this.transport.open()
     try {
-      conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([0]), ...argv.map((arg) => Buffer.from(`${arg}\0`))])))
+      conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([0]), ...words(argv)])))
       for await (const frame of conn.frames) {
         if (frame.kind === Kind.PID) handlers.pid?.(frame.body.readUInt32LE(0))
         else if (frame.kind === Kind.STDOUT) handlers.stdout?.(frame.body)
@@ -144,7 +169,7 @@ export class Devd {
   async detach(argv: readonly string[]): Promise<{ pid: number; log: string }> {
     const conn = this.transport.open()
     try {
-      conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([1]), ...argv.map((arg) => Buffer.from(`${arg}\0`))])))
+      conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([1]), ...words(argv)])))
       let pid = 0
       for await (const frame of conn.frames) {
         if (frame.kind === Kind.PID) pid = frame.body.readUInt32LE(0)
@@ -154,6 +179,28 @@ export class Devd {
       return fail(undefined, 'run --detach')
     } finally {
       conn.close()
+    }
+  }
+
+  shell(options: ShellOptions, output: (chunk: Buffer) => void): ShellSession {
+    const conn = this.transport.open()
+    conn.write(encode(Kind.SHELL, Buffer.concat([size(options.rows, options.cols), ...words([options.term, ...options.argv])])))
+    const exit = (async () => {
+      try {
+        for await (const frame of conn.frames) {
+          if (frame.kind === Kind.STDOUT) output(frame.body)
+          else if (frame.kind === Kind.EXIT) return frame.body.readInt32LE(0)
+          else if (frame.kind !== Kind.PID) fail(frame, 'shell')
+        }
+        return fail(undefined, 'shell')
+      } finally {
+        conn.close()
+      }
+    })()
+    return {
+      input: (data) => conn.write(encode(Kind.DATA, data)),
+      resize: (rows, cols) => conn.write(encode(Kind.RESIZE, size(rows, cols))),
+      exit,
     }
   }
 

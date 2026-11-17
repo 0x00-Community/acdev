@@ -18,7 +18,7 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 
 ## 目录与镜像
 
-一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acde/vm`, 即 `~/.local/share/acde/vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
+一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acdev/vm`, 即 `~/.local/share/acdev/vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
 `disk.qcow2` (以基础镜像为底的覆盖盘) 和 `disk.base`、`vars.fd` (UEFI 变量)、`run/` (`qemu.pid`、`qmp.sock`、`qga.sock`、`share`)、
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 winman-lead 共用, 起之前先 `acdev vm status`).
@@ -37,6 +37,7 @@ acdev vm start                                  # 后台起客户机, 开一个�
 acdev vm start --headless --share ~/winman/target/release
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
+acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
@@ -57,7 +58,9 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
   `crates/devd/target/release/acdevd`, 没有就先 `cargo build --release` 编出来.
 - `run`、`push`、`kill` 走 vsock: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
   `/var/log/acdevd/<进程组号>.log`; `kill PID` (`--force` 用 SIGKILL) 停掉整个进程组; 在宿主上按 Ctrl+C 断开时, 前台运行的程序被结束.
-  guest agent 只用来装 acdevd、`mount` 和 `console`.
+- `shell` 在客户机里开一个伪终端 (pty): 本地终端切到原始模式, 按键原样送进去 (Ctrl+C 给客户机里的程序), 本地窗口改大小时跟着改,
+  退出码就是 shell 的. 不带命令时是 root 在 `/etc/passwd` 里的登录 shell (`-l`); 标准输入不是终端时也能用, 读完时送一个 Ctrl+D.
+- guest agent 只用来装 acdevd、`mount` 和 `console`.
 
 ## 把 winman 和测试客户端放进去跑
 

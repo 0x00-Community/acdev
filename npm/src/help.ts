@@ -319,7 +319,8 @@ export class Help {
             + 'disk (the image stays as it is) and waits until the guest is ready; stop powers it off; status, wait. '
             + 'screenshot FILE.png takes the guest screen. start also puts acdevd, the device daemon, in the guest; '
             + 'over vsock, run COMMAND runs a command as root in the guest, streams its output and exits with its code '
-            + '(--detach: in the background, its output in a log; kill PID stops it); push LOCAL [REMOTE] copies a file '
+            + '(--detach: in the background, its output in a log; kill PID stops it); shell [COMMAND] opens an '
+            + 'interactive terminal (a pty that follows the window size; exits with its code); push LOCAL [REMOTE] copies a file '
             + 'or directory in (default /opt/acdev/<name>); '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
@@ -338,7 +339,7 @@ export class Help {
           { flag: '--force', about: 'kill: SIGKILL instead of SIGTERM' },
         ],
         examples: [
-          'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a',
+          'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',
           'acdev vm screenshot screen.png', 'acdev vm stop',
         ],
       },

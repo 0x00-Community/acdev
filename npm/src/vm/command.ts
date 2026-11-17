@@ -59,6 +59,28 @@ async function status(machine: Machine, rest: readonly string[]): Promise<number
   return 0
 }
 
+async function shell(machine: Machine, rest: readonly string[]): Promise<number> {
+  machine.running()
+  const { stdin, stdout } = process
+  const area = () => ({ rows: stdout.rows || 24, cols: stdout.columns || 80 })
+  const argv = rest.length ? ['/bin/sh', '-c', rest.join(' ')] : []
+  const session = machine.devd().shell({ argv, term: process.env['TERM'] || 'xterm-256color', ...area() }, (chunk) => stdout.write(chunk))
+  const input = (data: Buffer) => session.input(data)
+  const ended = () => session.input(Buffer.from([4]))
+  const resized = () => session.resize(area().rows, area().cols)
+  if (stdin.isTTY) stdin.setRawMode(true)
+  stdin.on('data', input).on('end', ended)
+  stdout.on('resize', resized)
+  try {
+    return await session.exit
+  } finally {
+    stdin.off('data', input).off('end', ended)
+    stdout.off('resize', resized)
+    if (stdin.isTTY) stdin.setRawMode(false)
+    stdin.pause()
+  }
+}
+
 const STOPPED = { 'not running': 'not running', off: 'powered off', killed: 'no power-off in 60 s: killed qemu' }
 
 const HANDLERS: Readonly<Record<string, Handler>> = {
@@ -100,6 +122,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
       stderr: (chunk) => process.stderr.write(chunk),
     })
   },
+  shell,
   async kill(machine, rest, flags) {
     count('kill', rest, 1, 1, 'PID')
     machine.running()

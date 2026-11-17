@@ -1,5 +1,6 @@
 mod frame;
 mod serve;
+mod shell;
 mod vsock;
 
 use std::io::{self, Read, Write};

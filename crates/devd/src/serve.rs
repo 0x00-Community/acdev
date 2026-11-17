@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::frame::{self, Frame};
+use crate::shell;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -34,6 +35,7 @@ pub fn handle(stream: UnixStream, settings: &Settings) -> io::Result<()> {
         frame::PUSH => push(first, &mut reader, &mut writer),
         frame::RUN => run(&first.body, reader, writer.try_clone()?, settings),
         frame::KILL => signal(&first.body, &mut writer),
+        frame::SHELL => shell::run(&first.body, reader, writer.try_clone()?),
         other => Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown request {:?}", other as char))),
     };
     if let Err(error) = &done {
@@ -275,11 +277,83 @@ mod tests {
         fs::remove_dir_all(logs).unwrap();
     }
 
+    fn shell(rows: u16, cols: u16, words: &[&str]) -> Vec<u8> {
+        let mut body = [rows.to_le_bytes(), cols.to_le_bytes()].concat();
+        for word in std::iter::once(&"xterm").chain(words) {
+            body.extend_from_slice(word.as_bytes());
+            body.push(0);
+        }
+        body
+    }
+
+    fn output_until(host: &mut UnixStream, text: &str) -> String {
+        let mut seen = String::new();
+        while !seen.contains(text) {
+            let frame = frame::read(host).unwrap().unwrap();
+            assert_eq!(frame.kind, frame::STDOUT, "{seen}");
+            seen.push_str(&String::from_utf8_lossy(&frame.body));
+        }
+        seen
+    }
+
+    fn shell_pid(host: &mut UnixStream) {
+        let frame = frame::read(host).unwrap().unwrap();
+        assert_eq!(frame.kind, frame::PID, "{}", String::from_utf8_lossy(&frame.body));
+    }
+
+    fn exit_code(host: &mut UnixStream) -> i32 {
+        loop {
+            let frame = frame::read(host).unwrap().unwrap();
+            if frame.kind == frame::EXIT {
+                return i32::from_le_bytes(frame.body.try_into().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn a_shell_has_a_terminal_of_the_given_size_and_its_exit_code() {
+        let (mut host, server, _) = serve();
+        let script = "stty size; [ -t 0 ] && echo tty=$TERM; exit 5";
+        frame::write(&mut host, frame::SHELL, &shell(30, 100, &["/bin/sh", "-c", script])).unwrap();
+        shell_pid(&mut host);
+        let seen = output_until(&mut host, "tty=xterm");
+        assert!(seen.contains("30 100"), "{seen}");
+        assert_eq!(exit_code(&mut host), 5);
+        server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_shell_takes_input_and_follows_a_resize() {
+        let (mut host, server, _) = serve();
+        let script = "read line; stty size; echo got=$line; exit 0";
+        frame::write(&mut host, frame::SHELL, &shell(24, 80, &["/bin/sh", "-c", script])).unwrap();
+        shell_pid(&mut host);
+        let size = 50u32 | (132u32 << 16);
+        frame::write(&mut host, frame::RESIZE, &size.to_le_bytes()).unwrap();
+        frame::write(&mut host, frame::DATA, b"hello\r").unwrap();
+        let seen = output_until(&mut host, "got=hello");
+        assert!(seen.contains("50 132"), "{seen}");
+        assert_eq!(exit_code(&mut host), 0);
+        server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_hangup_ends_the_shell() {
+        let (mut host, server, _) = serve();
+        frame::write(&mut host, frame::SHELL, &shell(24, 80, &["/bin/sh", "-c", "echo ready; exec sleep 30"])).unwrap();
+        shell_pid(&mut host);
+        output_until(&mut host, "ready");
+        let started = std::time::Instant::now();
+        drop(host);
+        let _ = server.join().unwrap();
+        assert!(started.elapsed().as_secs() < 10);
+    }
+
     #[test]
     fn a_hangup_ends_the_program() {
         let (mut host, server, _) = serve();
         frame::write(&mut host, frame::RUN, &argv(0, &["/bin/sh", "-c", "exec sleep 30"])).unwrap();
-        assert_eq!(frame::read(&mut host).unwrap().unwrap().kind, frame::PID);
+        shell_pid(&mut host);
         let started = std::time::Instant::now();
         drop(host);
         let _ = server.join().unwrap();
