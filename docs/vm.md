@@ -40,6 +40,7 @@ acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
 acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个进程组的输出, 只留含 error 的行
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
+acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (权限位照旧); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
 acdev vm console                                # 客户机内核日志从下次启动起进串口
@@ -63,7 +64,7 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
   systemd 单元 `acdevd.service`, 开机自启, 起之前 `modprobe qemu_fw_cfg`), 等它在调试通道上应答 (见 `docs/devd.md`). vsock 时 QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
   `$ACDEV_VM_DIR` 的路径算出 (`Machine.cid()`, 3 起), 宿主要能读写 `/dev/vhost-vsock`. 宿主一侧的 acdevd 取 `ACDEV_DEVD`, 否则用检出里
   `crates/devd/target/release/acdevd`, 没有就先 `cargo build --release` 编出来.
-- `run`、`push`、`kill` 走调试通道: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
+- `run`、`push`、`pull`、`kill` 走调试通道: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
   `/var/log/acdevd/<进程组号>.log`; `kill PID` (`--force` 用 SIGKILL) 停掉整个进程组; 在宿主上按 Ctrl+C 断开时, 前台运行的程序被结束.
 - `shell` 在客户机里开一个伪终端 (pty): 本地终端切到原始模式, 按键原样送进去 (Ctrl+C 给客户机里的程序), 本地窗口改大小时跟着改,
   退出码就是 shell 的. 不带命令时是 root 在 `/etc/passwd` 里的登录 shell (`-l`); 标准输入不是终端时也能用, 读完时送一个 Ctrl+D.

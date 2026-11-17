@@ -5,6 +5,7 @@ pub const MAX: usize = 16 << 20;
 pub const AUTH: u8 = b'A';
 pub const VERSION: u8 = b'V';
 pub const PUSH: u8 = b'P';
+pub const PULL: u8 = b'G';
 pub const DATA: u8 = b'D';
 pub const END: u8 = b'E';
 pub const DONE: u8 = b'Z';

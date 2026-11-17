@@ -1,14 +1,14 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
 import { connect } from 'node:net'
-import { join, posix, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
 
 export const PORT = 5252
 const MAX = 16 << 20
 const CHUNK = 1 << 20
 
 export const Kind = {
-  AUTH: 'A', VERSION: 'V', PUSH: 'P', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
+  AUTH: 'A', VERSION: 'V', PUSH: 'P', PULL: 'G', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
   OK: 'O', ERROR: 'X', PID: 'I', STDOUT: '1', STDERR: '2', EXIT: 'Q',
 } as const
 
@@ -237,6 +237,40 @@ export class Devd {
       resize: (rows, cols) => conn.write(encode(Kind.RESIZE, size(rows, cols))),
       exit,
     }
+  }
+
+  async pull(remote: string, local: string): Promise<number> {
+    const conn = this.#open()
+    let open: { fd: number; part: string; target: string; mode: number } | null = null
+    try {
+      conn.write(encode(Kind.PULL, Buffer.from(remote)))
+      for await (const frame of conn.frames) {
+        if (frame.kind === Kind.PUSH) {
+          const target = Devd.#landing(local, frame.body.subarray(4).toString())
+          mkdirSync(dirname(target), { recursive: true })
+          const part = `${target}.acdev-part`
+          open = { fd: openSync(part, 'w'), part, target, mode: frame.body.readUInt32LE(0) }
+        } else if (frame.kind === Kind.DATA && open) writeSync(open.fd, frame.body)
+        else if (frame.kind === Kind.END && open) {
+          closeSync(open.fd)
+          chmodSync(open.part, open.mode & 0o7777)
+          renameSync(open.part, open.target)
+          open = null
+        } else if (frame.kind === Kind.OK) return frame.body.readUInt32LE(0)
+        else fail(frame, 'pull')
+      }
+      return fail(undefined, 'pull')
+    } finally {
+      if (open) closeSync(open.fd)
+      conn.close()
+    }
+  }
+
+  static #landing(local: string, name: string): string {
+    if (name === '') return local
+    const inside = normalize(name)
+    if (isAbsolute(inside) || inside === '..' || inside.startsWith(`..${sep}`)) throw new Error(`acdevd: ${name} is outside the pulled directory`)
+    return join(local, inside)
   }
 
   async kill(pid: number, force = false): Promise<void> {

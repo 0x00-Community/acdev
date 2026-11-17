@@ -174,6 +174,12 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     say(`${rest[0]} -> guest:${await machine.push(rest[0]!, rest[1])}`)
     return 0
   },
+  async pull(machine, rest) {
+    count('pull', rest, 1, 2, 'REMOTE [LOCAL]')
+    const { target, files } = await machine.pull(rest[0]!, rest[1])
+    say(`guest:${rest[0]} -> ${target} (${files} file${files === 1 ? '' : 's'})`)
+    return 0
+  },
   async mount(machine, rest) {
     count('mount', rest, 0, 0, 'no arguments')
     say(`guest:${Machine.SHARE} is ${await machine.mount()}`)

@@ -344,6 +344,14 @@ export class Machine {
     return to
   }
 
+  async pull(remote: string, local: string | undefined): Promise<{ target: string; files: number }> {
+    this.running()
+    const name = posix.basename(remote)
+    const given = resolve(local ?? name)
+    const target = local !== undefined && existsSync(given) && statSync(given).isDirectory() ? join(given, name) : given
+    return { target, files: await this.devd().pull(remote, target) }
+  }
+
   async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
     const binary = Devd.binary(Machine.ROOT, this.env)
     const data = readFileSync(binary)

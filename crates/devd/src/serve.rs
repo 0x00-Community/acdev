@@ -61,6 +61,7 @@ fn answer(first: Frame, mut reader: UnixStream, writer: &mut UnixStream, setting
     match first.kind {
         frame::VERSION => frame::write(writer, frame::OK, VERSION.as_bytes()),
         frame::PUSH => push(first, &mut reader, writer),
+        frame::PULL => pull(&first.body, writer),
         frame::RUN => run(&first.body, reader, writer.try_clone()?, settings),
         frame::KILL => signal(&first.body, writer),
         frame::SHELL => shell::run(&first.body, reader, writer.try_clone()?),
@@ -109,6 +110,57 @@ fn receive(body: &[u8], reader: &mut UnixStream) -> io::Result<()> {
     file.sync_all()?;
     fs::set_permissions(&part, fs::Permissions::from_mode(mode & 0o7777))?;
     fs::rename(&part, &path)
+}
+
+const CHUNK: usize = 1 << 20;
+
+fn pull(body: &[u8], writer: &mut UnixStream) -> io::Result<()> {
+    let root = PathBuf::from(String::from_utf8_lossy(body).into_owned());
+    if !root.is_absolute() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{} is not an absolute path", root.display())));
+    }
+    let mut files = 0u32;
+    if fs::metadata(&root)?.is_dir() {
+        send_tree(&root, &root, writer, &mut files)?;
+    } else {
+        send(&root, "", writer)?;
+        files = 1;
+    }
+    frame::write(writer, frame::OK, &files.to_le_bytes())
+}
+
+fn send_tree(root: &Path, dir: &Path, writer: &mut UnixStream, files: &mut u32) -> io::Result<()> {
+    let mut entries = fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            send_tree(root, &path, writer, files)?;
+        } else if kind.is_file() {
+            let relative = path.strip_prefix(root).map_err(io::Error::other)?;
+            send(&path, &relative.to_string_lossy(), writer)?;
+            *files += 1;
+        }
+    }
+    Ok(())
+}
+
+fn send(path: &Path, name: &str, writer: &mut UnixStream) -> io::Result<()> {
+    let mut file = File::open(path)?;
+    let mode = file.metadata()?.permissions().mode() & 0o7777;
+    let mut header = mode.to_le_bytes().to_vec();
+    header.extend_from_slice(name.as_bytes());
+    frame::write(writer, frame::PUSH, &header)?;
+    let mut buffer = vec![0u8; CHUNK];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        frame::write(writer, frame::DATA, &buffer[..read])?;
+    }
+    frame::write(writer, frame::END, &[])
 }
 
 fn command(body: &[u8]) -> io::Result<(bool, Command)> {
@@ -301,6 +353,50 @@ mod tests {
         assert_eq!(fs::metadata(dir.join("a/run.sh")).unwrap().permissions().mode() & 0o777, 0o755);
         assert_eq!(fs::metadata(dir.join("b.txt")).unwrap().permissions().mode() & 0o777, 0o644);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn pulled(path: &Path) -> (Vec<(u32, String, Vec<u8>)>, u32) {
+        let (mut host, server, _) = serve();
+        frame::write(&mut host, frame::PULL, path.to_string_lossy().as_bytes()).unwrap();
+        let mut files = Vec::new();
+        loop {
+            let reply = frame::read(&mut host).unwrap().unwrap();
+            match reply.kind {
+                frame::PUSH => files.push((frame::u32_at(&reply.body, 0).unwrap(), String::from_utf8_lossy(&reply.body[4..]).into_owned(), Vec::new())),
+                frame::DATA => files.last_mut().unwrap().2.extend_from_slice(&reply.body),
+                frame::END => {}
+                frame::OK => {
+                    server.join().unwrap().unwrap();
+                    return (files, frame::u32_at(&reply.body, 0).unwrap());
+                }
+                other => panic!("{:?}: {}", other as char, String::from_utf8_lossy(&reply.body)),
+            }
+        }
+    }
+
+    #[test]
+    fn pull_sends_a_file_or_a_tree_with_modes() {
+        let dir = std::env::temp_dir().join(format!("acdevd-pull-{}", rand()));
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub/run.sh"), "echo hi\n").unwrap();
+        fs::set_permissions(dir.join("sub/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(dir.join("a.txt"), vec![7u8; CHUNK + 5]).unwrap();
+        fs::set_permissions(dir.join("a.txt"), fs::Permissions::from_mode(0o640)).unwrap();
+        let (files, count) = pulled(&dir);
+        assert_eq!(count, 2);
+        let shape: Vec<_> = files.iter().map(|(mode, name, data)| (*mode, name.as_str(), data.len())).collect();
+        assert_eq!(shape, [(0o640, "a.txt", CHUNK + 5), (0o755, "sub/run.sh", 8)]);
+        let (files, count) = pulled(&dir.join("sub/run.sh"));
+        assert_eq!((count, files[0].1.as_str(), files[0].2.as_slice()), (1, "", &b"echo hi\n"[..]));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pulling_what_is_not_there_is_an_error() {
+        let (mut host, server, _) = serve();
+        frame::write(&mut host, frame::PULL, b"/no/such/acdevd/file").unwrap();
+        assert_eq!(frame::read(&mut host).unwrap().unwrap().kind, frame::ERROR);
+        assert!(server.join().unwrap().is_err());
     }
 
     #[test]

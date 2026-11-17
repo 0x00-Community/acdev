@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { which } from '../launcher.mjs'
@@ -167,6 +167,24 @@ describe('the acdevd protocol, host side', () => {
     await expect(new Devd(refused).kill(7)).rejects.toThrow('acdevd: no room')
   })
 
+  test('pull writes each file under LOCAL with its mode; a single file lands at LOCAL; .. is refused', async () => {
+    const dir = tmp()
+    const header = (mode: number, name: string) => Buffer.concat([u32(mode), Buffer.from(name)])
+    const tree = new Scripted(() => [frame(Kind.PUSH, header(0o755, 'sub/run.sh')), frame(Kind.DATA, Buffer.from('echo ')),
+      frame(Kind.DATA, Buffer.from('hi')), frame(Kind.END), frame(Kind.PUSH, header(0o600, 'b.txt')), frame(Kind.END), frame(Kind.OK, u32(2))])
+    expect(await new Devd(tree).pull('/srv/out', join(dir, 'out'))).toBe(2)
+    expect([tree.sent[0]!.kind, tree.sent[0]!.body.toString()]).toEqual([Kind.PULL, '/srv/out'])
+    expect(readFileSync(join(dir, 'out', 'sub', 'run.sh'), 'utf8')).toBe('echo hi')
+    expect(statSync(join(dir, 'out', 'sub', 'run.sh')).mode & 0o777).toBe(0o755)
+    expect(statSync(join(dir, 'out', 'b.txt')).mode & 0o777).toBe(0o600)
+    const one = new Scripted(() => [frame(Kind.PUSH, header(0o644, '')), frame(Kind.DATA, Buffer.from('png')), frame(Kind.END), frame(Kind.OK, u32(1))])
+    expect(await new Devd(one).pull('/tmp/shot.png', join(dir, 'shot.png'))).toBe(1)
+    expect(readFileSync(join(dir, 'shot.png'), 'utf8')).toBe('png')
+    const escape = new Scripted(() => [frame(Kind.PUSH, header(0o644, '../evil')), frame(Kind.END), frame(Kind.OK, u32(1))])
+    await expect(new Devd(escape).pull('/srv', join(dir, 'in'))).rejects.toThrow('outside the pulled directory')
+    expect(existsSync(join(dir, 'evil'))).toBe(false)
+  })
+
   test('with a key every connection starts with it', async () => {
     const transport = new Scripted((sent) => (sent.length < 2 ? [] : [frame(Kind.OK, Buffer.from('0.3.0'))]))
     expect(await new Devd(transport, Buffer.from('k3y')).version()).toBe('0.3.0')
@@ -323,7 +341,7 @@ async function devLoop(vmDir: string): Promise<string[]> {
 }
 
 describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
-  test.skipIf(!QEMU)('start --headless waits until ready with acdevd; run, push, detach, logs and kill, shell, the dev loop, screenshot; stop', async () => {
+  test.skipIf(!QEMU)('start --headless, acdevd ready; run, push, detach, logs, kill, shell, dev loop, wrong key, screenshot, pull; stop', async () => {
     const dir = tmp()
     const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDEV_VM_DIR: dir }) })
     try {
@@ -359,6 +377,19 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
       const shot = join(dir, 'screen.png')
       expect((await run(['screenshot', shot])).code).toBe(0)
       expect(readFileSync(shot).subarray(1, 4).toString()).toBe('PNG')
+      expect((await run(['push', shot, '/tmp/acdev-pull/shots/screen.png'])).code).toBe(0)
+      const copy = 'mkdir -p /tmp/acdev-pull/bin && cp /opt/acdev/cli.ts /tmp/acdev-pull/bin/ && chmod 750 /tmp/acdev-pull/bin/cli.ts'
+      expect((await run(['run', copy])).code).toBe(0)
+      const back = join(dir, 'back')
+      mkdirSync(back)
+      const pulled = await run(['pull', '/tmp/acdev-pull', back])
+      expect(pulled.code, pulled.out).toBe(0)
+      expect(pulled.stderr).toContain('(2 files)')
+      expect(readFileSync(join(back, 'acdev-pull', 'shots', 'screen.png'))).toEqual(readFileSync(shot))
+      expect(readFileSync(join(back, 'acdev-pull', 'bin', 'cli.ts'))).toEqual(readFileSync(CLI))
+      expect(statSync(join(back, 'acdev-pull', 'bin', 'cli.ts')).mode & 0o777).toBe(0o750)
+      expect((await run(['pull', '/tmp/acdev-pull/shots/screen.png', join(dir, 'one.png')])).code).toBe(0)
+      expect(readFileSync(join(dir, 'one.png'))).toEqual(readFileSync(shot))
     } finally {
       const stopped = await run(['stop'])
       expect(stopped.stderr).toMatch(/powered off|killed qemu|not running/)
