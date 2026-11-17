@@ -10,7 +10,7 @@ name: release
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
 # Gitea reads .github/workflows; the same file also runs on GitHub.
-# Every target builds on the debian12 runners: Linux natively, Windows with cargo-xwin (OpenSSL built beside it with clang),
+# Every target builds on the debian12 runners: Linux natively, Windows with cargo-xwin,
 # macOS with cargo-zigbuild and the MacOSX15.5 SDK; no macOS or Windows machine is needed.
 # Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
 # the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
@@ -277,31 +277,6 @@ jobs:
         with:
           key: dist-${{ matrix.triple }}
           workspaces: acdev -> target
-      - name: OpenSSL for Windows (openssl-src's own build wants Windows perl and nmake; this is clang with the MSVC target)
-        if: env.BUILD == 'true' && matrix.cross == 'xwin'
-        shell: bash
-        working-directory: acdev
-        env:
-          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
-        run: |
-          set -eu
-          cargo xwin env --target ${{ matrix.triple }} > /dev/null
-          cargo fetch --target ${{ matrix.triple }}
-          src=$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/openssl-src-*/openssl | sort -V | tail -1)
-          x="$HOME/.cache/cargo-xwin/xwin"
-          out="$RUNNER_TEMP/openssl"
-          cp -r "$src" "$RUNNER_TEMP/openssl-build"
-          cd "$RUNNER_TEMP/openssl-build"
-          inc="-isystem $x/crt/include -isystem $x/sdk/include/ucrt -isystem $x/sdk/include/um -isystem $x/sdk/include/shared"
-          CC=clang AR=llvm-ar RANLIB=llvm-ranlib CFLAGS="--target=${{ matrix.triple }} -O2 $inc -D_MT -Wno-everything" \
-            perl ./Configure mingw64 --prefix="$out" --libdir=lib no-shared no-module no-tests no-comp no-zlib no-zlib-dynamic \
-            no-ssl3 no-md2 no-rc5 no-weak-ssl-ciphers no-camellia no-idea no-seed no-capieng no-asm no-apps
-          make -j"$(nproc)" build_libs > /dev/null
-          mkdir -p "$out/lib" "$out/include"
-          cp -r include/openssl "$out/include/"
-          cp libcrypto.a "$out/lib/libcrypto.lib"
-          cp libssl.a "$out/lib/libssl.lib"
-          { echo "OPENSSL_NO_VENDOR=1"; echo "OPENSSL_STATIC=1"; echo "OPENSSL_DIR=$out"; } >> "$GITHUB_ENV"
       - name: the release version into Cargo.toml and package.json (not committed)
         if: env.BUILD == 'true'
         run: sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev acdert
