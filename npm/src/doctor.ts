@@ -389,7 +389,7 @@ export class Doctor {
       ? `package.json names ${named}, ${installed} is installed`
       : `the project has ${installed ?? named ?? state.spec}`
     return Doctor.warn('dependencies', 'dependencies', `${Sdk.NAME}: ${has}; this acde pairs with ${sdk} `
-      + `(acde sdk update sets it to ${Sdk.url()} and reinstalls)`, fix)
+      + `(acde sdk update sets it to ${Sdk.spec()} and reinstalls)`, fix)
   }
 
   static installedPackage(dir: string, name: string): string | null {

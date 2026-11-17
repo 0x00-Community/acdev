@@ -5,7 +5,8 @@
 | Variable | Effect |
 | --- | --- |
 | `ACDE_INSTALL` | Install directory, default `~/.acde` |
-| `ACDE_DIST` | Where the installers download acde and its runtime from, where `acde new` and `acde sdk update` point the SDK dependency, and where `acde doctor --online` looks for a newer one; default `https://pkgs.dopame.ai/acde` |
+| `ACDE_DIST` | Where the installers download acde and its runtime from, and where `acde doctor --online` looks for a newer one; default `https://pkgs.dopame.ai/acde` |
+| `ACDE_SDK` | The SDK directory `acde new` and `acde sdk update` point `@dopame/acde-api` at; default the one that comes with acde |
 | `ACDERT` | The acdebin-dbg binary `acde dev` and `acde test` run: a path, or a name on PATH. Unset: the acdebin-dbg the installer put next to acde, then `acdebin-dbg` (or an older `acdert`) on PATH |
 | `ACDE_BUNDLER=vite` | Bundle with Vite on Bun too |
 | `ACDE_DEBUG=1` | An error also prints its stack trace (normally only the one-line message) (after 0.0.9) |

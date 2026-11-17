@@ -21,21 +21,17 @@
   `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
   (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
-- `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 也随每次发布发到 npm (`@dopame/acde-api`, 见 `release-distribution.md` 的「npm」), 但工程的依赖不用 npm 版本号, 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
-  `https://pkgs.dopame.ai/acde/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
-  取 acde 自己 `file:` 依赖的 acdert 检出里的 SDK 版本). 没有别的覆盖方式, 不回退到 npm 版本号; `ACDE_DIST` 设了时换掉地址前缀, 只给本地镜像
-  测试用 (测试的 `sdkMirror()` 把检出的 SDK 打成同样的 tarball 再起本地服务), 文档不提. 换机器、CI 都装得上, lockfile 记下 tarball 与校验和.
+- `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acde 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
+  `Sdk.dir()`): 检出跑的是 acde 自己 `file:` 依赖的 `npm/acde-api` (acdev 检出里), 全局装的是安装目录的 `current/lib/acde-api`; 设了
+  `ACDE_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acde 的机器上装得上.
   开发 acde 的人 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
-  `acde check` 见到工程的 `@dopame/acde-api` 是指向本机绝对路径的 `file:` (`AppPackage.localSdk`, 含盘符、`~`) 时打警告 (旧版 acde 建的工程),
-  说明别处装不上, 让人跑 `acde sdk update`. 版本配对 (`src/sdk.ts`): `Sdk.state` 从 tarball 地址取版本 (别的写法读 `node_modules` 里装的),
-  与 `Sdk.paired()` 不同时 `acde check` 打警告、`acde dev` 开始时打一行 (`AppPackage.sdkWarning`). `acde sdk [dir]` 显示两边版本;
-  `acde sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进 devDependencies) 改成配对版本的 tarball 地址, 按 `PackageManager.of`
-  (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找) 装的是别的版本时, 警告改成 `package.json names … but X is
-  installed: run <pm> install` (`SdkState.installed`). npm 12 默认拒绝网址依赖 (`allow-remote` 默认 `none`,
-  `EALLOWREMOTE`, gitea acde#89): 包管理器是 npm 12 起 (`Sdk.refusesUrls(pm.version())`) 时 `.npmrc` 写 `allow-remote=root` (`Sdk.allowRemote`:
-  已有任何 `allow-remote` 行就不动; `acde new --pm npm` 和 npm 工程的 `sdk update` 都加). npm 11 不写, 照旧: 实测 10.9 和 11.0 不认也不提,
-  11.5 到 11.13 每次运行都打 `npm warn Unknown project config "allow-remote"`, 11.14 起认这个键但默认 `all`, 写 `root` 反而收紧 (只许
-  package.json 里直接写的网址). 用 npm 11 建的工程换到 npm 12 上要先跑一次 `acde sdk update` (或自己加这一行). `sdk update` 先做完会失败的 (读 package.json、`PackageManager.of`、找包管理器的程序: 不在 PATH 上报
+  版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读
+  `node_modules` 里装的). 依赖不是这个 acde 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acde check` 打警告、`acde dev` 开始时打一行
+  (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @dopame/acde-api is <写法>, but this acde's SDK is file:<路径>: run acde sdk update`;
+  路径对、版本和 `Sdk.paired()` 不同时报版本. `acde sdk [dir]` 显示两边; `acde sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进
+  devDependencies) 改成 `Sdk.spec()`, 按 `PackageManager.of` (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找)
+  装的是别的版本时, 警告改成 `package.json names … but X is installed: run <pm> install` (`SdkState.installed`). 以前为 npm 12 拒绝网址依赖
+  写的 `.npmrc` `allow-remote=root` 不再需要, 已去掉. `sdk update` 先做完会失败的 (读 package.json、`PackageManager.of`、找包管理器的程序: 不在 PATH 上报
   `<pm> is not on PATH, and this project installs with <pm>: nothing was changed`) 并记下 package.json、各锁文件和 `.npmrc`, 然后才写.
   workspace 成员的锁文件在根上: 记下的是工程目录、`PackageManager.of` 找到锁文件或 `packageManager` 的目录 (`PackageManager.at`) 和 npm 时
   `npm prefix` 给的目录 (npm 的 workspace 根) 这几处的文件; `.npmrc` 写在 `npm prefix` 那里 (npm 12.2.2 实测: 成员里的 `.npmrc` 报

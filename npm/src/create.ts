@@ -178,9 +178,7 @@ export class Creator {
       }
       if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
         writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
-      const version = pm.version()
-      if (pm.name === 'npm' && Sdk.refusesUrls(version)) Sdk.allowRemote(dir)
-      Creator.#pin(dir, pm, version)
+      Creator.#pin(dir, pm, pm.version())
     } catch (error) {
       Creator.#undo(dir, existed)
       const left = existed ? `${dir} is empty again` : `${dir} was removed`
@@ -369,7 +367,7 @@ export class Creator {
       ...json.scripts,
       ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])),
     }
-    json.devDependencies = { ...json.devDependencies, [Sdk.NAME]: Sdk.url(), ...extra }
+    json.devDependencies = { ...json.devDependencies, [Sdk.NAME]: Sdk.spec(), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 

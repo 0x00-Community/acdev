@@ -14,13 +14,12 @@ import { API_LEVEL, Manifest } from '../src/manifest/index.ts'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
-import { Pkgs } from '../src/pkgs.ts'
 import { Sdk } from '../src/sdk.ts'
 import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
 import { Tools } from '../src/tools.ts'
-import { cleanup, collect, env, fakePm, sdkMirror, standIn, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, fakePm, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
@@ -258,7 +257,7 @@ describe('acde.config.jsonc', () => {
     const dir = join(tmp(), 'hello')
     expect((await cli(['new', dir, '--label', 'Hi', '--no-install'], tmp())).code).toBe(0)
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toBe(
-      Sdk.url(),
+      Sdk.spec(),
     )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
     const installed = await cli(['install'], dir, { XDG_DATA_HOME: data })
@@ -482,7 +481,7 @@ describe('acde.config.jsonc', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe(page)
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Sdk.url() })
+    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Sdk.spec() })
     expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
@@ -545,34 +544,29 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is the tarball of the version this acde pairs with, from the download site', () => {
+  test('the SDK is this acde\'s npm/acde-api, by path; ACDE_SDK names another', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
-    const saved = process.env['ACDE_DIST']
-    delete process.env['ACDE_DIST']
+    const saved = process.env['ACDE_SDK']
+    delete process.env['ACDE_SDK']
     try {
-      expect(Sdk.url()).toBe(`${Pkgs.ACDE}/${version}/acde-api-${version}.tar.gz`)
+      expect(Sdk.spec()).toBe(`file:${realpathSync(API)}`)
+      const other = tmp()
+      process.env['ACDE_SDK'] = other
+      expect(Sdk.spec()).toBe(`file:${realpathSync(other)}`)
     } finally {
-      if (saved !== undefined) process.env['ACDE_DIST'] = saved
+      if (saved === undefined) delete process.env['ACDE_SDK']
+      else process.env['ACDE_SDK'] = saved
     }
   })
 
-  test('npm 12 projects get an .npmrc that lets npm fetch the SDK tarball; npm 11 and others do not', async () => {
+  test('new projects get no .npmrc: the SDK is a path, not a URL npm 12 refuses', async () => {
     const npm = (version: string) => fakePm('npm', `console.log(${JSON.stringify(version)})`)
     const twelve = join(tmp(), 'with-npm-12')
     expect((await cli(['new', twelve, '--pm', 'npm', '--no-install'], tmp(), { PATH: npm('12.2.2') })).code).toBe(0)
-    expect(readFileSync(join(twelve, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    expect(existsSync(join(twelve, '.npmrc'))).toBe(false)
     expect(JSON.parse(readFileSync(join(twelve, 'package.json'), 'utf8')).packageManager).toBe('npm@12.2.2')
-    const eleven = join(tmp(), 'with-npm-11')
-    expect((await cli(['new', eleven, '--pm', 'npm', '--no-install'], tmp(), { PATH: npm('11.10.0') })).code).toBe(0)
-    expect(existsSync(join(eleven, '.npmrc'))).toBe(false)
-    expect(Sdk.refusesUrls('12.0.0')).toBe(true)
-    expect(Sdk.refusesUrls('11.16.0')).toBe(false)
-    expect(Sdk.refusesUrls(null)).toBe(false)
-    const bun = join(tmp(), 'with-bun')
-    expect((await cli(['new', bun, '--pm', 'bun', '--no-install'], tmp())).code).toBe(0)
-    expect(existsSync(join(bun, '.npmrc'))).toBe(false)
   })
 
   test('npm, pnpm and yarn projects get vite for the html and desktop templates, bun ones do not', () => {
@@ -653,27 +647,23 @@ describe('a project made by acde from its checkout', () => {
 
   for (const pm of ['bun', 'npm', 'pnpm', 'yarn'] as const) {
     const skip = pm !== 'bun' && (!which(pm) || !which('node'))
-    test.skipIf(skip)(`${pm}: acde new installs the paired SDK tarball into the lock file; run build`, async () => {
-      const sdk = sdkMirror()
-      try {
+    test.skipIf(skip)(`${pm}: acde new installs this acde's SDK by path; run build`, async () => {
+      {
         const dir = join(tmp(), `by-${pm}`)
         const path = tools(pm === 'bun' ? ['bun'] : [pm, 'node', 'bun'])
         const argv = [process.execPath, join(ROOT, 'src/cli.ts'), 'new', dir, '--pm', pm, '--yes']
         const PATH = [path, ...basePath(pm === 'bun' ? process.execPath : pm)].join(delimiter)
-        const made = await run(argv, tmp(), path, { ACDE_DIST: sdk.dist, PATH })
+        const made = await run(argv, tmp(), path, { PATH })
         expect(made.code, made.out).toBe(0)
         const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         expect(pkg.packageManager).toStartWith(`${pm}@`)
-        const tarball = `acde-api-${sdk.version}.tar.gz`
-        expect(pkg.devDependencies['@dopame/acde-api']).toBe(`${sdk.dist}/${sdk.version}/${tarball}`)
-        expect(readFileSync(join(dir, LOCKS[pm]), 'utf8')).toContain(tarball)
+        expect(pkg.devDependencies['@dopame/acde-api']).toBe(Sdk.spec())
+        expect(readFileSync(join(dir, LOCKS[pm]), 'utf8')).toContain('acde-api')
         expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
         const build = pm === 'bun' ? [process.execPath, 'run', 'build'] : [pm, 'run', 'build']
         const built = await run(build, dir, path)
         expect(built.out).toContain(`built app by-${pm}`)
         expect(built.code).toBe(0)
-      } finally {
-        sdk.stop()
       }
     }, 180_000)
   }

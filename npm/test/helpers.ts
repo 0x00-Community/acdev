@@ -1,5 +1,5 @@
 import {
-  cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync,
+  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,27 +29,13 @@ export interface SdkMirror {
   stop(): void
 }
 
-export function sdkMirror(api = join(import.meta.dir, '../acde-api')): SdkMirror {
-  const { version } = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { version: string }
-  const root = tmp()
-  const stage = join(root, 'stage', 'package')
-  cpSync(api, stage, { recursive: true, filter: (from) => !/[\\/]node_modules$/.test(from) })
-  mkdirSync(join(root, version), { recursive: true })
-  const windows = process.platform === 'win32'
-  const tar = windows ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar'
-  const tarball = join(root, version, `acde-api-${version}.tar.gz`)
-  const plain = process.platform === 'darwin' ? ['--no-mac-metadata', '--no-xattrs'] : []
-  const packed = Bun.spawnSync([tar, ...plain, '-czf', tarball, '-C', join(root, 'stage'), 'package'], { env: { ...process.env, COPYFILE_DISABLE: '1' } })
-  if (packed.exitCode !== 0) throw new Error(`tar: ${packed.stderr.toString()}`)
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    fetch(request) {
-      const file = join(root, decodeURIComponent(new URL(request.url).pathname))
-      return existsSync(file) ? new Response(Bun.file(file)) : new Response('not found', { status: 404 })
-    },
-  })
-  return { dist: `http://127.0.0.1:${server.port}`, version, stop: () => void server.stop(true) }
+export function brokenSdk(): string {
+  const dir = tmp()
+  const { version } = JSON.parse(readFileSync(join(import.meta.dir, '../acde-api/package.json'), 'utf8')) as { version: string }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({
+    name: '@dopame/acde-api', version, dependencies: { 'acde-missing': `file:${join(dir, 'missing')}` },
+  }))
+  return dir
 }
 
 export function cleanup(): void {
@@ -59,7 +45,7 @@ export function cleanup(): void {
 }
 
 const SCRUBBED =
-  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_DIST|ACDE_INSTALL|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
+  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_DIST|ACDE_SDK|ACDE_INSTALL|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
 
 export function env(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}

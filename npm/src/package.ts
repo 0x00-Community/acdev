@@ -142,19 +142,7 @@ export class AppPackage {
   sdkWarning(): string | null {
     if (!this.project) return null
     const pm = () => PackageManager.of(this.dir).name
-    return AppPackage.localSdk(this.project.pkg) ?? Sdk.warning(Sdk.state(this.dir, this.project.pkg), pm)
-  }
-
-  static localSdk(pkg: Readonly<Record<string, unknown>>): string | null {
-    const lists = [pkg['dependencies'], pkg['devDependencies']] as (Record<string, unknown> | undefined)[]
-    const spec = lists.map((list) => list?.['@dopame/acde-api']).find((value) => typeof value === 'string') as
-      | string
-      | undefined
-    if (!spec?.startsWith('file:')) return null
-    const path = spec.slice('file:'.length)
-    if (!isAbsolute(path) && !/^[A-Za-z]:[\\/]/.test(path) && !path.startsWith('~')) return null
-    return `package.json: @dopame/acde-api is ${spec}, a path on this machine, so the project does not install `
-      + 'anywhere else: run acde sdk update to depend on the SDK tarball this acde pairs with'
+    return Sdk.warning(Sdk.state(this.dir, this.project.pkg), pm, this.dir)
   }
 
   #configApps(): ConfigApp[] | null {

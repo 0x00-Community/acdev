@@ -8,7 +8,7 @@ import { ACTIONS } from '../src/driver/acde.ts'
 import { Help } from '../src/help.ts'
 import { AppPackage } from '../src/package.ts'
 import { Tools } from '../src/tools.ts'
-import { cleanup, collect, env, standIn, tmp } from './helpers.ts'
+import { brokenSdk, cleanup, collect, env, standIn, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
@@ -251,7 +251,7 @@ describe('mistakes', () => {
 describe('acde new when a step fails', () => {
   test('a failed install keeps the project and says how to finish it', async () => {
     const dir = join(tmp(), 'no-deps')
-    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDE_DIST: 'http://127.0.0.1:9' })
+    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDE_SDK: brokenSdk() })
     expect(made.code).toBe(1)
     expect(made.stdout).toBe('')
     expect(made.stderr).toStartWith(`acde: the project is in ${dir}, but its dependencies are not installed; `

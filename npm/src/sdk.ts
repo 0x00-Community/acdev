@@ -2,7 +2,6 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installDir, installed } from 'acde/launcher'
 import { up } from './paths.ts'
-import { Pkgs } from './pkgs.ts'
 import { Output } from './output.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime, type Child } from './runtime.ts'
@@ -18,12 +17,9 @@ export interface SdkState {
 export class Sdk {
   static readonly NAME = '@dopame/acde-api'
   static readonly SECTIONS = ['devDependencies', 'dependencies'] as const
-  static readonly DIST = Pkgs.ACDE
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
-  static readonly NPMRC = 'allow-remote=root'
   static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
   static readonly PREFIX_MS = 30_000
-  static readonly NPM_REFUSES = 12
   static readonly LOCKS = [
     'package-lock.json', 'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock',
   ]
@@ -33,12 +29,13 @@ export class Sdk {
     return version
   }
 
-  static url(version = Sdk.paired()): string {
-    const base = (process.env['ACDE_DIST'] || Sdk.DIST).replace(/\/+$/, '')
-    return `${base}/${version}/acde-api-${version}.tar.gz`
+  static spec(): string {
+    return `file:${Sdk.dir()}`
   }
 
   static dir(): string {
+    const given = process.env['ACDE_SDK']
+    if (given) return realpathSync(resolve(given))
     const lib = dirname(Sdk.ROOT)
     if (installed(Sdk.ROOT)) {
       const current = join(installDir(), 'current', 'lib')
@@ -78,29 +75,28 @@ export class Sdk {
     }
   }
 
-  static refusesUrls(npm: string | null): boolean {
-    return npm !== null && Number(npm.split('.', 1)[0]) >= Sdk.NPM_REFUSES
-  }
-
-  static allowRemote(dir: string): boolean {
-    const file = join(dir, '.npmrc')
-    const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
-    if (/^\s*allow-remote\s*=/m.test(text)) return false
-    writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${Sdk.NPMRC}\n`)
-    return true
+  static path(dir: string, spec: string): string | null {
+    if (!spec.startsWith('file:')) return null
+    const at = resolve(dir, spec.slice('file:'.length))
+    return existsSync(at) ? realpathSync(at) : at
   }
 
   static versionOf(dir: string, spec: string): string | null {
     const tarball = /\/acde-api-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.tar\.gz$/.exec(spec)
     if (tarball) return tarball[1]!
-    const installed = join(dir, 'node_modules', '@dopame', 'acde-api', 'package.json')
+    const path = Sdk.path(dir, spec)
+    const installed = join(path ?? join(dir, 'node_modules', '@dopame', 'acde-api'), 'package.json')
     if (!existsSync(installed)) return null
     const { version } = JSON.parse(readFileSync(installed, 'utf8')) as { version?: unknown }
     return typeof version === 'string' ? version : null
   }
 
-  static warning(state: SdkState, pm: () => string): string | null {
+  static warning(state: SdkState, pm: () => string, dir = ''): string | null {
     if (state.spec === null) return null
+    const path = Sdk.path(dir, state.spec)
+    if (path === null || path !== Sdk.dir()) {
+      return `package.json: ${Sdk.NAME} is ${state.spec}, but this acde's SDK is ${Sdk.spec()}: run acde sdk update`
+    }
     if (state.version !== state.paired) {
       const has = state.version === null ? state.spec : `${state.version} (${state.spec})`
       return `package.json: ${Sdk.NAME} is ${has}, but this acde pairs with ${state.paired}: run acde sdk update`
@@ -112,10 +108,10 @@ export class Sdk {
   static show(dir: string, pkg: Readonly<Record<string, unknown>>): string[] {
     const state = Sdk.state(dir, pkg)
     const project = state.spec === null ? 'none' : `${state.version ?? 'unknown version'} (${state.spec})`
-    const warning = Sdk.warning(state, () => PackageManager.of(dir).name)
+    const warning = Sdk.warning(state, () => PackageManager.of(dir).name, dir)
     return [
       `project: ${project}`,
-      `this acde: ${state.paired} (${Sdk.url(state.paired)})`,
+      `this acde: ${state.paired} (${Sdk.spec()})`,
       ...(warning ? [warning] : state.spec === null ? ['run acde sdk update to add it'] : ['up to date']),
     ]
   }
@@ -128,14 +124,13 @@ export class Sdk {
     const pkg = JSON.parse(before) as Record<string, Record<string, string> | unknown>
     const state = Sdk.state(dir, pkg)
     const section = state.section ?? 'devDependencies'
-    const url = Sdk.url(state.paired)
-    const deps = { ...((pkg[section] as Record<string, string> | undefined) ?? {}), [Sdk.NAME]: url }
+    const spec = Sdk.spec()
+    const deps = { ...((pkg[section] as Record<string, string> | undefined) ?? {}), [Sdk.NAME]: spec }
     pkg[section] = deps
     const pm = PackageManager.of(dir)
     const install = Sdk.#install(pm)
     const config = pm.name === 'npm' ? realpathSync(await Sdk.#prefix(install[0]!, dir)) : dir
     const places = [...new Set([dir, ...(pm.at === null ? [] : [realpathSync(pm.at)]), config])]
-    const gate = pm.name === 'npm' && Sdk.refusesUrls(pm.version())
     const kept = Sdk.#keep([file, ...places.flatMap((at) => [
       ...(at === dir ? [] : ['package.json']), ...Sdk.LOCKS, '.npmrc',
     ].map((name) => join(at, name)))])
@@ -150,12 +145,10 @@ export class Sdk {
       else if (process.platform !== 'win32') child.kill(name === 'SIGINT' ? 'SIGTERM' : name)
     }] as const)
     for (const [name, stop] of stops) process.on(name, stop)
-    let npmrc = false
     let ran = false
     let failure: string | null = null
     try {
       writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`)
-      npmrc = gate && Sdk.allowRemote(config)
       child = Runtime.spawn(install, { cwd: dir, stdio: 'inherit' })
       const code = await child.exited.catch((error: unknown) => {
         failure = `${pm.name} install did not start (${Output.message(error)})`
@@ -169,9 +162,7 @@ export class Sdk {
       for (const [name, stop] of stops) process.off(name, stop)
     }
     if (signal === null && failure === null) {
-      const npmrcAt = Sdk.#shown(dir, join(config, '.npmrc'))
-      const added = npmrc ? `; ${npmrcAt} now has ${Sdk.NPMRC} (npm 12 refuses URL dependencies without it)` : ''
-      return `acde: ${Sdk.NAME} is ${state.paired} (${url}), installed with ${pm.name}${added}`
+      return `acde: ${Sdk.NAME} is ${state.paired} (${spec}), installed with ${pm.name}`
     }
     const failed = Sdk.#restore(kept)
     const was = state.spec === null ? `no ${Sdk.NAME}` : `${Sdk.NAME} ${state.version ?? state.spec}`

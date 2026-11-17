@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Pkgs } from '../src/pkgs.ts'
 import { Sdk } from '../src/sdk.ts'
-import { cleanup, collect, env, fakePm, sdkMirror, tmp, WINDOWS } from './helpers.ts'
+import { brokenSdk, cleanup, collect, env, fakePm, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -53,7 +53,7 @@ describe('acde check on a project', () => {
     expect(system.code).toBe(0)
   })
 
-  test('check and acde sdk: an SDK on a local path, or not the version this acde pairs with', async () => {
+  test('check and acde sdk: an SDK at another path, a tarball, or this acde\'s own', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'portable' }))
@@ -62,22 +62,15 @@ describe('acde check on a project', () => {
         name: 'portable',
         devDependencies: { '@dopame/acde-api': spec },
       }))
-    for (const spec of ['file:/Users/me/.acde/current/lib/acde-api', 'file:C:/Users/me/.acde/current/lib/acde-api']) {
+    for (const spec of ['file:/Users/me/acdev/npm/acde-api', `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`]) {
       write(spec)
       const checked = await cli(['check'], dir)
       expect(checked.code).toBe(0)
-      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, a path on this machine`)
-      expect(checked.stderr).toContain('run acde sdk update')
+      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, but this acde's SDK is `
+        + `${Sdk.spec()}: run acde sdk update`)
     }
-    const paired = Sdk.paired()
-    const older = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
-    write(older)
-    const old = await cli(['check'], dir)
-    expect(old.code).toBe(0)
-    expect(old.stderr).toContain(`@dopame/acde-api is 0.0.7 (${older}), `
-      + `but this acde pairs with ${paired}: run acde sdk update`)
     expect((await cli(['sdk'], dir)).stdout).toContain(`project: 0.0.7 (`)
-    write(`${Pkgs.ACDE}/${paired}/acde-api-${paired}.tar.gz`)
+    write(Sdk.spec())
     expect((await cli(['check'], dir)).stderr).toBe('')
     expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe('up to date')
   })
@@ -88,7 +81,7 @@ describe('acde check on a project', () => {
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
     const paired = Sdk.paired()
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      name: 'stale', devDependencies: { '@dopame/acde-api': `${Pkgs.ACDE}/${paired}/acde-api-${paired}.tar.gz` },
+      name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.spec() },
     }))
     writeFileSync(join(dir, 'package-lock.json'), '{}')
     const installed = join(dir, 'node_modules', '@dopame', 'acde-api')
@@ -106,7 +99,7 @@ describe('acde check on a project', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.url() } }))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.spec() } }))
     writeFileSync(join(dir, 'bun.lock'), '{}')
     const installed = join(dir, 'node_modules', '@dopame', 'acde-api')
     mkdirSync(installed, { recursive: true })
@@ -116,23 +109,8 @@ describe('acde check on a project', () => {
     expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe(said)
   })
 
-  test('.npmrc: allow-remote=root is added once, after what is there, and a choice of the user is kept', () => {
-    const dir = tmp()
-    expect(Sdk.allowRemote(dir)).toBe(true)
-    expect(readFileSync(join(dir, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
-    expect(Sdk.allowRemote(dir)).toBe(false)
-    const other = tmp()
-    writeFileSync(join(other, '.npmrc'), 'registry=https://example.test/')
-    Sdk.allowRemote(other)
-    expect(readFileSync(join(other, '.npmrc'), 'utf8')).toBe('registry=https://example.test/\nallow-remote=root\n')
-    const chosen = tmp()
-    writeFileSync(join(chosen, '.npmrc'), 'allow-remote = all\n')
-    expect(Sdk.allowRemote(chosen)).toBe(false)
-    expect(readFileSync(join(chosen, '.npmrc'), 'utf8')).toBe('allow-remote = all\n')
-  })
-
   test('a failing acde sdk update puts package.json, the lockfile and .npmrc back and says so', async () => {
-    const dead = 'http://127.0.0.1:9'
+    const broken = brokenSdk()
     const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
     const project = (pm: string) => {
       const dir = tmp()
@@ -145,7 +123,7 @@ describe('acde check on a project', () => {
     const bun = project(`bun@${process.versions.bun}`)
     writeFileSync(join(bun, 'bun.lock'), 'the old lock\n')
     const before = readFileSync(join(bun, 'package.json'), 'utf8')
-    const failed = await cli(['sdk', 'update'], bun, { ACDE_DIST: dead })
+    const failed = await cli(['sdk', 'update'], bun, { ACDE_SDK: broken })
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain(`so the update to ${Sdk.paired()} was undone: package.json and bun.lock are as `
       + 'before (@dopame/acde-api 0.0.7); node_modules may be half updated: run bun install to match them')
@@ -154,7 +132,7 @@ describe('acde check on a project', () => {
     expect(existsSync(join(bun, '.npmrc'))).toBe(false)
     if (!which('npm')) return
     const npm = project('npm@11.0.0')
-    const npmFailed = await cli(['sdk', 'update'], npm, { ACDE_DIST: dead, npm_config_fetch_retries: '0' })
+    const npmFailed = await cli(['sdk', 'update'], npm, { ACDE_SDK: broken, npm_config_install_links: 'true' })
     expect(npmFailed.code).toBe(1)
     expect(npmFailed.stderr).toContain('package.json are as before (@dopame/acde-api 0.0.7)')
     expect(existsSync(join(npm, '.npmrc'))).toBe(false)
@@ -235,26 +213,22 @@ describe('acde check on a project', () => {
     expect(existsSync(join(member, 'package-lock.json'))).toBe(false)
     const updated = await cli(['sdk', 'update'], member, { PATH: npm(0) })
     expect(updated.code, updated.out).toBe(0)
-    expect(updated.stdout).toContain(`; ${join('..', '..', '.npmrc')} now has allow-remote=root`)
-    expect(readFileSync(join(root, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    expect(readFileSync(join(root, 'package-lock.json'), 'utf8')).toBe('a new npm lock\n')
+    expect(existsSync(join(root, '.npmrc'))).toBe(false)
     expect(existsSync(join(member, '.npmrc'))).toBe(false)
   })
 
-  test('acde sdk update writes allow-remote=root for npm 12, not for npm 11, which warns about it or narrows it', async () => {
-    const npm = (version: string) => fakePm('npm', [
+  test('acde sdk update with npm writes this acde\'s SDK path and no .npmrc', async () => {
+    const npm = fakePm('npm', [
       'const [command] = process.argv.slice(2)',
-      `if (command === '--version') console.log(${JSON.stringify(version)})`,
+      "if (command === '--version') console.log('11.10.0')",
       "else if (command === 'prefix') console.log(process.cwd())",
     ].join('\n'))
-    const eleven = oldProject(tmp(), { packageManager: 'npm@11.10.0' })
-    const kept = await cli(['sdk', 'update'], eleven, { PATH: npm('11.10.0') })
+    const dir = oldProject(tmp(), { packageManager: 'npm@11.10.0' })
+    const kept = await cli(['sdk', 'update'], dir, { PATH: npm })
     expect(kept.code, kept.out).toBe(0)
-    expect(kept.stdout).toBe(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.url()}), installed with npm\n`)
-    expect(existsSync(join(eleven, '.npmrc'))).toBe(false)
-    const twelve = oldProject(tmp(), { packageManager: 'npm@12.2.2' })
-    const added = await cli(['sdk', 'update'], twelve, { PATH: npm('12.2.2') })
-    expect(added.stdout).toContain('installed with npm; .npmrc now has allow-remote=root (npm 12 refuses')
-    expect(readFileSync(join(twelve, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    expect(kept.stdout).toBe(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with npm\n`)
+    expect(existsSync(join(dir, '.npmrc'))).toBe(false)
   })
 
   test('acde sdk update: a package manager that does not start leaves the project as it was', async () => {
@@ -304,27 +278,20 @@ describe('acde check on a project', () => {
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
   })
 
-  test('acde sdk update points package.json at the paired tarball and installs it', async () => {
-    const sdk = sdkMirror()
-    try {
-      const dir = tmp()
-      writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
-      writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
-      const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({
-        name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
-      }, null, 2))
-      const updated = await cli(['sdk', 'update'], dir, { ACDE_DIST: sdk.dist })
-      expect(updated.code, updated.out).toBe(0)
-      const url = `${sdk.dist}/${sdk.version}/acde-api-${sdk.version}.tar.gz`
-      expect(updated.stdout).toContain(`acde: @dopame/acde-api is ${sdk.version} (${url}), installed with bun`)
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-      expect(pkg.devDependencies['@dopame/acde-api']).toBe(url)
-      expect(readFileSync(join(dir, 'bun.lock'), 'utf8')).toContain(`acde-api-${sdk.version}.tar.gz`)
-      const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@dopame/acde-api/package.json'), 'utf8'))
-      expect(installed.version).toBe(sdk.version)
-    } finally {
-      sdk.stop()
-    }
+  test('acde sdk update points package.json at this acde\'s SDK and installs it', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
+    const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
+    }, null, 2))
+    const updated = await cli(['sdk', 'update'], dir)
+    expect(updated.code, updated.out).toBe(0)
+    expect(updated.stdout).toContain(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with bun`)
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    expect(pkg.devDependencies['@dopame/acde-api']).toBe(Sdk.spec())
+    const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@dopame/acde-api/package.json'), 'utf8'))
+    expect(installed.version).toBe(Sdk.paired())
   }, 120_000)
 })
