@@ -8,7 +8,6 @@ logs/
 
 # macos desktop files
 .DS_Store
-/web/packages/acde-host/packages/
 
 # resolved fresh by every build
 Cargo.lock
