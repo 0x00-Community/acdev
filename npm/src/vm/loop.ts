@@ -63,7 +63,7 @@ export function startCommand(options: LoopOptions, built: readonly Executable[])
 function cargo(dir: string, bins: readonly string[]): Promise<Executable[]> {
   const args = ['build', '--release', '--message-format', 'json-render-diagnostics', '--manifest-path', join(dir, 'Cargo.toml'),
     ...bins.flatMap((bin) => ['--bin', bin])]
-  const child = spawn('cargo', args, { stdio: ['ignore', 'pipe', 'inherit'] })
+  const child = spawn('cargo', args, { cwd: dir, stdio: ['ignore', 'pipe', 'inherit'] })
   const lines: string[] = []
   createInterface({ input: child.stdout! }).on('line', (line) => lines.push(line))
   return new Promise((done, failed) => {
@@ -83,7 +83,7 @@ export class DevLoop {
     this.dir = resolve(options.dir)
   }
 
-  async cycle(): Promise<void> {
+  async cycle(stopped?: AbortSignal): Promise<void> {
     let built: Executable[]
     try {
       built = await cargo(this.dir, this.options.bins)
@@ -91,6 +91,7 @@ export class DevLoop {
       this.say(`${(error as Error).message}; ${this.#pid === null ? 'nothing runs' : `process group ${this.#pid} keeps running`}`)
       return
     }
+    if (stopped?.aborted) return
     await this.stop()
     const files = built.flatMap((exe) => Devd.files(exe.path, `${BIN}/${exe.name}`))
     await this.devd.push(files)
@@ -106,19 +107,19 @@ export class DevLoop {
     if (this.#pid === null) return
     const pid = this.#pid
     this.#pid = null
-    await this.devd.kill(pid).catch(() => undefined)
+    await this.devd.kill(pid).then(() => this.say(`stopped process group ${pid}`), () => undefined)
   }
 
   async watch(stopped: AbortSignal): Promise<void> {
     let seen = snapshot(this.dir)
-    await this.cycle()
+    await this.cycle(stopped)
     while (!stopped.aborted) {
       await new Promise((tick) => setTimeout(tick, POLL))
       const now = snapshot(this.dir)
       if (now === seen || stopped.aborted) continue
       seen = now
       this.say('the source changed: building again')
-      await this.cycle()
+      await this.cycle(stopped)
     }
     await this.stop()
   }

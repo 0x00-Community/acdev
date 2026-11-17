@@ -105,9 +105,13 @@ async function dev(machine: Machine, rest: readonly string[], flags: Flags): Pro
   const loop = new DevLoop(machine.devd(), { dir: rest[0] ?? '.', bins, run: flags.get('run') ?? null }, say)
   const stopped = new AbortController()
   const stop = () => stopped.abort()
-  process.once('SIGINT', stop).once('SIGTERM', stop)
+  process.on('SIGINT', stop).on('SIGTERM', stop)
   say(`watching ${loop.dir}; Ctrl+C stops the program and ends`)
-  await loop.watch(stopped.signal)
+  try {
+    await loop.watch(stopped.signal)
+  } finally {
+    process.off('SIGINT', stop).off('SIGTERM', stop)
+  }
   return 0
 }
 

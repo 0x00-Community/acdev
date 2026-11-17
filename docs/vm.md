@@ -64,11 +64,11 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 - `logs [SOURCE]` 经 `run` 在客户机里跑 `journalctl` 或 `tail`: 不带时是整个日志 (journald), 数字是 `run --detach` 的进程组号
   (`/var/log/acdevd/<号>.log`), `/` 开头是客户机里的文件, 其余当 systemd 单元名 (`journalctl -u`). 先给最后 `--lines` 行 (默认 50),
   `--follow` 一直跟着, 按 Ctrl+C 断开时客户机里的 `tail` / `journalctl` 随之结束. `--grep` 是正则 (不分大小写), 在宿主上按整行过滤.
-- `dev [DIR]` 是构建、推送、运行的一条龙 (实现在 `src/vm/loop.ts`): 在宿主上 `cargo build --release` 编 DIR (默认当前目录) 的 Cargo 项目
+- `dev [DIR]` 是构建、推送、运行的一条龙 (实现在 `src/vm/loop.ts`): 在宿主上进 DIR (默认当前目录, 那里的 `rust-toolchain.toml` 照常生效) 用 `cargo build --release` 编它的 Cargo 项目
   (`--bin A,B` 只编这几个), 从 cargo 的 JSON 消息里取出可执行文件, 推到客户机 `/opt/acdev/bin/<名字>`, 把 `--run` 的命令 (默认第一个二进制;
   `/opt/acdev/bin` 加在 `PATH` 前面) 放后台跑, 用 `tail --pid` 把它的日志转到宿主的标准输出. 之后每秒看一遍 DIR 里文件的修改时间和大小
   (跳过 `target`、`.git`、`node_modules`; `CARGO_TARGET_DIR` 放在 DIR 里别的名字下会一直重编), 变了就重编: 编不过时旧程序接着跑,
-  编过了就停掉旧的进程组、推送、再起. Ctrl+C 停掉程序后退出.
+  编过了就停掉旧的进程组、推送、再起. Ctrl+C (终端里 cargo 一起收到) 停掉程序后退出; 再按 Ctrl+C 不会跳过这一步.
 - guest agent 只用来装 acdevd、`mount` 和 `console`.
 
 ## 把 winman 和测试客户端放进去跑
