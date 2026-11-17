@@ -23,12 +23,6 @@ export function tmp(): string {
   return dir
 }
 
-export interface SdkMirror {
-  readonly dist: string
-  readonly version: string
-  stop(): void
-}
-
 export function brokenSdk(): string {
   const dir = tmp()
   const { version } = JSON.parse(readFileSync(join(import.meta.dir, '../acde-api/package.json'), 'utf8')) as { version: string }
