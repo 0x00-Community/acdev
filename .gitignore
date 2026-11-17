@@ -11,3 +11,6 @@ logs/
 
 # resolved fresh by every build
 Cargo.lock
+
+# the QEMU guest of scripts/vm.sh: disk images, the overlay disk, UEFI variables, sockets
+/.vm/
