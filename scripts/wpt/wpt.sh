@@ -34,9 +34,9 @@ command=${1:-}
 [ $# -gt 0 ] && shift
 case "$command" in
   fetch) fetch ;;
-  prepare | run | report | compare | expectations) exec bun "$here/$command.ts" "$@" ;;
+  prepare | run | report | compare | expectations | fyi) exec bun "$here/$command.ts" "$@" ;;
   *)
-    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] [--serve-port P] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--kinds testharness,reftest,crashtest] [--tests FILE] [--timeout-scale S] | report LABEL | compare OLD NEW | expectations check LABEL | update LABEL… | gate | summary\n' >&2
+    printf 'usage: scripts/wpt/wpt.sh fetch | prepare [--workers N] [--serve-port P] | run --acdert PATH [--label L] [--workers N] [--dirs a,b] [--kinds testharness,reftest,crashtest] [--tests FILE] [--timeout-scale S] | report LABEL | compare OLD NEW | expectations check LABEL | update LABEL… | gate | summary | fyi [--products chrome,firefox,safari,servo] [--refresh]\n' >&2
     exit 2
     ;;
 esac

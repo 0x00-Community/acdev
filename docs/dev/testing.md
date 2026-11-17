@@ -28,6 +28,9 @@
   不一致的标 flaky) / `expectations gate` (守门的测试表).
 - 钉的版本 (`scripts/wpt/revision`) 要选 wpt.fyi 上 Chrome、Firefox、Safari、Servo 四家都有结果的提交 (`https://wpt.fyi/api/runs?sha=<提交>&products=chrome,firefox,safari,servo`
   返回四条), 这样每个测试都能和它们逐个比. 现在是 `a17acfbc8a` (2026-11-12). 换版本后期望文件要重新生成.
+- `wpt.sh fyi [--products …] [--refresh]` 把 wpt.fyi 上这个版本的四家结果 (原始报告, 缓存在 `logs/wpt/fyi/`) 转成 `results/fyi-<浏览器>/`, 格式和 `run` 的一样,
+  `report fyi-servo`、`compare fyi-servo <标签>` 直接能用; `meta.json` 记 wpt.fyi 的 run id、原始报告地址和它的 sha256. Servo 的样式引擎是 stylo (servo 模式),
+  Firefox 的是 stylo (gecko 模式), 所以 `css/` 里只测样式的那些 (解析、计算值、继承、层叠、选择器) 拿它们当 stylo 的参照; reftest 主要看排版, 不能这么比.
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开
   (字体、GPU 不同, reftest 结果不同): `linux` 由 CI 的 `baseline` 生成 (跑全量, 再跑两遍 gate, 三次合并; 产物里的 `expectations/linux` 拷进来提交),
   `darwin` 在 Mac 上照样做. 修好东西后跑 `update` 把改进记下来, 一起提交.
