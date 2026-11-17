@@ -180,8 +180,8 @@ describe('the acdevd protocol, host side', () => {
     const one = new Scripted(() => [frame(Kind.PUSH, header(0o644, '')), frame(Kind.DATA, Buffer.from('png')), frame(Kind.END), frame(Kind.OK, u32(1))])
     expect(await new Devd(one).pull('/tmp/shot.png', join(dir, 'shot.png'))).toBe(1)
     expect(readFileSync(join(dir, 'shot.png'), 'utf8')).toBe('png')
-    const escape = new Scripted(() => [frame(Kind.PUSH, header(0o644, '../evil')), frame(Kind.END), frame(Kind.OK, u32(1))])
-    await expect(new Devd(escape).pull('/srv', join(dir, 'in'))).rejects.toThrow('outside the pulled directory')
+    const climbing = new Scripted(() => [frame(Kind.PUSH, header(0o644, '../evil')), frame(Kind.END), frame(Kind.OK, u32(1))])
+    await expect(new Devd(climbing).pull('/srv', join(dir, 'in'))).rejects.toThrow('outside the pulled directory')
     expect(existsSync(join(dir, 'evil'))).toBe(false)
   })
 
