@@ -37,7 +37,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {
-    say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over vsock (cid ${machine.cid()})`)
+    say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over ${machine.describeLink()}`)
     return 0
   }
   say(`the guest agent did not answer in ${wait} s; the guest still runs (acdev vm wait, acdev vm stop)`)
@@ -56,7 +56,7 @@ async function status(machine: Machine, rest: readonly string[]): Promise<number
   }
   console.log(`guest: running (pid ${pid}), ${(await machine.ready(0)) ? 'ready' : 'not ready yet'}`)
   const devd = await machine.devd().version().catch((error: Error) => `not answering (${error.message})`)
-  console.log(`acdevd (vsock cid ${machine.cid()}): ${devd}`)
+  console.log(`acdevd (over ${machine.describeLink()}): ${devd}`)
   console.log(`serial log: ${machine.serial}`)
   return 0
 }

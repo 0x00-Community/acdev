@@ -2,6 +2,7 @@ use std::io::{self, Read, Write};
 
 pub const MAX: usize = 16 << 20;
 
+pub const AUTH: u8 = b'A';
 pub const VERSION: u8 = b'V';
 pub const PUSH: u8 = b'P';
 pub const DATA: u8 = b'D';

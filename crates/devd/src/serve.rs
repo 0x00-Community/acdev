@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::frame::{self, Frame};
-use crate::shell;
+use crate::{key, shell};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -24,24 +24,48 @@ const SIGKILL: i32 = 9;
 
 pub struct Settings {
     pub logs: PathBuf,
+    pub key: Option<Vec<u8>>,
 }
 
 pub fn handle(stream: UnixStream, settings: &Settings) -> io::Result<()> {
     let mut reader = stream.try_clone()?;
     let mut writer = stream;
-    let Some(first) = frame::read(&mut reader)? else { return Ok(()) };
-    let done = match first.kind {
-        frame::VERSION => frame::write(&mut writer, frame::OK, VERSION.as_bytes()),
-        frame::PUSH => push(first, &mut reader, &mut writer),
-        frame::RUN => run(&first.body, reader, writer.try_clone()?, settings),
-        frame::KILL => signal(&first.body, &mut writer),
-        frame::SHELL => shell::run(&first.body, reader, writer.try_clone()?),
-        other => Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown request {:?}", other as char))),
+    let done = match frame::read(&mut reader)? {
+        Some(first) => match authorized(first, &mut reader, settings.key.as_deref()) {
+            Ok(Some(first)) => answer(first, reader, &mut writer, settings),
+            Ok(None) => return Ok(()),
+            Err(denied) => Err(denied),
+        },
+        None => return Ok(()),
     };
     if let Err(error) = &done {
         let _ = frame::write(&mut writer, frame::ERROR, error.to_string().as_bytes());
     }
     done
+}
+
+fn authorized(first: Frame, reader: &mut UnixStream, key: Option<&[u8]>) -> io::Result<Option<Frame>> {
+    if first.kind != frame::AUTH {
+        return match key {
+            Some(_) => Err(io::Error::new(io::ErrorKind::PermissionDenied, "this acdevd wants the key first")),
+            None => Ok(Some(first)),
+        };
+    }
+    if key.is_some_and(|key| !key::matches(&first.body, key)) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "wrong key"));
+    }
+    frame::read(reader)
+}
+
+fn answer(first: Frame, mut reader: UnixStream, writer: &mut UnixStream, settings: &Settings) -> io::Result<()> {
+    match first.kind {
+        frame::VERSION => frame::write(writer, frame::OK, VERSION.as_bytes()),
+        frame::PUSH => push(first, &mut reader, writer),
+        frame::RUN => run(&first.body, reader, writer.try_clone()?, settings),
+        frame::KILL => signal(&first.body, writer),
+        frame::SHELL => shell::run(&first.body, reader, writer.try_clone()?),
+        other => Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown request {:?}", other as char))),
+    }
 }
 
 fn push(first: Frame, reader: &mut UnixStream, writer: &mut UnixStream) -> io::Result<()> {
@@ -181,9 +205,13 @@ mod tests {
     use super::*;
 
     fn serve() -> (UnixStream, thread::JoinHandle<io::Result<()>>, PathBuf) {
+        serve_with(None)
+    }
+
+    fn serve_with(key: Option<&[u8]>) -> (UnixStream, thread::JoinHandle<io::Result<()>>, PathBuf) {
         let (host, guest) = UnixStream::pair().unwrap();
         let logs = std::env::temp_dir().join(format!("acdevd-test-{}-{}", std::process::id(), rand()));
-        let settings = Settings { logs: logs.clone() };
+        let settings = Settings { logs: logs.clone(), key: key.map(<[u8]>::to_vec) };
         (host, thread::spawn(move || handle(guest, &settings)), logs)
     }
 
@@ -218,6 +246,39 @@ mod tests {
         frame::write(&mut host, frame::VERSION, &[]).unwrap();
         let reply = frame::read(&mut host).unwrap().unwrap();
         assert_eq!((reply.kind, reply.body), (frame::OK, VERSION.as_bytes().to_vec()));
+        server.join().unwrap().unwrap();
+    }
+
+    fn ask_version(host: &mut UnixStream) -> Frame {
+        frame::write(host, frame::VERSION, &[]).unwrap();
+        frame::read(host).unwrap().unwrap()
+    }
+
+    #[test]
+    fn the_right_key_opens_the_connection() {
+        let (mut host, server, _) = serve_with(Some(b"s3cret"));
+        frame::write(&mut host, frame::AUTH, b"s3cret").unwrap();
+        assert_eq!(ask_version(&mut host).kind, frame::OK);
+        server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_wrong_or_missing_key_is_refused() {
+        let (mut host, server, _) = serve_with(Some(b"s3cret"));
+        frame::write(&mut host, frame::AUTH, b"guess!").unwrap();
+        let reply = frame::read(&mut host).unwrap().unwrap();
+        assert_eq!((reply.kind, reply.body.as_slice()), (frame::ERROR, &b"wrong key"[..]));
+        assert!(server.join().unwrap().is_err());
+        let (mut host, server, _) = serve_with(Some(b"s3cret"));
+        assert_eq!(ask_version(&mut host).kind, frame::ERROR);
+        assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn without_a_key_the_key_frame_is_optional() {
+        let (mut host, server, _) = serve();
+        frame::write(&mut host, frame::AUTH, b"anything").unwrap();
+        assert_eq!(ask_version(&mut host).kind, frame::OK);
         server.join().unwrap().unwrap();
     }
 

@@ -53,11 +53,17 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 - guest agent 的套接字一次只接一个客户端: `GuestAgent.open` 先发 `guest-sync` 跳过前一个客户端留下的输出, 等不到就关掉连接, 不然后来的都连不上.
 - 串口里默认只有固件和 systemd-boot 的输出: 装好的系统是静默启动 (`quiet loglevel=3`, 没有 `console=ttyS0`). `console` 在客户机启动项命令行
   末尾加 `console=tty0 console=ttyS0,115200 loglevel=6` (写在覆盖盘里, 重复跑不叠加).
+- 调试通道 (用户 2026-11-18 定): `start` 按平台选传输, 记在 `run/link.json`, 之后的命令照它连. Linux 用 vsock (`vhost-vsock-pci`);
+  Windows、macOS 的 QEMU 没有 vsock, 改用用户态网络的端口转发到客户机 acdevd 的 TCP 端口 5252: macOS (和其余非 Linux) 转到
+  `run/devd.sock` (`hostfwd=unix:…`, 文件权限挡住别的本机用户), Windows 转到 `127.0.0.1` 上一个空闲端口 (`hostfwd=tcp:…`).
+  `ACDEV_VM_TRANSPORT=vsock|unix|tcp` 强制选一种 (Linux 上用来验证转发). 转发时不加 vsock 设备. 每次 `start` 生成一个密钥写到
+  `run/key` (只有自己能读), 经 `-fw_cfg name=opt/acdev/key,file=run/key` 交给客户机; 每条连接先发它 (见 `docs/devd.md`「传输与密钥」).
+  `status` 写出走的是哪种.
 - 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,
-  systemd 单元 `acdevd.service`, 开机自启), 等它在 vsock 上应答 (见 `docs/devd.md`). QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
+  systemd 单元 `acdevd.service`, 开机自启, 起之前 `modprobe qemu_fw_cfg`), 等它在调试通道上应答 (见 `docs/devd.md`). vsock 时 QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
   `$ACDEV_VM_DIR` 的路径算出 (`Machine.cid()`, 3 起), 宿主要能读写 `/dev/vhost-vsock`. 宿主一侧的 acdevd 取 `ACDEV_DEVD`, 否则用检出里
   `crates/devd/target/release/acdevd`, 没有就先 `cargo build --release` 编出来.
-- `run`、`push`、`kill` 走 vsock: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
+- `run`、`push`、`kill` 走调试通道: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
   `/var/log/acdevd/<进程组号>.log`; `kill PID` (`--force` 用 SIGKILL) 停掉整个进程组; 在宿主上按 Ctrl+C 断开时, 前台运行的程序被结束.
 - `shell` 在客户机里开一个伪终端 (pty): 本地终端切到原始模式, 按键原样送进去 (Ctrl+C 给客户机里的程序), 本地窗口改大小时跟着改,
   退出码就是 shell 的. 不带命令时是 root 在 `/etc/passwd` 里的登录 shell (`-l`); 标准输入不是终端时也能用, 读完时送一个 Ctrl+D.
@@ -104,9 +110,11 @@ glibc 较新); 不放心就静态链接 (musl).
 ## 测试
 
 `test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的
-宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列、错误); QEMU 命令行的组成 (含 vsock 设备); 没有客户机时的子命令.
+宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列、错误、先发密钥), 套接字传输对着进程内的 Unix 套接字服务端测;
+QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有客户机时的子命令.
 设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机 (`start --headless` 等到 acdevd
-应答、`run` 的输出与退出码、`push`、`--detach` 加 `kill` 和日志、`status`、`screenshot`、`stop`), 约 20 s. 守护进程自己的进程内测试在
+应答、`run` 的输出与退出码、`push`、`--detach` 加 `kill` 和日志、`status`、错的密钥被拒、`screenshot`、`stop`), 约 20 s.
+设 `ACDEV_VM_TRANSPORT=unix` (或 `tcp`) 再跑一遍就是端口转发. 守护进程自己的进程内测试在
 `crates/devd` (`cargo test`).
 
 ## 验证过的 (2026-11-17, Ubuntu 24.04 的 WSL2, QEMU 8.2.2, OVMF 4M)

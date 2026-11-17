@@ -8,6 +8,7 @@
 | `ACDEV_DIST` | Where the installers download acdev and its runtime from, and where `acdev doctor --online` looks for a newer one; default `https://pkgs.dopame.ai/acde` |
 | `ACDEV_SDK` | The SDK directory `acdev new` and `acdev sdk update` point `@dopame/acde-api` at; default the one that comes with acdev |
 | `ACDEV_VM_DIR` | Where `acdev vm` keeps the guest: images, the overlay disk, sockets, logs; default `~/.local/share/acde/vm` |
+| `ACDEV_VM_TRANSPORT` | How `acdev vm start` reaches acdevd in the guest: `vsock` (default on Linux), `unix` (a forwarded Unix socket, default on macOS) or `tcp` (a forwarded port on 127.0.0.1, default on Windows) |
 | `ACDEV_RUNTIME` | The acdev runtime binary `acdev dev` and `acdev test` run: a path, or a name on PATH. Unset: the acdev runtime the installer put next to acdev, then `acdev runtime` (or an older `acdert`) on PATH |
 | `ACDEV_BUNDLER=vite` | Bundle with Vite on Bun too |
 | `ACDEV_DEBUG=1` | An error also prints its stack trace (normally only the one-line message) (after 0.0.9) |

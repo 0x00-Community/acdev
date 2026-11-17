@@ -7,10 +7,25 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 工作区 (根工作区把它 `exclude` 掉): 不依赖任何库, 编一下不到一秒, 客户机和宿主用同一个二进制.
 
 - `acdevd serve [--port PORT]`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
+  有密钥时 (见下面「传输与密钥」) 同时在 TCP `0.0.0.0:PORT` 上听; 两个都听不了才退出.
 - `acdevd connect CID [PORT]`: 在宿主上把标准输入输出接到客户机 `CID` 的 acdevd. 宿主的 bun 和 Node.js 都开不了 vsock 套接字,
   所以 acdev 起这个子进程, 经它的标准输入输出说协议.
 - vsock 只用 libc 的 `socket` / `bind` / `listen` / `accept4` / `connect` (`AF_VSOCK` = 40, `sockaddr_vm`), 拿到的描述符包成
   `UnixStream` 读写; 接受连接不用 `UnixListener::accept`, 因为它会检查地址族.
+
+## 传输与密钥 (`src/main.rs`、`src/key.rs`)
+
+用户 2026-11-18 定 (三平台模拟器规范): 协议不变, 只换传输. Linux 宿主用 vsock; Windows、macOS 上的 QEMU 没有 vsock (Windows 编不出 vhost,
+macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-emulator.md`), 改走 QEMU 用户态网络的端口转发 (`hostfwd`)
+到客户机的 TCP 端口. 选哪种由宿主一侧的 `acdev vm start` 决定 (见 `docs/vm.md`), 守护进程两种都听.
+
+- **密钥**: `acdev vm start` 每次生成一个随机密钥 (32 字节的十六进制), 经 `-fw_cfg name=opt/acdev/key,file=…` 交给客户机.
+  守护进程启动时读 `/sys/firmware/qemu_fw_cfg/by_name/opt/acdev/key/raw` (内核模块 `qemu_fw_cfg`, systemd 单元先 `modprobe` 它),
+  去掉首尾空白.
+- 有密钥时每条连接的第一帧必须是 `A` 加密钥 (逐字节比, 用时与内容无关), 不对或没有就回 `X` (`wrong key` / `this acdevd wants the key first`)
+  并关闭; 对了不回答, 接着读真正的请求. 没有密钥时 `A` 可有可无 (照旧接受), 但**不听 TCP**: 没有密钥的 TCP 端口谁都能连, 而守护进程是 root.
+- vsock 上也查密钥: 宿主上任何用户都能连客户机的 CID.
+- TCP 连接拿到后关掉 Nagle, 描述符同样包成 `UnixStream` (读写、`shutdown`、`try_clone` 都只是描述符上的系统调用), 处理代码不分传输.
 
 ## 协议 (`src/frame.rs`、`src/serve.rs`)
 
@@ -18,6 +33,7 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 | 请求 | 内容 | 回答 |
 | --- | --- | --- |
+| `A` 密钥 | 密钥 (只能是第一帧, 之后才是下面的请求) | 不对时 `X`; 对了不回答 |
 | `V` 版本 | 无 | `O` 版本号文字 |
 | `P` 推送 | `u32` 权限位, 再接客户机里的绝对路径; 之后若干 `D` 数据帧、一个 `E` 结束这个文件; 可以再来 `P` … `E`; 最后 `Z` | `O` 文件个数 (`u32`) |
 | `R` 运行 | 一个标志字节 (`1`: 后台运行), 再接以 NUL 分隔的程序和参数 | `I` 进程号; 前台运行时之后是 `1` 标准输出、`2` 标准错误的片段, 最后 `Q` 退出码 (`i32`, 被信号结束时是 128 加信号号); 后台运行时是 `O` 日志文件路径 |
@@ -35,7 +51,7 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 ## 测试
 
-`cargo test` (在 `crates/devd`): 用一对 Unix 套接字代替 vsock, 在进程内测版本、推送 (内容与权限位)、前台运行 (分开的输出与退出码)、
+`cargo test` (在 `crates/devd`): 用一对 Unix 套接字代替 vsock 和 TCP, 在进程内测密钥 (对的放行、错的和缺的拒绝、没有密钥时可有可无)、版本、推送 (内容与权限位)、前台运行 (分开的输出与退出码)、
 后台运行再停止 (日志)、宿主断开时结束程序, 以及终端的大小、输入、改大小、退出码和断开.
 
 ## 宿主一侧 (`npm/src/vm/devd.ts`)

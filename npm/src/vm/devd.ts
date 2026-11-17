@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { connect } from 'node:net'
 import { join, posix, relative, sep } from 'node:path'
 
 export const PORT = 5252
@@ -7,7 +8,7 @@ const MAX = 16 << 20
 const CHUNK = 1 << 20
 
 export const Kind = {
-  VERSION: 'V', PUSH: 'P', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
+  AUTH: 'A', VERSION: 'V', PUSH: 'P', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
   OK: 'O', ERROR: 'X', PID: 'I', STDOUT: '1', STDERR: '2', EXIT: 'Q',
 } as const
 
@@ -65,8 +66,36 @@ export interface ShellSession {
   readonly exit: Promise<number>
 }
 
+export interface Connection {
+  write(data: Buffer): void
+  end(): void
+  readonly frames: AsyncIterable<Frame>
+  close(): void
+}
+
 export interface Transport {
-  open(): { write(data: Buffer): void; end(): void; frames: AsyncIterable<Frame>; close(): void }
+  open(): Connection
+}
+
+export type Address = { readonly path: string } | { readonly host: string; readonly port: number }
+
+export class SocketTransport implements Transport {
+  constructor(readonly address: Address) {}
+
+  open(): Connection {
+    const socket = connect(this.address)
+    socket.setNoDelay(true)
+    const decoder = new Frames()
+    const frames = (async function* () {
+      for await (const chunk of socket) yield* decoder.push(chunk as Buffer)
+    })()
+    return {
+      write: (data: Buffer) => void socket.write(data),
+      end: () => void socket.end(),
+      frames,
+      close: () => void socket.destroy(),
+    }
+  }
 }
 
 export class RelayTransport implements Transport {
@@ -116,10 +145,16 @@ async function first(frames: AsyncIterable<Frame>): Promise<Frame | undefined> {
 }
 
 export class Devd {
-  constructor(readonly transport: Transport) {}
+  constructor(readonly transport: Transport, readonly key: Buffer | null = null) {}
+
+  #open(): Connection {
+    const conn = this.transport.open()
+    if (this.key) conn.write(encode(Kind.AUTH, this.key))
+    return conn
+  }
 
   async version(): Promise<string> {
-    const conn = this.transport.open()
+    const conn = this.#open()
     try {
       conn.write(encode(Kind.VERSION))
       const reply = await first(conn.frames)
@@ -131,7 +166,7 @@ export class Devd {
   }
 
   async push(files: readonly PushFile[]): Promise<number> {
-    const conn = this.transport.open()
+    const conn = this.#open()
     try {
       for (const file of files) {
         const head = Buffer.alloc(4)
@@ -150,7 +185,7 @@ export class Devd {
   }
 
   async run(argv: readonly string[], handlers: RunHandlers = {}): Promise<number> {
-    const conn = this.transport.open()
+    const conn = this.#open()
     try {
       conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([0]), ...words(argv)])))
       for await (const frame of conn.frames) {
@@ -167,7 +202,7 @@ export class Devd {
   }
 
   async detach(argv: readonly string[]): Promise<{ pid: number; log: string }> {
-    const conn = this.transport.open()
+    const conn = this.#open()
     try {
       conn.write(encode(Kind.RUN, Buffer.concat([Buffer.from([1]), ...words(argv)])))
       let pid = 0
@@ -183,7 +218,7 @@ export class Devd {
   }
 
   shell(options: ShellOptions, output: (chunk: Buffer) => void): ShellSession {
-    const conn = this.transport.open()
+    const conn = this.#open()
     conn.write(encode(Kind.SHELL, Buffer.concat([size(options.rows, options.cols), ...words([options.term, ...options.argv])])))
     const exit = (async () => {
       try {
@@ -205,7 +240,7 @@ export class Devd {
   }
 
   async kill(pid: number, force = false): Promise<void> {
-    const conn = this.transport.open()
+    const conn = this.#open()
     try {
       const body = Buffer.alloc(force ? 5 : 4)
       body.writeUInt32LE(pid, 0)

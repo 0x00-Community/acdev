@@ -1,6 +1,6 @@
 [package]
 name = "acdevd"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "The guest device daemon of the acdev emulator, and the host's vsock relay to it: only std"
 publish = false

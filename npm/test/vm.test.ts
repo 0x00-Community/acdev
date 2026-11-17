@@ -5,7 +5,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { GuestAgent, monitor } from '../src/vm/channel.ts'
-import { Devd, encode, Frames, Kind, type Frame, type Transport } from '../src/vm/devd.ts'
+import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
 import { Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -166,6 +166,33 @@ describe('the acdevd protocol, host side', () => {
     const refused = new Scripted(() => [frame(Kind.ERROR, Buffer.from('no room'))])
     await expect(new Devd(refused).kill(7)).rejects.toThrow('acdevd: no room')
   })
+
+  test('with a key every connection starts with it', async () => {
+    const transport = new Scripted((sent) => (sent.length < 2 ? [] : [frame(Kind.OK, Buffer.from('0.3.0'))]))
+    expect(await new Devd(transport, Buffer.from('k3y')).version()).toBe('0.3.0')
+    expect(transport.sent.map((f) => [f.kind, f.body.toString()])).toEqual([[Kind.AUTH, 'k3y'], [Kind.VERSION, '']])
+  })
+
+  test('a socket transport speaks the frames over a Unix socket', async () => {
+    const path = join(tmp(), 'devd.sock')
+    const seen: string[] = []
+    const server = createServer((socket) => {
+      const decoder = new Frames()
+      socket.on('data', (chunk) => {
+        for (const got of decoder.push(chunk as Buffer)) {
+          seen.push(got.kind)
+          if (got.kind === Kind.VERSION) socket.end(encode(Kind.OK, Buffer.from('9.9.9')))
+        }
+      })
+    })
+    await new Promise<void>((done) => server.listen(path, done))
+    try {
+      expect(await new Devd(new SocketTransport({ path }), Buffer.from('k')).version()).toBe('9.9.9')
+      expect(seen).toEqual([Kind.AUTH, Kind.VERSION])
+    } finally {
+      server.close()
+    }
+  })
 })
 
 describe('acdev vm logs', () => {
@@ -237,6 +264,17 @@ describe('the QEMU command line', () => {
     }
     expect(machine.args({}, false).join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
     expect(machine.args({ gl: true }, true).join(' ')).toContain('-device virtio-vga-gl -display gtk,gl=on')
+    expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
+  })
+
+  test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    const unix = machine.args({}, true, { kind: 'unix', path: '/r/devd.sock' }).join(' ')
+    expect(unix).toContain('user,model=virtio-net-pci,hostfwd=unix:/r/devd.sock-:5252')
+    expect(unix).not.toContain('vhost-vsock')
+    expect(machine.args({}, true, { kind: 'tcp', port: 4321 }).join(' ')).toContain(',hostfwd=tcp:127.0.0.1:4321-:5252')
+    expect(new Machine({ ACDEV_VM_TRANSPORT: 'unix' }).linkKind()).toBe('unix')
+    expect(() => new Machine({ ACDEV_VM_TRANSPORT: 'usb' }).linkKind()).toThrow('vsock, unix, tcp')
   })
 
   test('acdev vm: an unknown subcommand, and stop or status with no guest', async () => {
@@ -291,7 +329,7 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
     try {
       const started = await run(['start', '--headless', '--image', IMAGE])
       expect(started.code, started.out).toBe(0)
-      expect(started.stderr).toContain('answers over vsock')
+      expect(started.stderr).toContain('answers over')
       const ran = await run(['run', '--', 'echo hello; exit 3'])
       expect(ran.code).toBe(3)
       expect(ran.stdout).toBe('hello\n')
@@ -312,7 +350,12 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
       expect(shell.stdout).toContain('24 80')
       expect(shell.stdout).toContain('tty')
       expect(await devLoop(dir)).toEqual(['v1', 'v2'])
-      expect((await run(['status'])).stdout).toContain('acdevd (vsock cid')
+      expect((await run(['status'])).stdout).toContain(`acdevd (over ${new Machine({ ACDEV_VM_DIR: dir }).describeLink()}): `)
+      const key = join(dir, 'run', 'key')
+      const real = readFileSync(key)
+      writeFileSync(key, 'not-the-key\n')
+      expect((await run(['status'])).stdout).toContain('not answering (acdevd: wrong key)')
+      writeFileSync(key, real)
       const shot = join(dir, 'screen.png')
       expect((await run(['screenshot', shot])).code).toBe(0)
       expect(readFileSync(shot).subarray(1, 4).toString()).toBe('PNG')

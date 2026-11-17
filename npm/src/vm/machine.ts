@@ -1,16 +1,17 @@
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   copyFileSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, renameSync,
   rmSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs'
+import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { which } from 'acdev/launcher'
 import { Runtime } from '../runtime.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
-import { Devd, RelayTransport } from './devd.ts'
+import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
 export interface StartOptions {
   readonly image?: string
@@ -19,6 +20,10 @@ export interface StartOptions {
   readonly display?: 'window' | 'none' | 'vnc'
   readonly gl?: boolean
 }
+
+export type Link = { readonly kind: 'vsock' } | { readonly kind: 'unix'; readonly path: string } | { readonly kind: 'tcp'; readonly port: number }
+
+const LINKS = ['vsock', 'unix', 'tcp'] as const
 
 export class Machine {
   static readonly DIST = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/iso'
@@ -65,6 +70,49 @@ export class Machine {
 
   get qga(): string {
     return join(this.run, 'qga.sock')
+  }
+
+  get key(): string {
+    return join(this.run, 'key')
+  }
+
+  get linkFile(): string {
+    return join(this.run, 'link.json')
+  }
+
+  linkKind(): Link['kind'] {
+    const given = this.env['ACDEV_VM_TRANSPORT']
+    if (given) {
+      if (!(LINKS as readonly string[]).includes(given)) throw new Error(`vm: ACDEV_VM_TRANSPORT=${given}: ${LINKS.join(', ')}`)
+      return given as Link['kind']
+    }
+    return process.platform === 'linux' ? 'vsock' : process.platform === 'win32' ? 'tcp' : 'unix'
+  }
+
+  async newLink(): Promise<Link> {
+    const kind = this.linkKind()
+    if (kind === 'vsock') return { kind }
+    if (kind === 'unix') return { kind, path: join(this.run, 'devd.sock') }
+    return { kind, port: await Machine.#freePort() }
+  }
+
+  static #freePort(): Promise<number> {
+    return new Promise((done, fail) => {
+      const probe = createServer().once('error', fail).listen(0, '127.0.0.1', () => {
+        const address = probe.address()
+        probe.close(() => (typeof address === 'object' && address ? done(address.port) : fail(new Error('vm: no free port'))))
+      })
+    })
+  }
+
+  link(): Link {
+    if (!existsSync(this.linkFile)) return { kind: 'vsock' }
+    return JSON.parse(readFileSync(this.linkFile, 'utf8')) as Link
+  }
+
+  describeLink(link: Link = this.link()): string {
+    if (link.kind === 'vsock') return `vsock (cid ${this.cid()})`
+    return link.kind === 'unix' ? `a forwarded socket (${link.path})` : `a forwarded port (127.0.0.1:${link.port})`
   }
 
   pid(): number | null {
@@ -147,7 +195,14 @@ export class Machine {
   }
 
   devd(): Devd {
-    return new Devd(new RelayTransport(Devd.binary(Machine.ROOT, this.env), this.cid()))
+    const key = existsSync(this.key) ? Buffer.from(readFileSync(this.key, 'utf8').trim()) : null
+    return new Devd(this.#transport(this.link()), key)
+  }
+
+  #transport(link: Link): Transport {
+    if (link.kind === 'unix') return new SocketTransport({ path: link.path })
+    if (link.kind === 'tcp') return new SocketTransport({ host: '127.0.0.1', port: link.port })
+    return new RelayTransport(Devd.binary(Machine.ROOT, this.env), this.cid())
   }
 
   static kvm(): boolean {
@@ -172,7 +227,7 @@ export class Machine {
     return true
   }
 
-  args(options: StartOptions, kvm: boolean): string[] {
+  args(options: StartOptions, kvm: boolean, link: Link = { kind: 'vsock' }): string[] {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
     const accel = kvm ? ['-accel', 'kvm', '-cpu', 'host'] : ['-accel', 'tcg,thread=multi', '-cpu', 'max']
@@ -189,15 +244,29 @@ export class Machine {
       '-drive', `file=${join(this.dir, 'disk.qcow2')},format=qcow2,if=none,id=hd0`,
       '-device', 'virtio-blk-pci,drive=hd0,bootindex=1',
       '-device', 'virtio-keyboard-pci', '-device', 'virtio-tablet-pci',
-      '-nic', 'user,model=virtio-net-pci',
+      '-nic', `user,model=virtio-net-pci${Machine.#forward(link)}`,
+      '-fw_cfg', `name=opt/acdev/key,file=${this.key}`,
       '-chardev', `socket,path=${this.qga},server=on,wait=off,id=qga0`,
       '-device', 'virtio-serial', '-device', 'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0',
       '-qmp', `unix:${this.qmp},server=on,wait=off`,
-      '-device', `vhost-vsock-pci,guest-cid=${this.cid()}`,
+      ...(link.kind === 'vsock' ? ['-device', `vhost-vsock-pci,guest-cid=${this.cid()}`] : []),
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
       '-pidfile', join(this.run, 'qemu.pid'),
       ...gpu, ...shown, ...share,
     ]
+  }
+
+  static #forward(link: Link): string {
+    if (link.kind === 'unix') return `,hostfwd=unix:${link.path}-:${PORT}`
+    return link.kind === 'tcp' ? `,hostfwd=tcp:127.0.0.1:${link.port}-:${PORT}` : ''
+  }
+
+  async #freshRun(): Promise<Link> {
+    for (const name of ['qga.sock', 'qmp.sock', 'qemu.pid', 'devd.sock', 'key']) rmSync(join(this.run, name), { force: true })
+    const link = await this.newLink()
+    writeFileSync(this.linkFile, `${JSON.stringify(link)}\n`)
+    writeFileSync(this.key, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 })
+    return link
   }
 
   async start(options: StartOptions, say: (line: string) => void): Promise<number> {
@@ -215,11 +284,10 @@ export class Machine {
     if (!existsSync(vars)) copyFileSync(this.firmware()[1], vars)
     const kvm = Machine.kvm()
     if (!kvm) say('cannot open /dev/kvm: emulating (TCG), much slower')
-    const args = this.args(options, kvm)
+    const args = this.args(options, kvm, await this.#freshRun())
     writeFileSync(join(this.logs, 'qemu.cmd'), `${['qemu-system-x86_64', ...args].join(' ')}\n`)
     writeFileSync(this.serial, '')
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
-    for (const name of ['qga.sock', 'qmp.sock', 'qemu.pid']) rmSync(join(this.run, name), { force: true })
     const log = openSync(join(this.logs, 'qemu.log'), 'w')
     const child = Runtime.spawn(['setsid', 'qemu-system-x86_64', ...args], { stdio: ['ignore', log, log] })
     child.process.unref()
@@ -301,7 +369,7 @@ export class Machine {
       try {
         return await devd.version()
       } catch (error) {
-        if (Date.now() > deadline) throw new Error(`vm: acdevd does not answer over vsock: ${(error as Error).message}`)
+        if (Date.now() > deadline) throw new Error(`vm: acdevd does not answer over ${this.describeLink()}: ${(error as Error).message}`)
         await new Promise((done) => setTimeout(done, 1_000))
       }
     }
@@ -339,10 +407,11 @@ export class Machine {
 }
 
 const UNIT = `[Unit]
-Description=acdev device daemon (vsock)
-After=local-fs.target
+Description=acdev device daemon (vsock, or TCP with the key from fw_cfg)
+After=local-fs.target network.target
 
 [Service]
+ExecStartPre=-/usr/bin/modprobe qemu_fw_cfg
 ExecStart=${Machine.DEVD} serve
 Restart=always
 
