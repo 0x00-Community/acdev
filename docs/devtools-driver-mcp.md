@@ -40,6 +40,7 @@
   它解析出的 web 名或窗口号, web 按名字、应用 id、窗口号、窗口标题 (先原样, 再不分大小写) 找; id 都不中再按目标标题找 (不分大小写,
   也认去掉末尾 ` (<应用 id>)` 的标题), 再找 `service` 类型的目标 (服务, acdert#193: `services` / `service` 或标题 `services: a, b` 里的
   服务名); 没给: 聚焦的网页窗口, 没有就桌面), 用浏览器打开 `devtools://devtools/bundled/inspector.html?ws=…`.
+  - 方向 (用户定 2026-11-17): 开发者工具内置进 acdev, 不依赖 Chrome, 是虚拟机的核心能力; 下面借 Chrome / Edge 的打开方式是现状, 换掉之前照旧.
   - 怎么打开 (`src/devtools-browser.ts` `DevtoolsBrowser`, acde#80): Chrome 158、Edge 157 不认命令行上的 `devtools://` 地址 (只开新标签页),
     所以经浏览器自己的 CDP 用 `Target.createTarget` (`newWindow: true`) 打开. 浏览器用 acde 专用的配置目录
     `<用户缓存目录>/acde/devtools/<浏览器名的 slug>` (Windows `%LOCALAPPDATA%`, macOS `~/Library/Caches`, 其他 `$XDG_CACHE_HOME` 或

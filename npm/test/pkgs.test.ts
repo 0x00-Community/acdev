@@ -20,7 +20,7 @@ describe('the download address', () => {
     const skill = join('skills', 'acde')
     const markdown = (dir: string) => readdirSync(join(ROOT, dir), { recursive: true, encoding: 'utf8' })
       .filter((file) => file.endsWith('.md')).map((file) => join(dir, file))
-    const pages = [`${INSTALLERS}/install.md`, 'AGENTS.md', '../AGENTS.md', join(skill, 'SKILL.md'),
+    const pages = [`${INSTALLERS}/install.md`, '../AGENTS.md', join(skill, 'SKILL.md'),
       ...markdown(join(skill, 'references')), ...markdown('../docs')]
     const stale = pages.filter((page) => /https?:\/\/[^\s`'"]+\/(?:acde|acdert)\/install\.(?:sh|ps1|md)/.test(
       read(page).replaceAll(`${Pkgs.ACDE}/install.`, '')))

@@ -108,4 +108,4 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 (x86_64 / aarch64 Linux、两种 macOS、x86_64 Windows) 的这两种文件从 GitHub releases 下下来, `PUT` 到
 `http://gitea.dopamine/api/packages/mirror/generic/rusty_v8/v<版本>/<文件>`. CI 的 action 用 `mirror` 组织里的副本 (`uses: http://gitea.dopamine/mirror/<名字>@<提交>`).
 crates.io 和 npm 还是外网.
-Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
+Cargo.toml / package.json 里的仓库地址写 gitea (`http://gitea.dopamine/AC/acdev`); npm 发布用令牌 (`NPM_TOKEN`), 不用 trusted publishing (用户定 2026-11-17).

@@ -2,11 +2,11 @@
 
 > 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
 
-三层, 都以「和浏览器一致」为准 (第一原则). 修 bug 的顺序: **先写一个现在失败的测试, 再修**, 不管问题是自己写 demo 撞到的还是用户报的.
+三层, 都以「和浏览器一致」为准 (第一原则).
 
 | 层 | 什么时候 | 内容 |
 | --- | --- | --- |
-| 守门 | 每次改动 (现在手动, `.gitea/workflows/test.yml` 选 `gate`) | `web/` 的 typecheck 和 `bun run test`; WPT 里期望文件说能过、且三次结果一致的那些 (gate) |
+| 守门 | 每次改动 (现在手动, `.github/workflows/test.yml` (仓库根) 选 `gate`) | `web/` 的 typecheck 和 `bun run test`; WPT 里期望文件说能过、且三次结果一致的那些 (gate) |
 | 全量 | 每晚 / 发版前 (`full`) | 全部适用的 WPT (testharness、reftest、crashtest), 结果按目录出通过率; 并排克隆 AC/acde-demo 跑它全部应用的 e2e (含回归用例那一页) |
 | 回归 | 修每个 bug 时 | 网页接口的行为: 能用 WPT 表达的就是 WPT 的那一项 (期望文件里从 FAIL 变成通过); WPT 没有的, 照 WPT 的写法 (testharness 或 reftest) 写进 acde-dom 的 `test/` 或 `tests/`; `acde:` 模块、窗口、命令行这类 WPT 管不到的, 写 acde-demo `apps/regressions` 的一格或 acdebin-dbg `npm/` 的 e2e |
 
@@ -36,8 +36,8 @@
 - 期望文件 `scripts/wpt/expectations/<platform>/<目录>.json`: 每个测试一行, 全过的写状态, 否则 `{status, fail: [没过的子测试], flaky}`. 平台分开
   (字体、GPU 不同, reftest 结果不同): `linux` 由 CI 的 `baseline` 生成 (跑全量, 再跑两遍 gate, 三次合并; 产物里的 `expectations/linux` 拷进来提交),
   `darwin` 在 Mac 上照样做. 修好东西后跑 `update` 把改进记下来, 一起提交.
-- CI (`.gitea/workflows/test.yml`, 手动, runner `x86_64-debian-234`, 直接跑在主机上, 没有 Docker): `web`; `wpt` 每个分片一个任务
+- CI (`.github/workflows/test.yml` (仓库根), 手动, runner `x86_64-debian-234`, 直接跑在主机上, 没有 Docker): `web`; `wpt` 每个分片一个任务
   (`gate` 一片, `full` / `baseline` 四片, 依次跑: Gitea 一个任务最多 3 小时, 全量一个任务跑不完; `run --shard i/n` 按分块的名字分);
   `expectations` (只有 `baseline`: 合并各片结果, gate 再跑两遍, 写 `expectations/linux`, 作为产物 `wpt-expectations`, 拷进来提交);
-  `demo` (`full` / `baseline`: acde-demo 的 e2e). 准备环境的步骤在 `.gitea/actions/wpt-setup` (并排克隆 AC/acdebin-dbg 编 release, Mesa 的软件
+  `demo` (`full` / `baseline`: acde-demo 的 e2e). 准备环境的步骤在 `.github/actions/wpt-setup` (仓库根; 整个 acdev 检出在 `acdev/`, 编 release, Mesa 的软件
   Vulkan 无头跑, WPT 检出). 结果作为产物留 14 天. 稳定后改成每次推送跑 gate、每晚跑 full, 改之前先告诉基座的人.

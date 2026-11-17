@@ -2,12 +2,12 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
-acde 的开发者 CLI, 是 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg) 仓库的 `npm/` 子包 (原 gitea AC/acde-cli, 连历史并入).
-和运行时的关系像 wrangler 和 workerd: [acdert](http://gitea.dopamine/AC/acdert) 是运行时库, 二进制是同仓库根上的 `acdebin-dbg`
+acde 的开发者 CLI, 是 [acdev](http://gitea.dopamine/AC/acdev) 仓库的 `npm/` 子包 (原 gitea AC/acde-cli, 连历史并入).
+和运行时的关系像 wrangler 和 workerd: 同仓库的 `acdert/` 是运行时库 (原 AC/acdert, 连历史并入), 二进制是仓库根上的 `acdebin-dbg`
 (跨平台调试) 和 acdebin-system (Dopame OS 的会话); acde 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
-窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../../acdert`), 这里只写工具.
+窗口模型、dev IPC 的 op) 以仓库根 `AGENTS.md` 的第一原则和 `docs/runtime/`、`docs/web/` 为准, 这里只写工具.
 
-- 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
+- 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
 - 启动快 (gitea acde#94): `src/cli.ts` 只静态导入轻模块 (`test/launcher.test.ts` 核对清单), 其余在用到的命令里 `await import()`;
   `-v` 探 acdebin-dbg 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
   发布包的 cli.js 开 splitting (`chunk-<hash>.js`), 懒导入的模块才真的晚加载. `bun run startup [acde 路径] [--max-version-ms N] [--max-help-ms N]`

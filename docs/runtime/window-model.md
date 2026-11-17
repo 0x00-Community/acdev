@@ -73,4 +73,4 @@
 
 ## 宿主窗口
 
-宿主窗口 (crates/hostwin, `acdert app` / `acdert desktop` 在别人桌面里的那条路) 归 [acdebin-dbg](http://gitea.dopamine/AC/acdebin-dbg), 说明在它的 AGENTS.md.
+宿主窗口 (crates/hostwin, `acdert app` / `acdert desktop` 在别人桌面里的那条路) 归 acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`), 说明在它的 AGENTS.md.
