@@ -53,6 +53,7 @@ incremental = true
 
 [profile.guest.package."*"]
 opt-level = 2
+debug = false
 
 [profile.release]
 opt-level = "s"
