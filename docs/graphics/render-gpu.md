@@ -58,7 +58,7 @@
 ## shell (napi 类 `Shell`)
 
 合成器本身 (smithay + GLES, DRM/KMS、RDP、支持的协议、HiDPI 和它的环境变量) 在 acdebin-system 的 `crates/shell`, 见它的 `docs/compositor.md`;
-宿主窗口里是 acdebin-dbg 的 `crates/hostwin`, 见它的 `docs/hostwin.md`. 下面是 Broker 和 web 看到的接口.
+宿主窗口里是 acdev runtime 的 `crates/hostwin`, 见它的 `docs/hostwin.md`. 下面是 Broker 和 web 看到的接口.
 
 - Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?, parent?, modal?})` → `{window, token}` (随机 64 位令牌,
   客户端在 `acde_window.bind` 里交回一次; `parent` / `modal` 在窗口绑上时写进窗口表, 客户端自己的 xdg parent 优先); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`

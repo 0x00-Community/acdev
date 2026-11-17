@@ -82,7 +82,7 @@ export class PageTools {
     server.registerTool(
       'dialog',
       {
-        description: "Answer a page's next alert / confirm / prompt before it comes (acdebin-dbg has no dialog to "
+        description: "Answer a page's next alert / confirm / prompt before it comes (acdev runtime has no dialog to "
           + 'click: without an answer confirm is false and prompt null), or list the dialogs it showed and how they '
           + 'were answered.',
         inputSchema: z.object({

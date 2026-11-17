@@ -59,7 +59,7 @@ export class DevClient {
     Lines.read(socket, (message) => this.#response(message))
     socket.on('close', () => {
       this.#ended = true
-      this.#fail(this.#closed ?? new Error('acdebin-dbg closed the connection'))
+      this.#fail(this.#closed ?? new Error('acdev runtime closed the connection'))
     })
     socket.on('error', (error) => {
       this.#closed = error
@@ -116,13 +116,13 @@ export class DevClient {
 
   request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
     if (this.#closed || this.#socket.destroyed)
-      return Promise.reject(this.#closed ?? new Error('acdebin-dbg closed the connection'))
+      return Promise.reject(this.#closed ?? new Error('acdev runtime closed the connection'))
     const id = this.#next++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#waiting.delete(id)
         const seconds = Math.round(this.#timeoutMs / 1000)
-        reject(new Error(`timed out: acdebin-dbg did not answer "${op}" within ${seconds} s`))
+        reject(new Error(`timed out: acdev runtime did not answer "${op}" within ${seconds} s`))
       }, this.#timeoutMs)
       this.#waiting.set(id, { resolve, reject, timer })
       Lines.write(this.#socket, { ...args, type: 'request', id, op })
@@ -130,7 +130,7 @@ export class DevClient {
   }
 
   close(): void {
-    this.#closed ??= new Error('the connection to acdebin-dbg was closed')
+    this.#closed ??= new Error('the connection to acdev runtime was closed')
     this.#fail(this.#closed)
     const socket = this.#socket
     socket.end(() => socket.destroy())

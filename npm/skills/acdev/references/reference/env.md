@@ -8,7 +8,7 @@
 | `ACDEV_DIST` | Where the installers download acdev and its runtime from, and where `acdev doctor --online` looks for a newer one; default `https://pkgs.dopame.ai/acde` |
 | `ACDEV_SDK` | The SDK directory `acdev new` and `acdev sdk update` point `@dopame/acde-api` at; default the one that comes with acdev |
 | `ACDEV_VM_DIR` | Where `acdev vm` keeps the guest: images, the overlay disk, sockets, logs; default `~/.local/share/acde/vm` |
-| `ACDEV_RUNTIME` | The acdebin-dbg binary `acdev dev` and `acdev test` run: a path, or a name on PATH. Unset: the acdebin-dbg the installer put next to acdev, then `acdebin-dbg` (or an older `acdert`) on PATH |
+| `ACDEV_RUNTIME` | The acdev runtime binary `acdev dev` and `acdev test` run: a path, or a name on PATH. Unset: the acdev runtime the installer put next to acdev, then `acdev runtime` (or an older `acdert`) on PATH |
 | `ACDEV_BUNDLER=vite` | Bundle with Vite on Bun too |
 | `ACDEV_DEBUG=1` | An error also prints its stack trace (normally only the one-line message) (after 0.0.9) |
 | `ACDEV_BROWSER` | The browser `acdev devtools` and F12 in `acdev dev` open DevTools in: a path, or `none` to open nothing and only print the address. Unset: Edge, then Chrome on Windows; Chrome, then Edge on macOS; Chrome, Chromium or Edge on `PATH` on Linux (after 0.0.9) |
@@ -16,7 +16,7 @@
 | `NO_COLOR` | Set and not empty: no color in acdev's output |
 | `FORCE_COLOR` | Set and not `0` or `false`: color even when the output is not a terminal |
 
-## Runtime (acdebin-dbg)
+## Runtime (acdev runtime)
 
 `acdev dev` and `acdev test` set what is needed for you. To adjust things by hand:
 

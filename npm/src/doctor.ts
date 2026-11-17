@@ -83,7 +83,6 @@ type Available = Readonly<Record<'bun' | 'node', string | null>>
 const FROM: Readonly<Record<NonNullable<FoundAcdert['from']>, string>> = {
   ACDEV_RUNTIME: 'from ACDEV_RUNTIME',
   install: 'installed next to acdev',
-  PATH: 'on PATH',
 }
 
 export class Doctor {
@@ -112,9 +111,9 @@ export class Doctor {
       Doctor.runtimes(available),
       Doctor.acdert(found, probe, reinstall),
       runs ? Doctor.contract(probe, reinstall)
-        : Doctor.skip('contract', 'contract level', 'needs an acdebin-dbg that runs'),
+        : Doctor.skip('contract', 'contract level', 'needs an acdev runtime that runs'),
       ...(runs ? await Doctor.selfCheck(found.path!, probe, reinstall)
-        : [Doctor.skip('runtime', 'runtime check', 'needs an acdebin-dbg that runs')]),
+        : [Doctor.skip('runtime', 'runtime check', 'needs an acdev runtime that runs')]),
       ...(await Doctor.sessions()),
       ...Doctor.project(resolve(options.dir ?? '.'), options.dir !== undefined, available),
       Doctor.skill(),
@@ -176,29 +175,29 @@ export class Doctor {
 
   static acdert(found: FoundAcdert, probe: RuntimeProbe | null, reinstall: Repair | null = null): Check {
     if (!found.path || !probe)
-      return Doctor.mend(Doctor.error('acdert', 'acdebin-dbg', found.problem ?? 'not found', Doctor.acdertFix(found)),
+      return Doctor.mend(Doctor.error('acdert', 'runtime', found.problem ?? 'not found', Doctor.acdertFix(found)),
         reinstall)
     const where = `${found.path} (${FROM[found.from!]})`
     if (probe.failed) {
       const fix = Doctor.runFix(found, probe)
       const quarantine = process.platform === 'darwin' && fix.startsWith('macOS keeps it in quarantine')
-      const failing = Doctor.error('acdert', 'acdebin-dbg', `${where} does not run: ${probe.failed}`, fix)
+      const failing = Doctor.error('acdert', 'runtime', `${where} does not run: ${probe.failed}`, fix)
       return quarantine ? failing : Doctor.mend(failing, reinstall)
     }
     if (probe.level === 0) {
       const told = probe.said ? `says ${JSON.stringify(probe.said)}` : 'printed nothing'
       const summary = `${where}: --version ${told}, no contract level: it is older than contract levels`
-      return Doctor.mend(Doctor.error('acdert', 'acdebin-dbg', summary, Doctor.acdertFix(found)), reinstall)
+      return Doctor.mend(Doctor.error('acdert', 'runtime', summary, Doctor.acdertFix(found)), reinstall)
     }
-    return Doctor.ok('acdert', 'acdebin-dbg', `${probe.said.split(/\r?\n/)[0]} at ${where}`)
+    return Doctor.ok('acdert', 'runtime', `${probe.said.split(/\r?\n/)[0]} at ${where}`)
   }
 
   static contract(probe: RuntimeProbe, reinstall: Repair | null = null): Check {
-    const version = /^(?:acdebin-dbg|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
+    const version = /^(?:acdev|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
     const sdk = Versions.sdk()
-    const pairs = `acdev ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdebin-dbg ${sdk}`
+    const pairs = `acdev ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdev runtime ${sdk}`
     if (probe.level !== API_LEVEL) {
-      const summary = `acdev builds level ${API_LEVEL} apps, but acdebin-dbg ${version} runs ` +
+      const summary = `acdev builds level ${API_LEVEL} apps, but acdev runtime ${version} runs ` +
         `level ${probe.level}: acdev dev refuses to start it`
       return Doctor.mend(Doctor.error('contract', 'contract level', summary, Doctor.pairFix(sdk)), reinstall)
     }
@@ -207,16 +206,16 @@ export class Doctor {
         `${version}`, Doctor.pairFix(sdk)), reinstall)
     }
     return Doctor.ok('contract', 'contract level',
-      `level ${API_LEVEL} on both sides (acdebin-dbg ${version}, SDK ${sdk})`)
+      `level ${API_LEVEL} on both sides (acdev runtime ${version}, SDK ${sdk})`)
   }
 
   static async selfCheck(acdert: string, probe: RuntimeProbe, reinstall: Repair | null = null): Promise<Check[]> {
     const help = await Runtime.capture([acdert, '--help'], { timeout: Doctor.HELP_MS })
-    if (!/^\s*(?:acdebin-dbg|acdert) doctor\b/m.test(help.stdout)) {
-      const name = /^acdert /.test(probe.said) ? 'acdert' : 'acdebin-dbg'
-      const version = /^(?:acdebin-dbg|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
+    if (!/^\s*(?:acdev|acdert) doctor\b/m.test(help.stdout)) {
+      const name = /^acdert /.test(probe.said) ? 'acdert' : 'acdev runtime'
+      const version = /^(?:acdev|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
       const sdk = Versions.sdk()
-      const fix = version === sdk ? `use a newer build of acdebin-dbg: this one was built before ${name} doctor`
+      const fix = version === sdk ? `use a newer build of acdev runtime: this one was built before ${name} doctor`
         : Doctor.pairFix(sdk)
       const old = Doctor.warn('runtime', 'runtime check',
         `${name} ${version} cannot check itself (it has no ${name} doctor), so its GPU and host files were not ` +
@@ -226,14 +225,14 @@ export class Doctor {
     const ran = await Runtime.capture([acdert, 'doctor', '--json'], { timeout: Doctor.RUNTIME_MS })
     if (ran.timedOut)
       return [Doctor.error('runtime', 'runtime check',
-        `acdebin-dbg doctor did not finish within ${Doctor.RUNTIME_MS / 1000} s`)]
+        `acdev runtime doctor did not finish within ${Doctor.RUNTIME_MS / 1000} s`)]
     let report: RuntimeReport
     try {
       report = JSON.parse(ran.stdout) as RuntimeReport
       if (!Array.isArray(report.checks)) throw new Error('no checks')
     } catch {
       const said = ran.error ?? (ran.stderr.trim().split(/\r?\n/).at(-1) || `exit code ${ran.code}`)
-      return [Doctor.error('runtime', 'runtime check', `acdebin-dbg doctor gave no report: ${said}`)]
+      return [Doctor.error('runtime', 'runtime check', `acdev runtime doctor gave no report: ${said}`)]
     }
     return report.checks.map((check) => {
       const mapped: Check = {
@@ -484,7 +483,7 @@ export class Doctor {
       action: 'reinstall',
       target: version,
       ask: true,
-      does: `run the installer of acdev ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdebin-dbg ` +
+      does: `run the installer of acdev ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdev runtime ` +
         `released with it, checks it against SHA256SUMS and puts it next to acdev`,
     }
   }
@@ -608,25 +607,25 @@ export class Doctor {
   }
 
   static acdertFix(found: FoundAcdert): string {
-    if (found.from === 'ACDEV_RUNTIME') return 'point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it'
+    if (found.from === 'ACDEV_RUNTIME') return 'point ACDEV_RUNTIME at the runtime binary, or unset it'
     if (installed(packageRoot()))
       return `${Doctor.installer(process.env, Versions.acde())} ` +
-        '(it puts the acdebin-dbg that pairs with acdev next to it)'
-    return 'build acdebin-dbg (cargo build --release -p acdebin-dbg in an acdebin-dbg checkout, with acdert ' +
-      'beside it) and set ACDEV_RUNTIME to its target/release/acdebin-dbg, or put acdebin-dbg on PATH'
+        '(it puts the acdev runtime that pairs with acdev next to it)'
+    return 'build the runtime (cargo build --release -p acdev in an acdev checkout) and set ACDEV_RUNTIME '
+      + 'to its target/release/acdev'
   }
 
   static pairFix(sdk: string): string {
     if (installed(packageRoot()))
-      return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdebin-dbg that pairs with acdev)`
-    return `use acdebin-dbg ${sdk}: set ACDEV_RUNTIME to it, or put it on PATH`
+      return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdev runtime that pairs with acdev)`
+    return `use the runtime ${sdk}: set ACDEV_RUNTIME to it`
   }
 
   static runFix(found: FoundAcdert, probe: RuntimeProbe): string {
     const path = found.path!
     if (process.platform === 'darwin' && Doctor.quarantined(path)) return `macOS keeps it in quarantine: xattr -d com.apple.quarantine ${path}`
     if (/error while loading shared libraries|cannot open shared object file/.test(probe.stderr))
-      return 'install the system library named above, which acdebin-dbg links against'
+      return 'install the system library named above, which acdev runtime links against'
     return Doctor.acdertFix(found)
   }
 

@@ -6,7 +6,7 @@
 连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acdev dev <pid> is gone`.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
-  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdebin-dbg 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
+  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdev runtime 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
   所以 acdev 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
   一个都没有时 stderr 一行 `acdev: no element's name or value contains "<文字>"` (没给 `--offscreen` 时加一句它的提示)、退出码 2 (`Exit.NOTHING`))、`query <选择器> [--window W] [--ref REF] [--limit N]` (driver 的 `query`, 即 op `query`: 按 CSS 选择器找元素,
   `inspect` 不列的 (`display: none`、滚出可见范围、没有角色名字的) 也给 ref; 输出是 `Format.matches`, 和 MCP 的 `query` 同一份: `N in <窗口>:` 加每个元素一行
@@ -16,7 +16,7 @@
   `act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1; 打的是 driver 的 `act` 的 `text`,
   关掉单应用会话唯一的窗口时就是那行「会话结束」, 退出码 0, 见 driver 的「关窗口结束会话」)、
   `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acdev dev 的 pid 退出, 各最多 10 s (等连接的计时器在连接断开后取消, 不然它让 `acdev stop` 多留 10 s, acde#51), 还在就 SIGTERM (Windows 上是强制结束,
-  acdebin-dbg 因连接断开跟着退出), 删会话文件, 打 `acdev: stopped acdev dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、
+  acdev runtime 因连接断开跟着退出), 删会话文件, 打 `acdev: stopped acdev dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、
   `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读; `--since N` 从第 N 条起 (运行时的 `since` 含这一条), `--since reload` 从会话文件的
   `reloaded` 起: acdev dev 每次重建后、发 `reload` 之前用自己的连接问 `console` / `network {limit: 1}` 的 `next` (最多等 2 s, 问不到沿用上一次),
   写进会话文件 `reloaded: {console, network}`. 运行时的记录不随页面重载清空, 也不标重载 (同一窗口重载后 web 名不变, 不能按 web 名分), 所以只认
@@ -31,9 +31,9 @@
   `acdev revoke <app> <能力>` 是 driver 的 `revoke`, 打 `revoked <app> <能力>`, 没有那条决定时退出 1. `acdev webs` 的表是空的时候 (单应用会话的应用在等批准)
   每个待答提示再打一行 `<app> waits for approval of <能力>: acdev allow (or acdev deny)` (`Approvals.waiting`, `Format.waiting`; MCP 的 `webs` / `start`
   同理, 后半句是 `the answer tool allows or denies it`); 桌面会话里 `webs` 总有桌面页, 不打这行, 看 `acdev permissions`. 实测 (2026-11-11, acdert 0.0.9
-  加当天的修复): 单应用会话里拒绝必需能力后 acdebin-dbg 记一行 `acdert app <id>: <名字>: "<能力>" is denied by the user; acdert app asks for it again the next
+  加当天的修复): 单应用会话里拒绝必需能力后 acdev runtime 记一行 `acdert app <id>: <名字>: "<能力>" is denied by the user; acdert app asks for it again the next
   time it runs` 退出 1, 下次 `acdev dev` 再问 (`… was denied "<能力>" in an earlier run: asking again`); 撤销必需能力后应用照常跑到下一次 reload,
-  reload 时 acdebin-dbg 记同一行退出 1; 桌面里拒绝会留着 (跨会话), 应用不进列表 (`acde:apps` 发 `changed`), 撤销已批准的必需能力后应用同样出列表,
+  reload 时 acdev runtime 记同一行退出 1; 桌面里拒绝会留着 (跨会话), 应用不进列表 (`acde:apps` 发 `changed`), 撤销已批准的必需能力后应用同样出列表,
   开着的窗口留到下一次 reload (日志 `acdev dev: reload: <名字>: "<能力>" is denied by the user`, 窗口关掉); 撤销之后这一次运行里一直算被拒, 下次起运行时再问.
 - **`acdev devtools [web]`** (`src/devtools.ts` `Devtools`, acde#75; 规格 acdert#172): 和其他会话命令一样挑会话, 发开发通道请求
   `devtools` (`Acde.devtools()`, 回 `{port}`, 旧的 acdert 另带 `token`), 读 `http://127.0.0.1:<port>/json/list`, 按 id 挑目标 (给了 web: 参数本身、
@@ -56,7 +56,7 @@
     Windows 依次查 `ProgramFiles(x86)`、`ProgramFiles`、`LOCALAPPDATA` 下的 Edge, 再同样三处的 Chrome; macOS 是 `/Applications`、
     `~/Applications` 里的 Google Chrome.app, 再 Microsoft Edge.app; Linux 在 PATH 上依次找 `google-chrome`、`google-chrome-stable`、
     `chrome`、`chromium`、`chromium-browser`、`microsoft-edge`、`microsoft-edge-stable`. 都没有时打印地址和说明, 退出 0.
-  - 端点不要令牌 (acde#79, acdert#199): acdebin-dbg 按 `Host` 和 `Origin` 防护 (同 Chrome 自己的调试端口), `devtools` 只回 `{port}`,
+  - 端点不要令牌 (acde#79, acdert#199): acdev runtime 按 `Host` 和 `Origin` 防护 (同 Chrome 自己的调试端口), `devtools` 只回 `{port}`,
     `/json/list` 和目标的 `webSocketDebuggerUrl` 原样用. 还回 `token` 的旧 acdert 照旧: `/json/list` 带 `?token=` (另加
     `Authorization: Bearer`), WebSocket 地址没带 `?token=` 时补上 (DevTools 前端连 WebSocket 不能加请求头), 这时打印的地址含令牌,
     别贴进议题、日志或聊天.
@@ -66,24 +66,24 @@
 - **driver** (`acdev/driver`, `src/driver/`, 只用 `node:` 模块; 公开的接口类型、`ACTIONS`、`ActError` 和 `LaunchError` 在 `types.ts`, `acde.ts` 原样再导出, 只放 `Acde` 类): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDEV_FOLLOWED=1`: 会话文件按子进程 pid 找, `acdev dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
-  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdebin-dbg 先答 `webs`, 窗口稍后进表; 有待答的批准提示 (只剩摄像头 / 麦克风会问) 也算起来了; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 见下文 `Acde.#stop`).
+  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdev runtime 先答 `webs`, 窗口稍后进表; 有待答的批准提示 (只剩摄像头 / 麦克风会问) 也算起来了; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 见下文 `Acde.#stop`).
   **起不来** (`LaunchError`, 是 `Error`, `name` 仍是 `Error`: 0.0.8 的输出里是 `error:` / `Error:`; `phase` / `code` / `logs` 是 getter, bun 打错误时
   不把它们当自有属性列出来): 消息第一行是 0.0.8 的原文, 说停在哪一步的是加在后面的一行, 再后面是输出的最后 40 行; `logs` 是全部输出.
   `exited`: `acdev dev exited (N) before it was ready:` (子进程退出后先等输出读完, 最多 `DRAIN_MS` 1 s, 再报, 所以最后几行不会丢);
-  `session`: 限时内没有会话文件, 加一行 `no session yet: its build did not finish, or acdebin-dbg did not start listening; last output:` (会话文件要等
-  构建完、acdebin-dbg 听上、acdev dev 连上才写; 分不清是哪一步, 两种都说, 输出里看得出; 别的进程登记了会话时不说这句);
-  `window`: 会话在、acdebin-dbg 在答, 但 `ready()` 一直不成立也没有待答提示, 加一行
-  `acdebin-dbg runs and answers, but no window appeared (pages: N, windows: M) and no approval prompt waits; last output:`; 轮询中连接断了不直接抛
-  `acdebin-dbg closed the connection` (acdebin-dbg 先退, acdev dev 随后才退, 下一轮就是 `exited`), 到限时还没退出才说连接断了; `failed`: 其余的错 (连不上、
-  acdebin-dbg 不答), 消息不变, 原错误在 `cause`.
-  `close()` 先经自己的连接给 acdebin-dbg 发 `{type: 'quit'}` (acdebin-dbg 退出, acdev dev 随之走自己的收尾), 再关连接.
+  `session`: 限时内没有会话文件, 加一行 `no session yet: its build did not finish, or acdev runtime did not start listening; last output:` (会话文件要等
+  构建完、acdev runtime 听上、acdev dev 连上才写; 分不清是哪一步, 两种都说, 输出里看得出; 别的进程登记了会话时不说这句);
+  `window`: 会话在、acdev runtime 在答, 但 `ready()` 一直不成立也没有待答提示, 加一行
+  `acdev runtime runs and answers, but no window appeared (pages: N, windows: M) and no approval prompt waits; last output:`; 轮询中连接断了不直接抛
+  `acdev runtime closed the connection` (acdev runtime 先退, acdev dev 随后才退, 下一轮就是 `exited`), 到限时还没退出才说连接断了; `failed`: 其余的错 (连不上、
+  acdev runtime 不答), 消息不变, 原错误在 `cause`.
+  `close()` 先经自己的连接给 acdev runtime 发 `{type: 'quit'}` (acdev runtime 退出, acdev dev 随之走自己的收尾), 再关连接.
   失败和 `close()` 都经 `Acde.#stop`: unix 上 SIGTERM, 10 s 后 SIGKILL; Windows 上 SIGTERM 就是 `TerminateProcess`, acdev dev 的收尾不跑、
-  acdebin-dbg 不随它结束, 所以只在发过 `quit` 时等它自己退 10 s, 否则或到时就 `Runtime.killTree` (`taskkill /T /F` 连 acdebin-dbg 一起结束, 再 SIGKILL).
+  acdev runtime 不随它结束, 所以只在发过 `quit` 时等它自己退 10 s, 否则或到时就 `Runtime.killTree` (`taskkill /T /F` 连 acdev runtime 一起结束, 再 SIGKILL).
   等的是进程退出 (`Child.gone`, `exit` 事件) 而不是管道关闭 (`Child.exited`,
   `close` 事件): 构建卡住时 acdev dev 被结束后它的构建子进程还拿着管道, 等 `close` 永远等不到, 测试只能由 bun 在限时加宽限期后杀掉, 什么都不留
   (实测过). 之后等输出读完 (最多 1 s) 再销毁两根管道. 等待用可取消的定时器: 原来 `close()` 里没取消的 10 s 定时器让只用 driver 的脚本在
   `close()` 之后还要等 10 s 才退出. 没解决的: acdev dev 在构建中被结束时, 构建工具的子进程不随它结束 (没有进程组; `acdev test` 里用进程组会让
-  终端的 Ctrl+C 到不了 acdev dev 和 acdebin-dbg), 会留到它自己跑完.
+  终端的 Ctrl+C 到不了 acdev dev 和 acdev runtime), 会留到它自己跑完.
   方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析;
   `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 acdert: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
   `{status, statusText, headers, contentType, body (文字或字节, 转 base64), json}` 或 `{abort}`; `unroute(id?)`; `clipboard()` / `setClipboard(text)`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
@@ -91,18 +91,18 @@
   **批准** (只剩摄像头 / 麦克风: 用户 2026-11-11 决定其余能力声明即授予, acdert#146; acde#16, op `permissions` / `answer` / `revoke`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
   `permissions()` → `{pending, decisions}`; `waitForPrompt({app, capability, timeout})` 轮询到匹配的待答提示; `answer(提示或 id, allow)`;
   `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` (capability 的类型是 `PermissionDecision['capability']`, 含用户选的文件夹 `fs.folder-<令牌>`) 是 op `revoke` (acdert#95), 回 `revoked`
-  (有那条决定并删掉了才是 true), 桌面会话和 `acdebin-dbg app` 都能用. 没人答的提示一直等, 不自动批准.
+  (有那条决定并删掉了才是 true), 桌面会话和 `acdev runtime app` 都能用. 没人答的提示一直等, 不自动批准.
   **拖放** (op `drop`): `drop(文件, {web, x, y})` (相对路径按当前目录解析, x / y 页面坐标一起给, 默认页面中心, web 默认 desktop) →
-  `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdebin-dbg 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
+  `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdev runtime 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
   (如 `evaluate` 轮询或 `expect`), 不能以回答为准. 页面拿到的: 普通文件进 `dataTransfer.files` (`File`), 每项 `getAsFileSystemHandle()` 是只读句柄
   (文件夹是目录句柄); 扩展期 `items` 前面还有 `text/uri-list` / `text/plain` 两项字符串.
-  **关窗口结束会话** (命令行、MCP、driver 共用 `Acde.act` 这一处): 单应用会话 (`acdebin-dbg app`, 会话文件 `desktop` 为 null) 里关掉应用的窗口,
-  acdebin-dbg 按设计随之退出, 不回答这个 `act` (实测 acdert 0.0.9: 日志 `ended (close), exit 0`, 连接直接断). `act(窗口 ref, 'close')` 发出时连接还在、
+  **关窗口结束会话** (命令行、MCP、driver 共用 `Acde.act` 这一处): 单应用会话 (`acdev runtime app`, 会话文件 `desktop` 为 null) 里关掉应用的窗口,
+  acdev runtime 按设计随之退出, 不回答这个 `act` (实测 acdert 0.0.9: 日志 `ended (close), exit 0`, 连接直接断). `act(窗口 ref, 'close')` 发出时连接还在、
   等回答时连接断了 (`DevClient.ended`, 在 socket 的 `close` 事件里同步置位, 先于在途请求被拒)、会话是单应用的、不是自己 `close()` 断的, 就算成功:
-  回 `{ok: true, ended: true, text: 'closed <ref>; acdebin-dbg exited with it, so acdev dev <pid> ended'}` (`Acde.endedBy`); `Acde.closed` 就是
-  `DevClient.ended`. `AppWindow.close()` 见到 `ended` 不再等窗口消失; acdebin-dbg 先回答再退出时 (等窗口消失的轮询中连接断了) 同样回这个结果.
-  别的情况连接断了照旧报错 (`acdebin-dbg closed the connection`), 不把崩溃当成功: 别的动作、元素 ref、桌面会话里的 `close` (那里关应用窗口不结束
-  acdebin-dbg, 桌面关不掉: `the desktop cannot be closed`)、`run` (整批的回答丢了, 说不出前面几步做了什么). 会话已断之后再 `act` 是
+  回 `{ok: true, ended: true, text: 'closed <ref>; acdev runtime exited with it, so acdev dev <pid> ended'}` (`Acde.endedBy`); `Acde.closed` 就是
+  `DevClient.ended`. `AppWindow.close()` 见到 `ended` 不再等窗口消失; acdev runtime 先回答再退出时 (等窗口消失的轮询中连接断了) 同样回这个结果.
+  别的情况连接断了照旧报错 (`acdev runtime closed the connection`), 不把崩溃当成功: 别的动作、元素 ref、桌面会话里的 `close` (那里关应用窗口不结束
+  acdev runtime, 桌面关不掉: `the desktop cannot be closed`)、`run` (整批的回答丢了, 说不出前面几步做了什么). 会话已断之后再 `act` 是
   `acdev dev <pid> is no longer connected`.
   `AppWindow` 每次用到时在窗口表里重新找; `route` / `waitFor*` 带上它的 web. `Locator` 每次在最新语义树 (`limit: 3000, offscreen: true`) 上重新求、不缓存 ref; 动作要**恰好一个**匹配
   (多个报错, 不猜), click / fill / type / selectOption 还等不 `disabled`, `ok: false` 重试到超时再抛 `ActError`. `getByLabel` 是名字匹配的表单角色
@@ -139,10 +139,10 @@
   `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
   (它替用户做决定), `prompt` 和 `app` / `capability` 不能同时给; `query` 的输出是 `Format.matches`; `clipboard` 在有窗口的会话里碰的是用户的系统剪贴板, 要 `system: true` 才做, 标成 destructive / openWorld 让客户端先问) (`start` / `stop` / `logs` 是自己起 `acdev dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`
-  起的 (在途的工具调用随连接关闭失败, 不再等 acdebin-dbg 回答; 进程随后自己退出). 工具出错回 `isError`, 不抛协议错误. 正在用的会话断了之后的下一次调用说它停了: `start` 起的报
+  起的 (在途的工具调用随连接关闭失败, 不再等 acdev runtime 回答; 进程随后自己退出). 工具出错回 `isError`, 不抛协议错误. 正在用的会话断了之后的下一次调用说它停了: `start` 起的报
   `the acdev dev started here (pid N) stopped; last output: …` (只报一次); 接上去的先等它的会话文件消失 (最多 `Mcp.DELISTED_MS` 2 s, 免得又挑中
   正在退出的那个), 再照常挑, 挑到别的会话 (比如用户重起的 `acdev dev`) 就接着用, 挑不到时报 `acdev dev N stopped; <挑会话的错误>`.
-- **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdebin-dbg), 从 `acdev/test` 导入. 每个测试一个新 `acdev dev`
+- **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdev runtime), 从 `acdev/test` 导入. 每个测试一个新 `acdev dev`
   (`E2eRun`), 隔离: 临时 `HOME` 和 `XDG_*`、`ACDE_STORAGE` 空、`ACDE_SIZE=1280x800`、浅色、减少动画、不跑 autostart, 构建进 `.acde/test`. 失败时在
   `<results>/<文件>/<测试>/` 留 `error.txt`、`output.log`、`screen.png`、`snapshot.txt`、`console.txt`、`network.txt`、`trace.txt` (截图比对的
   `-actual` / `-expected` / `-diff` 也在这). `--trace` 每个测试都留 `trace.html`; `-u` / `--update-screenshots` 重写基线. `TestRunner` 每个文件一个
@@ -163,9 +163,9 @@
   `Logs.KEEP` 行).
   **测试限时由 acdev 自己执行** (`E2eRun.within`): 测试体和从测试开始算的限时赛跑, 到点抛 `TimeoutError: the test did not finish within <ms> ms
   (its timeout: --timeout, or the one given to test())` (`TestTimeout`), 照常走 `keep` 留下失败现场, 再 `close()`; 交给 bun 的限时是测试限时加
-  `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdebin-dbg 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),
-  文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdebin-dbg 要截图、快照、console、network
-  这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdebin-dbg 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
+  `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdev runtime 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),
+  文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdev runtime 要截图、快照、console、network
+  这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdev runtime 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
   `--workers N` 同时跑几个文件 (默认核数的一半, 最多 4; `--headed` / `--bail` 时 1): 每个 worker 构建进自己的目录 (`.acde/test`、`.acde/test-2` …,
   `ACDEV_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acdev dev 再跑
   (后来过了就打 flaky, 结果目录只留最后一次), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,

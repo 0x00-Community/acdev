@@ -68,30 +68,27 @@ describe('launcher: where acdert comes from', () => {
     expect(failure()).toMatch(/^ACDEV_RUNTIME=.*gone: no such file/)
   })
 
-  test('then acdert on PATH', () => {
+  test('a runtime on PATH is not looked for: PATH has the CLI acdev', () => {
     const dir = tmp()
-    const onPath = binary(join(dir, `acdert${EXE}`))
+    binary(join(dir, `acdev${EXE}`))
     process.env['PATH'] = dir
-    expect(requireAcdert()).toBe(onPath)
+    expect(() => requireAcdert()).toThrow('acdev dev needs the Dopame runtime')
   })
 
-  test('an installed acdev takes the acdert the installer put beside it, before PATH; ACDEV_RUNTIME still wins', () => {
+  test('an installed acdev takes the runtime the installer put in libexec; ACDEV_RUNTIME still wins', () => {
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
-    const beside = binary(join(root, '..', '..', 'bin', `acdert${EXE}`))
-    const dir = tmp()
-    binary(join(dir, `acdert${EXE}`))
-    const env = { PATH: dir, PATHEXT: '.EXE' }
+    const beside = binary(join(root, '..', '..', 'libexec', `acdev${EXE}`))
+    const env = { PATH: tmp(), PATHEXT: '.EXE' }
     expect(requireAcdert(root, env)).toBe(beside)
-    const mine = binary(join(tmp(), `acdert${EXE}`))
+    const mine = binary(join(tmp(), `acdev${EXE}`))
     expect(requireAcdert(root, { ...env, ACDEV_RUNTIME: mine })).toBe(mine)
-    expect(requireAcdert(checkout(), env)).toBe(join(dir, `acdert${EXE}`))
   })
 
-  test('nothing found: an English error names where the installer puts it, ACDEV_RUNTIME and PATH', () => {
+  test('nothing found: an English error names where the installer puts it and ACDEV_RUNTIME', () => {
     expect(failure()).toBe(
-      'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-      'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
+      'acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: '
+        + 'set ACDEV_RUNTIME to the runtime binary (target/release/acdev of an acdev checkout) (acdev doctor checks the whole setup)',
     )
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
@@ -101,35 +98,30 @@ describe('launcher: where acdert comes from', () => {
     } catch (error) {
       message = (error as Error).message
     }
-    const beside = join(root, '..', '..', 'bin', `acdebin-dbg${EXE}`)
+    const beside = join(root, '..', '..', 'libexec', `acdev${EXE}`)
     expect(message).toBe(
-      `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no ${beside}, ` +
-      'which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdebin-dbg binary, ' +
-      'or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
+      `acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: no ${beside}, `
+        + 'which the acdev installer puts there: run the installer again, or set ACDEV_RUNTIME to the runtime binary '
+        + '(target/release/acdev of an acdev checkout) (acdev doctor checks the whole setup)',
     )
-    expect(message).not.toContain('not part of acde')
   })
 
-  test('findAcdert says where acdert came from, and what is wrong when it found none', () => {
+  test('findAcdert says where the runtime came from, and what is wrong when it found none', () => {
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
-    const beside = binary(join(root, '..', '..', 'bin', `acdert${EXE}`))
-    const dir = tmp()
-    const onPath = binary(join(dir, `acdert${EXE}`))
-    const mine = binary(join(tmp(), `acdert${EXE}`))
-    expect(findAcdert(root, { PATH: dir, ACDEV_RUNTIME: mine })).toEqual({ path: mine, from: 'ACDEV_RUNTIME' })
-    expect(findAcdert(root, { PATH: dir })).toEqual({ path: beside, from: 'install' })
-    expect(findAcdert(checkout(), { PATH: dir })).toEqual({ path: onPath, from: 'PATH' })
-    const gone = findAcdert(root, { PATH: dir, ACDEV_RUNTIME: join(dir, 'gone') })
+    const beside = binary(join(root, '..', '..', 'libexec', `acdev${EXE}`))
+    const mine = binary(join(tmp(), `acdev${EXE}`))
+    expect(findAcdert(root, { ACDEV_RUNTIME: mine })).toEqual({ path: mine, from: 'ACDEV_RUNTIME' })
+    expect(findAcdert(root, {})).toEqual({ path: beside, from: 'install' })
+    const gone = findAcdert(root, { ACDEV_RUNTIME: join(tmp(), 'gone') })
     expect(gone.path).toBeNull()
     expect(gone.from).toBe('ACDEV_RUNTIME')
-    expect(gone.problem).toMatch(/^ACDEV_RUNTIME=.*gone: no such file; point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it$/)
-    const none = findAcdert(checkout(), { PATH: '' })
-    expect(none).toEqual({
+    expect(gone.problem).toMatch(/^ACDEV_RUNTIME=.*gone: no such file; point ACDEV_RUNTIME at the runtime binary, or unset it$/)
+    expect(findAcdert(checkout(), { PATH: '' })).toEqual({
       path: null,
       from: null,
-      problem: 'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-        'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH',
+      problem: 'acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: '
+        + 'set ACDEV_RUNTIME to the runtime binary (target/release/acdev of an acdev checkout)',
     })
   })
 })

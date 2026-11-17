@@ -7,11 +7,11 @@ acdev (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
 | acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`src/host/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
-| acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acdev dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 detour | 二进制 `acdebin-dbg` |
+| acdev runtime (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acdev dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 detour | 二进制 `acdev runtime` |
 | [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器是 smithay + GLES, 只有网页的光栅化 (`crates/paint`) 用 detour | 二进制 `acdebin-system` |
-| acdebin-dbg 的 `npm/` | 开发者 CLI `acdev` (bun) | `acdev` |
+| acdev runtime 的 `npm/` | 开发者 CLI `acdev` (bun) | `acdev` |
 
-平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
+平台特化的部分只经接口进来: 前端 (acdev runtime / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
 根包 `acdert` (仓库根的 `Cargo.toml` + `src/`) 是对外唯一的包, 前端只依赖它 (`acdert = { path = "../../../acdert" }`). 代码都在这一个包里:
 `src/host` 的公开项由 `src/lib.rs` 平铺导出, 其余是公开模块 `acdert::log` / `media` / `model` / `napi` / `render` / `runtime` / `storage` / `vello` /
@@ -24,7 +24,7 @@ C 接口见 `docs/runtime/ffi.md`; 发布到 cargo 源 ac 见 `docs/dev/release.
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 前端的 Cargo.toml 里不再 `[patch]` 它.
 
-acdert 和开发者 CLI `acdev` (acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) 的 `npm/`)
+acdert 和开发者 CLI `acdev` (acdev runtime (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) 的 `npm/`)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acdev (bun) 建工程、构建、装包, `acdev dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
 crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境变量、`$XDG_*/acde/` 这些都不改. 桌面是一张网页: JS 在内嵌的 V8 里
 (不用 Node), Blitz (`vendor/blitz`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
@@ -35,10 +35,10 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 | 跑法 | 命令 | 平台 | 输出 | 合成器 |
 | --- | --- | --- | --- | --- |
 | **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdebin-system 的 `crates/shell` |
-| **调试桌面** (`acdev dev`) | `acdebin-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdebin-dbg 的 crates/hostwin |
-| **调试窗口** | `acdebin-dbg app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
+| **调试桌面** (`acdev dev`) | `acdev runtime desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdev runtime 的 crates/hostwin |
+| **调试窗口** | `acdev runtime app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
 
-选哪种看跑的是哪个二进制: `acdebin-dbg` 一律宿主窗口, `acdebin-system` (只在 Linux; Arch 包里 `/usr/bin/acdert` 链到它) 一律会话, 怎么起见 acdebin-system 的 `docs/architecture.md`. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
+选哪种看跑的是哪个二进制: `acdev runtime` 一律宿主窗口, `acdebin-system` (只在 Linux; Arch 包里 `/usr/bin/acdert` 链到它) 一律会话, 怎么起见 acdebin-system 的 `docs/architecture.md`. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
 
 调试桌面用桌面的模块、服务和 `acde:windows` / `acde:desktop` 事件. 调试窗口用清单授权的模块和 `acde:window` 事件.
 宿主窗口的 `native.Shell` 带 `hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」: 不起 fcitx5、
@@ -95,7 +95,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   合盖和电源键) 要合成器配合, 见 acdebin-system.
   `acde:input` (能力 `input`, src/host `input.rs`): 合成器的 xkb 布局 / 型号 / 选项、按键重复、NumLock 和鼠标 / 触控板的 libinput 设置;
   `state()` / `set(patch)` / `on('changed')` 走前端 `Platform::input()` 给的 `Input` (acdebin-system 的会话经 acde_shell `set_input` / `input` 事件;
-  acdebin-dbg 没有, 调用就抛), `catalog()` 读 xkeyboard-config 的 `rules/evdev.xml` (runtime `XkbCatalog`).
+  acdev runtime 没有, 调用就抛), `catalog()` 读 xkeyboard-config 的 `rules/evdev.xml` (runtime `XkbCatalog`).
   `acde:display` (能力 `display`, src/host `display.rs`): `state()` 是前端 `Platform::display()` 给的输出表 (acde_shell `display` 事件),
   内置屏的 `brightness` 由这里用 `acde:power` 的背光补上; `configure(id, {scale})` 经 acde_shell `set_scale` (只认 1..3 的整数, 别的键还没有),
   `setBrightness(id, v)` 只对内置屏 (logind 背光), `setNightLight` 还没有. 两者都是进程内模块, 不经 Broker; Linux only. `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,

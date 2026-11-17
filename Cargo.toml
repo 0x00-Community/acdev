@@ -20,7 +20,7 @@ blitz-paint = { path = "acdert/vendor/blitz/packages/blitz-paint", version = "=0
 blitz-traits = { path = "acdert/vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
 
 [package]
-name = "acdebin-dbg"
+name = "acdev"
 version.workspace = true
 edition.workspace = true
 

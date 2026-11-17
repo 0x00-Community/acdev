@@ -37,7 +37,7 @@ const BUILDS = [
 type RuntimeOptions = { builds?: readonly string[]; member?: string }
 
 function runtimeFile(build: string): string {
-  return `acdebin-dbg-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
+  return `acdev-runtime-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
 }
 
 function runtimeFiles(at: string, version: string, options: RuntimeOptions = {}): void {
@@ -52,9 +52,9 @@ function runtimeFiles(at: string, version: string, options: RuntimeOptions = {})
   for (const build of options.builds ?? BUILDS) {
     const windows = build.endsWith('-windows-msvc')
     const file = runtimeFile(build)
-    const script = `#!/bin/sh\necho "acdebin-dbg ${version} (${build})"\n`
+    const script = `#!/bin/sh\necho "acdev runtime ${version} (${build})"\n`
     const inner = join(at, `.${build}`)
-    const member = options.member ?? (windows ? 'acdebin-dbg.exe' : 'acdebin-dbg')
+    const member = options.member ?? (windows ? 'acdev.exe' : 'acdev runtime')
     mkdirSync(inner)
     writeFileSync(join(inner, member), script)
     chmodSync(join(inner, member), 0o755)
@@ -155,19 +155,19 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
   }, 300_000)
 
-  test('install.sh: latest and its acdebin-dbg into ~/.acdev, current and bin links, PATH in .zshrc once', async () => {
+  test('install.sh: latest and its acdev runtime into ~/.acdev, current and bin links, PATH in .zshrc once', async () => {
     const home = tmp()
     const first = await install(home)
     expect(first.code, first.out).toBe(0)
-    expect(first.out).toContain('installed acde 0.0.2 with acdebin-dbg 0.0.2')
+    expect(first.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
     for (const file of ['acdev-0.0.2.tar.gz', 'acde-host-0.0.2.tar.gz']) {
       expect(first.out, 'no terminal: the size first, then the checked file').toContain(`downloading ${file} (`)
       expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: \\d+ [KM]B, SHA-256 matches`))
     }
     expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acdev', 'bin')}:$PATH"`)
-    const runtime = join(home, '.acdev', 'bin', 'acdebin-dbg')
+    const runtime = join(home, '.acdev', 'bin', 'acdev runtime')
     expect(statSync(runtime).mode & 0o111).not.toBe(0)
-    expect((await run(['sh', runtime], {})).stdout).toStartWith('acdebin-dbg 0.0.2 (')
+    expect((await run(['sh', runtime], {})).stdout).toStartWith('acdev runtime 0.0.2 (')
     expect(existsSync(join(home, '.acdev', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acdev', 'bin'))).toBe('current/bin')
@@ -255,7 +255,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     })
     expect(await proc.exited, shown).toBe(0)
     expect(shown).toMatch(/100(\.0)?%/)
-    expect(shown).toContain('installed acde 0.0.2 with acdebin-dbg 0.0.2')
+    expect(shown).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
   }, 60_000)
 
   test('install.sh fails early and clearly', async () => {
@@ -290,8 +290,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const failing: [string, string][] = [
       ['tampered', 'acde-host-0.0.2.tar.gz does not match its checksum'],
       ['missing', `could not download ${base}/missing/0.0.2/acde-host-0.0.2.tar.gz`],
-      ['elsewhere', 'acdev 0.0.2 has no acdebin-dbg for this platform'],
-      ['hollow', 'does not hold acdebin-dbg'],
+      ['elsewhere', 'acdev 0.0.2 has no acdev runtime for this platform'],
+      ['hollow', 'does not hold acdev runtime'],
     ]
     for (const [mirror, said] of failing) {
       const bad = await install(home, ['--no-modify-path'], { ACDEV_DIST: `${base}/${mirror}` })
@@ -314,27 +314,27 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(usage.stdout).toContain('Usage: acdev <command>')
   }, 60_000)
 
-  test('acdev doctor --fix --yes runs the installer again when the acdebin-dbg next to acde is gone', async () => {
+  test('acdev doctor --fix --yes runs the installer again when the acdev runtime next to acde is gone', async () => {
     const home = tmp()
     expect((await install(home, ['--no-modify-path'])).code).toBe(0)
-    const runtime = join(home, '.acdev', 'versions', '0.0.2', 'bin', 'acdebin-dbg')
+    const runtime = join(home, '.acdev', 'versions', '0.0.2', 'bin', 'acdev runtime')
     rmSync(runtime)
     const acde = join(home, '.acdev', 'bin', 'acdev')
     const vars = {
       HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ACDEV_DIST: base,
       XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
     }
-    const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdebin-dbg released with it, ` +
+    const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdev runtime released with it, ` +
       'checks it against SHA256SUMS and puts it next to acde'
     const checked = await run(['sh', acde, 'doctor'], vars, home)
-    const none = 'error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: '
+    const none = 'error  acdev runtime: acdev dev needs the Dopame runtime (acdev runtime) and found none: '
     expect(checked.stdout).toContain(`${none}no ${realpathSync(home)}`)
     const asked = await run(['sh', acde, 'doctor', '--fix'], vars, home)
     expect(asked.stdout).toContain(`skipped: ${does} (it asks first: pass --yes to allow it)\n`)
     expect(asked.stdout).toContain('fixed: install the acdev skill for the coding agents found here (acdev skills install)\n')
     expect(existsSync(runtime)).toBe(false)
     const fixed = await run(['sh', acde, 'doctor', '--fix', '--yes'], vars, home)
-    expect(fixed.out).toContain('installed acde 0.0.2 with acdebin-dbg 0.0.2')
+    expect(fixed.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
     expect(fixed.stdout).toContain(`fixed: ${does}\n`)
     expect(existsSync(runtime)).toBe(true)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.2')
@@ -431,8 +431,8 @@ describe('the release archive and the installed CLI', () => {
     try {
       const result = await installPs1(home, 'release', { ACDEV_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
-      expect(result.out).toContain('installed acde 0.0.2 with acdebin-dbg 0.0.2')
-      expect(result.out).toMatch(/acdev: acdebin-dbg-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
+      expect(result.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
+      expect(result.out).toMatch(/acdev: acdev-runtime-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
       expect(result.out).toContain('acdev: acde-host-0.0.2.tar.gz: ')
       const bin = join(home, 'current', 'bin')
       expect(result.stdout.trimEnd().split(/\r?\n/).at(-1)).toBe(`  $env:Path = "${bin};$env:Path"`)
@@ -442,8 +442,8 @@ describe('the release archive and the installed CLI', () => {
 
     const current = join(home, 'current')
     expect(realpathSync(current)).toBe(realpathSync(join(home, 'versions', '0.0.2')))
-    expect(readFileSync(join(current, 'bin', 'acdebin-dbg.exe'), 'utf8')).toBe(
-      '#!/bin/sh\necho "acdebin-dbg 0.0.2 (x86_64-pc-windows-msvc)"\n',
+    expect(readFileSync(join(current, 'bin', 'acdev.exe'), 'utf8')).toBe(
+      '#!/bin/sh\necho "acdev runtime 0.0.2 (x86_64-pc-windows-msvc)"\n',
     )
     expect(existsSync(join(current, 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(existsSync(join(current, 'lib', 'acdev', 'src'))).toBe(false)
@@ -513,13 +513,13 @@ describe('the release archive and the installed CLI', () => {
     const dist = { ACDEV_DIST: server.url.origin }
     try {
       expect((await installPs1(home, 'release', dist)).code).toBe(0)
-      const before = readFileSync(join(home, 'current', 'bin', 'acdebin-dbg.exe'))
+      const before = readFileSync(join(home, 'current', 'bin', 'acdev.exe'))
       writeFileSync(join(home, 'current', 'marker'), 'kept')
       const failing: [string, string][] = [
-        ['tampered', 'checksum mismatch for acdebin-dbg-x86_64-pc-windows-msvc.tar.gz'],
-        ['hollow', 'acdebin-dbg-x86_64-pc-windows-msvc.tar.gz does not hold acdebin-dbg.exe'],
+        ['tampered', 'checksum mismatch for acdev-runtime-x86_64-pc-windows-msvc.tar.gz'],
+        ['hollow', 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz does not hold acdev.exe'],
         ['missing', `could not download ${server.url.origin}/missing/0.0.2/acde-host-0.0.2.tar.gz`],
-        ['elsewhere', 'acdev 0.0.2 has no acdebin-dbg for this platform (x86_64-pc-windows-msvc); ' +
+        ['elsewhere', 'acdev 0.0.2 has no acdev runtime for this platform (x86_64-pc-windows-msvc); ' +
           'it is built for: aarch64-apple-darwin x86_64-unknown-linux-gnu'],
       ]
       for (const [mirror, said] of failing) {
@@ -528,7 +528,7 @@ describe('the release archive and the installed CLI', () => {
         const plain = bad.out.replace(/\x1b\[[0-9;]*m/g, '').replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ')
         expect(plain).toContain(said)
         expect(readFileSync(join(home, 'current', 'marker'), 'utf8')).toBe('kept')
-        expect(readFileSync(join(home, 'current', 'bin', 'acdebin-dbg.exe'))).toEqual(before)
+        expect(readFileSync(join(home, 'current', 'bin', 'acdev.exe'))).toEqual(before)
       }
     } finally {
       server.stop(true)
@@ -542,8 +542,8 @@ describe('the release archive and the installed CLI', () => {
       ...s.env, ACDEV_RUNTIME: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
     }, s.project)
     expect(ran.code).toBe(1)
-    expect(ran.out).toContain('acdev dev needs the Dopame runtime (acdebin-dbg) and found none')
-    expect(ran.out).toContain('set ACDEV_RUNTIME to an acdebin-dbg binary')
+    expect(ran.out).toContain('acdev dev needs the Dopame runtime (acdev runtime) and found none')
+    expect(ran.out).toContain('set ACDEV_RUNTIME to an acdev runtime binary')
     expect(home).toBeTruthy()
   }, 60_000)
 })

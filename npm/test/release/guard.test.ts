@@ -34,8 +34,8 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   const lines: string[] = []
   for (const target of TARGETS) {
     const windows = target.endsWith('-windows-msvc')
-    const file = `acdebin-dbg-${target}${windows ? '.tar.gz' : '.tar.xz'}`
-    pack(root, join(version, file), runtimeMember || (windows ? 'acdebin-dbg.exe' : 'acdebin-dbg'), 'binary', windows ? '-czf' : '-cJf')
+    const file = `acdev-runtime-${target}${windows ? '.tar.gz' : '.tar.xz'}`
+    pack(root, join(version, file), runtimeMember || (windows ? 'acdev.exe' : 'acdev runtime'), 'binary', windows ? '-czf' : '-cJf')
     lines.push(`${sha(join(version, file))}  ${file}`)
   }
   pack(root, join(version, `acde-host-${VERSION}.tar.gz`), 'app/dist/broker.js', 'export {}\n', '-czf')
@@ -106,13 +106,13 @@ describe('release guard', () => {
     expect(made.out).toContain('install.sh: missing from the release')
   }, 180_000)
 
-  test('fails when a build holds anything but acdebin-dbg, or a target is missing', () => {
+  test('fails when a build holds anything but acdev runtime, or a target is missing', () => {
     const wrong = guard(release([], false, 'acdert'))
     expect(wrong.code).toBe(1)
-    expect(wrong.out).toContain('acdebin-dbg-x86_64-unknown-linux-gnu.tar.xz: not exactly the one file acdebin-dbg')
+    expect(wrong.out).toContain('acdev-runtime-x86_64-unknown-linux-gnu.tar.xz: not exactly the one file acdev runtime')
     const out = release()
-    rmSync(join(out, VERSION, 'acdebin-dbg-x86_64-pc-windows-msvc.tar.gz'))
-    expect(guard(out).out).toContain(`${VERSION}/acdebin-dbg-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
+    rmSync(join(out, VERSION, 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz'))
+    expect(guard(out).out).toContain(`${VERSION}/acdev-runtime-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
   }, 180_000)
 
   test('fails on an archive whose checksum no longer matches', () => {

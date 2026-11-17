@@ -1,13 +1,13 @@
 | 改 SDK `@dopame/acde-api` (`npm/acde-api/`, 只有类型声明), 或在别的工程里引用它 | `docs/acde-api.md` |
 # acdev
 
-acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
+acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
 (Linux KVM、Windows WHPX、macOS Hypervisor.framework) 跑装着 Dopame OS 的虚拟机, 开发者工具内置其中 (用户定 2026-11-17). 现在仓库里有:
 
 - `acdert/`: 运行时库 (原 AC/acdert, 连历史并入): 内嵌 V8、自研 DOM 与排版绘制 (Blitz fork + detour / vello)、网页存储、媒体、WebGPU / WebGL 绑定和
   `acde:` 系统模块, 拥有全部跨仓契约 (包清单、SDK `@dopame/acde-api`、`acde_*` 协议). 对外是 Rust 包 `acdert` (rlib + `libacdert.so` + `include/acdert.h`);
   虚拟机里的 acdebin-system 也链接它.
-- 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdebin-dbg` (宿主窗口); 朝模拟器演进.
+- 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdev runtime` (宿主窗口); 朝模拟器演进.
 - `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
 
 闭源. 说明都在本文件和 `docs/` 里: 没有 README, 子目录不放 AGENTS.md. 按下面的文件路由选读.
@@ -101,9 +101,9 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame �
 | 把 `acdert` 发到 cargo 源 ac, 或了解运行时怎么随 acdev 发版 | `docs/dev/release.md` |
 | 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
 | 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acdev` 怎么找运行时 | `docs/architecture.md` |
-| 在本地编译、运行 `acdebin-dbg`, 或让源码跑的 `acdev dev` 用上它 | `docs/runtime-build.md` |
+| 在本地编译、运行 `acdev runtime`, 或让源码跑的 `acdev dev` 用上它 | `docs/runtime-build.md` |
 | 改宿主窗口、合成、出帧、GPU、输入、窗框、菜单、headless 或系统能力 (`crates/hostwin`) | `docs/hostwin.md` |
-| 改运行时自检 `acdebin-dbg doctor` (`src/doctor.rs`) 的检查项或输出 | `docs/doctor.md` |
+| 改运行时自检 `acdev runtime doctor` (`src/doctor.rs`) 的检查项或输出 | `docs/doctor.md` |
 | 了解命令行的启动速度、仓库脚本、工程与安装目录, 或写要在 bun 和 Node 上都跑的代码 | `docs/cli-overview.md` |
 | 加改命令行的命令或参数, 改帮助、颜色、stderr 格式、退出码、`check --platform` 或 `acde:` 导入检查 | `docs/cli-commands.md` |
 | 改 `acdev new`、模板、包管理器选择、SDK 依赖写法或 `acdev sdk` | `docs/acde-new.md` |

@@ -4,9 +4,9 @@
 
 一条命令查完「`acdev dev` 为什么起不来」的常见原因, 每项 `ok` / `warn` / `error` / `skip` 加一条 `fix`. 原则: **和 `acdev dev` 用同一份逻辑, 不另写一套**,
 所以 doctor 说的就是 dev 会遇到的:
-- 找 acdebin-dbg: launcher 的 `findAcdert()` (返回 `{path, from: 'ACDEV_RUNTIME' | 'install' | 'PATH' | null, problem}`), `requireAcdert()` 就是它加上抛错,
+- 找 acdev runtime: launcher 的 `findAcdert()` (返回 `{path, from: 'ACDEV_RUNTIME' | 'install' | null, problem}`), `requireAcdert()` 就是它加上抛错,
   抛的消息末尾加 `(acdev doctor checks the whole setup)`; doctor 直接显示 `problem` (不带这句).
-- 探测 acdebin-dbg: `DevSession.runtimeLevel` (`acdebin-dbg --version`, 经 `Runtime.capture`: 带超时跑一个程序、收 stdout / stderr, 起不来时给出原因而不是抛错).
+- 探测 acdev runtime: `DevSession.runtimeLevel` (`acdev runtime --version`, 经 `Runtime.capture`: 带超时跑一个程序、收 stdout / stderr, 起不来时给出原因而不是抛错).
   它现在还回 `failed`: 起不来 (`EACCES`、`ENOENT`)、10 s 没退出、退出码不是 0 (加上 stderr 最后一行, Linux 缺动态库时就是动态链接器那句). `acdev dev` 的契约
   级别检查在级别不符且 `failed` 时把原因写进错误.
 - 会话目录: `Sessions.problem(dir)` (不是普通目录、不是自己的), `Sessions.prepare` 也用它; doctor 只看不建.
@@ -15,18 +15,18 @@
 
 检查和顺序 (`Doctor.run`; JSON 的 id 在括号里): `acdev` (版本、跑在哪个运行时上、在哪) → `PATH` (`path`: PATH 上第一个 `acdev` realpath 后是否落在这个 acdev
 里: 全局装的是版本目录, 检出是仓库; 不在 PATH 上或是别的那个都是警告) → `Bun and Node.js` (`runtimes`: launcher 的 `runtimes()`, 只探测一次, 工程那项也用;
-没有 Bun 是警告, 因为 `acdev test` 和 bun 工程要它) → `acdebin-dbg` (找到没有、从哪来、`--version` 起不起得来、有没有契约级别) → `contract level` (`contract`:
-运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdebin-dbg 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
+没有 Bun 是警告, 因为 `acdev test` 和 bun 工程要它) → `acdev runtime` (找到没有、从哪来、`--version` 起不起得来、有没有契约级别) → `contract level` (`contract`:
+运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdev runtime 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
 `acdev dev sessions` (`sessions`: 会话目录有问题是错误; 列出在跑的; 每个会话连上去问 `permissions`, 3 s 不答是警告) 和每个待答提示一条 `approval` 警告
 (应用答之前不开窗口, fix 说批准是用户的决定) → 工程 (见下) → `agent skill` (`skill`: 没装、`outdated` / `broken` 是警告) → `--online` 时 `latest release`
 (`latest`: GET `$ACDEV_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
 有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
 `acdev doctor: N errors, M warnings` / `no errors, M warnings` / `everything acdev needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
 
-- **运行时自检**: 运行时的 `acdebin-dbg doctor --json` (本仓 `src/doctor.rs`, 见 `doctor.md`), 它的每项变成 `runtime.<id>`, 标题、状态、fix 照搬. 支不支持看
-  `acdebin-dbg --help` 的 stdout 里有没有以 `acdebin-dbg doctor` (或旧的 `acdert doctor`) 开头的一行, 不按版本号 (同一版本号的开发构建可能有也可能没有). 旧的 acdert 不认 `doctor`, 会把它当成
+- **运行时自检**: 运行时的 `acdev runtime doctor --json` (本仓 `src/doctor.rs`, 见 `doctor.md`), 它的每项变成 `runtime.<id>`, 标题、状态、fix 照搬. 支不支持看
+  `acdev runtime --help` 的 stdout 里有没有以 `acdev runtime doctor` (或旧的 `acdert doctor`) 开头的一行, 不按版本号 (同一版本号的开发构建可能有也可能没有). 旧的 acdert 不认 `doctor`, 会把它当成
   会话参数起桌面, 所以不能盲调. 没有时是一条 `runtime` 警告 (版本号和 SDK 相同时 fix 是换一个更新的构建, 不同时是装配对的那版); 60 s 没结束、stdout 不是
-  报告都是错误. acdebin-dbg 没找到或起不来时这项和 `contract` 是 `skip`.
+  报告都是错误. acdev runtime 没找到或起不来时这项和 `contract` 是 `skip`.
 - **工程** (`Doctor.project`): 目录 (参数, 默认当前目录) 里有 `acde.config.jsonc` / `.json` 或 package.json 有 `acde` 字段才算工程; 不是时默认 `skip`,
   给了目录参数就是错误. `project` (`acdev check` 的第一个错误或警告加剩几条, fix `acdev check lists them`)、`platform` (缺必需能力是错误, 可选的写进内容)、
   `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
@@ -39,13 +39,13 @@
   `Cli.follow` (打好的 `cli.js` 换运行时) 遇到它打这一行加 `: going on with <现在的运行时>`, 接着跑)、`gitignore` (在 git 仓库里
   且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
 - **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acdev 一律是重跑安装器 (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows
-  `irm …/install.ps1 | iex`), 检出的 acdev 是编 acdebin-dbg 再设 `ACDEV_RUNTIME`; `ACDEV_RUNTIME` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
+  `irm …/install.ps1 | iex`), 检出的 acdev 是编 acdev runtime 再设 `ACDEV_RUNTIME`; `ACDEV_RUNTIME` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
   `xattr -d com.apple.quarantine <路径>`; stderr 有 `error while loading shared libraries` 时是装那个库. 不替用户下载或批准任何东西.
 - **npm 装的 acdev** (`Doctor.fromNpm`: 包根是 `node_modules/@dopame/acde-<os>-<cpu>`, 布局和安装器的版本目录一样, `installed()` 照认):
   `PATH` 上的 `acdev` 是 `@dopame/acdev` 的 `acde.mjs` 而它解析到的平台包就是这一个 (`Doctor.npmWrapper`) 时算「是这一个」; 重装和升级的修法是
   `npm install -g @dopame/acdev[@<版本>]`, `pathFix` 指向 `npm prefix -g` 的 bin; 不挂 `reinstall` 修复 (安装器不该往 `node_modules` 里装).
-- **`acdev dev` 指向 doctor**: 找不到 acdebin-dbg 的错误末尾那句; acdebin-dbg 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
-  时打 `acdev: acdebin-dbg exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdebin-dbg.
+- **`acdev dev` 指向 doctor**: 找不到 acdev runtime 的错误末尾那句; acdev runtime 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
+  时打 `acdev: acdev runtime exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdebin-dbg.
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
 - **`--fix`** (用户 2026-11-11 定的范围: 直接修 acdev 自己的、可撤销的; 下载 / 安装 / 结束进程的先问; 用户该做的决定一律不碰): 能修的检查带一个
   可序列化的 `repair` `{action, target, ask, does}` (和给人看的 `fix` 文字分开, 修的时候只看 `repair`, 不解析文字; 不该修的检查根本没有 `repair`,
@@ -55,7 +55,7 @@
   - `skill` (不问): 子进程跑 `acdev skills install` (`cliRuntime()` + `cliFile()`), 和用户敲的同一条路, 不在这里另装一份.
   - `gitignore` (不问): `Creator.ignoreBuild` (`acdev new` 的框架模板也用它).
   - `sessions-dir` (不问): 只在它是链接或文件时 (别的用户的目录不修), 删掉再 `Sessions.prepare`.
-  - `reinstall` (问): 全局装的 acdev、`ACDEV_RUNTIME` 没指定时, 挂在 acdebin-dbg 找不到 / 起不来 (macOS 隔离的除外: 重装不解决, 那是用户的安全决定) / 没有契约级别、
+  - `reinstall` (问): 全局装的 acdev、`ACDEV_RUNTIME` 没指定时, 挂在 acdev runtime 找不到 / 起不来 (macOS 隔离的除外: 重装不解决, 那是用户的安全决定) / 没有契约级别、
     契约级别或版本不配对、`runtime.host` 错误、旧 acdert 版本也不对 这几处. 从 `$ACDEV_DIST` 取 `install.sh` (Windows `install.ps1`) 存进临时目录,
     `sh <它> --version <这个 acdev 的版本> --no-modify-path` (Windows `powershell -NoProfile -ExecutionPolicy Bypass -File <它> -Version … -NoModifyPath`),
     `ACDEV_INSTALL` 设成这个 acdev 的安装根. 只修当前版本, 不顺手升级; 不改 shell 启动文件. 下载、校验、原子替换都是安装器自己的, TS 里不另写一份.

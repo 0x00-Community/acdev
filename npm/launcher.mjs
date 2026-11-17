@@ -42,33 +42,28 @@ export function which(name, env = process.env) {
   return null
 }
 
-export const RUNTIMES = ['acdebin-dbg', 'acdert']
+export const RUNTIME = `acdev${EXE}`
 
 export function acdertBeside(root = ROOT) {
   if (!installed(root)) return null
-  const paths = RUNTIMES.map((name) => join(root, '..', '..', 'bin', `${name}${EXE}`))
-  return paths.find((path) => existsSync(path)) ?? paths[0]
+  return join(root, '..', '..', 'libexec', RUNTIME)
 }
 
 export function findAcdert(root = ROOT, env = process.env) {
   const set = env.ACDEV_RUNTIME
   if (set) {
     if (existsSync(set)) return { path: set, from: 'ACDEV_RUNTIME' }
-    const named = /[\\/]/.test(set) ? null : which(set, env)
-    if (named) return { path: named, from: 'ACDEV_RUNTIME' }
-    const problem = `ACDEV_RUNTIME=${set}: no such file; point ACDEV_RUNTIME at an acdebin-dbg binary, or unset it`
+    const problem = `ACDEV_RUNTIME=${set}: no such file; point ACDEV_RUNTIME at the runtime binary, or unset it`
     return { path: null, from: 'ACDEV_RUNTIME', problem }
   }
   const beside = acdertBeside(root)
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
-  const found = RUNTIMES.map((name) => which(`${name}${EXE}`, env)).find(Boolean)
-  if (found) return { path: found, from: 'PATH' }
-  const missing = beside ? `no ${beside}, which the acdev installer puts there: run the installer again, ` : ''
+  const missing = beside ? `no ${beside}, which the acdev installer puts there: run the installer again, or ` : ''
   return {
     path: null,
     from: null,
-    problem: `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ${missing}` +
-      'set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH',
+    problem: `acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: ${missing}` +
+      'set ACDEV_RUNTIME to the runtime binary (target/release/acdev of an acdev checkout)',
   }
 }
 

@@ -34,7 +34,7 @@ Bun 的本代目录在默认 base 下, DACL 读回只有 SYSTEM 和当前用户,
 
 ## 命令
 
-命令行由前端的 `main.rs` 解析 (调试运行时在 acdebin-dbg 的 `src/main.rs`, 会话在 acdebin-system), 两边共用的部分交给 `acdert_common` / `acdert::common` (见 `docs/runtime/ffi.md`).
+命令行由前端的 `main.rs` 解析 (调试运行时在 acdev runtime 的 `src/main.rs`, 会话在 acdebin-system), 两边共用的部分交给 `acdert_common` / `acdert::common` (见 `docs/runtime/ffi.md`).
 
 ```sh
 acdert                                    # 会话: 桌面按 `docs/runtime/packages.md`「桌面包」的规则选
@@ -54,7 +54,7 @@ acdert --size 1920x1080 --scale 1         # shell 报输出之前的 CSS 尺寸
 acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打印 stats 和窗口表
 ```
 
-前端的 `doctor` 子命令见 acdebin-dbg `docs/doctor.md`.
+前端的 `doctor` 子命令见 acdev runtime `docs/doctor.md`.
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
 内存, 见 `docs/web/storage.md`「网页存储」)、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDEV_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acdev: <message>`, 不带 `Error:`, 和 acdev 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
@@ -91,7 +91,7 @@ Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追�
 | `perf::latency` | acdebin-system 的 crates/window | 输入到上屏: `<kind> owner= ms=`, 分段 `queue` `js` `render` `raster` `present` |
 | `perf::task` | src/host | 事件循环里超过 8 ms 的任务: `task ms= hook=`, V8 自己的 `v8` |
 | `perf::frame` | render | `<web> commit= resolve= paint= finish= ms=`, 面板的 `panel <id> commands= damage ms=` |
-| `perf::raster` | acdebin-system 的 crates/paint、crates/window, acdebin-dbg 的 hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
+| `perf::raster` | acdebin-system 的 crates/paint、crates/window, acdev runtime 的 hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
 | `perf::layers` | hostwin `present.rs` | 有 layers 的页面 / 面板: `window= region= layers=重画的/全部 ms=` |
 | `perf::compose` | shell | `<输出> elements= ms=`, `rdp elements= rects= ms=`, `plan inputs= layers= damage= route=`, `backdrop window= w= h= blur= ms=` |
 | `perf::rpc` | acde-host | web 侧 `call <服务>.<方法> error= ms=`, Broker 侧 `serve …` |

@@ -3,13 +3,13 @@
 > 路径相对 CLI 包根 `npm/`。
 
 acdev 的开发者 CLI, 是 [acdev](http://gitea.dopamine/AC/acdev) 仓库的 `npm/` 子包 (原 gitea AC/acde-cli, 连历史并入).
-和运行时的关系像 wrangler 和 workerd: 同仓库的 `acdert/` 是运行时库 (原 AC/acdert, 连历史并入), 二进制是仓库根上的 `acdebin-dbg`
+和运行时的关系像 wrangler 和 workerd: 同仓库的 `acdert/` 是运行时库 (原 AC/acdert, 连历史并入), 二进制是仓库根上的 `acdev runtime`
 (跨平台调试) 和 acdebin-system (Dopame OS 的会话); acdev 建工程、构建、装包, `acdev dev` 拉起 acdebin-dbg. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以仓库根 `AGENTS.md` 的第一原则和 `docs/runtime/`、`docs/web/` 为准, 这里只写工具.
 
 - 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
 - 启动快 (gitea acde#94): `src/cli.ts` 只静态导入轻模块 (`test/launcher.test.ts` 核对清单), 其余在用到的命令里 `await import()`;
-  `-v` 探 acdebin-dbg 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
+  `-v` 探 acdev runtime 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
   发布包的 cli.js 开 splitting (`chunk-<hash>.js`), 懒导入的模块才真的晚加载. `bun run startup [acdev 路径] [--max-version-ms N] [--max-help-ms N]`
   (`scripts/startup.ts`) 量 `acdev -v` 和 `acdev --help` 的中位数 (先跑一次热身), 超过上限退出 1.
 - 仓库脚本: `bun run acdev <命令> [参数]` 从源码跑 CLI (即 `bun bin/acdev.mjs`, 经 launcher 的 `run`, 退出码原样传回);
@@ -23,7 +23,7 @@ acdev 的开发者 CLI, 是 [acdev](http://gitea.dopamine/AC/acdev) 仓库的 `n
 生成的工程只有这三个脚本，经工程自己的包管理器运行，`acdev` 的退出码由包管理器传回。
 
 开发流程（acde#3）：`acdev new` 建工程 → `acdev dev` 预览和调试（跑着时可用 `acdev inspect` / `eval` / `console` / `network` / `shot`，
-或 driver、MCP）→ `acdev test` 端到端测试（每个测试自己起一个隔离的 acdebin-dbg）→ `acdev build` 构建，`acdev install` 构建并装进本机桌面。
+或 driver、MCP）→ `acdev test` 端到端测试（每个测试自己起一个隔离的 acdev runtime）→ `acdev build` 构建，`acdev install` 构建并装进本机桌面。
 `acdev new` 打完下一步提示后再打 `acdev: then:` 和后三步，一步一行（交互时是 `Then` 一栏，`Creator.LATER`）；每步不超过 70 字符，这样 clack 的框不超过 80 列，终端更窄时按宽度折行（`Help.block`）。
 
 不新增 `prod` / `start` / `preview` 命令或脚本：`acdev dev` 和 `acdev build` 用同一种构建（都压缩、`NODE_ENV` 是 `"production"`），
@@ -36,7 +36,7 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
 （`Project.build` 报 `acdev: <命令>: --out <绝对路径>: a directory that does not hold the project …`，命令取 `BuildOptions.command`，
 `acdev dev` 不传时按 `dev` 选项算 `dev` 或 `build`）。
 
-安装后的可执行文件 `acdev` 与运行时 `acdebin-dbg` 在安装目录的 `bin/`，运行时的宿主文件在 `bin/app/`，模板在 `lib/acdev/templates/`，
+安装后的可执行文件 `acdev` 与运行时 `acdev runtime` 在安装目录的 `bin/`，运行时的宿主文件在 `libexec/app/`，模板在 `lib/acdev/templates/`，
 软件开发工具包（Software Development Kit, SDK）在 `lib/acde-api/`。应用工程可以保留自己使用的 `bin/`、`templates/` 和 `packages/`。
 
 ## bun 和 Node

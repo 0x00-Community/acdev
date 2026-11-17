@@ -7,7 +7,7 @@ use acdert::gpu::peniko::{Color, Fill};
 use acdert::gpu::{Gpu, PaintRef, PaintScene, Scene, wgpu};
 use acdert::vello::Offscreen;
 
-pub const USAGE: &str = "usage: acdebin-dbg doctor [--json]";
+pub const USAGE: &str = "usage: acdev doctor [--json]";
 const GPU_WAIT: Duration = Duration::from_secs(30);
 const FRAME: (u32, u32) = (16, 16);
 const PROBE: [u8; 4] = [0x33, 0x99, 0xcc, 0xff];
@@ -50,12 +50,12 @@ pub fn run(args: &[String]) -> i32 {
         [flag] if flag == "--json" => true,
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
-            println!("  checks what acdebin-dbg needs to run apps on this machine: its host files, the GPU (it draws a test frame),");
+            println!("  checks what acdev needs to run apps on this machine: its host files, the GPU (it draws a test frame),");
             println!("  and on Linux the display; --json: one JSON object on stdout. Exit code 1 when a check fails.");
             return 0;
         }
         [other, ..] => {
-            eprintln!("acdebin-dbg doctor: unknown argument {other}");
+            eprintln!("acdev doctor: unknown argument {other}");
             eprintln!("{USAGE}");
             return 2;
         }
@@ -69,7 +69,7 @@ pub fn run(args: &[String]) -> i32 {
         let list: Vec<_> =
             checks.iter().map(|c| serde_json::json!({"id": c.id, "title": c.title, "status": c.status.name(), "summary": c.summary, "fix": c.fix})).collect();
         let report = serde_json::json!({
-            "acdebin-dbg": version,
+            "acdev": version,
             "level": acdert::API_LEVEL,
             "platform": std::env::consts::OS,
             "exe": exe,
@@ -77,7 +77,7 @@ pub fn run(args: &[String]) -> i32 {
         });
         println!("{report}");
     } else {
-        println!("acdebin-dbg {version} (contract level {}): {exe}", acdert::API_LEVEL);
+        println!("acdev {version} (contract level {}): {exe}", acdert::API_LEVEL);
         for check in &checks {
             println!("{:<6} {}: {}", check.status.name(), check.title, check.summary);
             if let Some(fix) = &check.fix {
@@ -98,7 +98,7 @@ fn host() -> Check {
     let fix = if std::env::var_os("ACDE_APP").is_some() {
         "point ACDE_APP at the directory that holds broker.js and web.js, or unset it"
     } else {
-        "install acdebin-dbg again with the acdev installer, which puts its app/ directory next to the binary \
+        "install acdev again with the acdev installer, which puts its app/ directory next to the binary \
          (in a source checkout: cd web && bun install && bun run build)"
     };
     Check::new("host", "host files", Status::Error, format!("no {} in {}", missing.join(" or "), shown.display()), Some(fix))
@@ -151,7 +151,7 @@ fn display() -> Option<Check> {
             "display",
             "display",
             Status::Warn,
-            "neither WAYLAND_DISPLAY nor DISPLAY is set, so acdebin-dbg app and acdebin-dbg desktop cannot open a host window here: \
+            "neither WAYLAND_DISPLAY nor DISPLAY is set, so acdev app and acdev desktop cannot open a host window here: \
              they would try to start a session on the screen (DRM) instead",
             Some("run acdev dev --headless, or run it inside a graphical session"),
         )

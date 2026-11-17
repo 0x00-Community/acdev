@@ -52,7 +52,7 @@ export class Devtools {
 
   static endpoint(answer: unknown): Endpoint {
     const { port, token } = (answer ?? {}) as { port?: unknown; token?: unknown }
-    if (!Number.isInteger(port)) throw new Error('acdebin-dbg answered devtools without a port')
+    if (!Number.isInteger(port)) throw new Error('acdev runtime answered devtools without a port')
     return typeof token === 'string' && token ? { port: port as number, token } : { port: port as number }
   }
 

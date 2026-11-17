@@ -1,4 +1,4 @@
-# 本地构建与运行 acdebin-dbg
+# 本地构建与运行 acdev runtime
 
 > 路径相对仓库根。
 
@@ -7,10 +7,10 @@
 (`RUSTY_V8_MIRROR`), 不回退到 GitHub. `Cargo.lock` 不进 git, 拉取之后先 `cargo update`.
 
 ```sh
-cargo build -p acdebin-dbg                              # target/debug/acdebin-dbg
+cargo build -p acdev                              # target/debug/acdev
 (cd acdert/web && bun install && bun run build)      # acde-host 的 dist (web/ 已删除, 见下)
-ACDE_APP=acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
+ACDE_APP=acdert/web/packages/acde-host/dist target/debug/acdev doctor
 ```
 
 不在安装目录里跑时要用 `ACDE_APP` 指向 `acdert/web/packages/acde-host/dist`. acdert 的 `web/` 已删除 (acdert 91e7dd1e), 取代方案未定:
-现在没有页面资源可构建, `acdert` 本身也编不过 (`src/host/mod.rs` 读 `web/` 里的 `level.js`). 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdebin-dbg acdev dev`.
+现在没有页面资源可构建, `acdert` 本身也编不过 (`src/host/mod.rs` 读 `web/` 里的 `level.js`). 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.

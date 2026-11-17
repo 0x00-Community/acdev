@@ -3,7 +3,7 @@
 > 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
 
 运行时不单独发版: 页面资源和 SDK 随 acdev 的一次发布 (`.github/workflows/release.yml`, 见 `docs/release-distribution.md`) 发到
-`pkgs.dopame.ai/acde/<版本>/` 和 npm (用户定 2026-11-14 起同一个版本号). 原 acdert 仓库推 tag 触发 acdebin-dbg release 的
+`pkgs.dopame.ai/acde/<版本>/` 和 npm (用户定 2026-11-14 起同一个版本号). 原 acdert 仓库推 tag 触发 acdev runtime release 的
 `.gitea/workflows/release.yml` 随并入 acdev 删除: acdev 的 release 自己认 `v*` tag. acdert 并入前的 tag 在 acdev 上加了前缀 `acdert/`
 (`acdert/v0.0.11` 等). 以前在 `pkgs.dopame.ai/acdert/<版本>/` 的 0.0.9 及更早的版本还留在那里.
 

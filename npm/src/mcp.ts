@@ -17,7 +17,7 @@ const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = [
-  `acdev: see and drive the desktop and apps of an acdev dev session (acdebin-dbg runs them, not a browser). For Chrome `
+  `acdev: see and drive the desktop and apps of an acdev dev session (acdev runtime runs them, not a browser). For Chrome `
     + `DevTools on a page, the user runs acdev devtools in a terminal (an acdert from 0.0.9 or older has none).`,
   `- A session: the acdev dev whose projects hold the working directory is used. If none runs, call start (it runs acdev `
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
@@ -133,7 +133,7 @@ export class Mcp {
       'doctor',
       {
         description: 'Check this machine for acdev dev, one line per check (ok, warn, error, skip) with a fix for '
-          + 'what is wrong: acdev on PATH, Bun and Node.js, acdebin-dbg (found, runs, pairs with this acdev, and its '
+          + 'what is wrong: acdev on PATH, Bun and Node.js, acdev runtime (found, runs, pairs with this acdev, and its '
           + 'own check of the GPU and its files), running sessions and approvals they wait for, the project, the '
           + 'agent skill. Call it first when acdev dev or start does not come up.',
         inputSchema: z.object({
@@ -155,7 +155,7 @@ export class Mcp {
       {
         description: 'Check this machine as doctor does, then fix what acdev may fix without asking: install the acdev '
           + 'skill, add .acde/ to .gitignore, make the sessions directory again. What downloads, installs or stops '
-          + 'something (the acdev installer again for a missing or mismatched acdebin-dbg, the project\'s install, '
+          + 'something (the acdev installer again for a missing or mismatched acdev runtime, the project\'s install, '
           + 'stopping a session that does not answer) is skipped here and named: that needs the user, who runs acdev '
           + 'doctor --fix in a terminal (it asks) or agrees to acdev doctor --fix --yes. Approvals, GPU drivers and '
           + 'the project\'s code are never touched. Answers what it did, then the checks again.',
@@ -183,7 +183,7 @@ export class Mcp {
     s.registerTool(
       'start',
       {
-        description: 'Run acdev dev (build, start acdebin-dbg, rebuild and reload on change) and use that session. '
+        description: 'Run acdev dev (build, start acdev runtime, rebuild and reload on change) and use that session. '
           + 'Without dirs it runs the project in the working directory. Its output is kept for logs. Stops when this '
           + 'server stops. When an acdev dev already runs exactly this (the same projects, desktop, app and '
           + 'headless), start uses that session instead (it says so; logs and stop are only for one start ran); when '
@@ -217,7 +217,7 @@ export class Mcp {
     s.registerTool(
       'webs',
       {
-        description: 'The pages acdebin-dbg runs: NAME (app#window, or desktop), KIND, APP, WINDOW number, TITLE.',
+        description: 'The pages acdev runtime runs: NAME (app#window, or desktop), KIND, APP, WINDOW number, TITLE.',
         inputSchema: z.object({}),
         annotations: look,
       },
@@ -687,7 +687,7 @@ export class Mcp {
     s.registerTool(
       'logs',
       {
-        description: 'Output of the acdev dev that start ran and of its acdebin-dbg: builds, reloads, page console.* '
+        description: 'Output of the acdev dev that start ran and of its acdev runtime: builds, reloads, page console.* '
           + '(target js), page errors ([app#window] page error: …), app backends ([app#backend]). Answers the last '
           + 'lines, or those from since on; next is what to pass as since to read only newer ones.',
         inputSchema: z.object({

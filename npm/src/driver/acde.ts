@@ -117,8 +117,8 @@ export class Acde {
     const seen = { pages: 0, windows: 0, lost: false }
     const late = () => {
       const state = seen.lost
-        ? 'acdebin-dbg closed the connection, and acdev dev has not exited'
-        : `acdebin-dbg runs and answers, but no window appeared (pages: ${seen.pages}, windows: ${seen.windows}) `
+        ? 'acdev runtime closed the connection, and acdev dev has not exited'
+        : `acdev runtime runs and answers, but no window appeared (pages: ${seen.pages}, windows: ${seen.windows}) `
           + 'and no approval prompt waits'
       return LaunchError.stalled('window', `acdev dev did not start ${within}:\n${state}; ${last}`, logs)
     }
@@ -129,7 +129,7 @@ export class Acde {
           others.map((s) => `  ${Sessions.describe(s)}`).join('\n')
         : ` in ${dir}`
       const state = others.length ? last
-        : `no session yet: its build did not finish, or acdebin-dbg did not start listening; ${last}`
+        : `no session yet: its build did not finish, or acdev runtime did not start listening; ${last}`
       const head = `acdev dev (pid ${child.pid}) did not register a session ${within}${instead}\n${state}`
       return LaunchError.stalled('session', head, logs)
     }
@@ -230,7 +230,7 @@ export class Acde {
 
   async webs(): Promise<Web[]> {
     const webs = ((await this.#request('webs')) as { webs?: Web[] } | null)?.webs
-    if (!Array.isArray(webs)) throw new Error('acdebin-dbg answered webs without a list')
+    if (!Array.isArray(webs)) throw new Error('acdev runtime answered webs without a list')
     return webs
   }
 
@@ -264,7 +264,7 @@ export class Acde {
         await sleep(200)
       }
     }
-    if (typeof answer?.png !== 'string') throw new Error('acdebin-dbg answered shot without a png')
+    if (typeof answer?.png !== 'string') throw new Error('acdev runtime answered shot without a png')
     const png = Buffer.from(answer.png, 'base64')
     const path = options.path === undefined ? null : resolve(options.path)
     if (path !== null) writeFileSync(path, png)
@@ -273,13 +273,13 @@ export class Acde {
 
   async snapshot(options: SnapshotOptions = {}): Promise<Snapshot> {
     const answer = (await this.#request('snapshot', { ...options })) as Snapshot | null
-    if (typeof answer?.text !== 'string') throw new Error('acdebin-dbg answered snapshot without text')
+    if (typeof answer?.text !== 'string') throw new Error('acdev runtime answered snapshot without text')
     return { text: answer.text, windows: answer.windows ?? [], trees: answer.trees ?? {} }
   }
 
   async query(options: QueryOptions): Promise<QueryResult> {
     const answer = (await this.#request('query', { ...options })) as QueryResult | null
-    if (!Array.isArray(answer?.nodes)) throw new Error('acdebin-dbg answered query without nodes')
+    if (!Array.isArray(answer?.nodes)) throw new Error('acdev runtime answered query without nodes')
     return answer
   }
 
@@ -337,7 +337,7 @@ export class Acde {
     }
     return this.trace.step(`route(${String(url instanceof RegExp ? url : JSON.stringify(url))})`, async () => {
       const answer = (await this.#request('route', args)) as { id?: unknown } | null
-      if (typeof answer?.id !== 'number') throw new Error(`acdebin-dbg answered route with ${JSON.stringify(answer)}`)
+      if (typeof answer?.id !== 'number') throw new Error(`acdev runtime answered route with ${JSON.stringify(answer)}`)
       return answer.id
     }, (id) => `route ${id}`)
   }
@@ -350,7 +350,7 @@ export class Acde {
   async permissions(): Promise<Permissions> {
     const answer = (await this.#request('permissions')) as Partial<Permissions> | null
     if (!Array.isArray(answer?.pending) || !Array.isArray(answer?.decisions)) {
-      throw new Error(`acdebin-dbg answered permissions with ${JSON.stringify(answer)}`)
+      throw new Error(`acdev runtime answered permissions with ${JSON.stringify(answer)}`)
     }
     return answer as Permissions
   }
@@ -388,7 +388,7 @@ export class Acde {
     return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
       const answer = (await this.#request('revoke', { app, capability })) as { revoked?: unknown } | null
       if (typeof answer?.revoked !== 'boolean')
-        throw new Error(`acdebin-dbg answered revoke with ${JSON.stringify(answer)}`)
+        throw new Error(`acdev runtime answered revoke with ${JSON.stringify(answer)}`)
       return answer.revoked
     }, (revoked) => (revoked ? 'revoked' : 'nothing to revoke'))
   }
@@ -405,7 +405,7 @@ export class Acde {
     return this.trace.step(`drop(${JSON.stringify(list)}${options.web ? `, ${options.web}` : ''})`, async () => {
       const answer = (await this.#request('drop', args)) as Partial<Dropped> | null
       if (typeof answer?.web !== 'string' || typeof answer.window !== 'number' || !Array.isArray(answer.files)) {
-        throw new Error(`acdebin-dbg answered drop with ${JSON.stringify(answer)}`)
+        throw new Error(`acdev runtime answered drop with ${JSON.stringify(answer)}`)
       }
       return answer as Dropped
     }, (dropped) => `onto ${dropped.web}`)
@@ -431,7 +431,7 @@ export class Acde {
     return this.trace.step(`pointer(${x}, ${y})`, async () => {
       const answer = (await this.#request('pointer', { x, y })) as { x?: unknown; y?: unknown } | null
       if (typeof answer?.x !== 'number' || typeof answer.y !== 'number') {
-        throw new Error(`acdebin-dbg answered pointer with ${JSON.stringify(answer)}`)
+        throw new Error(`acdev runtime answered pointer with ${JSON.stringify(answer)}`)
       }
       return { x: answer.x, y: answer.y }
     })
@@ -482,7 +482,7 @@ export class Acde {
   async addInitScript(code: string, options: { readonly web?: string; readonly once?: boolean } = {}): Promise<number> {
     const args = { code, ...(options.web !== undefined && { web: options.web }), once: options.once === true }
     const answer = (await this.#request('init', args)) as { id?: unknown } | null
-    if (typeof answer?.id !== 'number') throw new Error(`acdebin-dbg answered init with ${JSON.stringify(answer)}`)
+    if (typeof answer?.id !== 'number') throw new Error(`acdev runtime answered init with ${JSON.stringify(answer)}`)
     return answer.id
   }
 
@@ -601,14 +601,14 @@ export class Acde {
 
   endedBy(ref: string): ActResult | null {
     if (!this.#client.ended || this.#closing || this.session.desktop !== null || !/^w\d+$/.test(ref)) return null
-    const text = `closed ${ref}; acdebin-dbg exited with it, so acdev dev ${this.session.pid} ended`
+    const text = `closed ${ref}; acdev runtime exited with it, so acdev dev ${this.session.pid} ended`
     return { ok: true, text, ended: true }
   }
 
   async clock(web: string, request: Readonly<Record<string, unknown>>): Promise<ClockState> {
     const state = (await this.#request('clock', { web, ...request })) as ClockState | null
     if (typeof state?.installed !== 'boolean')
-      throw new Error(`acdebin-dbg answered clock with ${JSON.stringify(state)}`)
+      throw new Error(`acdev runtime answered clock with ${JSON.stringify(state)}`)
     return state
   }
 
@@ -672,7 +672,7 @@ export class Acde {
 
   static unsupported(op: string, error: unknown): unknown {
     if (!(error instanceof Error) || !error.message.startsWith(`no op ${op} (`)) return error
-    return new Error(`this acdebin-dbg does not support ${op}; acdev doctor checks the pairing`, { cause: error })
+    return new Error(`this acdev runtime does not support ${op}; acdev doctor checks the pairing`, { cause: error })
   }
 
   #connected(): void {
@@ -681,13 +681,13 @@ export class Acde {
 
   static #page<T>(op: string, answer: unknown): DevPage<T> {
     const page = answer as DevPage<T> | null
-    if (!Array.isArray(page?.entries)) throw new Error(`acdebin-dbg answered ${op} without entries`)
+    if (!Array.isArray(page?.entries)) throw new Error(`acdev runtime answered ${op} without entries`)
     return page
   }
 
   static #result(answer: unknown): ActResult {
     const result = answer as { ok?: unknown; text?: unknown } | null
-    if (typeof result?.text !== 'string') throw new Error(`acdebin-dbg answered with ${JSON.stringify(answer)}`)
+    if (typeof result?.text !== 'string') throw new Error(`acdev runtime answered with ${JSON.stringify(answer)}`)
     return { ok: result.ok !== false, text: result.text }
   }
 }

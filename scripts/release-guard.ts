@@ -31,7 +31,7 @@ if (targets.length === 0) fail('--targets: the triples this release ships, comma
 for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: unknown target ${target} (one of ${TARGETS.join(', ')})`)
 const archives = [`acdev-${version}.tar.gz`]
 const windows = (target: string) => target.endsWith('-windows-msvc')
-const runtimes = targets.map((target) => `acdebin-dbg-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
+const runtimes = targets.map((target) => `acdev-runtime-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
 const host = `acde-host-${version}.tar.gz`
 const sdk = `acde-api-${version}.tar.gz`
 const checked = [...archives, ...runtimes, host, sdk]
@@ -85,7 +85,7 @@ if (problems.length === 0) {
     problems.push(`SHA256SUMS lists ${listed.size} files, expected ${checked.length}`)
   }
   for (const [index, runtime] of runtimes.entries()) {
-    const member = windows(targets[index]!) ? 'acdebin-dbg.exe' : 'acdebin-dbg'
+    const member = windows(targets[index]!) ? 'acdev.exe' : 'acdev runtime'
     const listing = systemTar([runtime.endsWith('.xz') ? '-tvJf' : '-tvzf', join(dir, version, runtime)])
     const rows = listing.status === 0 ? listing.stdout.split('\n').filter(Boolean) : []
     if (rows.length !== 1 || rows[0]![0] !== '-' || !rows[0]!.endsWith(` ${member}`)) {
@@ -146,4 +146,5 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the CLI archive, the acdebin-dbg builds, the host files, the SDK, SHA256SUMS, latest, latest.json, the installers and install.md are listed')
+console.log('release guard: the CLI archive, the acdev runtime builds, the host files, the SDK, SHA256SUMS, latest, latest.json, '
+  + 'the installers and install.md are listed')

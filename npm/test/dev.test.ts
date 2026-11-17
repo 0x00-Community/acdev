@@ -149,7 +149,7 @@ describe('dev IPC: tools and acdev dev talk to acdert directly', () => {
     const fake = await acdert()
     const tool = await DevClient.connect(fake.endpoint, 100)
     const timeout = await tool.request('eval', { web: 'x', code: '1' }).catch((error: Error) => error.message)
-    expect(timeout).toBe('timed out: acdebin-dbg did not answer "eval" within 0 s')
+    expect(timeout).toBe('timed out: acdev runtime did not answer "eval" within 0 s')
     const asked = tool.request('snapshot').catch((error: Error) => error)
     await until('the request', () => fake.got.length === 2)
     for (const socket of fake.sockets) socket.destroy()
@@ -678,21 +678,21 @@ describe('acdev dev with a stand-in acdert', () => {
     expect(await dev.output).toContain('acdev: waiting for a change to build again')
   }, 60_000)
 
-  test('a window session outlives a runtime crash: acdev dev starts acdebin-dbg again; headless ones end', async () => {
+  test('a window session outlives a runtime crash: acdev dev starts acdev runtime again; headless ones end', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
     try {
       await until('the session file', () => existsSync(dev.file))
       const lost = await dev.tool(['act', 'w1', 'focus'], alpha)
-      expect(lost.stderr).toBe('acdev: acdebin-dbg closed the connection\n')
+      expect(lost.stderr).toBe('acdev: acdev runtime closed the connection\n')
       await until('the second runtime', () => dev.entries().filter((e) => e.argv).length >= 2)
       await until('its hello', () => dev.entries().filter((e) => e.got?.['type'] === 'hello').length >= 2)
       expect((await dev.tool(['webs'], alpha)).code).toBe(0)
     } finally {
       await dev.stop()
     }
-    expect(await dev.output).toContain('acdev: acdebin-dbg exited (1); starting it again')
+    expect(await dev.output).toContain('acdev: acdev runtime exited (1); starting it again')
   }, 60_000)
 
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
@@ -987,20 +987,20 @@ describe('acdev dev with a stand-in acdert', () => {
     await until('the session file', () => existsSync(closing.file))
     const closed = await closing.tool(['act', 'w1', 'close'], alpha)
     expect(closed.stderr).toBe('')
-    expect(closed.stdout).toBe(`closed w1; acdebin-dbg exited with it, so acdev dev ${closing.child.pid} ended\n`)
+    expect(closed.stdout).toBe(`closed w1; acdev runtime exited with it, so acdev dev ${closing.child.pid} ended\n`)
     expect(closed.code).toBe(0)
     expect(await closing.child.exited).toBe(0)
 
     const crashing = start(['--headless'], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
     await until('the session file', () => existsSync(crashing.file))
     const lost = await crashing.tool(['act', 'w1', 'focus'], alpha)
-    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acdev: acdebin-dbg closed the connection\n'])
+    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acdev: acdev runtime closed the connection\n'])
     await crashing.child.exited
 
     const desktop = start(['--desktop', 'dopame', '--headless'], alpha, { FAKE_ACDERT_DIES_ON: 'close' })
     await until('the session file', () => existsSync(desktop.file))
     const crashed = await desktop.tool(['act', 'w1', 'close'], alpha)
-    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acdev: acdebin-dbg closed the connection\n'])
+    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acdev: acdev runtime closed the connection\n'])
     await desktop.child.exited
 
     const stopping = start([], alpha)

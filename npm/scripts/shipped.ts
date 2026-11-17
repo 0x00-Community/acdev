@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-const SOURCE_DIRECTORIES = ['lib/acdev/src', 'lib/acdev/test', 'lib/acde-api/test', 'bin/app/src']
+const SOURCE_DIRECTORIES = ['lib/acdev/src', 'lib/acdev/test', 'lib/acde-api/test', 'libexec/app/src']
 const FORBIDDEN_SEGMENTS = new Set([
   'fixtures', '__fixtures__', '__snapshots__', '__screenshots__', 'test-results', 'test', 'tests', 'logs', 'coverage',
 ])

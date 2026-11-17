@@ -7,7 +7,7 @@ acdev dev
 This does three things:
 
 1. Builds the project (into `.acde/`).
-2. Starts acdebin-dbg, which opens **one** window on your computer: the **host window**, standing in for the screen of a Dopame OS machine.
+2. Starts acdev runtime, which opens **one** window on your computer: the **host window**, standing in for the screen of a Dopame OS machine.
 3. Watches the project's files, and on every change rebuilds and reloads the affected windows.
 
 A running `acdev dev` is a **dev session**: the [debugging commands](tools.md), [MCP](mcp.md), and `acdev test` all work with one.
@@ -29,7 +29,7 @@ The session is ready when `acdev webs`, run from the project directory, lists th
 
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. On Linux without a GPU it draws on the CPU through the software Vulkan driver (lavapipe), slowly; see [Platform support](../reference/platforms.md).
 
-On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acdev shot`, `acdev screen` and `acdev inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acdev dev` without `--headless` (and `acdev test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdebin-dbg exits with an error anyway, `acdev dev` adds the same `--headless` hint after acdebin-dbg's own messages.
+On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acdev shot`, `acdev screen` and `acdev inspect` (see [Without a display](tools.md#without-a-display)). On Linux, `acdev dev` without `--headless` (and `acdev test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdev runtime exits with an error anyway, `acdev dev` adds the same `--headless` hint after acdev runtime's own messages.
 
 A headless session can run beside one with a window, for example the window on your main checkout for you to use and a headless session on a git worktree for an agent to build, test and inspect. Sessions on different directories do not get in each other's way; a second session on the same directory needs `--force`. Both runtimes share the web storage, window places, folder grants and permission decisions kept in your user directories; start the agent's session with `ACDE_STORAGE=` (empty) to keep its storage, places and grants in memory, and with its own `XDG_CONFIG_HOME` to keep its permission decisions apart too. The tools pick the session that runs the current directory, or take `--session <pid>`.
 
@@ -45,11 +45,11 @@ A headless session can run beside one with a window, for example the window on y
 
 ## Build output
 
-By default the build goes into the project's `.acde/`. `--out DIR` changes that: an absolute path is used as is, and a relative path is resolved against **the project being built**. Dev session builds reach acdebin-dbg only through `ACDE_PATH`; they are **not** installed into the local package directory.
+By default the build goes into the project's `.acde/`. `--out DIR` changes that: an absolute path is used as is, and a relative path is resolved against **the project being built**. Dev session builds reach acdev runtime only through `ACDE_PATH`; they are **not** installed into the local package directory.
 
 ## Stopping
 
-`acdev dev` ends on Ctrl+C, when you close the window, or when acdebin-dbg exits. Its exit code is the same as acdebin-dbg's. A session with a window keeps running through mistakes: when acdebin-dbg crashes it starts it again (up to three times within a minute; the fourth crash ends the session), and when the first build fails it prints the error and waits for the next change instead of exiting. With `--headless` (and in `acdev test`) either one ends the session, so scripts and agents see it. To end one running in the background, run `acdev stop` from the project directory (or `acdev stop --session <pid>`): it asks acdebin-dbg to quit, waits for `acdev dev` to exit, and prints `acdev: stopped acdev dev <pid>`.
+`acdev dev` ends on Ctrl+C, when you close the window, or when acdev runtime exits. Its exit code is the same as acdev runtime's. A session with a window keeps running through mistakes: when acdev runtime crashes it starts it again (up to three times within a minute; the fourth crash ends the session), and when the first build fails it prints the error and waits for the next change instead of exiting. With `--headless` (and in `acdev test`) either one ends the session, so scripts and agents see it. To end one running in the background, run `acdev stop` from the project directory (or `acdev stop --session <pid>`): it asks acdev runtime to quit, waits for `acdev dev` to exit, and prints `acdev: stopped acdev dev <pid>`.
 
 ## Logs
 
@@ -65,6 +65,6 @@ DevTools open in a browser profile of acdev's own, not your everyday one. `ACDEV
 
 ## Runtime
 
-`acdev dev` runs the acdebin-dbg named by `ACDEV_RUNTIME` (a path, or a name on PATH), otherwise the acdebin-dbg the installer put next to acdev, otherwise the `acdebin-dbg` (or an older `acdert`) on PATH. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+`acdev dev` runs the acdev runtime named by `ACDEV_RUNTIME` (a path, or a name on PATH), otherwise the acdev runtime the installer put next to acdev, otherwise the `acdev runtime` (or an older `acdert`) on PATH. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
 
-When acdebin-dbg exits before the session is ready (for example because it cannot use the GPU), `acdev dev` prints its log line, then `acdev: acdebin-dbg exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, and exits with that code.
+When acdev runtime exits before the session is ready (for example because it cannot use the GPU), `acdev dev` prints its log line, then `acdev: acdev runtime exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, and exits with that code.

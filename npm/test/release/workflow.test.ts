@@ -144,7 +144,7 @@ describe('release.yml', () => {
     expect(plan).toContain("git tag --list 'v*'")
     expect(plan).toContain('$3 + 1')
     expect(plan).toContain('[0-9]*.[0-9]*.[0-9]*')
-    for (const job of ['build', 'pkgs']) expect(runs(job)).toContain('sh acdebin-dbg/scripts/set-version.sh')
+    for (const job of ['build', 'pkgs']) expect(runs(job)).toContain('sh acdev/scripts/set-version.sh')
     expect(TEXT).not.toMatch(/github\.ref_name|format\('v\{0\}'/)
   })
 
@@ -194,7 +194,7 @@ describe('release.yml', () => {
     expect(plan).toContain('git -C "$lib" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdert $sha is not on its main"')
     expect(jobs['pkgs']!.env?.['SDK_VERSION']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
-    const set = indexIn(pkgs, 'sh acdebin-dbg/scripts/set-version.sh "$SDK_VERSION" acdebin-dbg acdert')
+    const set = indexIn(pkgs, 'sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev acdert')
     expect(set).toBeLessThan(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build'))
     expect(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build')).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
     expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api/dist" --sdk "$SDK_VERSION"')
@@ -206,9 +206,10 @@ describe('release.yml', () => {
     const build = runs('build')
     expect(build).toContain('checkout --detach "$ACDERT_SHA"')
     expect(build).toContain('-C acdert submodule update --init --depth 1')
-    expect(build).toContain('cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }}')
-    expect(build).toContain('"out/acdebin-dbg-${{ matrix.triple }}.tar.xz"')
-    expect(build).toContain('"out/acdebin-dbg-${{ matrix.triple }}.tar.gz"')
+    const triple = ['$', '{{ matrix.triple }}'].join('')
+    expect(build).toContain(`cargo build --profile dist -p acdev --target ${triple}`)
+    expect(build).toContain(`"out/acdev-runtime-${triple}.tar.xz"`)
+    expect(build).toContain(`"out/acdev-runtime-${triple}.tar.gz"`)
     expect(runs('host')).toContain('tar -C stage -czf "out/acde-host-$VERSION.tar.gz" app LICENSE')
     const pkgs = runs('pkgs')
     expect(pkgs).toContain('--runtime "$GITHUB_WORKSPACE/in/runtime"')
@@ -235,7 +236,7 @@ describe('release.yml', () => {
 
   test('the version directory holds the CLI, the SDK, the host files and the builds; listed, uploaded and invalidated', () => {
     const upload = runs('upload')
-    for (const file of ['acdev-$v.tar.gz', 'acde-api-$v.tar.gz', 'acde-host-$v.tar.gz', 'acdebin-dbg-$t.tar.gz', 'acdebin-dbg-$t.tar.xz']) {
+    for (const file of ['acdev-$v.tar.gz', 'acde-api-$v.tar.gz', 'acde-host-$v.tar.gz', 'acdev-runtime-$t.tar.gz', 'acdev-runtime-$t.tar.xz']) {
       expect(upload).toContain(`echo "$v/${file}"`)
       expect(indexIn(upload, `publish_once "out/$v/${file}"`)).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
     }

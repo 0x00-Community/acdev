@@ -1,8 +1,8 @@
 #!/bin/sh
 # Write one release version into what the build reads it from, without committing it: the [workspace.package] version of
-# acdebin-dbg's and acdert's Cargo.toml, npm/package.json, and acdert's web/packages/*/package.json (after bun install:
+# acdev runtime's and acdert's Cargo.toml, npm/package.json, and acdert's web/packages/*/package.json (after bun install:
 # web/bun.lock records those versions).
-# Usage: set-version.sh <x.y.z> <acdebin-dbg dir> <acdert dir>
+# Usage: set-version.sh <x.y.z> <acdev runtime dir> <acdert dir>
 set -eu
 v=$1 dbg=$2 lib=$3
 case $v in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "set-version.sh: $v is not x.y.z" >&2; exit 2 ;; esac

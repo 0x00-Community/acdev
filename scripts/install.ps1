@@ -220,7 +220,7 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$name.tar.gz" $tarball -Shown
 
         Confirm-Download $sums "$name.tar.gz" $tarball
-        $binary = "acdebin-dbg-$triple.tar.gz"
+        $binary = "acdev-runtime-$triple.tar.gz"
         if (-not (Get-Listed $sums $binary)) {
             if (Get-Listed $sums 'acdert-version') {
                 throw ("acdev: acdev $Version comes from before acdev and its runtime were released together: " +
@@ -229,14 +229,14 @@ function Install-Acde {
             $supported = @(Get-Content -LiteralPath $sums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
-            } | Where-Object { $_ -like 'acdebin-dbg-*' } | ForEach-Object {
-                ($_ -replace '^acdebin-dbg-', '') -replace '\.tar\.[gx]z$', ''
+            } | Where-Object { $_ -like 'acdev-runtime-*' } | ForEach-Object {
+                ($_ -replace '^acdev-runtime-', '') -replace '\.tar\.[gx]z$', ''
             } | Sort-Object -Unique)
-            throw ("acdev: acdev $Version has no acdebin-dbg for this platform ($triple); " +
+            throw ("acdev: acdev $Version has no acdev runtime for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
         $bundle = "acde-host-$Version.tar.gz"
-        Write-Host "acdev: getting acdebin-dbg $Version for $triple"
+        Write-Host "acdev: getting acdev runtime $Version for $triple"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
         $bundleFile = Join-Path -Path $work -ChildPath $bundle
         Save-Remote "$dist/$Version/$binary" $binaryFile -Shown
@@ -258,11 +258,12 @@ function Install-Acde {
         if ($LASTEXITCODE -ne 0) {
             throw "acdev: could not unpack $binary (tar exit $LASTEXITCODE)"
         }
-        $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdebin-dbg.exe'
+        $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdev.exe'
         if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
-            throw "acdev: $binary does not hold acdebin-dbg.exe"
+            throw "acdev: $binary does not hold acdev.exe"
         }
-        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdebin-dbg.exe')
+        New-Item -ItemType Directory -Force -Path (Join-Path -Path $staged -ChildPath 'libexec') | Out-Null
+        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'libexec\acdev.exe')
         $bundleDir = Join-Path -Path $work -ChildPath 'host'
         New-Item -ItemType Directory -Path $bundleDir | Out-Null
         & $tar -xzf $bundleFile -C $bundleDir
@@ -273,7 +274,7 @@ function Install-Acde {
         if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) {
             throw "acdev: $bundle does not hold app/dist/broker.js"
         }
-        $app = Join-Path -Path $staged -ChildPath 'bin\app'
+        $app = Join-Path -Path $staged -ChildPath 'libexec\app'
         Move-Item -LiteralPath (Join-Path -Path $bundleDir -ChildPath 'app') -Destination $app
 
         $versions = Join-Path -Path $install -ChildPath 'versions'
@@ -293,7 +294,7 @@ function Install-Acde {
                 Rename-Item -LiteralPath $target -NewName $aside
             } catch {
                 throw ("acdev: could not replace $target, a program in it is still running: " +
-                    'stop acdev dev (and acdebin-dbg) and run the installer again')
+                    'stop acdev dev (and acdev runtime) and run the installer again')
             }
         }
         Move-Item -LiteralPath $staged -Destination $target
@@ -372,9 +373,9 @@ function Install-Acde {
         }
     }
 
-    Write-Host "acdev: installed acdev $Version with acdebin-dbg $Version into $install"
+    Write-Host "acdev: installed acdev $Version with acdev runtime $Version into $install"
     Write-Host "  acdev     $(Join-Path -Path $bin -ChildPath 'acdev.cmd')"
-    Write-Host "  acdebin-dbg  $(Join-Path -Path $bin -ChildPath 'acdebin-dbg.exe')"
+    Write-Host "  runtime   $(Join-Path -Path (Split-Path -Parent $bin) -ChildPath 'libexec\acdev.exe')"
     Write-Host '  acdev new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
     Write-Host '  acdev skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acdev'
 

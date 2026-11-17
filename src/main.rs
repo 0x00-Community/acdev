@@ -8,14 +8,14 @@ mod platform;
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 const USAGE: &str = "\
-usage: acdebin-dbg app <id> | desktop <id|dir> [options]
-       acdebin-dbg desktops [--desktop <id>] [--package <dir>]
-       acdebin-dbg sessions <dir> [--package <dir>]
-       acdebin-dbg applications <dir> [--package <dir>] [--exec <program>]
-       acdebin-dbg open [--app <id>] <path|uri>...
-       acdebin-dbg run <file> [args...]
-       acdebin-dbg doctor [--json]
-       acdebin-dbg --version | --help
+usage: acdev app <id> | desktop <id|dir> [options]
+       acdev desktops [--desktop <id>] [--package <dir>]
+       acdev sessions <dir> [--package <dir>]
+       acdev applications <dir> [--package <dir>] [--exec <program>]
+       acdev open [--app <id>] <path|uri>...
+       acdev run <file> [args...]
+       acdev doctor [--json]
+       acdev --version | --help
 
 app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acdev dev runs).
 doctor checks what that needs here (host files, GPU, display) and exits 1 when something is missing.
@@ -45,7 +45,7 @@ fn main() {
     let platform: acdert::Shared = std::sync::Arc::new(platform::Host);
     let code = match args.get(1).map(String::as_str) {
         Some("--version" | "-V") => {
-            println!("{}", acdert::version("acdebin-dbg"));
+            println!("{}", acdert::version("acdev"));
             0
         }
         Some("--help" | "-h") | None => {

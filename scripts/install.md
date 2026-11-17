@@ -31,9 +31,9 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 
 Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDEV_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDEV_NO_MODIFY_PATH=1`), and another install directory (`ACDEV_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
 
-If the user asked for npm, or the machine installs its tools with npm (a CI image, a container), run `npm install -g @dopame/acdev` instead (Node.js 22.3 or later; add `@X.Y.Z` for a version). It installs acdev with the runtime for this platform, acdebin-dbg, next to it, puts `acdev` where npm puts global commands (`npm prefix -g`), and changes no shell startup file; the steps below are the same.
+If the user asked for npm, or the machine installs its tools with npm (a CI image, a container), run `npm install -g @dopame/acdev` instead (Node.js 22.3 or later; add `@X.Y.Z` for a version). It installs acdev with the runtime for this platform, acdev runtime, next to it, puts `acdev` where npm puts global commands (`npm prefix -g`), and changes no shell startup file; the steps below are the same.
 
-The installer downloads the acdev archive and the Dopame runtime it pairs with, acdebin-dbg (the binary for this platform and its host files), checks every SHA-256, and unpacks them into `~/.acdev` (`%USERPROFILE%\.acdev` on Windows): `acdebin-dbg` ends up in the same `bin` directory as `acdev`. It then adds that directory to PATH: on macOS and Linux in the startup files of every shell installed (bash, zsh, fish, sh, csh/tcsh, nushell; login shells included), on Windows in front of the user `Path`. It needs no root. On Linux it unpacks acdebin-dbg with `xz`; if `xz` is missing it stops before installing anything and says so: install the `xz` (or `xz-utils`) package and run it again. If any download or check fails, it installs nothing and an earlier install stays as it was. Running it again upgrades an existing install, runtime included.
+The installer downloads the acdev archive and the Dopame runtime it pairs with (the binary for this platform and its host files), checks every SHA-256, and unpacks them into `~/.acdev` (`%USERPROFILE%\.acdev` on Windows): `acdev` goes into `bin`, the runtime into `libexec/acdev` next to it. It then adds that directory to PATH: on macOS and Linux in the startup files of every shell installed (bash, zsh, fish, sh, csh/tcsh, nushell; login shells included), on Windows in front of the user `Path`. It needs no root. On Linux it unpacks the runtime with `xz`; if `xz` is missing it stops before installing anything and says so: install the `xz` (or `xz-utils`) package and run it again. If any download or check fails, it installs nothing and an earlier install stays as it was. Running it again upgrades an existing install, runtime included.
 
 The PATH change reaches new shells only. When the shell you are in does not have it yet, the installer's last line is the command that puts it on PATH there; run it, or call acdev by its path, `~/.acdev/bin/acdev` (Windows: `%USERPROFILE%\.acdev\current\bin\acdev.cmd`).
 
@@ -64,15 +64,15 @@ Most agents load new skills when a session starts. For the rest of this session,
 
 ## 5. Check the setup
 
-`acdev dev` and `acdev test` run apps in the Dopame runtime, acdebin-dbg. The installer put the acdebin-dbg that this acdev pairs with next to it, so they should work now. acdev looks for acdebin-dbg in this order: `ACDEV_RUNTIME`, the acdebin-dbg installed next to acdev, then `acdebin-dbg` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already on PATH). Check everything acdev needs:
+`acdev dev` and `acdev test` run apps in the Dopame runtime. The installer put the runtime that this acdev pairs with in `libexec/acdev`, so they should work now. acdev looks for the runtime in `ACDEV_RUNTIME`, then in `libexec/acdev` of the install; not on PATH, where `acdev` is the CLI. Check everything acdev needs:
 
 ```sh
 acdev doctor
 ```
 
-It prints one line per check, each beginning `ok`, `warn`, `error` or `skip`, a line beginning `fix:` under each warning and error, and a last line beginning `acdev doctor:`; it exits with code 1 when a check is an error. The `acdebin-dbg` line names the runtime it found with its version and contract level, and the `gpu` line is the runtime drawing a test frame on this machine's GPU.
+It prints one line per check, each beginning `ok`, `warn`, `error` or `skip`, a line beginning `fix:` under each warning and error, and a last line beginning `acdev doctor:`; it exits with code 1 when a check is an error. The `runtime` line names the runtime it found with its version and contract level, and the `gpu` line is the runtime drawing a test frame on this machine's GPU.
 
-- An error on the `acdebin-dbg` line (none found, or one that does not run) means the install did not finish: run `acdev doctor --fix --yes`, which runs the installer of this version again (after an npm install: run the same `npm install -g` again), and report what it printed. Only if the installer cannot work here (no access to `https://pkgs.dopame.ai/`, or no acdebin-dbg build for this platform), ask the user whether to set the runtime up by hand; if they agree, follow the section "Install the runtime by hand" in the skill's `references/start/install.md` (in the directory `acdev skills path` prints), and nothing else: do not build it or fetch it from anywhere else.
+- An error on the `runtime` line (none found, or one that does not run) means the install did not finish: run `acdev doctor --fix --yes`, which runs the installer of this version again (after an npm install: run the same `npm install -g` again), and report what it printed. Only if the installer cannot work here (no access to `https://pkgs.dopame.ai/`, or no acdev runtime build for this platform), ask the user whether to set the runtime up by hand; if they agree, follow the section "Install the runtime by hand" in the skill's `references/start/install.md` (in the directory `acdev skills path` prints), and nothing else: do not build it or fetch it from anywhere else.
 - Any other error: report the line and its fix to the user. A `gpu` error means the runtime cannot draw on this machine; it is not something to work around.
 - Warnings and skips do not stop the next step. A `PATH` warning is expected in a shell started before the install (step 2), and the `project` check is skipped because there is no project yet.
 
@@ -93,7 +93,7 @@ acdev build
 acdev dev --headless
 ```
 
-`acdev dev` keeps running: start it in the background. It first prints a line beginning `acdev: dev app hello (headless):` (the build is done and acdebin-dbg is starting). The session is ready when `acdev webs`, run from the same directory, lists a page whose APP is `hello`; until then `acdev webs` says `no acdev dev is running`, so run it again every second or two, for up to a minute. Then run `acdev shot hello -o hello.png`, look at the PNG, and end the session with `acdev stop`. Remove the temporary directory when you are done.
+`acdev dev` keeps running: start it in the background. It first prints a line beginning `acdev: dev app hello (headless):` (the build is done and acdev runtime is starting). The session is ready when `acdev webs`, run from the same directory, lists a page whose APP is `hello`; until then `acdev webs` says `no acdev dev is running`, so run it again every second or two, for up to a minute. Then run `acdev shot hello -o hello.png`, look at the PNG, and end the session with `acdev stop`. Remove the temporary directory when you are done.
 
 ## 7. Report
 
@@ -102,7 +102,7 @@ Tell the user, in a few lines:
 - the acdev version installed and where (`~/.acdev/versions/<version>`), and whether a new terminal is needed for PATH;
 - which JavaScript runtime acdev will use;
 - where the skill was installed (the output of `acdev skills`);
-- what `acdev doctor` printed: the acdebin-dbg it found with its version and contract level, the `gpu` line, and every warning and error;
+- what `acdev doctor` printed: the acdev runtime it found with its version and contract level, the `gpu` line, and every warning and error;
 - which commands of step 6 you ran and what they printed, and anything that failed.
 
 Report only what you ran and saw. Then suggest a first step: `acdev new my-app`.

@@ -52,7 +52,7 @@ describe('acdev mcp', () => {
       const checked = await call('doctor')
       expect(checked.error).toBe(false)
       expect(checked.text)
-        .toContain(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDEV_RUNTIME']} (from ACDEV_RUNTIME)`)
+        .toContain(`ok     runtime: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDEV_RUNTIME']} (from ACDEV_RUNTIME)`)
       expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acdev check finds nothing wrong')
       expect(checked.text.split('\n').at(-1)).toMatch(/^acdev doctor: /)
 
@@ -222,7 +222,7 @@ describe('acdev mcp', () => {
       const pid = Number(/^acdev dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
       const closed = await started.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acdev dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdev runtime exited with it, so acdev dev ${pid} ended`])
       const next = await started.call('webs')
       expect(next.error).toBe(true)
       expect(next.text).toStartWith(`the acdev dev started here (pid ${pid}) stopped; last output:\n`)
@@ -236,7 +236,7 @@ describe('acdev mcp', () => {
       const pid = outside.session.pid
       const closed = await attached.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acdev dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdev runtime exited with it, so acdev dev ${pid} ended`])
       const next = await attached.call('snapshot')
       expect(next.error).toBe(true)
       expect(next.text).toStartWith(`acdev dev ${pid} stopped; no acdev dev is running (`)
@@ -250,7 +250,7 @@ describe('acdev mcp', () => {
     try {
       const pid = Number(/^acdev dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
       const lost = await crashing.call('act', { ref: 'w1.3', action: 'click' })
-      expect([lost.error, lost.text]).toEqual([true, 'acdebin-dbg closed the connection'])
+      expect([lost.error, lost.text]).toEqual([true, 'acdev runtime closed the connection'])
       expect((await crashing.call('webs')).text).toStartWith(`the acdev dev started here (pid ${pid}) stopped;`)
     } finally {
       await crashing.client.close()

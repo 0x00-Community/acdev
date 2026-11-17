@@ -8,7 +8,7 @@ export declare function which(name: string, env?: Record<string, string | undefi
 export declare function acdertBeside(root?: string): string | null
 export interface FoundAcdert {
   readonly path: string | null
-  readonly from: 'ACDEV_RUNTIME' | 'install' | 'PATH' | null
+  readonly from: 'ACDEV_RUNTIME' | 'install' | null
   readonly problem?: string
 }
 export declare function findAcdert(root?: string, env?: Record<string, string | undefined>): FoundAcdert

@@ -8,8 +8,8 @@
 | `acdev check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架) 再用 `Manifest.check` 判一遍; 都查 `acde:` 导入; `--platform` 见下 |
 | `acdev build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acdev install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
-| `acdev uninstall [id\|目录] [--yes] [--data\|--keep-data]` | `src/uninstall.ts` (acde#93: 应用数据 `Uninstall.data`: 包里每个应用的 `<数据>/acde/storage/app-<id>`、`<数据>/acde/apps/<id>` (后端的工作目录)、`<数据>/acde/files/<id>` (`acde:fs` 的 `private`)、`<状态>/acde/grants/<id>.json` (选过的文件夹)、旧的 `<配置>/acde/storage/app-<id>.json`, 桌面的 `storage/desktop-<id>` 和 `<配置>/acde/storage/<id>.json`; `ACDE_STORAGE` 换存储根, 空串时没有存储也没有旧文件. 只认合乎 `Project.ID` 的应用和桌面 id (包的 `package.json` 里 `../..` 这类 id 直接丢掉), 每条路径还要严格落在它的上级目录里才删. 共享文件里只去掉这些应用的条目 (`Uninstall.entries` / `forget`): `<配置>/acde/permissions.json` 的 `<id>:<能力>` (能力也得合乎 `Project.ID`) 和 `<状态>/acde/windows.json` 的 `<id>`, 写临时文件再改名, 不是 JSON 对象时不动并说一声. 运行时开着时它内存里的这两份会在下次写盘时写回, 所以卸载前先关掉用这些应用的会话. `--data` 删、`--keep-data` 留, 都不给时终端里问、`--yes` 留并打出路径; 两个都给是参数错, 退出码 1): 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acdev dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acdev dev 起的 acdebin-dbg 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
-| `acdev dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose] [--force]` | 构建、起 acdebin-dbg、改了就重新构建并 `reload`; 一个工程只许一个, `--force` 照样再起 (见 `acde-dev.md`) |
+| `acdev uninstall [id\|目录] [--yes] [--data\|--keep-data]` | `src/uninstall.ts` (acde#93: 应用数据 `Uninstall.data`: 包里每个应用的 `<数据>/acde/storage/app-<id>`、`<数据>/acde/apps/<id>` (后端的工作目录)、`<数据>/acde/files/<id>` (`acde:fs` 的 `private`)、`<状态>/acde/grants/<id>.json` (选过的文件夹)、旧的 `<配置>/acde/storage/app-<id>.json`, 桌面的 `storage/desktop-<id>` 和 `<配置>/acde/storage/<id>.json`; `ACDE_STORAGE` 换存储根, 空串时没有存储也没有旧文件. 只认合乎 `Project.ID` 的应用和桌面 id (包的 `package.json` 里 `../..` 这类 id 直接丢掉), 每条路径还要严格落在它的上级目录里才删. 共享文件里只去掉这些应用的条目 (`Uninstall.entries` / `forget`): `<配置>/acde/permissions.json` 的 `<id>:<能力>` (能力也得合乎 `Project.ID`) 和 `<状态>/acde/windows.json` 的 `<id>`, 写临时文件再改名, 不是 JSON 对象时不动并说一声. 运行时开着时它内存里的这两份会在下次写盘时写回, 所以卸载前先关掉用这些应用的会话. `--data` 删、`--keep-data` 留, 都不给时终端里问、`--yes` 留并打出路径; 两个都给是参数错, 退出码 1): 按 id (包目录下的目录名) 或来源工程找 (先找指向该工程的链接, 再按工程算出的 id 找拷贝); 链接只删链接; 先打要删什么再问 (`--yes` 不问, 非终端无 `--yes` 不删); 跑着的 `acdev dev` 的桌面或应用 id 和包重合、或它跑桌面而包里有应用时停下 (只看 `Sessions.list()`, 不经 acdev dev 起的 acdev runtime 查不到); 无参数列出已装的包 (跳过 `.new-<pid>` 残留); 退出码 1 在用、2 没装、3 没确认 (acde#85, 见下「退出码」) |
+| `acdev dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless] [--verbose] [--force]` | 构建、起 acdev runtime、改了就重新构建并 `reload`; 一个工程只许一个, `--force` 照样再起 (见 `acde-dev.md`) |
 | `acdev doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acdev dev` / `acdev test` 要的东西, 每项给出怎么修; `--fix` 修 acdev 能修的 (见 `acde-doctor.md`) |
 | `acdev webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acdev dev` 里的页面; `stop` 结束它 |
 | `acdev permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见 `devtools-driver-mcp.md` 的「批准的命令」) |
@@ -18,8 +18,8 @@
 | `acdev skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见 `skills.md`) |
 
 参数解析在 `src/cli.ts` (`Cli.SPECS`), 用法文字在 `src/help.ts` (`Help.commands`: 每个命令的分组、一行摘要、说明、选项和默认值、例子; acde#68). `acdev --version` (`-v`、`version`, acde#23) 第一行是 acdev 版本号 (脚本可只取第一行),
-再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDEV_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdebin-dbg
-(`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdebin-dbg does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
+再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDEV_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdev runtime
+(`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdev runtime does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
 版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acdev --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 `acdev --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
 和 `acdev help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acdev new` 的 then 提示和 `acdev skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读.
@@ -41,8 +41,8 @@
 `acdev: no console entries` / `acdev: no requests` (给了 `--since` 加 ` in that range`, `--follow` 加 ` yet; waiting for new ones`), 退出 0.
 stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.install()` 把 `console.error` / `console.warn` 换成自己写 stderr
 (`util.format` 后按行给开头的标签上色, 已带颜色码的行不动), 不再经运行时: Bun 在 stderr 是终端时会把 `console.error` 整行染红, Node
-不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acdev: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdebin-dbg 转来的错误
-带着它); 调用栈只在 `ACDEV_DEBUG` 非空且不是 `0` 时接着打. acdebin-dbg 自己启动失败时 (acdert `web/packages/acde-host/src/main.ts`, acdert#207) 按同一条规则只打一行 `acdev: <message>`,
+不会, 换掉后两边逐字节一样. 顶层的错误 (`Output.fail`) 是一行 `acdev: <消息>` (`acde:` 红), 去掉消息开头的 `Error: ` (acdev runtime 转来的错误
+带着它); 调用栈只在 `ACDEV_DEBUG` 非空且不是 `0` 时接着打. acdev runtime 自己启动失败时 (acdert `web/packages/acde-host/src/main.ts`, acdert#207) 按同一条规则只打一行 `acdev: <message>`,
 `ACDEV_DEBUG` 非空且不是 `0` 时才打整个调用栈; 这行经继承的 stderr 直接出去.
 `acdev build`、`acdev install`、非交互 `acdev new` 的最后一行带耗时 (`(840 ms)`, 1 s 起 `(1.2 s)`; 交互式 `acdev new` 从答完问题算起, 写在结尾一行);
 落在当前目录里的路径打相对路径 (`Cli.shown`, 先取真实路径再比, macOS 的 `/var` → `/private/var` 不算在外面), 外面的打绝对路径.

@@ -10,9 +10,9 @@ acdev doctor
 ok     acde: 0.0.10 on Bun 1.4.4 (/Users/me/.acdev/versions/0.0.10)
 ok     PATH: acdev on PATH is this one (/Users/me/.acdev/bin/acdev)
 ok     Bun and Node.js: Bun 1.4+ at /Users/me/.bun/bin/bun; Node.js 22.3+ at /opt/homebrew/bin/node
-ok     acdebin-dbg: acdebin-dbg 0.0.10 (contract level 1) at /Users/me/.acdev/versions/0.0.10/bin/acdebin-dbg (installed next to acdev)
-ok     contract level: level 1 on both sides (acdebin-dbg 0.0.10, SDK 0.0.10)
-ok     host files: /Users/me/.acdev/versions/0.0.10/bin/app/dist
+ok     runtime: acdev runtime 0.0.10 (contract level 1) at /Users/me/.acdev/versions/0.0.10/libexec/acdev (installed next to acdev)
+ok     contract level: level 1 on both sides (acdev runtime 0.0.10, SDK 0.0.10)
+ok     host files: /Users/me/.acdev/versions/0.0.10/libexec/app/dist
 ok     gpu: Apple M3 Pro (Metal, integrated GPU): drew a test frame in 38 ms
 ok     acdev dev sessions: none running
 ok     project: notes, app (acde.config.jsonc): acdev check finds nothing wrong
@@ -41,9 +41,9 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 | `acdev` | The version of acdev and the JavaScript runtime it runs on |
 | `PATH` | Whether the `acdev` on PATH is this one, not another install or checkout |
 | `Bun and Node.js` | Bun 1.4+ and Node.js 22.3+ on PATH; `acdev test` and projects that use bun need Bun |
-| `acdebin-dbg` | The runtime `acdev dev` would run (`ACDEV_RUNTIME`, else the one installed next to acdev, else PATH), and whether it runs |
+| `acdev runtime` | The runtime `acdev dev` would run (`ACDEV_RUNTIME`, else the one installed next to acdev, else PATH), and whether it runs |
 | `contract level` | Whether the runtime runs the contract level this acdev builds, and whether it is the release this acdev pairs with |
-| `host files`, `gpu`, `display` | The runtime's own check, `acdebin-dbg doctor`: its host files, the GPU (it draws a small frame and reads it back), and on Linux whether a host window can open |
+| `host files`, `gpu`, `display` | The runtime's own check, `acdev runtime doctor`: its host files, the GPU (it draws a small frame and reads it back), and on Linux whether a host window can open |
 | `acdev dev sessions`, `approval` | The running `acdev dev` sessions, and every camera or microphone prompt that waits for an answer |
 | `project` | `acdev check` of the project |
 | `platform` | Whether this platform has every capability the project's apps require |
@@ -57,8 +57,8 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 No runtime:
 
 ```text
-error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no /Users/me/.acdev/versions/0.0.10/bin/acdebin-dbg, which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdebin-dbg binary, or put acdebin-dbg on PATH
-       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdebin-dbg that pairs with acdev next to it)
+error  runtime: acdev dev needs the Dopame runtime (acdev runtime) and found none: no /Users/me/.acdev/versions/0.0.10/libexec/acdev, which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdev runtime binary, or put acdev runtime on PATH
+       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdev runtime that pairs with acdev next to it)
 ```
 
 A runtime that does not start reports why: a missing system library (`it exited with code 127: … error while loading shared libraries: …`), a file that is not executable (`EACCES`), or on macOS a binary that a download left in quarantine, with `xattr -d com.apple.quarantine <path>` as the fix.
@@ -80,7 +80,7 @@ Install the driver (see [The runtime](../start/install.md#the-runtime)). With on
 On Linux in a shell with no graphical session (over SSH, for example):
 
 ```text
-warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set, so acdebin-dbg app and acdebin-dbg desktop cannot open a host window here: they would try to start a session on the screen (DRM) instead
+warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set, so acdev runtime app and acdev runtime desktop cannot open a host window here: they would try to start a session on the screen (DRM) instead
        fix: run acdev dev --headless, or run it inside a graphical session
 ```
 
@@ -123,7 +123,7 @@ ok     acde: 0.0.9 on Bun 1.4.4 (/Users/me/.acdev/versions/0.0.9)
 When `acdev dev` finds no runtime, its error ends with `(acdev doctor checks the whole setup)`. When the runtime exits before the session is ready, `acdev dev` prints the runtime's log line and then:
 
 ```text
-acdev: acdebin-dbg exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup
+acdev: acdev runtime exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup
 ```
 
 ## In scripts and agents
@@ -134,11 +134,11 @@ acdev: acdebin-dbg exited (1) before it was ready; acdev doctor checks the runti
 {
   "ok": false,
   "checks": [
-    { "id": "acdert", "title": "acdebin-dbg", "status": "error", "summary": "…", "fix": "…" }
+    { "id": "acdert", "title": "acdev runtime", "status": "error", "summary": "…", "fix": "…" }
   ]
 }
 ```
 
-`ok` is false when a check is an error. A check that `--fix` can repair carries `"repair": {"action", "target", "ask", "does"}` (`ask` is true for the fixes that ask first), and with `--fix` the object also has `"fixed": [{"repair", "result", "said"}]`, `result` being `fixed`, `failed` or `skipped`; the progress lines then go to stderr. The ids are `acdev`, `path`, `runtimes`, `acdert` (the runtime binary; its title is `acdebin-dbg`), `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool, and the fixes that do not ask as `doctor_fix` (it names the others and leaves them to the user); see [MCP](mcp.md).
+`ok` is false when a check is an error. A check that `--fix` can repair carries `"repair": {"action", "target", "ask", "does"}` (`ask` is true for the fixes that ask first), and with `--fix` the object also has `"fixed": [{"repair", "result", "said"}]`, `result` being `fixed`, `failed` or `skipped`; the progress lines then go to stderr. The ids are `acdev`, `path`, `runtimes`, `acdert` (the runtime binary; its title is `acdev runtime`), `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool, and the fixes that do not ask as `doctor_fix` (it names the others and leaves them to the user); see [MCP](mcp.md).
 
-The runtime's part also runs on its own, `acdebin-dbg doctor` (or `acdebin-dbg doctor --json`), with the same exit codes.
+The runtime's part also runs on its own, `acdev runtime doctor` (or `acdev runtime doctor --json`), with the same exit codes.

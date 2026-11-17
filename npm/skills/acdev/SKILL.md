@@ -1,11 +1,11 @@
 ---
 name: acdev
-description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdebin-dbg (built on acdert). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acdev, acdert, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
+description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdev runtime (built on acdert). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acdev, acdert, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
 ---
 
 # acdev
 
-A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). `acdebin-dbg` is the runtime that draws the desktop and the apps (built on the acdert runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
+A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). `acdev runtime` is the runtime that draws the desktop and the apps (built on the acdert runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
 
 This skill ships inside acdev and describes the version it came with. When it and the CLI disagree, the CLI is right: `acdev --help` prints every command, and `acdev <command> --help` that command's options.
 
@@ -14,7 +14,7 @@ This skill ships inside acdev and describes the version it came with. When it an
 Run `acdev doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acdev dev`, `acdev test` or the MCP `start` does not come up, before guessing. `acdev doctor --fix` then fixes what acdev may (the skill, `.acde/` in `.gitignore`, the sessions directory) and asks before what downloads, installs or stops something; without a terminal it skips those unless given `--yes`, which you pass only when the user agreed. Approvals, GPU drivers and the project's code it leaves to you and the user. See [Check the setup](references/guide/doctor.md).
 
 1. `acdev` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acdev dev` and `acdev test` need the runtime, acdebin-dbg. The acdev installer sets up the acdebin-dbg release that acdev pairs with next to it; acdev finds `ACDEV_RUNTIME` (a path to the binary) first, then that one, then `acdebin-dbg` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already there). If `acdev doctor` finds none, or one that does not run, run the acdev installer again (`acdev doctor --fix --yes` does that for an installed acdev); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acdev new`, `acdev check`, and `acdev build` still work, and `acdev dev` says what is missing.
+2. `acdev dev` and `acdev test` need the runtime, acdebin-dbg. The acdev installer sets up the acdev runtime release that acdev pairs with next to it; acdev finds `ACDEV_RUNTIME` (a path to the binary) first, then that one, then `acdev runtime` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already there). If `acdev doctor` finds none, or one that does not run, run the acdev installer again (`acdev doctor --fix --yes` does that for an installed acdev); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acdev new`, `acdev check`, and `acdev build` still work, and `acdev dev` says what is missing.
 3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acdev test` needs Bun.
 
 ## What is not like a browser
@@ -36,7 +36,7 @@ Create a project without prompts (`--yes` asks nothing; without it `acdev new` w
 acdev new my-app --template html --label "My App" --yes
 ```
 
-Run it. `acdev dev` builds, starts acdebin-dbg, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acdev stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work. It is ready when `acdev webs`, run from the project directory, lists the app's page.
+Run it. `acdev dev` builds, starts acdev runtime, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acdev stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work. It is ready when `acdev webs`, run from the project directory, lists the app's page.
 
 ```sh
 acdev dev --headless

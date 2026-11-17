@@ -22,7 +22,7 @@ concurrency:
 env:
   WPT_STATE: ${{ github.workspace }}/wpt-state
   LABEL: ci-${{ github.run_number }}
-  ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdebin-dbg
+  ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdev
 
 jobs:
   web:

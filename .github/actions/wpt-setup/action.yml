@@ -1,5 +1,5 @@
 name: wpt-setup
-description: acdev checked out at acdev/ with acdert/vendor/blitz, acdebin-dbg built (release), acdert/web built, the acdev CLI linked, the WPT checkout and the runner apps
+description: acdev checked out at acdev/ with acdert/vendor/blitz, acdev runtime built (release), acdert/web built, the acdev CLI linked, the WPT checkout and the runner apps
 inputs:
   token:
     description: a token that reads AC's repositories and its cargo registry
@@ -20,7 +20,7 @@ runs:
           pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
           [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
         done
-        ours='/hostexecutor/acdev/target/release/acdebin-dbg |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
+        ours='/hostexecutor/acdev/target/release/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
         pkill -TERM -f "$ours" || true
         for i in $(seq 1 30); do
           pgrep -f "$ours|/hostexecutor/acdev/acdert/scripts/wpt/serve\.py" > /dev/null || break
@@ -62,11 +62,11 @@ runs:
       env:
         CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ inputs.token }}
       run: cd acdev && cargo update --quiet && cargo fetch --locked
-    - name: build acdebin-dbg (release, offline, no token) and acdert/web; link the acdev CLI
+    - name: build acdev runtime (release, offline, no token) and acdert/web; link the acdev CLI
       shell: bash
       run: |
         set -eu
-        (cd acdev && cargo build --release --offline --locked -p acdebin-dbg)
+        (cd acdev && cargo build --release --offline --locked -p acdev)
         (cd acdev/acdert/web && bun install --frozen-lockfile && bun run build)
         (cd acdev/npm && bun install --frozen-lockfile && bun link)
         (cd acdev/acdert/scripts/wpt && bun install --frozen-lockfile)

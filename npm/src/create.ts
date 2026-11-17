@@ -226,7 +226,7 @@ export class Creator {
 
   static readonly LATER: readonly string[] = [
     'acdev inspect, eval, console, shot: look into a running acdev dev',
-    'acdev test: run *.e2e.ts end to end, each test on its own acdebin-dbg',
+    'acdev test: run *.e2e.ts end to end, each test in its own session',
     'acdev install: build it and add it to this machine\'s desktop',
   ]
 

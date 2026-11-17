@@ -119,13 +119,13 @@ class Cli {
     const { API_LEVEL } = await import('./manifest/index.ts')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
     const acdert = findAcdert().path
-    if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDEV_RUNTIME, next to acdev, PATH)']
+    if (!acdert) return [...lines, 'acdev runtime: not found (ACDEV_RUNTIME, next to acdev, PATH)']
     const { said, failed } = await Runtime.level(acdert)
-    if (failed) return [...lines, `acdebin-dbg does not run (${failed}): ${acdert}`]
+    if (failed) return [...lines, `acdev runtime does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
-      .find((line) => /^(?:acdebin-dbg|acdert) \S+ \(contract level \d+\)$/.test(line))
+      .find((line) => /^(?:acdev|acdert) \S+ \(contract level \d+\)$/.test(line))
     return [...lines, named ? `${named}: ${acdert}`
-      : `acdebin-dbg without a contract level (older, level 0): ${acdert}`]
+      : `acdev runtime without a contract level (older, level 0): ${acdert}`]
   }
 
   static async main(argv: readonly string[]): Promise<number> {

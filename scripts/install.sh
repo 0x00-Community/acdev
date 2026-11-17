@@ -44,10 +44,10 @@ usage: curl -fsSL $ACDEV_DIST/install.sh | sh
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
 Installs acdev (the developer CLI and its SDK) and the debug runtime released with it
-(acdebin-dbg) into \$ACDEV_INSTALL (default ~/.acdev) and puts \$ACDEV_INSTALL/bin on
+(acdev runtime) into \$ACDEV_INSTALL (default ~/.acdev) and puts \$ACDEV_INSTALL/bin on
 PATH. No root needed. Every download is checked against its SHA256SUMS; if any part
 fails, nothing is installed and an earlier install stays as it was.
-  --version X.Y.Z    that version of acdev (and its acdebin-dbg) instead of the latest
+  --version X.Y.Z    that version of acdev (and its acdev runtime) instead of the latest
   --no-modify-path   do not touch any shell startup file
   ACDEV_DIST          where to download acdev from (now $ACDEV_DIST)
 EOF
@@ -231,7 +231,7 @@ main() {
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acdev $version is not in its SHA256SUMS ($file)"
   download "$ACDEV_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDEV_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
-  binary=acdebin-dbg-$triple
+  binary=acdev-runtime-$triple
   if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
     binary=$binary.tar.xz
     tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
@@ -242,10 +242,10 @@ main() {
     supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdebin-dbg-/) {
       sub(/^acdebin-dbg-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
-    die "acdev $version has no acdebin-dbg for this platform ($triple); it is built for: ${supported% }"
+    die "acdev $version has no acdev runtime for this platform ($triple); it is built for: ${supported% }"
   fi
   host=acde-host-$version.tar.gz
-  say "getting acdebin-dbg $version for $triple"
+  say "getting acdev runtime $version for $triple"
   download "$ACDEV_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDEV_DIST/$version/$binary"
   got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
   download "$ACDEV_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDEV_DIST/$version/$host"
@@ -264,12 +264,12 @@ main() {
   unpacked=$stage/acdev-$version
   [ -x "$unpacked/bin/acdev" ] || die "$file does not hold bin/acdev"
   mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
-  [ -f "$stage/runtime/acdebin-dbg" ] && [ ! -h "$stage/runtime/acdebin-dbg" ] || die "$binary does not hold acdebin-dbg"
-  mv "$stage/runtime/acdebin-dbg" "$unpacked/bin/acdebin-dbg" && chmod 755 "$unpacked/bin/acdebin-dbg" ||
-    die "could not place acdebin-dbg"
+  [ -f "$stage/runtime/acdev" ] && [ ! -h "$stage/runtime/acdev" ] || die "$binary does not hold the runtime acdev"
+  mkdir -p "$unpacked/libexec" && mv "$stage/runtime/acdev" "$unpacked/libexec/acdev" && chmod 755 "$unpacked/libexec/acdev" ||
+    die "could not place acdev runtime"
   mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
   [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
-  mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the host files (app/)"
+  mv "$stage/host/app" "$unpacked/libexec/app" || die "could not place the host files (app/)"
   if [ -e "$root/versions/$version" ]; then
     mv "$root/versions/$version" "$stage/old"
   fi
@@ -358,9 +358,9 @@ main() {
     fi
   fi
 
-  say "installed acdev $version with acdebin-dbg $version in $root/versions/$version"
+  say "installed acdev $version with acdev runtime $version in $root/versions/$version"
   printf '  acdev        %s/acdev\n' "$bin"
-  printf '  acdebin-dbg  %s/acdebin-dbg\n' "$bin"
+  printf '  runtime      %s/libexec/acdev\n' "$root/versions/$version"
 
   runs=
   if command -v bun >/dev/null 2>&1; then

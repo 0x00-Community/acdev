@@ -201,7 +201,7 @@ export class DevSession {
   }
 
   static readonly WINDOW_HINT =
-    'if acdebin-dbg could not open a window here (no display, e.g. over ssh), run acdev dev --headless'
+    'if acdev runtime could not open a window here (no display, e.g. over ssh), run acdev dev --headless'
 
   static runtimeLevel(acdert: string): Promise<RuntimeProbe> {
     return Runtime.level(acdert)
@@ -222,7 +222,7 @@ export class DevSession {
     const told = said ? `says ${JSON.stringify(said)}` : 'printed nothing'
     const why = failed ? `\n${this.#acdert} --version: ${failed} (acdev doctor checks the whole setup)`
       : level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
-        'it is older than contract levels; use an acdebin-dbg that has them' : ''
+        'it is older than contract levels; use an acdev runtime that has them' : ''
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
@@ -319,14 +319,14 @@ export class DevSession {
           () => runtime.running,
           () =>
             console.error(
-              `acdev: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
-                'an acdebin-dbg older than acdev dev never does (no reload, no acdev webs / eval …): use a newer one',
+              `acdev: acdev runtime has not opened ${this.#endpoint} after 10 s; ` +
+                'an acdev runtime older than acdev dev never does (no reload, no acdev webs / eval …): use a newer one',
             ),
         )
         if (!this.#link && first) {
           const code = await started.exited
           if (code !== 0)
-            console.error(`acdev: acdebin-dbg exited (${code}) before it was ready; ` +
+            console.error(`acdev: acdev runtime exited (${code}) before it was ready; ` +
               'acdev doctor checks the runtime, the GPU and this setup')
           this.#hint(code)
           return code
@@ -350,7 +350,7 @@ export class DevSession {
           this.#hint(code)
           return code
         }
-        console.error(`acdev: acdebin-dbg exited (${code}); starting it again (acdev dev keeps a window session running)`)
+        console.error(`acdev: acdev runtime exited (${code}); starting it again (acdev dev keeps a window session running)`)
         await new Promise((done) => setTimeout(done, DevSession.REVIVE_MS))
         DevClient.prepare(this.#endpoint)
       }
@@ -385,7 +385,7 @@ export class DevSession {
     while (crashes.length && now - crashes[0]! > DevSession.CRASH_WINDOW_MS) crashes.shift()
     if (crashes.length <= DevSession.CRASHES) return true
     const within = DevSession.CRASH_WINDOW_MS / 1000
-    console.error(`acdev: acdebin-dbg exited ${crashes.length} times within ${within} s; giving up`)
+    console.error(`acdev: acdev runtime exited ${crashes.length} times within ${within} s; giving up`)
     return false
   }
 

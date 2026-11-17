@@ -45,7 +45,7 @@
   `HostEvent::Refresh`; `Server::set_refresh` 变了才记进 `State.refresh` 并给每条出帧线程发 `Msg::Refresh`, 打 `host window: monitor refresh` (启动时也打一次).
   macOS / Linux (winit) 仍只在启动时读一次. 真多显示器、改刷新率还没实测.
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
-  逻辑坐标. 单应用模式 (`acdebin-dbg app`) 的主窗口清单设了 `size` 时, Broker 把它放进带 `host: true` 的那次 grant, `Shell::grant` 对第一次这样的
+  逻辑坐标. 单应用模式 (`acdev runtime app`) 的主窗口清单设了 `size` 时, Broker 把它放进带 `host: true` 的那次 grant, `Shell::grant` 对第一次这样的
   grant 发 `Cmd::HostSize`: 宿主窗口还是 `normal` 时把内容区改成这个逻辑尺寸 (Win32 `frame.rs` `resize`: 按窗口 DPI 加上系统边框, 不超出
   所在显示器的工作区, 在工作区里居中, 改完由 `WM_SIZE` 报; winit `request_inner_size`: 它回 `Some` 时 (Wayland 总是, 之后不再发 `Resized`)
   `Host::set_size` 把这个尺寸交回, `App` 当场按它 `resized`, 不然合成器和屏幕留在默认尺寸), 之后照常 `output`. 设了 `ACDE_SIZE` 时以它为准不改; 宿主窗口先按默认尺寸
@@ -96,7 +96,7 @@
   `launch`. `animate` 和会话一样走 model 的 `Transition` / `Look` (`State::animate` / `advance`): 合成线程每帧插值, 按 look 缩放、平移、
   调透明度画这个窗口 (最近点取样), 命中按 look 反算, 做完发 `windowanimated`; 窗口不存在时立刻发. `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
-- **独立应用的主窗口用宿主的控件** (`acdebin-dbg app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdebin-dbg app <id>` 起的那个窗口的
+- **独立应用的主窗口用宿主的控件** (`acdev runtime app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdev runtime app <id>` 起的那个窗口的
   `grant` 带 `host: true`, 窗口表记 `Entry.host`. 它没有运行时的窗框 (`frame` 按 0), 宿主窗口自己的标题栏和按钮是唯一的一套; 标题交给宿主窗口.
   没有宿主控件的平台 (macOS / Linux winit) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
   所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acdev`.

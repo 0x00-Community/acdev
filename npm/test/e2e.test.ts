@@ -199,7 +199,7 @@ test('never ends', async ({ app }) => {
     const unstarted = join(s.project, '.acde/test-results/e2e-slow/quick')
     expect(stuck.out).toMatch(/acdev dev \(pid \d+\) did not register a session within 2 s in /)
     expect(stuck.out)
-      .toContain('\nno session yet: its build did not finish, or acdebin-dbg did not start listening; last output:\n')
+      .toContain('\nno session yet: its build did not finish, or acdev runtime did not start listening; last output:\n')
     expect(stuck.out).toContain(`acdev test: saved error.txt, output.log in ${unstarted}`)
     expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
     expect(readFileSync(join(unstarted, 'error.txt'), 'utf8')).toContain('acdev: dev app alpha (headless)')
@@ -210,7 +210,7 @@ test('never ends', async ({ app }) => {
 
     const windowless = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'], { FAKE_ACDERT_WINDOWLESS: '1' })
     expect(windowless.code).toBe(1)
-    expect(windowless.out).toContain('acdev dev did not start within 2 s:\nacdebin-dbg runs and answers, but no ' +
+    expect(windowless.out).toContain('acdev dev did not start within 2 s:\nacdev runtime runs and answers, but no ' +
       'window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:\n')
     expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
 

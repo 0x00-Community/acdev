@@ -224,7 +224,7 @@ await app.clock.setSystemTime('2030-06-01')                  // moves Date only
 
 Times are milliseconds since 1970, a `Date` or a date string; durations are milliseconds, `"mm:ss"` or `"hh:mm:ss"`. An installed clock stays until the page reloads. CSS animations and transitions keep running on real time.
 
-acdebin-dbg has no dialog for the user to click: an `alert` is drawn in the window, `confirm` answers false and `prompt` null. A test answers the next one in advance:
+acdev runtime has no dialog for the user to click: an `alert` is drawn in the window, `confirm` answers false and `prompt` null. A test answers the next one in advance:
 
 ```ts
 await app.answerDialog({ accept: true })              // the next confirm answers true
@@ -282,9 +282,9 @@ A test whose session does not start has no screen to save: it leaves `error.txt`
 
 | The error starts with | What happened |
 | --- | --- |
-| `acdev dev exited (<code>) before it was ready:` | `acdev dev` ended with that exit code: the build failed, or acdebin-dbg refused the app |
-| `acdev dev (pid <pid>) did not register a session within <n> s in <dir>`, then `no session yet: its build did not finish, or acdebin-dbg did not start listening; last output:` | The build or the start of acdebin-dbg took longer than the test's timeout allows |
-| `acdev dev did not start within <n> s:`, then `acdebin-dbg runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:` | acdebin-dbg runs, but the app opened no window |
+| `acdev dev exited (<code>) before it was ready:` | `acdev dev` ended with that exit code: the build failed, or acdev runtime refused the app |
+| `acdev dev (pid <pid>) did not register a session within <n> s in <dir>`, then `no session yet: its build did not finish, or acdev runtime did not start listening; last output:` | The build or the start of acdev runtime took longer than the test's timeout allows |
+| `acdev dev did not start within <n> s:`, then `acdev runtime runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:` | acdev runtime runs, but the app opened no window |
 
 With `--trace`, every test leaves a `trace.html`: each action and assertion, with its duration and result, and a full-screen screenshot after each step.
 

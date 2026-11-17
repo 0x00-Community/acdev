@@ -1,10 +1,10 @@
 name: release
 
-# Run by hand on Gitea (AC/acdebin-dbg → Actions → release → Run workflow): build, check and preview.
+# Run by hand on Gitea (AC/acdev → Actions → release → Run workflow): build, check and preview.
 # Publish: the same with publish ticked and commit=<sha>, or push a tag v<x.y.z>. The version counts up by itself: one patch
 # past the highest of pkgs' latest.json, npm (@dopame/acdev, @dopame/acde-api) and the v* tags (a pushed tag gives its own);
 # scripts/set-version.sh writes it into Cargo.toml and package.json in each job, uncommitted. One release, one version: the
-# acdebin-dbg builds, the host files (acde-host), the SDK, the acdev CLI (npm/) and the installers, all in
+# acdev runtime builds, the host files (acde-host), the SDK, the acdev CLI (npm/) and the installers, all in
 # pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS, and on npm (job npm, secret NPM_TOKEN). acdert (the library, AC/acdert) is checked out beside this
 # checkout at acdert_commit, with its vendor/blitz submodule; its cargo registry ac needs ACKERNEL_TOKEN.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
@@ -77,12 +77,12 @@ jobs:
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acdebin-dbg
+          path: acdev
           fetch-depth: 0
           persist-credentials: false
       - name: the commit is a full SHA on origin/main, and package.json gives the version
         id: version
-        working-directory: acdebin-dbg/npm
+        working-directory: acdev/npm
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
@@ -174,7 +174,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: the tag is free, or already points at this commit
         if: steps.version.outputs.publish == 'true'
-        working-directory: acdebin-dbg/npm
+        working-directory: acdev/npm
         env:
           SHA: ${{ steps.version.outputs.sha }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -211,7 +211,7 @@ jobs:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: env.BUILD == 'true'
         with:
-          path: acdebin-dbg
+          path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - name: 'acdert beside it, and its vendor/blitz (Gitea AC/blitz, a relative submodule URL: the same token)'
@@ -276,11 +276,11 @@ jobs:
         if: env.BUILD == 'true'
         with:
           key: dist-${{ matrix.triple }}
-          workspaces: acdebin-dbg -> target
+          workspaces: acdev -> target
       - name: OpenSSL for Windows (openssl-src's own build wants Windows perl and nmake; this is clang with the MSVC target)
         if: env.BUILD == 'true' && matrix.cross == 'xwin'
         shell: bash
-        working-directory: acdebin-dbg
+        working-directory: acdev
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
         run: |
@@ -304,7 +304,7 @@ jobs:
           { echo "OPENSSL_NO_VENDOR=1"; echo "OPENSSL_STATIC=1"; echo "OPENSSL_DIR=$out"; } >> "$GITHUB_ENV"
       - name: the release version into Cargo.toml and package.json (not committed)
         if: env.BUILD == 'true'
-        run: sh acdebin-dbg/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdebin-dbg acdert
+        run: sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev acdert
       - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
         if: env.BUILD == 'true'
         shell: bash
@@ -315,38 +315,38 @@ jobs:
           case "${{ matrix.triple }}" in
             *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%" ;;
           esac
-          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$GITHUB_WORKSPACE/acdebin-dbg=/src --remap-path-prefix=$GITHUB_WORKSPACE/acdert=/src/acdert"
+          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$GITHUB_WORKSPACE/acdev=/src --remap-path-prefix=$GITHUB_WORKSPACE/acdert=/src/acdert"
           echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
-      - name: "acdebin-dbg (dist profile: release build, split debug information)"
+      - name: "acdev runtime (dist profile: release build, split debug information)"
         if: env.BUILD == 'true'
         shell: bash
-        working-directory: acdebin-dbg
+        working-directory: acdev
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
         run: |
           case "${{ matrix.cross }}" in
-            xwin) cargo xwin build --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
-            zigbuild) cargo zigbuild --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
-            *) cargo build --profile dist -p acdebin-dbg --target ${{ matrix.triple }} ;;
+            xwin) cargo xwin build --profile dist -p acdev --target ${{ matrix.triple }} ;;
+            zigbuild) cargo zigbuild --profile dist -p acdev --target ${{ matrix.triple }} ;;
+            *) cargo build --profile dist -p acdev --target ${{ matrix.triple }} ;;
           esac
       - name: archive the binary (one file, fixed times and owner) and keep the split debug information
         if: env.BUILD == 'true'
         shell: bash
         run: |
           set -eu
-          dist=acdebin-dbg/target/${{ matrix.triple }}/dist
-          exe=acdebin-dbg${{ matrix.exe }}
+          dist=acdev/target/${{ matrix.triple }}/dist
+          exe=acdev${{ matrix.exe }}
           mkdir -p out one symbols
           cp "$dist/$exe" "one/$exe"
           chmod 755 "one/$exe"
           TZ=UTC touch -t 200001010000.00 "one/$exe"
           if tar --version 2>/dev/null | grep -q 'GNU tar'; then owner="--owner=0 --group=0"; else owner="--uid 0 --gid 0"; fi
           if [ -n "${{ matrix.exe }}" ]; then
-            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | gzip -9 -n > "out/acdebin-dbg-${{ matrix.triple }}.tar.gz"
+            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | gzip -9 -n > "out/acdev-runtime-${{ matrix.triple }}.tar.gz"
           else
-            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | xz -9 -T1 -c > "out/acdebin-dbg-${{ matrix.triple }}.tar.xz"
+            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | xz -9 -T1 -c > "out/acdev-runtime-${{ matrix.triple }}.tar.xz"
           fi
-          for part in acdebin-dbg.pdb acdebin_dbg.pdb acdebin-dbg.dwp acdebin_dbg.dwp acdebin-dbg.dSYM acdebin_dbg.dSYM; do
+          for part in acdev.pdb acdev.dwp acdev.dSYM; do
             if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" symbols/; fi
           done
           if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
@@ -421,10 +421,10 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq xz-utils > /dev/null
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acdebin-dbg
+          path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - name: acdert at the planned commit, beside acdebin-dbg (npm/ takes the SDK from ../../acdert)
+      - name: acdert at the planned commit, beside acdev runtime (npm/ takes the SDK from ../../acdert)
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
           ACDERT_SHA: ${{ needs.plan.outputs.acdert_sha }}
@@ -441,7 +441,7 @@ jobs:
           set -eu
           mkdir -p in/runtime
           for t in $(echo "$TARGETS" | tr , ' '); do
-            case $t in *-windows-msvc) f="acdebin-dbg-$t.tar.gz" ;; *) f="acdebin-dbg-$t.tar.xz" ;; esac
+            case $t in *-windows-msvc) f="acdev-runtime-$t.tar.gz" ;; *) f="acdev-runtime-$t.tar.xz" ;; esac
             test -f "in/runtime-$t/$f" || { echo "::error::no $f from the build of $t"; exit 1; }
             cp "in/runtime-$t/$f" in/runtime/
           done
@@ -450,13 +450,13 @@ jobs:
           ls -la in/runtime
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: install
-        run: bun install --frozen-lockfile --cwd acdert/web && bun install --frozen-lockfile --cwd acdebin-dbg/npm
+        run: bun install --frozen-lockfile --cwd acdert/web && bun install --frozen-lockfile --cwd acdev/npm
       - name: the release version into Cargo.toml and package.json (not committed)
-        run: sh acdebin-dbg/scripts/set-version.sh "$SDK_VERSION" acdebin-dbg acdert
+        run: sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev acdert
       - name: the SDK, built from the acdert checkout
         run: bun run --cwd acdert/web/packages/acde-api build
       - name: dist
-        working-directory: acdebin-dbg/npm
+        working-directory: acdev/npm
         run: |
           v=${TAG#v}
           bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api/dist" --sdk "$SDK_VERSION" \
@@ -502,7 +502,7 @@ jobs:
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acdebin-dbg
+          path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -511,7 +511,7 @@ jobs:
           name: acdev-release
           path: out
       - name: the release is exactly the allow-list and the shipped content is clean
-        working-directory: acdebin-dbg/npm
+        working-directory: acdev/npm
         run: |
           set -eu
           v=$(cat "$GITHUB_WORKSPACE/out/latest")
@@ -567,7 +567,7 @@ jobs:
             echo "$v/acde-api-$v.tar.gz"
             echo "$v/acde-host-$v.tar.gz"
             for t in $(echo "$TARGETS" | tr , ' '); do
-              case $t in *-windows-msvc) echo "$v/acdebin-dbg-$t.tar.gz" ;; *) echo "$v/acdebin-dbg-$t.tar.xz" ;; esac
+              case $t in *-windows-msvc) echo "$v/acdev-runtime-$t.tar.gz" ;; *) echo "$v/acdev-runtime-$t.tar.xz" ;; esac
             done
           } | sort > "$expected"
           (cd out && find . -type f | sed 's|^\./||' | sort) > actual
@@ -636,8 +636,8 @@ jobs:
           publish_once "out/$v/acde-host-$v.tar.gz" "$v/acde-host-$v.tar.gz" application/gzip "$immutable"
           for t in $(echo "$TARGETS" | tr , ' '); do
             case $t in
-              *-windows-msvc) publish_once "out/$v/acdebin-dbg-$t.tar.gz" "$v/acdebin-dbg-$t.tar.gz" application/gzip "$immutable" ;;
-              *) publish_once "out/$v/acdebin-dbg-$t.tar.xz" "$v/acdebin-dbg-$t.tar.xz" application/x-xz "$immutable" ;;
+              *-windows-msvc) publish_once "out/$v/acdev-runtime-$t.tar.gz" "$v/acdev-runtime-$t.tar.gz" application/gzip "$immutable" ;;
+              *) publish_once "out/$v/acdev-runtime-$t.tar.xz" "$v/acdev-runtime-$t.tar.xz" application/x-xz "$immutable" ;;
             esac
           done
           publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
@@ -679,14 +679,14 @@ jobs:
             tar -xzf "$rel/acdev-$V.tar.gz" -C "$dir.stage"
             cp -a "$dir.stage/acdev-$V/." "$dir/"
             case $t in
-              *-windows-msvc) tar -xzf "$rel/acdebin-dbg-$t.tar.gz" -C "$dir/bin" ;;
-              *) tar -xJf "$rel/acdebin-dbg-$t.tar.xz" -C "$dir/bin" ;;
+              *-windows-msvc) tar -xzf "$rel/acdev-runtime-$t.tar.gz" -C "$dir/bin" ;;
+              *) tar -xJf "$rel/acdev-runtime-$t.tar.xz" -C "$dir/bin" ;;
             esac
-            test -f "$dir/bin/acdebin-dbg$exe"
+            test -f "$dir/libexec/acdev$exe"
             tar -xzf "$rel/acde-host-$V.tar.gz" -C "$dir.stage" app
-            mv "$dir.stage/app" "$dir/bin/app"
+            mv "$dir.stage/app" "$dir/libexec/app"
             rm -rf "$dir.stage"
-            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdebin-dbg runtime, the acdev CLI and the host files`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
+            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime runtime, the acdev CLI and the host files`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
               "$name" "$V" "$os" "$cpu" > "$dir/package.json"
             deps="$deps\"$name\": \"$V\","
           done
@@ -737,11 +737,11 @@ jobs:
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: acdebin-dbg
+          path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: true
       - name: the annotated tag points at the commit, or already does
-        working-directory: acdebin-dbg/npm
+        working-directory: acdev/npm
         run: |
           set -eu
           test "$(git rev-parse HEAD)" = "$SHA"
