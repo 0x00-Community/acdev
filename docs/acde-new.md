@@ -1,4 +1,4 @@
-# acde new (`src/create.ts`, `src/pm.ts`)
+# acdev new (`src/create.ts`, `src/pm.ts`)
 
 > 路径相对 CLI 包根 `npm/`。
 
@@ -7,28 +7,28 @@
   Ctrl+C 退出码 3 (`Exit.DECLINED`, acde#85). 不在终端里什么都不问: 目录必填, 模板默认 html, 不装依赖、不建仓库.
 - **运行时和包管理器**: 工程跑在 bun 或 Node 上, 由包管理器定 (bun → bun, npm / pnpm / yarn → Node). 新工程: `--pm`, 否则 `npm_config_user_agent`;
   在终端里问的时候按 PATH (`runtimes()`: ≥ 1.4 的 bun, 和 ≥ 22.3 的 node; 其实是 bun 的 `node` 软链接不算): 只有一个就用它, 两个都有问 `Run this project on` (Bun → bun, Node.js → npm,
-  默认是跑 acde 的那个); 不在终端里是跑 acde 的运行时 (bun → bun, Node → npm; launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDE_HOST_RUNTIME` 传原来的).
-  建好写上 `packageManager: <pm>@<版本>` (已经有的不动). 已有工程 (`PackageManager.of`): lockfile, 再 `packageManager` 字段, 都没有是跑 acde 的那个.
-  `acde dev` / `build` / `install` 跑在别的运行时上时 (`bin/acde` 两个都有时用 bun), `Cli.follow` 换到工程的运行时重新跑一遍 (`run(argv, exe)`, 带 `ACDE_FOLLOWED=1` 只换一次;
+  默认是跑 acdev 的那个); 不在终端里是跑 acdev 的运行时 (bun → bun, Node → npm; launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDE_HOST_RUNTIME` 传原来的).
+  建好写上 `packageManager: <pm>@<版本>` (已经有的不动). 已有工程 (`PackageManager.of`): lockfile, 再 `packageManager` 字段, 都没有是跑 acdev 的那个.
+  `acdev dev` / `build` / `install` 跑在别的运行时上时 (`bin/acdev` 两个都有时用 bun), `Cli.follow` 换到工程的运行时重新跑一遍 (`run(argv, exe)`, 带 `ACDE_FOLLOWED=1` 只换一次;
   只对打好的 `cli.js`, `cli.ts` 只能 bun 跑); 那个运行时不在 PATH 上就打一行, 接着在现在的上面跑.
   yarn 的工程写 `.yarnrc.yml` `nodeLinker: node-modules` (PnP 下 bun 和框架的构建找不到依赖).
-- **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acde <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
-  `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
+- **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acdev <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
+  `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acdev`, 工程里没有 `acdev` 依赖. 建好后的下一步提示 (`Creator.next`)
   给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
 - 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading` / `readmeReloading`): `adopt` 最后遍历工程 (跳过 `SKIPPED` 目录). 页面源码里
   `save to test HMR` / `to test HMR` 改成 `(and) save to reload the page`, `HMR` 可以包在 `<code>` 里、和前文隔着换行 (create-vite 9 的写法:
   `and save to test <code>HMR</code>`; lit 模板拆成两行). `README.md` 里删掉标题行 (`**…**`) 提到 HMR 的整节 (svelte 的问答), 把
-  `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
+  `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acdev dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
   (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
-- `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acde 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
-  `Sdk.dir()`): 检出跑的是 acde 自己 `file:` 依赖的 `npm/acde-api` (acdev 检出里), 全局装的是安装目录的 `current/lib/acde-api`; 设了
-  `ACDE_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acde 的机器上装得上.
-  开发 acde 的人 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
+- `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acdev 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
+  `Sdk.dir()`): 检出跑的是 acdev 自己 `file:` 依赖的 `npm/acde-api` (acdev 检出里), 全局装的是安装目录的 `current/lib/acde-api`; 设了
+  `ACDE_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
+  开发 acdev 的人 `bun link` / `npm link` 把 `bin/acdev.mjs` 放上 PATH.
   版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读
-  `node_modules` 里装的). 依赖不是这个 acde 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acde check` 打警告、`acde dev` 开始时打一行
-  (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @dopame/acde-api is <写法>, but this acde's SDK is file:<路径>: run acde sdk update`;
-  路径对、版本和 `Sdk.paired()` 不同时报版本. `acde sdk [dir]` 显示两边; `acde sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进
+  `node_modules` 里装的). 依赖不是这个 acdev 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acdev check` 打警告、`acdev dev` 开始时打一行
+  (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @dopame/acde-api is <写法>, but this acdev's SDK is file:<路径>: run acdev sdk update`;
+  路径对、版本和 `Sdk.paired()` 不同时报版本. `acdev sdk [dir]` 显示两边; `acdev sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进
   devDependencies) 改成 `Sdk.spec()`, 按 `PackageManager.of` (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找)
   装的是别的版本时, 警告改成 `package.json names … but X is installed: run <pm> install` (`SdkState.installed`). 以前为 npm 12 拒绝网址依赖
   写的 `.npmrc` `allow-remote=root` 不再需要, 已去掉. `sdk update` 先做完会失败的 (读 package.json、`PackageManager.of`、找包管理器的程序: 不在 PATH 上报
@@ -42,14 +42,14 @@
   Ctrl+C 本来就到它, 不转), 等它退出再写回 (不然它还会写锁文件), 第二个信号 SIGKILL; 被打断退出码 3 (`Exit.DECLINED`), 别的失败 1.
   `node_modules` 不回滚; 安装真跑过时才提示重跑安装.
 - 配置的 JSON Schema (`templates/config.schema.json`, 原 SDK 的 `config.schema.json`, 用户 2026-11-17 定随模板走): `lay` 和 `adopt` 把它拷进工程,
-  名为 `acde.config.schema.json`, 模板配置的 `$schema` 指向它. 升级 acde 后工程里的这份不会自己更新. 说明文字是英文 (同下「模板的注释」).
+  名为 `acde.config.schema.json`, 模板配置的 `$schema` 指向它. 升级 acdev 后工程里的这份不会自己更新. 说明文字是英文 (同下「模板的注释」).
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到
   `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`; 根上有 `index.html` 的 (Vite 系)
   把它的 `<title>` 换成显示名 (窗口标题先用 `document.title`), 别的框架的标题在组件里, 不改.
   加模板就是 `STARTERS` 加一项.
-- 某一步失败 (`Creator.create`): 先一句话说结果, 再接命令的输出. 铺文件或脚手架失败时撤掉做了一半的工程 (目录是 acde new 建的就删掉, 原本就有的
+- 某一步失败 (`Creator.create`): 先一句话说结果, 再接命令的输出. 铺文件或脚手架失败时撤掉做了一半的工程 (目录是 acdev new 建的就删掉, 原本就有的
   空目录清空、保留 `.git`): `the <模板> project was not made (<dir> was removed): ...`; 装依赖失败时工程留着, 说怎么补:
   `the project is in <dir>, but its dependencies are not installed; once the cause below is fixed, run <pm> install there: ...`;
   `git init` 失败同样留着工程 (`... ready, but it is not a git repository yet: ...`).

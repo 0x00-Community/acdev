@@ -175,7 +175,7 @@ describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
   })
 })
 
-describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, with acde\'s own vite)', () => {
+describe('acdev build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, with acde\'s own vite)', () => {
   const CLI = join(import.meta.dir, '../src/cli.ts')
   const MODULES = join(import.meta.dir, '../node_modules')
   const PNG = Buffer.from(

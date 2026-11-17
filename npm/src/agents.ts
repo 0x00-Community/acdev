@@ -122,7 +122,7 @@ export class Agents {
     return ids.map((id) => {
       const agent = all.find((known) => known.id === id)
       if (!agent) {
-        throw Output.option('skills', 'agent', id, `not an agent acde knows (${Agents.some(all)}); `
+        throw Output.option('skills', 'agent', id, `not an agent acdev knows (${Agents.some(all)}); `
           + 'for any other, pass its skills directory with --dir')
       }
       return agent

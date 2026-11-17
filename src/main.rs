@@ -17,7 +17,7 @@ usage: acdebin-dbg app <id> | desktop <id|dir> [options]
        acdebin-dbg doctor [--json]
        acdebin-dbg --version | --help
 
-app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acde dev runs).
+app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acdev dev runs).
 doctor checks what that needs here (host files, GPU, display) and exits 1 when something is missing.
 
 Options:

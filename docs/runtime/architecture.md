@@ -2,14 +2,14 @@
 
 > 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
 
-acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个仓库 (测试期间的架构, 用户定 2026-11-13):
+acdev (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分三个仓库 (测试期间的架构, 用户定 2026-11-13):
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
 | acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`src/host/platform.rs` 的 `Platform` / `Window`, 合成器接口) | 根包 `acdert`: rlib + `libacdert.so` + `include/acdert.h` |
-| acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 detour | 二进制 `acdebin-dbg` |
+| acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acdev dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 detour | 二进制 `acdebin-dbg` |
 | [acdebin-system](http://gitea.dopamine/AC/acdebin-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器是 smithay + GLES, 只有网页的光栅化 (`crates/paint`) 用 detour | 二进制 `acdebin-system` |
-| acdebin-dbg 的 `npm/` | 开发者 CLI `acde` (bun) | `acde` |
+| acdebin-dbg 的 `npm/` | 开发者 CLI `acdev` (bun) | `acdev` |
 
 平台特化的部分只经接口进来: 前端 (acdebin-dbg / acdebin-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
@@ -24,8 +24,8 @@ C 接口见 `docs/runtime/ffi.md`; 发布到 cargo 源 ac 见 `docs/dev/release.
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
 会话里的 shell / window / paint / supervise 已搬到 acdebin-system; vendor (只剩 blitz 子模块) 仍在本仓库, 前端的 Cargo.toml 里不再 `[patch]` 它.
 
-acdert 和开发者 CLI `acde` (acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) 的 `npm/`)
-的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
+acdert 和开发者 CLI `acdev` (acdebin-dbg (本仓库 [acdev](http://gitea.dopamine/AC/acdev) 根上的 `src/`、`crates/hostwin`) 的 `npm/`)
+的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acdev (bun) 建工程、构建、装包, `acdev dev` 拉起 acdebin-dbg. 改名成 acdert 的只有程序、Arch 包和
 crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境变量、`$XDG_*/acde/` 这些都不改. 桌面是一张网页: JS 在内嵌的 V8 里
 (不用 Node), Blitz (`vendor/blitz`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
 [acde-dopame](https://github.com/dopame-org/acde-dopame), 发行时带上, acdert 不认识它).
@@ -35,7 +35,7 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 | 跑法 | 命令 | 平台 | 输出 | 合成器 |
 | --- | --- | --- | --- | --- |
 | **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdebin-system 的 `crates/shell` |
-| **调试桌面** (`acde dev`) | `acdebin-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdebin-dbg 的 crates/hostwin |
+| **调试桌面** (`acdev dev`) | `acdebin-dbg desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | acdebin-dbg 的 crates/hostwin |
 | **调试窗口** | `acdebin-dbg app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
 
 选哪种看跑的是哪个二进制: `acdebin-dbg` 一律宿主窗口, `acdebin-system` (只在 Linux; Arch 包里 `/usr/bin/acdert` 链到它) 一律会话, 怎么起见 acdebin-system 的 `docs/architecture.md`. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
@@ -53,12 +53,12 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 会话: 主进程 (`supervise.rs`)、合成器线程和运行时子进程怎么分在 acdebin-system 里, 见它的 docs/architecture.md.
 
 宿主窗口:
-acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 winit); `acde` 线程 (栈 64 MiB): Broker;
+acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 winit); `acdev` 线程 (栈 64 MiB): Broker;
                     每个 web 一条 JS 线程 + 一条出帧线程 `acde-host-<id>`; `acde-compose` 合成到宿主窗口的 surface
 ```
 
 - **主进程** (会话): 在 acdebin-system 的 `src/supervise.rs`, 起停和重起运行时子进程的规则见它的 `docs/architecture.md`.
-- **web** (src/host `web.rs` `spawnWeb`): runtime 里的一条 JS 线程 `acde` (栈 8 MiB), 自己的 isolate (堆上限 `heapMb`) 和事件循环.
+- **web** (src/host `web.rs` `spawnWeb`): runtime 里的一条 JS 线程 `acdev` (栈 8 MiB), 自己的 isolate (堆上限 `heapMb`) 和事件循环.
   和 Broker 之间是结构化克隆的字节, 投进对方事件循环 (没有 socket). `terminate` 置停止并 `terminate_execution` (退出码 137);
   线程 panic 只结束这个 web (134, `panic: …`). 句柄带 `busyMs` (当前任务跑了多久, 判卡死) 和 `cpuMs` (`/proc/self/task/<tid>/schedstat`).
   段错误、abort 带掉整个 runtime (主进程重起它), 所以共享的 Rust 状态里不写 `unsafe`, 绑定层不 `unwrap`, 每个绑定在边界上

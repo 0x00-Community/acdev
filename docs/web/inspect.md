@@ -23,7 +23,7 @@
 - **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`, 窗框上的菜单 `w3.m1` (第 1 个菜单) 和 `w3.m1.2` (它的第 2 项, 分隔线也占号):
   有窗框菜单的窗口, 树的最前面是 `menubar [w3.m]`, 下面每个菜单一个 `menuitem` (`expanded` / `collapsed`), 打开的那个下面列出它的项 (快捷键是 value,
   `disabled` / `checked` / `focused`). act 菜单 `click` / `hover` 是在菜单名中心发真的指针事件; act 一项时菜单没开就先点开 (别的菜单开着时移过去),
-  等列表画出来再点那一行, 禁用的项不点. acde 的 driver 不用改: `getByRole('menuitem', { name })` 找到这些节点, 点它们走同一个 act. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
+  等列表画出来再点那一行, 禁用的项不点. acdev 的 driver 不用改: `getByRole('menuitem', { name })` 找到这些节点, 点它们走同一个 act. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
   `{text, windows, trees}`: 列出焦点窗口 (或指定的) 的树 (`all` 列全部没最小化的窗口, 并留下透明和 `visibility: hidden` 的元素).
   `text` 是固定的英文格式, 不随系统语言变 (页面给的名字和值原样): 窗口从上到下一行一个, `- window "Notes" [app=notes] [focused] [w1]`
   (桌面是 `- desktop`, 标记依次是 `app=`、`native`、`focused`、`minimized`、不是 `free` 的模式、窗口状态 `filled` / `fullscreen` (和模式相同时只写一次)), 列了树的窗口下面缩进两格一行一个节点

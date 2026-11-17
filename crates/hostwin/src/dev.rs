@@ -43,7 +43,7 @@ fn quit(proxy: &Proxy) {
     let later = proxy.clone();
     let spawned = std::thread::Builder::new().name("acde-dev-quit".into()).spawn(move || {
         std::thread::sleep(QUIT_WAIT);
-        log::warn!("acde dev: the session did not end within {} s of quit, exiting", QUIT_WAIT.as_secs());
+        log::warn!("acdev dev: the session did not end within {} s of quit, exiting", QUIT_WAIT.as_secs());
         later.send(Cmd::Exit(0));
     });
     if spawned.is_err() {
@@ -55,11 +55,11 @@ pub(crate) fn listen(proxy: Proxy) {
     let Ok(endpoint) = std::env::var("ACDE_DEV") else { return };
     let spawned = std::thread::Builder::new().name("acde-dev".into()).spawn(move || {
         if let Err(e) = accept(&endpoint, &proxy) {
-            log::error!("acde dev: cannot listen on {endpoint}: {e}");
+            log::error!("acdev dev: cannot listen on {endpoint}: {e}");
         }
     });
     if let Err(e) = spawned {
-        log::error!("acde dev thread: {e}");
+        log::error!("acdev dev thread: {e}");
     }
 }
 
@@ -78,12 +78,12 @@ fn serve<S: io::Read + Send + 'static>(reader: S, writer: Box<dyn Write + Send>,
             r.devs.retain(|w| !Arc::ptr_eq(w, &writer));
         });
         if dev {
-            log::info!("acde dev disconnected, exiting");
+            log::info!("acdev dev disconnected, exiting");
             quit(&proxy);
         }
     });
     if let Err(e) = spawned {
-        log::error!("acde dev connection thread: {e}");
+        log::error!("acdev dev connection thread: {e}");
     }
 }
 
@@ -92,11 +92,11 @@ fn accept(endpoint: &str, proxy: &Proxy) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let listener = std::os::unix::net::UnixListener::bind(endpoint)?;
     std::fs::set_permissions(endpoint, std::fs::Permissions::from_mode(0o600))?;
-    log::info!("acde dev: listening on {endpoint}");
+    log::info!("acdev dev: listening on {endpoint}");
     for stream in listener.incoming() {
         match stream.and_then(|s| Ok((s.try_clone()?, s))) {
             Ok((writer, reader)) => serve(reader, Box::new(writer), proxy.clone()),
-            Err(e) => log::warn!("acde dev: accept: {e}"),
+            Err(e) => log::warn!("acdev dev: accept: {e}"),
         }
     }
     Ok(())
@@ -141,19 +141,19 @@ fn accept(endpoint: &str, proxy: &Proxy) -> io::Result<()> {
             break Err(io::Error::last_os_error());
         }
         if first {
-            log::info!("acde dev: listening on {endpoint}");
+            log::info!("acdev dev: listening on {endpoint}");
             first = false;
         }
         let owned = unsafe { OwnedHandle::from_raw_handle(handle) };
         let connected = unsafe { ConnectNamedPipe(handle, std::ptr::null_mut()) } != 0 || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
         if !connected {
-            log::warn!("acde dev: connect: {}", io::Error::last_os_error());
+            log::warn!("acdev dev: connect: {}", io::Error::last_os_error());
             continue;
         }
         let file = std::fs::File::from(owned);
         match file.try_clone() {
             Ok(writer) => serve(Polled(file), Box::new(writer), proxy.clone()),
-            Err(e) => log::warn!("acde dev: {e}"),
+            Err(e) => log::warn!("acdev dev: {e}"),
         }
     };
     unsafe { LocalFree(descriptor) };
@@ -195,14 +195,14 @@ fn reply(writer: &Writer, id: &serde_json::Value, result: Result<&str, &str>) ->
         }
     };
     if line.contains('\n') {
-        return Err("acde dev: a response is one line of JSON".into());
+        return Err("acdev dev: a response is one line of JSON".into());
     }
-    send(writer, &line).map_err(|e| format!("acde dev: {e}"))
+    send(writer, &line).map_err(|e| format!("acdev dev: {e}"))
 }
 
 pub fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
     let Some(waiting) = with_requests(|r| r.waiting.remove(&id)) else {
-        return Err(format!("acde dev: request {id} is not waiting for a response"));
+        return Err(format!("acdev dev: request {id} is not waiting for a response"));
     };
     reply(&waiting.writer, &waiting.id, result)
 }
@@ -210,9 +210,9 @@ pub fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
 /// Sends an event to every connection that said hello as acde dev (the dev channel's `{"type":"event"}` line).
 /// Returns how many connections it reached.
 pub fn event(message: &str) -> Result<usize, String> {
-    let value = serde_json::from_str::<serde_json::Value>(message).map_err(|e| format!("acde dev: an event is JSON: {e}"))?;
+    let value = serde_json::from_str::<serde_json::Value>(message).map_err(|e| format!("acdev dev: an event is JSON: {e}"))?;
     if value.get("type").and_then(serde_json::Value::as_str) != Some("event") || value.get("event").and_then(serde_json::Value::as_str).is_none() {
-        return Err("acde dev: an event is an object with type \"event\" and an event name".into());
+        return Err("acdev dev: an event is an object with type \"event\" and an event name".into());
     }
     let line = value.to_string();
     let devs = with_requests(|r| r.devs.clone());
@@ -220,7 +220,7 @@ pub fn event(message: &str) -> Result<usize, String> {
     for writer in &devs {
         match send(writer, &line) {
             Ok(()) => reached += 1,
-            Err(e) => log::warn!("acde dev: event: {e}"),
+            Err(e) => log::warn!("acdev dev: event: {e}"),
         }
     }
     Ok(reached)
@@ -274,7 +274,7 @@ impl DevtoolsKey {
 
 fn request(mut message: serde_json::Value, writer: &Arc<Writer>) {
     let Some(id) = message.get("id").filter(|id| id.is_number() || id.is_string()).cloned() else {
-        log::warn!("acde dev: request without an id: {message}");
+        log::warn!("acdev dev: request without an id: {message}");
         return;
     };
     if message.get("op").and_then(serde_json::Value::as_str).is_none() {
@@ -296,7 +296,7 @@ fn request(mut message: serde_json::Value, writer: &Arc<Writer>) {
 
 fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
     let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
-        log::warn!("acde dev: unreadable message {line}");
+        log::warn!("acdev dev: unreadable message {line}");
         return;
     };
     match message.get("type").and_then(|t| t.as_str()) {
@@ -309,14 +309,14 @@ fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
         Some("reload") => {
             let app = message.get("app").and_then(|a| a.as_str()).map(str::to_owned);
             let hot = message.get("hot").and_then(|s| s.as_bool()).unwrap_or(false);
-            log::info!("acde dev: {} {}", if hot { "hot swap" } else { "reload" }, app.as_deref().unwrap_or("desktop"));
+            log::info!("acdev dev: {} {}", if hot { "hot swap" } else { "reload" }, app.as_deref().unwrap_or("desktop"));
             if let Some(server) = server() {
                 server.broker.push(Event { kind: "devreload".into(), key: app, title: hot.then(|| "hot".into()), ..Default::default() });
             }
         }
         Some("request") => request(message, writer),
         Some("quit") => quit(proxy),
-        other => log::warn!("acde dev: unknown message type {other:?}"),
+        other => log::warn!("acdev dev: unknown message type {other:?}"),
     }
 }
 

@@ -25,7 +25,7 @@ interface Made {
 }
 
 export class Skills {
-  static readonly NAME = 'acde'
+  static readonly NAME = 'acdev'
   static readonly ACTIONS = ['status', 'install', 'remove', 'path'] as const
   static readonly LABEL = 16
   static readonly SOURCE = join(import.meta.dirname, '..', 'skills', Skills.NAME)
@@ -38,7 +38,7 @@ export class Skills {
     if (flags.has('copy') && action !== 'install') throw new Error(`skills ${action}: --copy is for skills install`)
     if (flags.has('agent') && flags.has('dir')) throw new Error('skills: --agent or --dir, not both')
     if (!existsSync(join(Skills.SOURCE, 'SKILL.md'))) {
-      throw new Error(`the acde skill is not in this install (${Skills.SOURCE}): install acde again`)
+      throw new Error(`the acdev skill is not in this install (${Skills.SOURCE}): install acdev again`)
     }
     const source = Skills.stable()
     if (action === 'path') {
@@ -55,7 +55,7 @@ export class Skills {
 
   static stable(): string {
     const real = realpathSync(Skills.SOURCE)
-    const inside = join('lib', 'acde', 'skills', Skills.NAME)
+    const inside = join('lib', 'acdev', 'skills', Skills.NAME)
     const version = real.endsWith(sep + inside) ? real.slice(0, -inside.length - 1) : ''
     if (version && basename(dirname(version)) === 'versions') {
       const current = join(dirname(dirname(version)), 'current', inside)
@@ -94,7 +94,7 @@ export class Skills {
   static install(source: string, places: readonly Place[], copy: boolean): number {
     const blocked = places.filter((place) => Skills.look(source, place).state === 'foreign')
     if (blocked.length > 0) {
-      throw new Error(`${blocked.map((place) => Skills.at(place)).join(', ')}: not the acde skill; ` +
+      throw new Error(`${blocked.map((place) => Skills.at(place)).join(', ')}: not the acdev skill; ` +
         'move it away, or install somewhere else with --dir')
     }
     const created = new Set(Skills.created())
@@ -109,10 +109,10 @@ export class Skills {
       else symlinkSync(source, staged, process.platform === 'win32' ? 'junction' : 'dir')
       rmSync(dest, { recursive: true, force: true })
       renameSync(staged, dest)
-      console.log(`acde: skill ${copy ? 'copied' : 'linked'} to ${dest}${Skills.who(place)}`)
+      console.log(`acdev: skill ${copy ? 'copied' : 'linked'} to ${dest}${Skills.who(place)}`)
     }
     if (places.length === 0)
-      console.error('acde: no agent found; name one with --agent, or a skills directory with --dir')
+      console.error('acdev: no agent found; name one with --agent, or a skills directory with --dir')
     return places.length === 0 ? 1 : 0
   }
 
@@ -123,16 +123,16 @@ export class Skills {
       const { state } = Skills.look('', place)
       if (state === 'missing' || state === 'foreign') continue
       rmSync(Skills.at(place), { recursive: true, force: true })
-      console.log(`acde: skill removed from ${Skills.at(place)}`)
+      console.log(`acdev: skill removed from ${Skills.at(place)}`)
       removed++
       for (let dir = place.dir; created.has(dir) && Skills.empty(dir); dir = dirname(dir)) {
         rmdirSync(dir)
         created.delete(dir)
-        console.log(`acde: removed ${dir}, which skills install had created`)
+        console.log(`acdev: removed ${dir}, which skills install had created`)
       }
     }
     Skills.remember(created)
-    if (removed === 0) console.log('acde: the skill is not installed anywhere acde knows; name a directory with --dir')
+    if (removed === 0) console.log('acdev: the skill is not installed anywhere acdev knows; name a directory with --dir')
     return 0
   }
 
@@ -147,7 +147,7 @@ export class Skills {
       rows.push([what, [Skills.at(place), ...Help.words(Skills.who(place))]])
     }
     console.log(Skills.table(rows).join('\n'))
-    if (installed === 0) console.log('acde: the skill is not installed for any agent: acde skills install')
+    if (installed === 0) console.log('acdev: the skill is not installed for any agent: acdev skills install')
     return 0
   }
 
@@ -171,7 +171,7 @@ export class Skills {
 
   static ours(dir: string): boolean {
     const file = join(dir, 'SKILL.md')
-    return existsSync(file) && /^---\n(?:.*\n)*?name: acde\n/.test(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'))
+    return existsSync(file) && /^---\n(?:.*\n)*?name: acdev\n/.test(readFileSync(file, 'utf8').replace(/\r\n/g, '\n'))
   }
 
   static same(a: string, b: string): boolean {
@@ -188,7 +188,7 @@ export class Skills {
 
   static record(): string {
     const set = process.env['XDG_DATA_HOME']
-    return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acde', 'skills.json')
+    return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acdev', 'skills.json')
   }
 
   static created(): string[] {

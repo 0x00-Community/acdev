@@ -5,11 +5,11 @@ ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 ACDE_DIST=${ACDE_DIST%/}
 
 say() {
-  printf 'acde-install: %s\n' "$*"
+  printf 'acdev-install: %s\n' "$*"
 }
 
 die() {
-  printf 'acde-install: %s\n' "$*" >&2
+  printf 'acdev-install: %s\n' "$*" >&2
   exit 1
 }
 
@@ -30,9 +30,9 @@ prune() {
       continue
     fi
     if in_use "$dir"; then
-      say "kept acde $name ($dir): a program in it is still running; the next install removes it"
+      say "kept acdev $name ($dir): a program in it is still running; the next install removes it"
     elif rm -rf "$dir"; then
-      say "removed acde $name ($dir)"
+      say "removed acdev $name ($dir)"
     fi
   done
 }
@@ -43,13 +43,13 @@ usage: curl -fsSL $ACDE_DIST/install.sh | sh
        curl -fsSL $ACDE_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
-Installs acde (the developer CLI and its SDK) and the debug runtime released with it
-(acdebin-dbg) into \$ACDE_INSTALL (default ~/.acde) and puts \$ACDE_INSTALL/bin on
+Installs acdev (the developer CLI and its SDK) and the debug runtime released with it
+(acdebin-dbg) into \$ACDE_INSTALL (default ~/.acdev) and puts \$ACDE_INSTALL/bin on
 PATH. No root needed. Every download is checked against its SHA256SUMS; if any part
 fails, nothing is installed and an earlier install stays as it was.
-  --version X.Y.Z    that version of acde (and its acdebin-dbg) instead of the latest
+  --version X.Y.Z    that version of acdev (and its acdebin-dbg) instead of the latest
   --no-modify-path   do not touch any shell startup file
-  ACDE_DIST          where to download acde from (now $ACDE_DIST)
+  ACDE_DIST          where to download acdev from (now $ACDE_DIST)
 EOF
 }
 
@@ -158,7 +158,7 @@ main() {
       }
     fi
   else
-    die "needs curl or wget to download acde"
+    die "needs curl or wget to download acdev"
   fi
 
   human() {
@@ -194,12 +194,12 @@ main() {
     die "needs shasum, sha256sum or openssl to verify the download"
   fi
 
-  tmp=$(mktemp -d 2>/dev/null || mktemp -d -t acde-install)
+  tmp=$(mktemp -d 2>/dev/null || mktemp -d -t acdev-install)
   trap 'rm -rf "$tmp"' EXIT
   trap 'exit 130' INT TERM HUP
 
   if [ -z "$version" ]; then
-    say "looking up the latest acde at $ACDE_DIST"
+    say "looking up the latest acdev at $ACDE_DIST"
     fetch "$ACDE_DIST/latest" "$tmp/latest" || die "could not download $ACDE_DIST/latest (is ACDE_DIST right?)"
     version=$(tr -d ' \t\r\n' <"$tmp/latest")
   fi
@@ -224,11 +224,11 @@ main() {
     say "$2: $(size "$3"), SHA-256 matches"
   }
 
-  file=acde-$version.tar.gz
-  say "installing acde $version"
+  file=acdev-$version.tar.gz
+  say "installing acdev $version"
   fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
-    die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
-  [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
+    die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acdev $version?)"
+  [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acdev $version is not in its SHA256SUMS ($file)"
   download "$ACDE_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDE_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
   binary=acdebin-dbg-$triple
@@ -237,12 +237,12 @@ main() {
     tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
       die "needs xz to unpack $binary: install the xz (or xz-utils) package and run this again"
   elif [ -n "$(listed "$tmp/SHA256SUMS" "acdert-version")" ]; then
-    die "acde $version comes from before acde and its runtime were released together: leave out --version for the latest"
+    die "acdev $version comes from before acdev and its runtime were released together: leave out --version for the latest"
   else
     supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdebin-dbg-/) {
       sub(/^acdebin-dbg-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
-    die "acde $version has no acdebin-dbg for this platform ($triple); it is built for: ${supported% }"
+    die "acdev $version has no acdebin-dbg for this platform ($triple); it is built for: ${supported% }"
   fi
   host=acde-host-$version.tar.gz
   say "getting acdebin-dbg $version for $triple"
@@ -251,7 +251,7 @@ main() {
   download "$ACDE_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDE_DIST/$version/$host"
   got "$tmp/SHA256SUMS" "$host" "$tmp/$host"
 
-  root=${ACDE_INSTALL:-$HOME/.acde}
+  root=${ACDE_INSTALL:-$HOME/.acdev}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
   case $root in
     /*) ;;
@@ -261,8 +261,8 @@ main() {
   stage=$(mktemp -d "$root/versions/.stage.XXXXXX")
   trap 'rm -rf "$tmp" "$stage"' EXIT
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
-  unpacked=$stage/acde-$version
-  [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
+  unpacked=$stage/acdev-$version
+  [ -x "$unpacked/bin/acdev" ] || die "$file does not hold bin/acdev"
   mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
   [ -f "$stage/runtime/acdebin-dbg" ] && [ ! -h "$stage/runtime/acdebin-dbg" ] || die "$binary does not hold acdebin-dbg"
   mv "$stage/runtime/acdebin-dbg" "$unpacked/bin/acdebin-dbg" && chmod 755 "$unpacked/bin/acdebin-dbg" ||
@@ -314,13 +314,13 @@ main() {
         line="case \":\$PATH:\" in *\":$shown:\"*) ;; *) $unguarded ;; esac"
         if grep -qsxF "$unguarded" "$1"; then
           updated=$(awk -v old="$unguarded" -v new="$line" '$0 == old { $0 = new } { print }' "$1") &&
-            printf '%s\n' "$updated" >"$1" && say "made the acde PATH line in $1 add $shown only once"
+            printf '%s\n' "$updated" >"$1" && say "made the acdev PATH line in $1 add $shown only once"
           return
         fi
         ;;
     esac
     if ! grep -qsF "$line" "$1"; then
-      printf '\n# acde\n%s\n' "$line" >>"$1"
+      printf '\n# acdev\n%s\n' "$line" >>"$1"
       say "added $shown to PATH in $1"
     fi
   }
@@ -345,7 +345,7 @@ main() {
       add_to "${ZDOTDIR:-$HOME}/.zshrc"
       add_to "${ZDOTDIR:-$HOME}/.zprofile"
     fi
-    has_shell fish && add_to "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/acde.fish"
+    has_shell fish && add_to "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/acdev.fish"
     if has_shell tcsh || has_shell csh; then
       add_to "$HOME/.cshrc"
       [ -f "$HOME/.tcshrc" ] && add_to "$HOME/.tcshrc"
@@ -358,8 +358,8 @@ main() {
     fi
   fi
 
-  say "installed acde $version with acdebin-dbg $version in $root/versions/$version"
-  printf '  acde         %s/acde\n' "$bin"
+  say "installed acdev $version with acdebin-dbg $version in $root/versions/$version"
+  printf '  acdev        %s/acdev\n' "$bin"
   printf '  acdebin-dbg  %s/acdebin-dbg\n' "$bin"
 
   runs=
@@ -368,7 +368,7 @@ main() {
     case $bun_version in
       1.[4-9]* | [2-9].* | [1-9][0-9]*) runs=bun ;;
       *)
-        say "acde needs Bun 1.4 or newer, and the bun on PATH is $bun_version:" \
+        say "acdev needs Bun 1.4 or newer, and the bun on PATH is $bun_version:" \
           "update it (bun upgrade, or https://bun.sh)"
         ;;
     esac
@@ -385,23 +385,23 @@ main() {
     if [ "$node_major" -gt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -ge 3 ]; }; then
       runs=node
     else
-      say "acde needs Node.js 22.3 or newer, and the node on PATH is $(node --version 2>/dev/null):" \
+      say "acdev needs Node.js 22.3 or newer, and the node on PATH is $(node --version 2>/dev/null):" \
         "update it (https://nodejs.org)"
     fi
   fi
   if [ -z "$runs" ]; then
-    say "acde runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither:" \
+    say "acdev runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither:" \
       "install Bun (https://bun.sh) or Node.js (https://nodejs.org)"
   fi
-  say "next: acde new my-app (it uses your bun, or npm / pnpm / yarn on Node.js)"
-  say "for a coding agent: acde skills install (teaches Claude Code, Codex, Cursor and others to use acde)"
+  say "next: acdev new my-app (it uses your bun, or npm / pnpm / yarn on Node.js)"
+  say "for a coding agent: acdev skills install (teaches Claude Code, Codex, Cursor and others to use acdev)"
   if [ "$on_path" = 0 ]; then
     case $(basename "${SHELL:-sh}") in
       fish) now="fish_add_path \"$bin\"" ;;
       *) now="export PATH=\"$bin:\$PATH\"" ;;
     esac
     if [ "$modify_path" = 1 ]; then
-      say "acde is on PATH in new terminals; in this one, run:"
+      say "acdev is on PATH in new terminals; in this one, run:"
     else
       say "$bin is not on PATH; add it to your shell's startup file, and in this terminal run:"
     fi

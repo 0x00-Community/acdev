@@ -5,7 +5,7 @@
 桌面包是一个目录, `package.json` 的 `acde` 字段 (类型 acde-api `manifest.d.ts`):
 
 ```json
-"acde": {
+"acdev": {
   "desktops": [{ "id": "dopame", "name": "Dopame", "entry": "dist/ui/desktop/index.html", "services": ["assistant"] }],
   "apps": [{ "id": "term", "label": "终端", "icon": "term", "entry": "/ui/terminal/term.js", "capabilities": { "terminal": true } }],
   "assets": { "/ui/": ["dist/ui"] },
@@ -24,7 +24,7 @@
   每项是模块文件, 或 `{ "module": 文件, "modules": [外壳模块] }`. 读法只有一份: `Manifest.configServices(raw)` 给出 `{name, module, modules}[]`
   或一句错误; `modules` 交给清单那条规则 `Manifest.desktopServices` 判 (文字相同: `service "clock": modules lists shell modules (…)`), 没有 `module`
   (`a service is its module or {module, modules}`)、多出别的字段 (`"shell" is not a field of a service (module, modules)`) 也是错误.
-  acde 的 check / build 用它, build 把有 `modules` 的写成桌面清单的 `{name, modules}`. schema 里 `modules` 的枚举就是 `SHELL_MODULES` (测试对着).
+  acdev 的 check / build 用它, build 把有 `modules` 的写成桌面清单的 `{name, modules}`. schema 里 `modules` 的枚举就是 `SHELL_MODULES` (测试对着).
   **服务拿到的是什么** (SDK `ServiceModuleTypes`, `ServiceContext.import` 按它定类型; 服务在 Broker isolate 里, 没有页面也没有 surface):
   `acde:windows` 是页面拿到的那一个 (`Required<AcdeWindows>`): `list()` 的行来自 `WindowRecords.rows()` (和页面的行同一个形状, 带 `state`), 调用走 `WindowCalls.windows`
   (调用者是 `WindowCalls.SERVICE`, 和桌面页面同一段检查; `launch` 的 `slot` 不算数, 服务没有窗口可嵌), `on(类型)` 收全局窗口事件 (不认识的类型抛 TypeError);
@@ -36,12 +36,12 @@
 
 找包的顺序: acde-host 自己 (只有品牌资源)、`ACDE_PATH`、`$XDG_DATA_HOME/acde/packages/*`、`$XDG_DATA_DIRS/acde/packages/*`, 同 id 先到先得.
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
-不列 acde 自己的、`Hidden` / `NoDisplay`、程序找不到的.
+不列 acdev 自己的、`Hidden` / `NoDisplay`、程序找不到的.
 
 **契约级别** (`apiLevel`): 每个包清单的 `acde` 字段带一个整数 `apiLevel`, 运行时的级别只在 SDK `src/runtime/level.js` 的 `API_LEVEL` 定义 (acde-host 经
 `@dopame/acde-api/manifest` 读, `acdert --version` 编译时从这个文件读). 级别不同或不是正整数的包 (`Packages.refused`) 不进应用列表、
 桌面列表和打开方式, 启动它的应用报 `<id>: needs level N, runtime is level M` (409, `api_level`), 选它的桌面同样报错. 没有 `apiLevel` 的包
-(第 1 级之前构建的) 同样拒绝, 报 `Manifest.UNVERSIONED` (`no acde.apiLevel: ...; rebuild it with the current acde (level 1)`), 要用现在的 acde
+(第 1 级之前构建的) 同样拒绝, 报 `Manifest.UNVERSIONED` (`no acde.apiLevel: ...; rebuild it with the current acdev (level 1)`), 要用现在的 acdev
 重新构建; 校验器也把它当错误. 第 0 级 (契约级别之前的扩展期形态) 已全部去掉. acde-host 自己的包不查.
 现在的契约是第 1 级.
 **运行时还不是安全边界**: 按层级注入、能力和批准是契约, 不是隔离 (见 `docs/runtime/webs.md`「沙箱」);
@@ -55,5 +55,5 @@
 `XDG_SESSION_DESKTOP` / `XDG_SESSION_TYPE=wayland` / `DESKTOP_SESSION`), 退出码 3; 会话入口 `/usr/bin/acdert` 读它并 `exec`.
 
 **登录页** (`acdert --greeter`, greetd 的 greeter, acde-host `greet/`): 选账户、桌面、输密码; 会话是 `/usr/bin/acdert --desktop <id>` (外部会话是
-它的 Exec 加那四个变量). 每个账户上次的桌面记在 `$XDG_STATE_HOME/acde/greeter.json` (greeter 的状态目录是 `/var/lib/acde/greeter`). 别的显示管理器用
+它的 Exec 加那四个变量). 每个账户上次的桌面记在 `$XDG_STATE_HOME/acde/greeter.json` (greeter 的状态目录是 `/var/lib/acdev/greeter`). 别的显示管理器用
 `acdert sessions` 生成的 `acdert-<id>.desktop`.

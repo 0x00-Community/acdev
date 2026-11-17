@@ -36,7 +36,7 @@ describe('colour and error output', () => {
   })
 
   test('width counts terminal columns: CJK and fullwidth take two, marks and zero-width characters none, colour none', () => {
-    expect(Color.width('acde dev')).toBe(8)
+    expect(Color.width('acdev dev')).toBe(9)
     expect(Color.width('记账')).toBe(4)
     expect(Color.width('应用已启动，正在重新加载。')).toBe(26)
     expect(Color.width('ledger 记账 app')).toBe(15)
@@ -53,20 +53,20 @@ describe('colour and error output', () => {
 
   test('a line on stderr colours only its label, and only when stderr shows colour', () => {
     const terminal = sink(true)
-    Output.line('acde: warning: the SDK is older', terminal, {})
+    Output.line('acdev: warning: the SDK is older', terminal, {})
     Output.line('error: windows (desktop): app "p1" requires office', terminal, {})
     Output.line('hint: list the capability in "optional"', terminal, {})
-    Output.line('acde: built app p1', terminal, {})
+    Output.line('acdev: built app p1', terminal, {})
     expect(terminal.text).toBe([
-      'acde: \x1b[33mwarning:\x1b[39m the SDK is older',
+      'acdev: \x1b[33mwarning:\x1b[39m the SDK is older',
       '\x1b[1;31merror:\x1b[22;39m windows (desktop): app "p1" requires office',
       '\x1b[2mhint:\x1b[22m list the capability in "optional"',
-      'acde: built app p1',
+      'acdev: built app p1',
       '',
     ].join('\n'))
     const piped = sink(false)
-    Output.line('acde: warning: the SDK is older', piped, {})
-    expect(piped.text).toBe('acde: warning: the SDK is older\n')
+    Output.line('acdev: warning: the SDK is older', piped, {})
+    expect(piped.text).toBe('acdev: warning: the SDK is older\n')
     const off = sink(true)
     Output.line('error: x', off, { FORCE_COLOR: '0' })
     expect(off.text).toBe('error: x\n')
@@ -76,26 +76,26 @@ describe('colour and error output', () => {
   })
 
   test('an error says its message: no Error: prefix, a stack only with ACDE_DEBUG', () => {
-    const error = new Error('Error: no web nope (acde webs lists them)')
+    const error = new Error('Error: no web nope (acdev webs lists them)')
     const plain = sink(false)
     Output.fail(error, plain, {})
-    expect(plain.text).toBe('acde: no web nope (acde webs lists them)\n')
+    expect(plain.text).toBe('acdev: no web nope (acdev webs lists them)\n')
     const terminal = sink(true)
     Output.fail('no desktop nope', terminal, {})
-    expect(terminal.text).toBe('\x1b[1;31macde:\x1b[22;39m no desktop nope\n')
+    expect(terminal.text).toBe('\x1b[1;31macdev:\x1b[22;39m no desktop nope\n')
     const debugging = sink(false)
     Output.fail(error, debugging, { ACDE_DEBUG: '1' })
-    expect(debugging.text).toStartWith('acde: no web nope (acde webs lists them)\nError: Error: no web nope')
+    expect(debugging.text).toStartWith('acdev: no web nope (acdev webs lists them)\nError: Error: no web nope')
     expect(debugging.text).toContain('    at ')
   })
 
   test('an error wraps to the width of a terminal, with a hanging indent and paths kept whole', () => {
     const terminal = { ...sink(true), columns: 60 }
     const agents = 'claude-code, codex, cursor, gemini-cli, windsurf, and 71 more'
-    const said = `skills: --agent nope: not an agent acde knows (${agents}); pass a skills directory with --dir`
+    const said = `skills: --agent nope: not an agent acdev knows (${agents}); pass a skills directory with --dir`
     Output.fail(new Error(said), terminal, { NO_COLOR: '1' })
     expect(terminal.text).toBe([
-      'acde: skills: --agent nope: not an agent acde knows',
+      'acdev: skills: --agent nope: not an agent acdev knows',
       '      (claude-code, codex, cursor, gemini-cli, windsurf, and',
       '      71 more); pass a skills directory with --dir',
       '',
@@ -106,7 +106,7 @@ describe('colour and error output', () => {
     const framed = { ...sink(true), columns: 60 }
     const frame = 'src/main.js:2:16: Unexpected ;\n  const broken = ;\n                 ^'
     Output.fail(new Error(frame), framed, { NO_COLOR: '1' })
-    expect(framed.text).toBe('acde: src/main.js:2:16: Unexpected ;\n  const broken = ;\n                 ^\n')
+    expect(framed.text).toBe('acdev: src/main.js:2:16: Unexpected ;\n  const broken = ;\n                 ^\n')
   })
 
   test('console.error goes through acde, not the runtime: same bytes on every runtime', () => {
@@ -114,13 +114,13 @@ describe('colour and error output', () => {
     const [error, warn] = [console.error, console.warn]
     try {
       Output.install(terminal)
-      console.error('acde: %s', 'warning: old')
+      console.error('acdev: %s', 'warning: old')
       console.warn('note: later')
     } finally {
       console.error = error
       console.warn = warn
     }
-    expect(terminal.text).toBe('acde: \x1b[33mwarning:\x1b[39m old\n\x1b[2mnote:\x1b[22m later\n')
+    expect(terminal.text).toBe('acdev: \x1b[33mwarning:\x1b[39m old\n\x1b[2mnote:\x1b[22m later\n')
   })
 
   test('the command line: an unknown command is one line, uncoloured with NO_COLOR, coloured label with FORCE_COLOR',
@@ -128,24 +128,24 @@ describe('colour and error output', () => {
       const cwd = tmp()
       const plain = await collect([process.execPath, CLI, 'frob'], { cwd, env: env({ NO_COLOR: '1' }) })
       expect(plain.code).toBe(1)
-      expect(plain.stderr).toMatch(/^acde: [^\n]*frob[^\n]*\n$/)
+      expect(plain.stderr).toMatch(/^acdev: [^\n]*frob[^\n]*\n$/)
       expect(plain.stderr).not.toContain('Error:')
       const colour = env({ FORCE_COLOR: '1', NO_COLOR: '' })
       const forced = await collect([process.execPath, CLI, 'frob'], { cwd, env: colour })
-      expect(forced.stderr).toStartWith('\x1b[1;31macde:\x1b[22;39m ')
+      expect(forced.stderr).toStartWith('\x1b[1;31macdev:\x1b[22;39m ')
       expect(forced.stderr.split('\n')).toHaveLength(2)
     })
 
   test('exit codes: 0 done, 1 error, 2 nothing done, 3 cancelled; the CLI reference lists them', () => {
     expect(Exit).toEqual({ DONE: 0, ERROR: 1, NOTHING: 2, DECLINED: 3 })
     expect([Uninstall.IN_USE, Uninstall.NOT_INSTALLED, Uninstall.DECLINED]).toEqual([1, 2, 3])
-    const reference = readFileSync(join(import.meta.dir, '../skills/acde/references/reference/cli.md'), 'utf8')
+    const reference = readFileSync(join(import.meta.dir, '../skills/acdev/references/reference/cli.md'), 'utf8')
     const table = reference.slice(reference.search(/exit codes are the same for every command/i))
     for (const code of Object.values(Exit)) expect(table).toMatch(new RegExp(`^\\| ${code} \\| `, 'm'))
   })
 
   test('an option value error reads command, option, value, what it takes, and the help to read', () => {
     expect(Output.option('test', 'timeout', 'x', 'milliseconds per test').message)
-      .toBe('test: --timeout x: milliseconds per test (acde test --help)')
+      .toBe('test: --timeout x: milliseconds per test (acdev test --help)')
   })
 })

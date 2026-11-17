@@ -4,7 +4,7 @@ import {
   copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
-import { installed, runtimes, which } from 'acde/launcher'
+import { installed, runtimes, which } from 'acdev/launcher'
 import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
 import { SKIPPED, up } from './paths.ts'
@@ -77,7 +77,7 @@ export class Creator {
   }
 
   static async ask(given: CreateOptions): Promise<CreateOptions | null> {
-    p.intro('acde: a new project')
+    p.intro('acdev: a new project')
     const answer = async <T>(value: Promise<T>): Promise<Exclude<T, symbol>> => {
       const got = await value
       if (p.isCancel(got)) throw new Cancelled()
@@ -204,7 +204,7 @@ export class Creator {
         const why = `the project is in ${dir} and ready, but it is not a git repository yet: ${Creator.#why(error)}`
         throw new Error(why, { cause: error })
       })
-      const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acde new)'], {
+      const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acdev new)'], {
         cwd: dir,
         stdio: 'ignore',
       })
@@ -225,9 +225,9 @@ export class Creator {
   }
 
   static readonly LATER: readonly string[] = [
-    'acde inspect, eval, console, shot: look into a running acde dev',
-    'acde test: run *.e2e.ts end to end, each test on its own acdebin-dbg',
-    'acde install: build it and add it to this machine\'s desktop',
+    'acdev inspect, eval, console, shot: look into a running acdev dev',
+    'acdev test: run *.e2e.ts end to end, each test on its own acdebin-dbg',
+    'acdev install: build it and add it to this machine\'s desktop',
   ]
 
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
@@ -365,7 +365,7 @@ export class Creator {
     }
     json.scripts = {
       ...json.scripts,
-      ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])),
+      ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acdev ${command}`])),
     }
     json.devDependencies = { ...json.devDependencies, [Sdk.NAME]: Sdk.spec(), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)

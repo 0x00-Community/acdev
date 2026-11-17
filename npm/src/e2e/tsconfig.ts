@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { packageRoot } from 'acde/launcher'
+import { packageRoot } from 'acdev/launcher'
 import { up } from '../paths.ts'
 
 interface Config {
@@ -15,13 +15,13 @@ export class TestTsconfig {
     const root = packageRoot()
     if (existsSync(join(root, 'dist', 'e2e', 'index.js'))) {
       return {
-        'acde/test': join(root, 'dist', 'e2e', 'index.js'),
-        'acde/driver': join(root, 'dist', 'driver', 'index.js'),
+        'acdev/test': join(root, 'dist', 'e2e', 'index.js'),
+        'acdev/driver': join(root, 'dist', 'driver', 'index.js'),
       }
     }
     return {
-      'acde/test': join(root, 'src', 'e2e', 'index.ts'),
-      'acde/driver': join(root, 'src', 'driver', 'index.ts'),
+      'acdev/test': join(root, 'src', 'e2e', 'index.ts'),
+      'acdev/driver': join(root, 'src', 'driver', 'index.ts'),
     }
   }
 

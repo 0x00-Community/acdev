@@ -1,5 +1,5 @@
 name: wpt-setup
-description: acdev checked out at acdev/ with acdert/vendor/blitz, acdebin-dbg built (release), acdert/web built, the acde CLI linked, the WPT checkout and the runner apps
+description: acdev checked out at acdev/ with acdert/vendor/blitz, acdebin-dbg built (release), acdert/web built, the acdev CLI linked, the WPT checkout and the runner apps
 inputs:
   token:
     description: a token that reads AC's repositories and its cargo registry
@@ -62,7 +62,7 @@ runs:
       env:
         CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ inputs.token }}
       run: cd acdev && cargo update --quiet && cargo fetch --locked
-    - name: build acdebin-dbg (release, offline, no token) and acdert/web; link the acde CLI
+    - name: build acdebin-dbg (release, offline, no token) and acdert/web; link the acdev CLI
       shell: bash
       run: |
         set -eu

@@ -98,7 +98,7 @@ fn host() -> Check {
     let fix = if std::env::var_os("ACDE_APP").is_some() {
         "point ACDE_APP at the directory that holds broker.js and web.js, or unset it"
     } else {
-        "install acdebin-dbg again with the acde installer, which puts its app/ directory next to the binary \
+        "install acdebin-dbg again with the acdev installer, which puts its app/ directory next to the binary \
          (in a source checkout: cd web && bun install && bun run build)"
     };
     Check::new("host", "host files", Status::Error, format!("no {} in {}", missing.join(" or "), shown.display()), Some(fix))
@@ -153,7 +153,7 @@ fn display() -> Option<Check> {
             Status::Warn,
             "neither WAYLAND_DISPLAY nor DISPLAY is set, so acdebin-dbg app and acdebin-dbg desktop cannot open a host window here: \
              they would try to start a session on the screen (DRM) instead",
-            Some("run acde dev --headless, or run it inside a graphical session"),
+            Some("run acdev dev --headless, or run it inside a graphical session"),
         )
     };
     Some(check)
@@ -202,7 +202,7 @@ fn software_fix() -> &'static str {
 
 fn draw() -> Result<(String, bool), String> {
     let started = Instant::now();
-    let (_, _, gpu) = Gpu::open("acde doctor")?;
+    let (_, _, gpu) = Gpu::open("acdev doctor")?;
     let info = gpu.info.clone();
     let driver = [info.driver.as_str(), info.driver_info.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
     let kind = match info.device_type {

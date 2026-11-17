@@ -28,7 +28,7 @@ describe('new URL(path, import.meta.url) in Bun builds', () => {
     expect(AssetUrls.loader('a.mjs')).toBe('js')
   })
 
-  test('acde build copies the file and points the URL at it', async () => {
+  test('acdev build copies the file and points the URL at it', async () => {
     const dir = tmp()
     mkdirSync(join(dir, 'src'))
     writeFileSync(join(dir, 'src/pic.png'), 'png')

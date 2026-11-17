@@ -65,7 +65,7 @@ export class Screenshots {
       const path = resolve(name.endsWith('.png') ? name : `${name}.png`)
       return { path, label: basename(path, '.png') }
     }
-    if (!context) throw new Error('toHaveScreenshot: give the baseline file (a .png path) outside acde test')
+    if (!context) throw new Error('toHaveScreenshot: give the baseline file (a .png path) outside acdev test')
     let label = name
     if (label === undefined) {
       const key = `${context.dir}\u0000${context.test}`

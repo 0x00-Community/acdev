@@ -27,8 +27,8 @@ async function connect(cwd: string, env: Record<string, string>, args: string[] 
   return { client, call }
 }
 
-describe('acde mcp', () => {
-  test('lists its tools; start runs acde dev here; the tools drive it; logs; stop', async () => {
+describe('acdev mcp', () => {
+  test('lists its tools; start runs acdev dev here; the tools drive it; logs; stop', async () => {
     const s = standIn()
     const { client, call } = await connect(s.project, s.env)
     try {
@@ -53,17 +53,17 @@ describe('acde mcp', () => {
       expect(checked.error).toBe(false)
       expect(checked.text)
         .toContain(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
-      expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acde check finds nothing wrong')
-      expect(checked.text.split('\n').at(-1)).toMatch(/^acde doctor: /)
+      expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acdev check finds nothing wrong')
+      expect(checked.text.split('\n').at(-1)).toMatch(/^acdev doctor: /)
 
       const none = await call('webs')
       expect(none.error).toBe(true)
-      expect(none.text).toContain('no acde dev is running')
+      expect(none.text).toContain('no acdev dev is running')
       expect((await call('logs')).error).toBe(true)
 
       const started = await call('start')
       expect(started.error).toBe(false)
-      expect(started.text).toMatch(/^acde dev \d+ runs app alpha \(/)
+      expect(started.text).toMatch(/^acdev dev \d+ runs app alpha \(/)
       expect(started.text).toContain('alpha#7  app      alpha  7       Alpha')
       expect((await call('start')).text).toContain('stop it first')
       expect((await call('sessions')).text).toMatch(/^\* \d+  app alpha  .*\[started here\]/)
@@ -135,14 +135,14 @@ describe('acde mcp', () => {
       expect((await call('logs', { since: next })).text).toBe(`next: ${next}\n(no lines)`)
 
       const stopped = await call('stop')
-      expect(stopped.text).toMatch(/^stopped acde dev \d+$/)
+      expect(stopped.text).toMatch(/^stopped acdev dev \d+$/)
       expect((await call('webs')).error).toBe(true)
     } finally {
       await client.close()
     }
   }, 60_000)
 
-  test('attaches to an acde dev running elsewhere, and stops what it started when the client goes', async () => {
+  test('attaches to an acdev dev running elsewhere, and stops what it started when the client goes', async () => {
     const s = standIn()
     const outside = await Acde.launch({ cwd: s.project, env: s.env })
     try {
@@ -156,20 +156,20 @@ describe('acde mcp', () => {
       try {
         const other = await here.call('start', { headless: true })
         expect(other.error).toBe(true)
-        expect(other.text).toBe(`acde dev ${outside.session.pid} already runs ${outside.session.dirs.join(', ')} `
+        expect(other.text).toBe(`acdev dev ${outside.session.pid} already runs ${outside.session.dirs.join(', ')} `
           + `(app alpha), which is not what start asked for; to use it, sessions {use: ${outside.session.pid}}; to start `
-          + `another beside it, start {force: true}; or stop it first (acde stop --session ${outside.session.pid})`)
+          + `another beside it, start {force: true}; or stop it first (acdev stop --session ${outside.session.pid})`)
         expect((await here.call('start', { app: 'beta' })).text).toContain('which is not what start asked for')
         const reused = await here.call('start')
         expect(reused.error).toBe(false)
-        expect(reused.text).toStartWith(`attached to acde dev ${outside.session.pid}, which already runs `
+        expect(reused.text).toStartWith(`attached to acdev dev ${outside.session.pid}, which already runs `
           + `${outside.session.dirs.join(', ')}; it was started elsewhere`)
         expect(reused.text).toContain('alpha#7')
-        expect((await here.call('stop')).text).toContain('start did not run an acde dev here')
+        expect((await here.call('stop')).text).toContain('start did not run an acdev dev here')
         const another = await here.call('start', { headless: true, force: true })
-        expect(another.text).toMatch(/^acde dev \d+ runs app alpha/)
-        expect(another.text).not.toStartWith(`acde dev ${outside.session.pid} `)
-        expect((await here.call('stop')).text).toMatch(/^stopped acde dev \d+$/)
+        expect(another.text).toMatch(/^acdev dev \d+ runs app alpha/)
+        expect(another.text).not.toStartWith(`acdev dev ${outside.session.pid} `)
+        expect((await here.call('stop')).text).toMatch(/^stopped acdev dev \d+$/)
       } finally {
         await here.client.close()
       }
@@ -179,7 +179,7 @@ describe('acde mcp', () => {
 
     const { client, call } = await connect(s.project, s.env)
     const started = await call('start', { headless: true })
-    const pid = Number(/^acde dev (\d+)/.exec(started.text)![1])
+    const pid = Number(/^acdev dev (\d+)/.exec(started.text)![1])
     expect((await call('clipboard', { text: 'isolated' })).text).toBe('"isolated"')
     expect((await call('pointer', { x: 10, y: 0 })).text).toBe('the pointer is at 10, 0')
     await client.close()
@@ -204,10 +204,10 @@ describe('acde mcp', () => {
     try {
       const started = await call('start')
       expect(started.error).toBe(true)
-      expect(started.text).toContain(`acde dev ${process.pid} is gone`)
+      expect(started.text).toContain(`acdev dev ${process.pid} is gone`)
       const webs = await call('webs')
       expect(webs.error).toBe(true)
-      expect(webs.text).toContain('no acde dev is running')
+      expect(webs.text).toContain('no acdev dev is running')
     } finally {
       await client.close()
       once.close()
@@ -219,13 +219,13 @@ describe('acde mcp', () => {
     const s = standIn()
     const started = await connect(s.project, s.env)
     try {
-      const pid = Number(/^acde dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
+      const pid = Number(/^acdev dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
       const closed = await started.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acde dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acdev dev ${pid} ended`])
       const next = await started.call('webs')
       expect(next.error).toBe(true)
-      expect(next.text).toStartWith(`the acde dev started here (pid ${pid}) stopped; last output:\n`)
+      expect(next.text).toStartWith(`the acdev dev started here (pid ${pid}) stopped; last output:\n`)
     } finally {
       await started.client.close()
     }
@@ -236,11 +236,11 @@ describe('acde mcp', () => {
       const pid = outside.session.pid
       const closed = await attached.call('act', { ref: 'w1', action: 'close' })
       expect([closed.error, closed.text])
-        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acde dev ${pid} ended`])
+        .toEqual([false, `closed w1; acdebin-dbg exited with it, so acdev dev ${pid} ended`])
       const next = await attached.call('snapshot')
       expect(next.error).toBe(true)
-      expect(next.text).toStartWith(`acde dev ${pid} stopped; no acde dev is running (`)
-      expect((await attached.call('snapshot')).text).toStartWith('no acde dev is running (')
+      expect(next.text).toStartWith(`acdev dev ${pid} stopped; no acdev dev is running (`)
+      expect((await attached.call('snapshot')).text).toStartWith('no acdev dev is running (')
     } finally {
       await attached.client.close()
       await outside.close()
@@ -248,16 +248,16 @@ describe('acde mcp', () => {
 
     const crashing = await connect(s.project, { ...s.env, FAKE_ACDERT_DIES_ON: 'click' })
     try {
-      const pid = Number(/^acde dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
+      const pid = Number(/^acdev dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
       const lost = await crashing.call('act', { ref: 'w1.3', action: 'click' })
       expect([lost.error, lost.text]).toEqual([true, 'acdebin-dbg closed the connection'])
-      expect((await crashing.call('webs')).text).toStartWith(`the acde dev started here (pid ${pid}) stopped;`)
+      expect((await crashing.call('webs')).text).toStartWith(`the acdev dev started here (pid ${pid}) stopped;`)
     } finally {
       await crashing.client.close()
     }
   }, 60_000)
 
-  test('choose_folder then act; closing stdin with an act in flight ends acde mcp and its session', async () => {
+  test('choose_folder then act; closing stdin with an act in flight ends acdev mcp and its session', async () => {
     const s = standIn()
     const child = Bun.spawn([process.execPath, CLI, 'mcp'], {
       cwd: s.project, env: { ...s.env, FAKE_ACDERT_HANGS_ON: 'hover' }, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore',
@@ -290,7 +290,7 @@ describe('acde mcp', () => {
     await request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: client })
     send({ method: 'notifications/initialized' })
     try {
-      const pid = Number(/^acde dev (\d+)/.exec((await call('start', { headless: true })).text)![1])
+      const pid = Number(/^acdev dev (\d+)/.exec((await call('start', { headless: true })).text)![1])
       expect((await call('choose_folder', { path: 'pick' })).error).toBe(false)
       expect(await call('act', { ref: 'w1.2', action: 'click' })).toEqual({ error: false, text: 'click w1.2 null' })
       void call('act', { ref: 'w1.2', action: 'hover' })

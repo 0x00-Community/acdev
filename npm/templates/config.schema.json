@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dopame-org/acdert/web/packages/acde-api/config.schema.json",
   "title": "acde.config.jsonc",
-  "description": "An acde project's configuration: a window app (type app) or a desktop (type desktop); acde build turns it into the package's package.json manifest",
+  "description": "An acde project's configuration: a window app (type app) or a desktop (type desktop); acdev build turns it into the package's package.json manifest",
   "oneOf": [
     {
       "type": "object",
@@ -20,7 +20,7 @@
         "apiLevel": {
           "type": "integer",
           "minimum": 1,
-          "description": "The contract level (API_LEVEL); when left out, acde build writes the current level"
+          "description": "The contract level (API_LEVEL); when left out, acdev build writes the current level"
         },
         "public": {
           "type": "string",
@@ -59,7 +59,7 @@
             "cra",
             "script"
           ],
-          "description": "How to build: auto (default) recognizes the framework from the dependencies (Next.js, Nuxt, SvelteKit, Astro, React Router, Remix, Angular, Vite, Create React App, or package.json's build script) and uses its own build; none uses acde's bundler (Bun.build, the entry is HTML or a module)"
+          "description": "How to build: auto (default) recognizes the framework from the dependencies (Next.js, Nuxt, SvelteKit, Astro, React Router, Remix, Angular, Vite, Create React App, or package.json's build script) and uses its own build; none uses acdev's bundler (Bun.build, the entry is HTML or a module)"
         },
         "capabilities": {
           "type": "object",
@@ -251,7 +251,7 @@
         "apiLevel": {
           "type": "integer",
           "minimum": 1,
-          "description": "The contract level (API_LEVEL); when left out, acde build writes the current level"
+          "description": "The contract level (API_LEVEL); when left out, acdev build writes the current level"
         },
         "public": {
           "type": "string",
@@ -307,7 +307,7 @@
                         "permissions"
                       ]
                     },
-                    "description": "The shell modules this service may use, reached in the service with ctx.import('acde:<name>'); acde build writes them into the desktop manifest as {name, modules}"
+                    "description": "The shell modules this service may use, reached in the service with ctx.import('acde:<name>'); acdev build writes them into the desktop manifest as {name, modules}"
                   }
                 },
                 "required": [
@@ -525,7 +525,7 @@
     "icon": {
       "type": "string",
       "minLength": 1,
-      "description": "Icon: a Dopame icon name (one of IconName in @dopame/acde-api: files, browser, editor, office, term, projects, dash, team, dopa, settings, store, app, timer, cards, list, chart, calc, music, video, photo, paint, game, chat, mail, calendar, code, book, map, weather), or an image in the project (.svg / .png, relative to the project directory, copied into the package by acde build); acde check warns about other values",
+      "description": "Icon: a Dopame icon name (one of IconName in @dopame/acde-api: files, browser, editor, office, term, projects, dash, team, dopa, settings, store, app, timer, cards, list, chart, calc, music, video, photo, paint, game, chat, mail, calendar, code, book, map, weather), or an image in the project (.svg / .png, relative to the project directory, copied into the package by acdev build); acdev check warns about other values",
       "examples": [
         "files",
         "browser",

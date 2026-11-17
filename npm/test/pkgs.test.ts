@@ -17,7 +17,7 @@ describe('the download address', () => {
   })
 
   test('install.md, AGENTS.md, docs/ and the skill name no other address for acde or acdert', () => {
-    const skill = join('skills', 'acde')
+    const skill = join('skills', 'acdev')
     const markdown = (dir: string) => readdirSync(join(ROOT, dir), { recursive: true, encoding: 'utf8' })
       .filter((file) => file.endsWith('.md')).map((file) => join(dir, file))
     const pages = [`${INSTALLERS}/install.md`, '../AGENTS.md', join(skill, 'SKILL.md'),

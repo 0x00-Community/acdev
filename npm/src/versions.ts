@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { packageRoot } from 'acde/launcher'
+import { packageRoot } from 'acdev/launcher'
 
 declare const ACDE_SDK_VERSION: string | undefined
 

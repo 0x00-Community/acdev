@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
+import { findAcdert, requireAcdert, run, runtimes } from 'acdev/launcher'
 import { ACTIONS } from './driver/types.ts'
 import { Color } from './color.ts'
 import { Help } from './help.ts'
@@ -72,9 +72,9 @@ class Cli {
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
     const spec = Object.hasOwn(Cli.SPECS, command) ? Cli.SPECS[command]! : null
-    if (!command) throw new Error('a command (acde --help lists them)')
-    if (!spec) throw new Error(`unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
-    const hint = `(acde ${command} --help)`
+    if (!command) throw new Error('a command (acdev --help lists them)')
+    if (!spec) throw new Error(`unknown command ${JSON.stringify(command)} (acdev --help lists the commands)`)
+    const hint = `(acdev ${command} --help)`
     const flags = new Map<string, string>()
     const args: string[] = []
     let positional = false
@@ -111,7 +111,7 @@ class Cli {
   static usage(command: string): string {
     if (!command) return Help.overview(Cli.HELP, Versions.acde())
     const found = Cli.HELP.find((item) => item.name === command)
-    if (!found) throw new Error(`help: unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
+    if (!found) throw new Error(`help: unknown command ${JSON.stringify(command)} (acdev --help lists the commands)`)
     return Help.command(found)
   }
 
@@ -119,7 +119,7 @@ class Cli {
     const { API_LEVEL } = await import('./manifest/index.ts')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
     const acdert = findAcdert().path
-    if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDERT, next to acde, PATH)']
+    if (!acdert) return [...lines, 'acdebin-dbg: not found (ACDERT, next to acdev, PATH)']
     const { said, failed } = await Runtime.level(acdert)
     if (failed) return [...lines, `acdebin-dbg does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
@@ -132,9 +132,9 @@ class Cli {
     const [first = ''] = argv
     if (argv.length === 0) {
       const c = Color.palette()
-      console.log(`acde ${Versions.acde()}: build, run and test apps for Dopame`)
-      console.log(`  ${c.name('acde new my-app')}   then   ${c.name('cd my-app')}   then   ${c.name('acde dev')}`)
-      console.log(`Run ${c.name('acde --help')} for every command.`)
+      console.log(`acdev ${Versions.acde()}: build, run and test apps for Dopame`)
+      console.log(`  ${c.name('acdev new my-app')}   then   ${c.name('cd my-app')}   then   ${c.name('acdev dev')}`)
+      console.log(`Run ${c.name('acdev --help')} for every command.`)
       return 0
     }
     if (['--version', '-v', 'version'].includes(first)) {
@@ -196,7 +196,7 @@ class Cli {
       const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
       const confirm = interactive ? Uninstall.ask : null
       if (flags.has('data') && flags.has('keep-data'))
-        throw new Error('uninstall: --data or --keep-data, not both (acde uninstall --help)')
+        throw new Error('uninstall: --data or --keep-data, not both (acdev uninstall --help)')
       const data = flags.has('data') ? true : flags.has('keep-data') ? false : undefined
       const say = (line: string) => console.log(line)
       return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say, ...(data !== undefined && { data }) })
@@ -228,7 +228,7 @@ class Cli {
       const dir = resolve((update ? args[1] : args[0]) ?? '.')
       if (!update && args[0] !== undefined && !existsSync(dir)) {
         throw new Error(`sdk: ${args[0]} is not a subcommand or a directory: the only subcommand is update `
-          + '(acde sdk update [dir]); acde sdk [dir] shows the SDK of a project')
+          + '(acdev sdk update [dir]); acdev sdk [dir] shows the SDK of a project')
       }
       if (update) {
         try {
@@ -242,7 +242,7 @@ class Cli {
         const file = join(dir, 'package.json')
         if (!existsSync(file)) {
           throw new Error(`sdk: no package.json in ${dir}: run it in a project directory, or pass one `
-            + '(acde new <name> creates a project)')
+            + '(acdev new <name> creates a project)')
         }
         for (const line of Sdk.show(dir, JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>))
           console.log(line)
@@ -258,7 +258,7 @@ class Cli {
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'), { command })
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     const into = pkg.project ? `built ${what} into ${Cli.shown(built.dir)}` : `ok: ${pkg.name} (${what})`
-    const done = Color.palette().ok('acde:')
+    const done = Color.palette().ok('acdev:')
     if (command === 'build') {
       console.log(`${done} ${into} (${Cli.took(started)})`)
       return 0
@@ -277,7 +277,7 @@ class Cli {
       const { PackageManager } = await import('./pm.ts')
       wanted = PackageManager.of(resolve(dir)).runtime
     } catch (error) {
-      console.error(`acde: ${Output.message(error)}: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
+      console.error(`acdev: ${Output.message(error)}: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
       return null
     }
     if (wanted === current) return null
@@ -288,12 +288,12 @@ class Cli {
     }
     const needed = wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'
     const using = current === 'bun' ? 'Bun' : 'Node.js'
-    console.error(`acde: this project runs on ${needed}, which is not on PATH: going on with ${using}`)
+    console.error(`acdev: this project runs on ${needed}, which is not on PATH: going on with ${using}`)
     return null
   }
 
   static async doctor(dir: string | undefined, flags: ReadonlyMap<string, string>): Promise<number> {
-    if (flags.has('yes') && !flags.has('fix')) throw new Error('doctor: --yes is for --fix (acde doctor --help)')
+    if (flags.has('yes') && !flags.has('fix')) throw new Error('doctor: --yes is for --fix (acdev doctor --help)')
     const options = { ...(dir !== undefined && { dir }), online: flags.has('online') }
     const json = flags.has('json')
     const [{ Doctor }, { confirm: ask }] = await Promise.all([import('./doctor.ts'), import('@clack/prompts')])
@@ -315,7 +315,7 @@ class Cli {
     })
     const after = fixed.some((done) => done.result === 'fixed') ? await Doctor.run(options) : checks
     if (json) console.log(Doctor.json(after, fixed))
-    else if (after !== checks) console.log(`acde doctor: after fixing:\n${Doctor.format(after)}`)
+    else if (after !== checks) console.log(`acdev doctor: after fixing:\n${Doctor.format(after)}`)
     return Doctor.failed(after) ? 1 : 0
   }
 
@@ -349,13 +349,13 @@ class Cli {
     }
     if (given.template !== undefined) Creator.checkBackend(Creator.starter(given.template), given.backend)
     if (!interactive) {
-      if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acde new --help)')
+      if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acdev new --help)')
       const created = await Creator.create(given, false)
       Cli.report(created.pkg, AppPackage.here())
       const made = `${created.starter.label} in ${Cli.shown(created.pkg.dir)} (${Cli.took(started)})`
-      console.log(`acde: ${made}. next: ${Creator.next(created).join(' && ')}`)
+      console.log(`acdev: ${made}. next: ${Creator.next(created).join(' && ')}`)
       const width = Help.terminal()
-      console.log(['acde: then:', ...Creator.LATER.flatMap((step) => Help.block(step, width, '    ', '  '))].join('\n'))
+      console.log(['acdev: then:', ...Creator.LATER.flatMap((step) => Help.block(step, width, '    ', '  '))].join('\n'))
       return 0
     }
     const options = await Creator.ask(given)

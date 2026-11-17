@@ -2,7 +2,7 @@ import {
   copyFileSync, cpSync, existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, delimiter, dirname, join, relative } from 'node:path'
-import { which } from 'acde/launcher'
+import { which } from 'acdev/launcher'
 import acdeVite from './vite-plugin.ts'
 import { ViteBundler, type Bundler } from './bundler.ts'
 import { up } from './paths.ts'
@@ -65,14 +65,14 @@ export class Frameworks {
   static async install(dir: string): Promise<void> {
     if (up(dir, (at) => existsSync(join(at, 'node_modules')))) return
     const pm = PackageManager.of(dir)
-    console.log(`acde: no node_modules: ${pm.name} install`)
+    console.log(`acdev: no node_modules: ${pm.name} install`)
     const code = await Runtime.spawn(pm.install, { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] }).exited
     if (code !== 0) throw new Error(`${pm.name} install failed (exit ${code})`)
   }
 
   static #ownBuild(pkg: Readonly<Record<string, unknown>>): boolean {
     const build = Frameworks.#scripts(pkg)['build']
-    return typeof build === 'string' && !/(^|[\s;&|(/])(acde|acde\.mjs|bunx acde|npx acde)\s/.test(`${build} `)
+    return typeof build === 'string' && !/(^|[\s;&|(/])(acdev|acdev\.mjs|bunx acdev|npx acdev)\s/.test(`${build} `)
   }
 
   static #deps(pkg: Readonly<Record<string, unknown>>): Set<string> {

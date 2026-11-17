@@ -5,7 +5,7 @@
 acdert 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.config.jsonc` 只在构建时读, 变成 `.acde/package.json` 的清单.
 
 - **工程** (`AppPackage`): 有 `acde.config.jsonc` / `.json` 的是 `Project` (字段见 SDK 的 `AcdeConfig` / `config.schema.json`; `"type"` 是 `app` 或
-  `desktop`; 后端默认按 `BACKENDS` 找 `server.ts` 等, port 3000); 没有配置、package.json 的 `acde` 有 `apps` 的是手写的**包**; 都没有是默认 app
+  `desktop`; 后端默认按 `BACKENDS` 找 `server.ts` 等, port 3000); 没有配置、package.json 的 `acdev` 有 `apps` 的是手写的**包**; 都没有是默认 app
   (入口 `index.html`, id 由 `name` 经 `Project.idOf`, label 取 `displayName` / `productName`).
 - **产物**: app 是 `web/` (URL `/app/<id>/`) 和 `backend/`; desktop 是 `desktop/` (`/desktop/<id>/`)、`services/<名>.js`、`apps/<id>/{web,backend}`.
   `Project.build` 会 `chdir` 进工程, 不能并行构建.
@@ -17,7 +17,7 @@ acdert 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.conf
 
 **框架** (app 的 `framework`, 默认 `auto`, `Frameworks.LIST` 按依赖先认先得): 用框架自己的构建, 不改用户的配置; 没有 node_modules 先
 `<pm> install`. 工具不经 `node_modules/.bin` (pnpm 那里是 sh 脚本): `PackageManager.bin` 读依赖的 `bin` 字段拿 JS 文件, bun 上 `bun --bun` 跑,
-Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板带 vite 是为 acde 自己打包), 要框架构建就去掉 `entry` 或写 `"framework": "vite"`.
+Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板带 vite 是为 acdev 自己打包), 要框架构建就去掉 `entry` 或写 `"framework": "vite"`.
 
 | 依赖 | 构建 | 产物 |
 | --- | --- | --- |
@@ -31,11 +31,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 | `react-scripts` | `react-scripts build` | `build/` |
 | `build` 脚本 | bun 上 `bun --bun run build`, Node 上 `<pm> run build` | `dist` / `build` / `out` / `www` / `.output/public` 里第一个有 HTML 的 |
 
-调 acde 自己的 `build` 脚本 (`acde`、`bunx acde`、`npx acde`) 不算, 否则 `acde build` 调自己. 后端渲染的应用清单 `entry` 是 `/app/<id>/`
-(文档从后端取). 都不认 (或 `"framework": "none"`) 时 acde 自己打:
+调 acdev 自己的 `build` 脚本 (`acdev`、`bunx acdev`、`npx acdev`) 不算, 否则 `acdev build` 调自己. 后端渲染的应用清单 `entry` 是 `/app/<id>/`
+(文档从后端取). 都不认 (或 `"framework": "none"`) 时 acdev 自己打:
 
 - `Bundler.for`: bun 上 `BunBundler`, Node 上 `ViteBundler` (`ACDE_BUNDLER=vite` 在 bun 上也用 Vite). `ViteBundler` 从工程往上找 `node_modules/vite`
-  (不打进 acde, 没有就报 `add it with <pm> add -D vite`), `configFile: false` (规则和 bun 上一样), Vite 8 起 `rolldownOptions`, 之前 `rollupOptions`.
+  (不打进 acdev, 没有就报 `add it with <pm> add -D vite`), `configFile: false` (规则和 bun 上一样), Vite 8 起 `rolldownOptions`, 之前 `rollupOptions`.
   两边文件名不同, 规则相同:
 - HTML 入口: `base` 是 `/app/<id>/` (桌面页 `/desktop/<id>/`), `acde:*` 外部, `NODE_ENV` `"production"`, `import.meta.env` 照 Vite (bun 上 define
   成一样的, 带 `VITE_*`), 不注入 modulepreload, 子目录里的页面出成 `web/<文件名>`. 模块入口的应用: `<名字>.js`, 保留导出. 桌面服务: 单文件, 不压缩标识符.
@@ -48,7 +48,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `config.schema.json` 同). 怎么读只有一处: SDK 的 `Manifest.configServices(config.services)` 给出 `{name, module, modules}[]` 或一句错误
   (`modules` 用清单那条规则 `Manifest.desktopServices` 判, 文字相同; 没有 `module`、多出别的字段也是错误). `Project.check` 把错误报成
   `services in acde.config.jsonc: service "clock": …`, 再查每个模块文件在不在; `Project.build` 经 `Project.services` / `Project.grants`
-  把有 `modules` 的写成桌面清单的 `{name, modules}`, 没有的照旧写服务名 (产物不变); `acde check` 的临时清单 (`#configFindings`) 用同一份.
+  把有 `modules` 的写成桌面清单的 `{name, modules}`, 没有的照旧写服务名 (产物不变); `acdev check` 的临时清单 (`#configFindings`) 用同一份.
   服务里静态导入 `acde:*` 的报错末尾指向这个字段: `…, listed in its modules in acde.config.jsonc ("services": { "clock": { "module": "<file>",
   "modules": ["<name>"] } })`. 模板的注释和 skill 写的是同一个字段 (`test/templates.test.ts` 把注释里的例子交给 `Manifest.configServices`, 并对着 schema 的两种写法).
 - `public/` (插件 `acde-public`): 复制进工程自己的应用的 `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头、落在 public 里的引用:
@@ -80,7 +80,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   fd 3 打不开或读出错时 stderr 打一行, 之后不再读, 服务照常; 读到头不退出. unix 不变 (没有 `ACDE_APP_CONTROL`).
 - Node 上 `export default {fetch}`: `acde.serve` 用 `node:http` 起服务, 请求换成 WHATWG `Request` (流式 body, 断开时 abort), `server` 只有
   `upgrade()` (false, 没有 WebSocket 升级)、`requestIP()` (null)、`port`、`hostname`; `Response` 流式写回; 抛错回 500.
-- 开发时: `bun --preload <acde>/src/listen.ts server.ts`.
+- 开发时: `bun --preload <acdev>/src/listen.ts server.ts`.
 - **通道模式** (`src/channel.ts`, Windows 上的 Node; 帧和信用见 `contract-with-acdert.md` 的「Windows 后端契约」): 只在 Node 上且 `ACDE_APP_CHANNEL=fd` 时
   (`channelMode`; bun 不看它, 照常走套接字). 这时 `listen(P)` 不真正监听: 把 server 登记到端口 P, 下一个 tick 发 `listening`,
   `address()` 给 P, `listening` 为真; `close()` 注销后照原型方法关 (回调不报 `ERR_SERVER_NOT_RUNNING`), `signal` 中止同样注销;

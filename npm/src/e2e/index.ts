@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { packageRoot } from 'acde/launcher'
+import { packageRoot } from 'acdev/launcher'
 import { Acde, LaunchError } from '../driver/acde.ts'
 import { expect as expectUi, type LocatorAssertions, type WindowAssertions } from '../driver/expect.ts'
 import { Format } from '../driver/format.ts'
@@ -136,10 +136,10 @@ export class E2eRun {
       }
       if (settings.trace) {
         const trace = acde.trace.write(results, name).map((f) => join(results, f))[0]
-        console.log(`acde test: trace of ${JSON.stringify(name)}: ${trace}`)
+        console.log(`acdev test: trace of ${JSON.stringify(name)}: ${trace}`)
       }
       if (video && settings.video === 'on') {
-        console.log(`acde test: video of ${JSON.stringify(name)}: ${await E2eRun.#video(video, results)}`)
+        console.log(`acdev test: video of ${JSON.stringify(name)}: ${await E2eRun.#video(video, results)}`)
       }
     } catch (error) {
       E2eRun.ownFrames(error)
@@ -233,7 +233,7 @@ export class E2eRun {
       }
     }
     if (acde) wrote.push(...acde.trace.write(dir, name))
-    return `acde test: saved ${wrote.join(', ')} in ${dir}`
+    return `acdev test: saved ${wrote.join(', ')} in ${dir}`
   }
 }
 
@@ -271,12 +271,12 @@ function defineTest(add: () => Register, name: string, body: Body, options: Test
     for (let attempt = 1; ; attempt++) {
       try {
         await E2eRun.run(name, body, settings, timeout, setup, results)
-        if (attempt > 1) console.log(`acde test: ${quoted} passed on attempt ${attempt} of ${attempts} (flaky)`)
+        if (attempt > 1) console.log(`acdev test: ${quoted} passed on attempt ${attempt} of ${attempts} (flaky)`)
         return
       } catch (error) {
         if (attempt >= attempts) throw error
         const why = (error instanceof Error ? error.message : String(error)).split('\n')[0]
-        console.log(`acde test: ${quoted} failed on attempt ${attempt} of ${attempts}, trying again: ${why}`)
+        console.log(`acdev test: ${quoted} failed on attempt ${attempt} of ${attempts}, trying again: ${why}`)
       }
     }
   }, (timeout + E2eRun.GRACE_MS) * attempts)
@@ -367,7 +367,7 @@ function soft(target: AppWindow): WindowAssertions
 function soft<T>(value: T): Matchers<T>
 function soft(target: unknown): unknown {
   const failures = E2eRun.softFailures
-  if (!failures) throw new Error('expect.soft works inside an acde test: the failures are reported when the test ends')
+  if (!failures) throw new Error('expect.soft works inside an acdev test: the failures are reported when the test ends')
   return softly(matchersOf(target), failures)
 }
 

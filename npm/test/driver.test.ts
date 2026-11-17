@@ -128,17 +128,17 @@ describe('Locator composition and input helpers', () => {
     check(() => Modifiers.chord(['Hyper' as never])).toThrow('unknown modifier')
   })
 
-  test('an op an older acdert does not know says so and points at acde doctor', () => {
+  test('an op an older acdert does not know says so and points at acdev doctor', () => {
     const old = new Error('no op pointer (webs, eval, shot)')
     check((Acde.unsupported('pointer', old) as Error).message)
-      .toBe('this acdebin-dbg does not support pointer; acde doctor checks the pairing')
+      .toBe('this acdebin-dbg does not support pointer; acdev doctor checks the pairing')
     check(Acde.unsupported('shot', old)).toBe(old)
     const other = new Error('pointer: x and y are numbers')
     check(Acde.unsupported('pointer', other)).toBe(other)
   })
 })
 
-describe('the driver against acde dev with a stand-in acdert', () => {
+describe('the driver against acdev dev with a stand-in acdert', () => {
   test('a screenshot waits for a window whose page is not there yet', async () => {
     const s = standIn()
     const env = { ...s.env, FAKE_ACDERT_PAGELESS_SHOTS: '3' }
@@ -244,7 +244,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       check(acde.trace.steps.filter((step) => step.title.startsWith('act(')).length).toBe(0)
 
       check(acde.logs!.tail(100).text).toContain('12.345 I acde js: fake acdert is up')
-      check(acde.logs!.tail(100, { grep: /^acde: dev app alpha/ }).lines.length).toBe(1)
+      check(acde.logs!.tail(100, { grep: /^acdev: dev app alpha/ }).lines.length).toBe(1)
       const next = acde.logs!.next
       check(acde.logs!.since(next).lines).toEqual([])
     } finally {
@@ -307,14 +307,14 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const s = standIn()
     const launch = (extra: Record<string, string> = {}, desktop?: string) =>
       Acde.launch({ cwd: s.project, env: { ...s.env, ...extra }, timeout: 2_000, ...(desktop && { desktop }) })
-    const said = (acde: Acde) => `closed w1; acdebin-dbg exited with it, so acde dev ${acde.session.pid} ended`
+    const said = (acde: Acde) => `closed w1; acdebin-dbg exited with it, so acdev dev ${acde.session.pid} ended`
     const message = (error: Error) => error.message
 
     const single = await launch()
     try {
       check(await single.window('alpha').close()).toEqual({ ok: true, text: said(single), ended: true })
       check(single.closed).toBe(true)
-      const gone = `acde dev ${single.session.pid} is no longer connected`
+      const gone = `acdev dev ${single.session.pid} is no longer connected`
       check(await single.webs().catch(message)).toBe(gone)
       check(await single.act('w1', 'close').catch(message)).toBe(gone)
       check(single.trace.text()).toContain(said(single))
@@ -486,13 +486,16 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       check(await Promise.resolve().then(() => expect(alpha).not.toHaveScreenshot(baseline)).catch((e: Error) => e.message)).toBe('toHaveScreenshot cannot be negated')
       mkdirSync(join(s.root, 'ci'))
       const missing = await expect(alpha.getByRole('button', { name: 'Add' })).toHaveScreenshot(join(s.root, 'ci', 'add'), { timeout: 300 }).catch((e: Error) => e.message)
-      check(process.env['CI'] ? missing : 'skipped').toBe(process.env['CI'] ? `expected window(app "alpha").getByRole("button", { name: "Add" }) to match screenshot ${join(s.root, 'ci', 'add.png')}, but there is no such file (CI is set, so acde does not write it; run acde test --update-screenshots and commit it)` : 'skipped')
+      const said = `expected window(app "alpha").getByRole("button", { name: "Add" }) to match screenshot `
+        + `${join(s.root, 'ci', 'add.png')}, but there is no such file `
+        + '(CI is set, so acdev does not write it; run acdev test --update-screenshots and commit it)'
+      check(process.env['CI'] ? missing : 'skipped').toBe(process.env['CI'] ? said : 'skipped')
     } finally {
       await acde.close()
     }
   }, 60_000)
 
-  test('headless: acde dev --headless runs acdert with ACDE_HEADLESS=1 and says so in its session', async () => {
+  test('headless: acdev dev --headless runs acdert with ACDE_HEADLESS=1 and says so in its session', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, headless: true })
     try {
@@ -505,19 +508,19 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
-  test('a launch that fails says why, with the output of acde dev', async () => {
+  test('a launch that fails says why, with the output of acdev dev', async () => {
     const s = standIn()
     writeFileSync(join(s.project, 'acde.config.jsonc'), '{ "type": "app" ')
     const error = await Acde.launch({ cwd: s.project, env: s.env }).catch((e: Error) => e)
     check(error).toBeInstanceOf(LaunchError)
     const exited = error as LaunchError
-    check(exited.message).toMatch(/^acde dev exited \(1\) before it was ready:\n/)
+    check(exited.message).toMatch(/^acdev dev exited \(1\) before it was ready:\n/)
     check([exited.name, exited.phase, exited.code]).toEqual(['Error', 'exited', 1])
     check(exited.message.split('\n').slice(1).join('\n')).toBe(exited.logs.tail(40).text)
     check(Object.keys(exited)).toEqual([])
   }, 30_000)
 
-  test('a launch that stalls says in which phase, and keeps the whole output of acde dev', async () => {
+  test('a launch that stalls says in which phase, and keeps the whole output of acdev dev', async () => {
     const s = standIn()
     const stalled = async (env: Record<string, string>) => {
       const error = await Acde.launch({ cwd: s.project, env: { ...s.env, ...env }, startTimeout: 5_000 })
@@ -528,16 +531,16 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const unheard = await stalled({ FAKE_ACDERT_LISTEN_MS: '600000' })
     check(unheard.phase).toBe('session')
     const lines = unheard.message.split('\n')
-    check(lines[0]).toMatch(/^acde dev \(pid \d+\) did not register a session within 5 s in .+acde-dev$/)
+    check(lines[0]).toMatch(/^acdev dev \(pid \d+\) did not register a session within 5 s in .+acde-dev$/)
     check(lines[1])
       .toBe('no session yet: its build did not finish, or acdebin-dbg did not start listening; last output:')
-    check(lines[2]).toStartWith('acde: dev app alpha: ')
+    check(lines[2]).toStartWith('acdev: dev app alpha: ')
     check(unheard.logs.tail(5000).text).toContain('12.345 I acde js: fake acdert is up')
 
     const windowless = await stalled({ FAKE_ACDERT_WINDOWLESS: '1' })
     check(windowless.phase).toBe('window')
     check(windowless.message.split('\n').slice(0, 3)).toEqual([
-      'acde dev did not start within 5 s:',
+      'acdev dev did not start within 5 s:',
       'acdebin-dbg runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; ' +
         'last output:',
       windowless.logs.tail(5000).lines[0]!.text,
@@ -562,7 +565,7 @@ console.log('closed')
   }, 30_000)
 })
 
-describe('session files while acde dev rewrites them', () => {
+describe('session files while acdev dev rewrites them', () => {
   const session = (over: Partial<Session>): Session =>
     ({ pid: process.pid, endpoint: '/x.sock', dirs: [], apps: [], desktop: null, started: 1, ...over })
 
@@ -587,7 +590,7 @@ describe('session files while acde dev rewrites them', () => {
 
     const started = Date.now()
     const none = Sessions.find('/a', undefined, undefined, join(tmp(), 'none'))
-    await check(none).rejects.toThrow('no acde dev is running')
+    await check(none).rejects.toThrow('no acdev dev is running')
     check(Date.now() - started, 'nothing is being written, so nothing to wait for').toBeLessThan(300)
     check(Sessions.scan(join(tmp(), 'none')).busy).toBe(false)
 

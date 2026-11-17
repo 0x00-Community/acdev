@@ -10,7 +10,7 @@ const { values, positionals } = parseArgs({
   },
 })
 
-const acde = positionals[0] ?? 'acde'
+const acde = positionals[0] ?? 'acdev'
 const runs = Math.max(2, Number(values.runs) || 7)
 const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(acde)
 
@@ -30,8 +30,8 @@ function median(args: readonly string[]): number {
 }
 
 const checks: [string, readonly string[], string | undefined][] = [
-  ['acde -v', ['-v'], values['max-version-ms']],
-  ['acde --help', ['--help'], values['max-help-ms']],
+  ['acdev -v', ['-v'], values['max-version-ms']],
+  ['acdev --help', ['--help'], values['max-help-ms']],
 ]
 let slow = false
 for (const [name, args, max] of checks) {

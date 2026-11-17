@@ -129,7 +129,7 @@ mod freedesktop {
         let bus = zbus::blocking::connection::Builder::session()?.method_timeout(CALL_TIMEOUT).build()?;
         let capabilities: Vec<String> = bus.call_method(Some(NAME), PATH, Some(NAME), "GetCapabilities", &())?.body().deserialize()?;
         if !capabilities.iter().any(|c| c == "actions") {
-            log::warn!("approval: the notification server has no actions, so the prompt waits for acde allow or acde deny");
+            log::warn!("approval: the notification server has no actions, so the prompt waits for acdev allow or acdev deny");
             return Ok(None);
         }
         let markup = capabilities.iter().any(|c| c == "body-markup");

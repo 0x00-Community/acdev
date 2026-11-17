@@ -7,7 +7,7 @@ import {
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
-import { which } from 'acde/launcher'
+import { which } from 'acdev/launcher'
 import { Runtime } from '../runtime.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 
@@ -36,7 +36,7 @@ export class Machine {
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.env = env
     const data = env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share')
-    this.dir = resolve(env['ACDE_VM_DIR'] || join(data, 'acde', 'vm'))
+    this.dir = resolve(env['ACDE_VM_DIR'] || join(data, 'acdev', 'vm'))
   }
 
   get images(): string {
@@ -77,7 +77,7 @@ export class Machine {
 
   running(): number {
     const pid = this.pid()
-    if (pid === null) throw new Error(`vm: no guest is running from ${this.dir} (acde vm start)`)
+    if (pid === null) throw new Error(`vm: no guest is running from ${this.dir} (acdev vm start)`)
     return pid
   }
 

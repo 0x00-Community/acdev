@@ -25,7 +25,7 @@ function failure(): string | null {
 }
 
 function checkout(): string {
-  const root = join(tmp(), 'acde')
+  const root = join(tmp(), 'acdev')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'acde', version: '0.0.5' }))
   writeFileSync(join(root, 'src', 'cli.ts'), '')
@@ -33,7 +33,7 @@ function checkout(): string {
 }
 
 function install(): { root: string } {
-  const root = join(tmp(), 'versions', '0.0.5', 'lib', 'acde')
+  const root = join(tmp(), 'versions', '0.0.5', 'lib', 'acdev')
   mkdirSync(join(root, 'dist'), { recursive: true })
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'acde', version: '0.0.5' }))
   writeFileSync(join(root, 'dist', 'cli.js'), '')
@@ -75,7 +75,7 @@ describe('launcher: where acdert comes from', () => {
     expect(requireAcdert()).toBe(onPath)
   })
 
-  test('an installed acde takes the acdert the installer put beside it, before PATH; ACDERT still wins', () => {
+  test('an installed acdev takes the acdert the installer put beside it, before PATH; ACDERT still wins', () => {
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
     const beside = binary(join(root, '..', '..', 'bin', `acdert${EXE}`))
@@ -90,8 +90,8 @@ describe('launcher: where acdert comes from', () => {
 
   test('nothing found: an English error names where the installer puts it, ACDERT and PATH', () => {
     expect(failure()).toBe(
-      'acde dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
-      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH (acde doctor checks the whole setup)',
+      'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
+      'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
     )
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
@@ -103,9 +103,9 @@ describe('launcher: where acdert comes from', () => {
     }
     const beside = join(root, '..', '..', 'bin', `acdebin-dbg${EXE}`)
     expect(message).toBe(
-      `acde dev needs the Dopame runtime (acdebin-dbg) and found none: no ${beside}, ` +
-      'which the acde installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, ' +
-      'or put acdebin-dbg on PATH (acde doctor checks the whole setup)',
+      `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: no ${beside}, ` +
+      'which the acdev installer puts there: run the installer again, set ACDERT to an acdebin-dbg binary, ' +
+      'or put acdebin-dbg on PATH (acdev doctor checks the whole setup)',
     )
     expect(message).not.toContain('not part of acde')
   })
@@ -128,7 +128,7 @@ describe('launcher: where acdert comes from', () => {
     expect(none).toEqual({
       path: null,
       from: null,
-      problem: 'acde dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
+      problem: 'acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
         'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
     })
   })
@@ -177,18 +177,18 @@ describe('start-up', () => {
     const imported = [...source.matchAll(/^import (?!type )[^\n]* from '([^']+)'/gm)].map((m) => m[1]).sort()
     expect(imported).toEqual([
       './color.ts', './driver/types.ts', './help.ts', './output.ts', './runtime.ts', './starters.ts', './versions.ts',
-      'acde/launcher',
+      'acdev/launcher',
       'node:fs', 'node:path',
     ])
   })
 
-  test.skipIf(WINDOWS)('bin/acde (sh) asks bun for its version once, then again only when bun changes', () => {
+  test.skipIf(WINDOWS)('bin/acdev (sh) asks bun for its version once, then again only when bun changes', () => {
     const top = join(tmp(), 'versions', '0.0.5')
     mkdirSync(join(top, 'bin'), { recursive: true })
-    mkdirSync(join(top, 'lib', 'acde', 'dist'), { recursive: true })
-    copyFileSync(join(import.meta.dir, '../bin/acde.sh'), join(top, 'bin', 'acde'))
+    mkdirSync(join(top, 'lib', 'acdev', 'dist'), { recursive: true })
+    copyFileSync(join(import.meta.dir, '../bin/acdev.sh'), join(top, 'bin', 'acde'))
     chmodSync(join(top, 'bin', 'acde'), 0o755)
-    writeFileSync(join(top, 'lib', 'acde', 'dist', 'cli.js'), "console.log('cli', process.argv.slice(2).join(' '))\n")
+    writeFileSync(join(top, 'lib', 'acdev', 'dist', 'cli.js'), "console.log('cli', process.argv.slice(2).join(' '))\n")
     const fake = join(tmp(), 'fake')
     mkdirSync(fake)
     const log = join(fake, 'calls')

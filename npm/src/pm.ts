@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { which } from 'acde/launcher'
+import { which } from 'acdev/launcher'
 import { up } from './paths.ts'
 
 export type PmName = 'bun' | 'npm' | 'pnpm' | 'yarn'
@@ -55,7 +55,7 @@ export class PackageManager {
       value = JSON.parse(readFileSync(file, 'utf8'))
     } catch (error) {
       const why = error instanceof Error ? error.message.split('\n', 1)[0] : String(error)
-      throw new Error(`${file} is not valid JSON (${why}): acde reads it to tell which package manager the project uses`)
+      throw new Error(`${file} is not valid JSON (${why}): acdev reads it to tell which package manager the project uses`)
     }
     return value && typeof value === 'object' ? (value as { packageManager?: unknown }) : {}
   }

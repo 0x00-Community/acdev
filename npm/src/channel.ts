@@ -23,7 +23,7 @@ export interface Frame {
 }
 
 export function encode(type: number, stream: number, payload: Uint8Array = EMPTY): Buffer {
-  if (payload.length > MAX_PAYLOAD) throw new RangeError(`acde: channel payload of ${payload.length} bytes`)
+  if (payload.length > MAX_PAYLOAD) throw new RangeError(`acdev: channel payload of ${payload.length} bytes`)
   const frame = Buffer.allocUnsafe(HEADER + payload.length)
   frame[0] = type
   frame.writeUInt32BE(stream, 1)
@@ -47,7 +47,7 @@ export class Decoder {
     let at = 0
     while (bytes.length - at >= HEADER) {
       const size = bytes.readUInt32BE(at + 5)
-      if (size > MAX_PAYLOAD) throw new Error(`acde: channel frame of ${size} bytes (at most ${MAX_PAYLOAD})`)
+      if (size > MAX_PAYLOAD) throw new Error(`acdev: channel frame of ${size} bytes (at most ${MAX_PAYLOAD})`)
       if (bytes.length - at - HEADER < size) break
       const payload = Buffer.from(bytes.subarray(at + HEADER, at + HEADER + size))
       frames.push({ type: bytes[at]!, stream: bytes.readUInt32BE(at + 1), payload })
@@ -318,7 +318,7 @@ let quitting = false
 
 function gone(reason: string): never {
   channel?.mux.close(reason)
-  process.stderr.write(`acde: the backend channel closed (${reason}); exiting\n`)
+  process.stderr.write(`acdev: the backend channel closed (${reason}); exiting\n`)
   process.exit(0)
 }
 
@@ -378,7 +378,7 @@ let control: { readonly close: () => void } | null = null
 let controlLost = false
 
 function lost(error: unknown): void {
-  process.stderr.write(`acde: the control channel failed (${(error as Error).message}); not reading it\n`)
+  process.stderr.write(`acdev: the control channel failed (${(error as Error).message}); not reading it\n`)
   control?.close()
   control = null
   controlLost = true

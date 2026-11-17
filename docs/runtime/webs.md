@@ -108,11 +108,11 @@
     `desktop`、`setDefault`) 只给桌面页面、声明了它的桌面服务和声明了它的系统应用 (与某个已安装桌面同包的应用); 应用模块 (`APP_MODULES`: `launch`、
     `apps` 只有 list / open、`open`、`openPath`、`handlers`、`window`) 给所有应用. 声明外壳模块的第三方应用启动时拒绝 (403, `shell_module`).
     没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 哪个模块要哪条声明只在 SDK `Manifest.importRule(name, app, origin)`
-    (`{allowed, missing, reason, unverified}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它).
+    (`{allowed, missing, reason, unverified}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acdev 的检查都用它).
     **服务的命名空间** (不是系统模块的名字): 运行时按服务名授权, 应用列了 `clock` 就拿到这个服务 `api` 的每个键 (`DesktopServices.start` 把每个键记到服务名上,
     `ServiceCalls.#allowed` 先把命名空间换成服务名再查 `app.services`), 而命名空间是工厂函数的返回值, 静态规则看不到. 所以规则是: 名字在 `app.services` 里 → 许;
     不在但应用列了别的服务 → 许, `unverified` 带一句说明 (`acde:timer resolves only if the service <应用> lists ("clock") provides the "timer" namespace`,
-    acde 把它打成 `note:`); 一个服务都没列 → 拒绝, `missing` 是 null (缺的是提供它的那个服务的名字, 规则不知道), 原因让人写服务的名字
+    acdev 把它打成 `note:`); 一个服务都没列 → 拒绝, `missing` 是 null (缺的是提供它的那个服务的名字, 规则不知道), 原因让人写服务的名字
     (`acde:timer is not a system module; if a desktop service provides it, list that service's name in the services of <应用>`; 拼错的模块名也落在这里), 不再让人把命名空间当服务名写进去
     (那样应用要求一个不存在的服务, 启动时 `needs "timer" (service not running)`). 别的名字 `unverified` 都是 null. 新的 `acde:packages` (refresh / install / natives / runNative)
     和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
@@ -134,9 +134,9 @@
   必需的既不是 `available` 也不是批准的那几种状态 (`not-asked` / `asking` / `denied`, 使用时才问, 被拒只让调用失败) 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "network" (not available on Windows host windows); list it in "optional" to run without it` (平台缺的系统能力写出平台和运行方式,
   #148; 404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`, 原因照 `reason`).
-  `acde dev` 重载时新清单要的能力不可用: 记一行这个错误, 开着的窗口留在旧版本, 会话不退出, 改好清单再存就照常重载. 可选的照常启动;
+  `acdev dev` 重载时新清单要的能力不可用: 记一行这个错误, 开着的窗口留在旧版本, 会话不退出, 改好清单再存就照常重载. 可选的照常启动;
   声明了但不可用的 fs / terminal / network / office 在 import 时报原因.
-- **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
+- **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acdev 的
   平台检查和本仓文档都以它为准): 按 `process.platform` × 运行方式 (`session` Linux 会话、`desktop` 完整桌面的宿主窗口、`standalone` 单应用宿主窗口) 给
   `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
   network、office、camera、microphone、slots; macOS 缺 network、office、slots; 窗口背景滤镜都是 `full`. Linux 会话和 macOS 的行没有实测.
@@ -168,18 +168,18 @@
   进程里所有 `Workspace` 和 `Finder` 共用一份授权 (`fs/mod.rs` 的 `GRANTS`), 撤销对正在运行的 web 立刻生效. 页面里已有的这个文件夹的句柄活到页面结束;
   同一个页面撤销后再选同一个文件夹, `acde:fs` 仍报 `denied` 到页面重开. 开发、无头和 driver 照常问: dev 请求 `permissions` (待答和已有决定)、`answer {prompt, allow}`、`revoke {app, capability}` (#95, 和 `acde:permissions.revoke` 同一份记录和效果,
   回 `{app, capability, revoked}`, 没有决定过的回 `revoked: false`; 桌面和 `acdert app` 都能用)
-  给 acde 用 (driver、MCP, 和命令行的 `acde permissions` / `allow` / `deny` / `revoke`); 每个提示记一行 info (`waits for the user to allow … answer it with acde allow or acde deny, …`: 这一行出现在 `acde dev` 的输出里, 是没有对话框的会话里用户和 agent 知道该做什么的地方), 没人答就一直等, 不自动批准.
+  给 acdev 用 (driver、MCP, 和命令行的 `acdev permissions` / `allow` / `deny` / `revoke`); 每个提示记一行 info (`waits for the user to allow … answer it with acdev allow or acdev deny, …`: 这一行出现在 `acdev dev` 的输出里, 是没有对话框的会话里用户和 agent 知道该做什么的地方), 没人答就一直等, 不自动批准.
   **单应用模式的原生对话框** (`acdert app`, 宿主窗口; `broker/access/approval/dialog.ts` `ApprovalDialogs`, 由 `broker/approvals.ts` 接上): 提示同时交给宿主的
   `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
   一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
   `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. macOS 是宿主窗口上的 `NSAlert` sheet (`system/approve.rs`, 「Don't Allow」在前、是默认,
   「Allow」), `dismissApproval` 经 `NSOperationQueue.mainQueue` 回主线程 `endSheet` (`NSModalResponseAbort`, 回 null); Linux 是 `org.freedesktop.Notifications`
   的常驻通知 (urgency critical, 不过期), 带 `deny` / `allow` 两个动作, 关掉或点了别处回 null, `dismissApproval` 调 `CloseNotification`; 通知服务没有
-  `actions` 能力、没有会话总线或 5 s 内不应 (`CALL_TIMEOUT`, 只管方法调用, 不管等用户) 时回 null. headless 没有对话框 (`approve` 回 null); 回 null 的提示照旧等 driver 或 `acde allow` / `acde deny`.
+  `actions` 能力、没有会话总线或 5 s 内不应 (`CALL_TIMEOUT`, 只管方法调用, 不管等用户) 时回 null. headless 没有对话框 (`approve` 回 null); 回 null 的提示照旧等 driver 或 `acdev allow` / `acdev deny`.
   `devReload` 对主窗口用 `Launchable.app` 重新查一遍 (应用没了、级别不对、平台不支持、服务没在跑各报各的话), 查不过时结束会话, 那行错误是
   `Launchable.ended`: `acdert app <id>: <原因>`. **`acdert app` 里以前的拒绝会再问一次** (`PermissionsHost.asksAgain`, 单应用模式为真): 记录里是
   `denied`、这一次运行还没问过的能力, `permit` 当作 `ask`, 问的时候删掉旧记录并记一行 `was denied … in an earlier run: asking again`; 这一次运行里答了「否」照旧不问第二次.
-  单应用模式是开发者点名要跑这个应用, 又没有桌面的权限界面; 不这样的话拒绝一次之后这个应用在 `acde dev` 里再也问不到, 而 `acde revoke` 要有会话才能用, 只剩手改 `permissions.json`. 桌面和会话里记下的拒绝照旧有效.
+  单应用模式是开发者点名要跑这个应用, 又没有桌面的权限界面; 不这样的话拒绝一次之后这个应用在 `acdev dev` 里再也问不到, 而 `acdev revoke` 要有会话才能用, 只剩手改 `permissions.json`. 桌面和会话里记下的拒绝照旧有效.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口

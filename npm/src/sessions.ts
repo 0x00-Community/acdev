@@ -281,15 +281,15 @@ export class Sessions {
     if (pid !== undefined) {
       const chosen = listed.find((s) => s.pid === pid)
       if (chosen) return chosen
-      throw new Error(`no acde dev with pid ${pid}${Sessions.#listing(listed)}`)
+      throw new Error(`no acdev dev with pid ${pid}${Sessions.#listing(listed)}`)
     }
     const sessions = listed.filter((s) => !s.test)
     if (sessions.length === 0 && listed.length > 0) {
-      throw new Error('no acde dev is running, only sessions of acde test, which are reached only with --session <pid>'
+      throw new Error('no acdev dev is running, only sessions of acdev test, which are reached only with --session <pid>'
         + Sessions.#listing(listed))
     }
     if (sessions.length === 0)
-      throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${dir})`)
+      throw new Error(`no acdev dev is running (start one with acdev dev; sessions are listed in ${dir})`)
     const here = Sessions.#real(cwd)
     const depth = (session: Session) =>
       Math.max(-1, ...session.dirs.filter((dir) => contains(dir, here)).map((dir) => dir.length))
@@ -299,22 +299,22 @@ export class Sessions {
     const project = up(here, (dir) => [...CONFIGS, 'package.json'].some((name) => existsSync(join(dir, name))) && dir)
     if (matching.length === 0 && sessions.length === 1 && project === null) {
       const only = sessions[0]!
-      say?.(`acde: using acde dev ${only.pid} (${Sessions.what(only)}), the only one running`)
+      say?.(`acdev: using acdev dev ${only.pid} (${Sessions.what(only)}), the only one running`)
       return only
     }
     if (matching.length === 0 && project !== null) {
-      throw new Error(`no acde dev runs the project in ${project}; to use another one, pass --session <pid>`
+      throw new Error(`no acdev dev runs the project in ${project}; to use another one, pass --session <pid>`
         + Sessions.#listing(sessions))
     }
     const why = matching.length > 1
-      ? `several acde dev sessions run ${here}`
-      : `none of the ${sessions.length} acde dev sessions runs ${here}`
+      ? `several acdev dev sessions run ${here}`
+      : `none of the ${sessions.length} acdev dev sessions runs ${here}`
     throw new Error(`${why}; pick one with --session <pid>${Sessions.#listing(matching.length > 1 ? matching : sessions)}`)
   }
 
   static what(session: Session): string {
     const kind = session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`
-    const notes = [session.headless && 'headless', session.test && 'acde test'].filter(Boolean)
+    const notes = [session.headless && 'headless', session.test && 'acdev test'].filter(Boolean)
     return `${kind}${notes.length ? ` (${notes.join(', ')})` : ''}`
   }
 
@@ -480,7 +480,7 @@ export class Claims {
     } finally {
       rmSync(scratch, { force: true })
     }
-    throw new Error(`${project}: could not claim it for this acde dev in ${Claims.TRIES} tries (${file} keeps changing); `
+    throw new Error(`${project}: could not claim it for this acdev dev in ${Claims.TRIES} tries (${file} keeps changing); `
       + 'run it again, or pass --force')
   }
 

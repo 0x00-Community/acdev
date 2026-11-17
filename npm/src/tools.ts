@@ -16,7 +16,7 @@ export class Tools {
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
     'allow', 'deny', 'revoke', 'stop',
   ])
-  static readonly ANSWER = 'acde allow (or acde deny)'
+  static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
   static readonly QUERY_LIMIT = 3000
   static readonly FOLLOW_MS = 500
@@ -48,7 +48,7 @@ export class Tools {
     const name = (w: (typeof windows)[number]) =>
       w.kind === 'desktop' ? 'desktop' : JSON.stringify(w.title ?? w.app ?? '')
     const named = windows.map((w) => `${w.ref} ${name(w)}`)
-    return `; the windows: ${named.join(', ')} (acde inspect lists them)`
+    return `; the windows: ${named.join(', ')} (acdev inspect lists them)`
   }
 
   static #events(text: string): InputEvent[] {
@@ -56,24 +56,25 @@ export class Tools {
     try {
       parsed = JSON.parse(text)
     } catch (error) {
-      throw new Error(`input: the events are a JSON array (${(error as Error).message}) (acde input --help)`)
+      throw new Error(`input: the events are a JSON array (${(error as Error).message}) (acdev input --help)`)
     }
     if (!Array.isArray(parsed) || !parsed.length || !parsed.every((e) => e && typeof e === 'object' && typeof e.type === 'string'))
-      throw new Error('input: the events are a non-empty JSON array of objects with a type (acde input --help)')
+      throw new Error('input: the events are a non-empty JSON array of objects with a type (acdev input --help)')
     return parsed as InputEvent[]
   }
 
   static choice(args: readonly string[], cancel: boolean): { kind: 'folder' | 'open' | 'save'; paths: string[] | null } {
     const [kind, ...paths] = args
     if (kind !== 'folder' && kind !== 'open' && kind !== 'save') {
-      throw new Error(`choose: ${kind} is not a picker; give folder, open or save (acde choose --help)`)
+      throw new Error(`choose: ${kind} is not a picker; give folder, open or save (acdev choose --help)`)
     }
     if (cancel) {
-      if (paths.length) throw new Error('choose: --cancel takes no paths (acde choose --help)')
+      if (paths.length) throw new Error('choose: --cancel takes no paths (acdev choose --help)')
       return { kind, paths: null }
     }
-    if (!paths.length) throw new Error(`choose ${kind}: give the ${kind === 'open' ? 'files' : kind === 'folder' ? 'folder' : 'file'} to answer, or --cancel (acde choose --help)`)
-    if (kind !== 'open' && paths.length > 1) throw new Error(`choose ${kind}: one path, not ${paths.length} (acde choose --help)`)
+    if (!paths.length) throw new Error(`choose ${kind}: give the ${kind === 'open' ? 'files' : kind === 'folder' ? 'folder' : 'file'} to answer, ` +
+      'or --cancel (acdev choose --help)')
+    if (kind !== 'open' && paths.length > 1) throw new Error(`choose ${kind}: one path, not ${paths.length} (acdev choose --help)`)
     return { kind, paths }
   }
 
@@ -86,16 +87,16 @@ export class Tools {
 
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
-    return gone ? `there is no such ${gone[1]} (any more); acde inspect --find TEXT gives the current refs` : null
+    return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
   }
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
     const session = Tools.pid(flags.get('session'), command)
     if (command === 'act' && !ACTIONS.includes(args[1] as InspectAction))
-      throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acde act --help)`)
+      throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acdev act --help)`)
     const needs = command === 'act' && args[2] === undefined ? Tools.NEEDS[args[1]!] : undefined
     if (needs) {
-      throw new Error(`act: ${args[1]} needs ${needs}: acde act ${args[0]} ${args[1]} ${Tools.EXAMPLE[args[1]!]}`)
+      throw new Error(`act: ${args[1]} needs ${needs}: acdev act ${args[0]} ${args[1]} ${Tools.EXAMPLE[args[1]!]}`)
     }
     const events = command === 'input' ? Tools.#events(args[1] === '-' ? await Runtime.readStdin() : args[1]!) : []
     const level = flags.get('level')
@@ -157,7 +158,7 @@ export class Tools {
             return 0
           }
           const hint = flags.has('offscreen') ? '' : '; elements scrolled out of view need --offscreen'
-          console.error(`acde: no element's name or value contains ${JSON.stringify(find.trim())}${hint}`)
+          console.error(`acdev: no element's name or value contains ${JSON.stringify(find.trim())}${hint}`)
           return Tools.NOTHING
         }
         case 'query': {
@@ -168,7 +169,7 @@ export class Tools {
             ...(limit !== undefined && { limit }),
           }))
           if (!found.count) {
-            console.error(`acde: ${Format.matches(found, args[0]!)}`)
+            console.error(`acdev: ${Format.matches(found, args[0]!)}`)
             return Tools.NOTHING
           }
           console.log(Format.matches(found, args[0]!))
@@ -177,7 +178,7 @@ export class Tools {
         case 'input': {
           const result = await acde.input(args[0]!, events)
           if (result.ok) console.log(result.text)
-          else console.error(`acde: input ${args[0]}: ${result.text}`)
+          else console.error(`acdev: input ${args[0]}: ${result.text}`)
           return result.ok ? 0 : 1
         }
         case 'act': {
@@ -186,7 +187,7 @@ export class Tools {
           else {
             const told = Tools.missing(result.text) ?? result.text
             const listed = Tools.NO_WINDOW.test(told) ? await Tools.#windows(acde) : ''
-            console.error(`acde: act ${args[0]}: ${told}${listed}`)
+            console.error(`acdev: act ${args[0]}: ${told}${listed}`)
           }
           return result.ok ? 0 : 1
         }
@@ -228,7 +229,7 @@ export class Tools {
         case 'pointer': {
           const [x, y] = args.map(Number) as [number, number]
           if (!Number.isFinite(x) || !Number.isFinite(y))
-            throw new Error(`pointer: ${args.join(' ')}: x and y are numbers (acde pointer --help)`)
+            throw new Error(`pointer: ${args.join(' ')}: x and y are numbers (acdev pointer --help)`)
           const at = await acde.pointer(x, y)
           console.log(`the pointer is at ${at.x}, ${at.y}`)
           return 0
@@ -246,7 +247,7 @@ export class Tools {
     const link = await DevClient.connect(session.endpoint).catch(() => null)
     if (!link) {
       Sessions.remove(session.pid)
-      throw new Error(`acde dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
+      throw new Error(`acdev dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
     }
     link.send({ type: 'quit' })
     const timer = new AbortController()
@@ -262,10 +263,10 @@ export class Tools {
       try {
         process.kill(session.pid, 'SIGTERM')
       } catch {}
-      console.error(`acde: acde dev ${session.pid} did not end within ${Tools.STOP_MS / 1000} s of quit; ended it`)
+      console.error(`acdev: acdev dev ${session.pid} did not end within ${Tools.STOP_MS / 1000} s of quit; ended it`)
     }
     Sessions.remove(session.pid)
-    console.log(`acde: stopped acde dev ${session.pid}`)
+    console.log(`acdev: stopped acdev dev ${session.pid}`)
     return 0
   }
 
@@ -282,7 +283,7 @@ export class Tools {
       if (page.dropped) console.log(`… ${page.dropped} older entries were dropped`)
       for (const entry of page.entries) console.log(line(entry))
       if (first && !page.dropped && !page.entries.length) {
-        console.error(`acde: no ${what}${from ? ' in that range' : ''}${follow ? ' yet; waiting for new ones' : ''}`)
+        console.error(`acdev: no ${what}${from ? ' in that range' : ''}${follow ? ' yet; waiting for new ones' : ''}`)
       }
       since = page.next
       if (!follow) return 0
@@ -298,7 +299,7 @@ export class Tools {
 
   static wanted(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Wanted {
     const [first, second] = args
-    const hint = `(acde ${command} --help)`
+    const hint = `(acdev ${command} --help)`
     if (flags.has('all')) {
       if (first === undefined) return { all: true }
       throw new Error(`${command}: --all answers every waiting prompt; leave the prompt out ${hint}`)
@@ -306,7 +307,7 @@ export class Tools {
     if (first === undefined) return {}
     if (second !== undefined) return { app: first, capability: second }
     if (/^\d+$/.test(first)) return { prompt: Number(first) }
-    const listed = 'acde permissions lists them'
+    const listed = 'acdev permissions lists them'
     throw new Error(`${command}: ${first} is not a prompt id (${listed}); or give <app> <capability> ${hint}`)
   }
 
@@ -324,6 +325,6 @@ export class Tools {
     if (value === undefined) return undefined
     const pid = Number(value)
     if (Number.isInteger(pid) && pid > 0) return pid
-    throw Output.option(command, 'session', value, 'the process id of an acde dev')
+    throw Output.option(command, 'session', value, 'the process id of an acdev dev')
   }
 }

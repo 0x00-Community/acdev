@@ -205,7 +205,7 @@ export function skillProblems(dir: string): string[] {
 }
 
 if (import.meta.main) {
-  const dir = process.argv[2] ?? join(dirname(import.meta.dirname), 'skills', 'acde')
+  const dir = process.argv[2] ?? join(dirname(import.meta.dirname), 'skills', 'acdev')
   const problems = skillProblems(dir)
   for (const problem of problems) console.error(problem)
   if (problems.length > 0) process.exit(1)

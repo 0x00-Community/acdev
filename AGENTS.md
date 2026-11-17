@@ -1,14 +1,14 @@
 | 改 SDK `@dopame/acde-api` (`npm/acde-api/`, 只有类型声明), 或在别的工程里引用它 | `docs/acde-api.md` |
 # acdev
 
-acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
+acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
 (Linux KVM、Windows WHPX、macOS Hypervisor.framework) 跑装着 Dopame OS 的虚拟机, 开发者工具内置其中 (用户定 2026-11-17). 现在仓库里有:
 
 - `acdert/`: 运行时库 (原 AC/acdert, 连历史并入): 内嵌 V8、自研 DOM 与排版绘制 (Blitz fork + detour / vello)、网页存储、媒体、WebGPU / WebGL 绑定和
   `acde:` 系统模块, 拥有全部跨仓契约 (包清单、SDK `@dopame/acde-api`、`acde_*` 协议). 对外是 Rust 包 `acdert` (rlib + `libacdert.so` + `include/acdert.h`);
   虚拟机里的 acdebin-system 也链接它.
 - 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdebin-dbg` (宿主窗口); 朝模拟器演进.
-- `npm/`: 开发者命令行 `acde` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
+- `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
 
 闭源. 说明都在本文件和 `docs/` 里: 没有 README, 子目录不放 AGENTS.md. 按下面的文件路由选读.
 
@@ -16,14 +16,14 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 >
 > - web 接口 (DOM、`window`、`fetch`、`localStorage`、事件、Web Audio、WebGPU …) 和浏览器**完全兼容**: 行为、签名、事件、错误都照标准.
 >   不给标准对象加私有方法 / 字段 / 事件, 不改标准语义. 做不到的就是缺口, 记成「还没有」, 不拿长得像的私有版本顶替.
-> - **全局只有两个**: `window` (web 兼容) 和 `globalThis` (node 兼容). 没有 `acde` 全局, 不往全局上挂非标准的东西.
+> - **全局只有两个**: `window` (web 兼容) 和 `globalThis` (node 兼容). 没有 `acdev` 全局, 不往全局上挂非标准的东西.
 > - 系统能力只有一个入口: `acde:` 内置模块, 照 `node:fs` 的写法导入 (`import { fs } from 'acde:fs'`、`import self from 'acde:window'` …;
 >   类型在 SDK `@dopame/acde-api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 workerd 的 binding, 直接注入页面所在的 V8 isolate, 调用直接进 Rust 原生实现, 不经 socket /
 >   IPC / 别的进程代办.
 > - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, `acdert/vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有
 >   Chromium 的浏览器外壳; 正式运行没有远程调试端口, 只在开发模式 (`ACDE_DEV`) 下在本机 `127.0.0.1` 开 CDP 端点 (见 `docs/dev/devtools.md`).
->   开发者工具内置进 acdev, 不依赖 Chrome (用户定 2026-11-17); 现在 `acde devtools` 还借 Chrome / Edge 打开, 见 `docs/devtools-driver-mcp.md`.
+>   开发者工具内置进 acdev, 不依赖 Chrome (用户定 2026-11-17); 现在 `acdev devtools` 还借 Chrome / Edge 打开, 见 `docs/devtools-driver-mcp.md`.
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
@@ -39,7 +39,7 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 - Rust 和 TypeScript 代码不写注释 (`//`、`/* */`、`///`、JSDoc 都不写), 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行 (`acdert/src/napi` 的
   Deno 版权)、工具指令 (`/// <reference>`, `@ts-expect-error`)、`acdert/vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
 - 命令行的日志和输出只用英文; 同一份命令行代码在 bun 和 Node 上都跑, `Bun.*`、`bun:*`、宏只能出现在 bun 专属的路径上 (见 `docs/cli-overview.md` 的「bun 和 Node」).
-- 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill** (`npm/skills/acde/`, 见 `docs/skills.md`);
+- 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill** (`npm/skills/acdev/`, 见 `docs/skills.md`);
   skill 只写对外的用法, 实现和取舍写在 `docs/`.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外是换成 `acdert/vendor/` 的 crate 和配套的 (blitz-*、stylo*、
@@ -95,24 +95,24 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 | 改 WebGL (`acdert/src/webgl`、acde-dom `webgl/`) 或 GLSL 前端 | `docs/graphics/webgl.md` |
 | 改 `acdert/vendor/blitz`, 或升 stylo / parley / html5ever / naga 这类钉住版本的依赖 | `docs/graphics/vendor.md` |
 | 构建运行时、在 Windows 上编、升 v8 或改依赖镜像、设环境变量、跑 `acdert` 的命令和 doctor、看日志和 `perf::` 计时 | `docs/dev/build-run.md` |
-| 改 acde dev 的 IPC、调试请求 (eval / shot / route / clock / input …)、dev 日志或热重载 (运行时一侧) | `docs/dev/dev-ipc.md` |
+| 改 acdev dev 的 IPC、调试请求 (eval / shot / route / clock / input …)、dev 日志或热重载 (运行时一侧) | `docs/dev/dev-ipc.md` |
 | 改 DevTools 端点、页面一侧的 CDP 域 (DOM / CSS / Network / Overlay)、断点或重载不断开 | `docs/dev/devtools.md` |
 | 写运行时的回归测试、跑或更新 WPT 期望、改 `.github/workflows/test.yml` 或 `.github/actions/wpt-setup` | `docs/dev/testing.md` |
 | 把 `acdert` 发到 cargo 源 ac, 或了解运行时怎么随 acdev 发版 | `docs/dev/release.md` |
-| 改 `acde vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
-| 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acde` 怎么找运行时 | `docs/architecture.md` |
-| 在本地编译、运行 `acdebin-dbg`, 或让源码跑的 `acde dev` 用上它 | `docs/runtime-build.md` |
+| 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
+| 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acdev` 怎么找运行时 | `docs/architecture.md` |
+| 在本地编译、运行 `acdebin-dbg`, 或让源码跑的 `acdev dev` 用上它 | `docs/runtime-build.md` |
 | 改宿主窗口、合成、出帧、GPU、输入、窗框、菜单、headless 或系统能力 (`crates/hostwin`) | `docs/hostwin.md` |
 | 改运行时自检 `acdebin-dbg doctor` (`src/doctor.rs`) 的检查项或输出 | `docs/doctor.md` |
 | 了解命令行的启动速度、仓库脚本、工程与安装目录, 或写要在 bun 和 Node 上都跑的代码 | `docs/cli-overview.md` |
 | 加改命令行的命令或参数, 改帮助、颜色、stderr 格式、退出码、`check --platform` 或 `acde:` 导入检查 | `docs/cli-commands.md` |
-| 改 `acde new`、模板、包管理器选择、SDK 依赖写法或 `acde sdk` | `docs/acde-new.md` |
-| 改 `acde build` / `install`: 工程与包、框架识别、打包器、`public/`、后端和 preload (含 Windows 通道模式) | `docs/acde-build.md` |
-| 改 `acde doctor` 的检查项、修法文字或 `--fix` | `docs/acde-doctor.md` |
-| 改 `acde dev`: 契约级别检查、stderr 过滤、监听重建、热重载、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
-| 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acde test` | `docs/devtools-driver-mcp.md` |
+| 改 `acdev new`、模板、包管理器选择、SDK 依赖写法或 `acdev sdk` | `docs/acde-new.md` |
+| 改 `acdev build` / `install`: 工程与包、框架识别、打包器、`public/`、后端和 preload (含 Windows 通道模式) | `docs/acde-build.md` |
+| 改 `acdev doctor` 的检查项、修法文字或 `--fix` | `docs/acde-doctor.md` |
+| 改 `acdev dev`: 契约级别检查、stderr 过滤、监听重建、热重载、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
+| 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acdev test` | `docs/devtools-driver-mcp.md` |
 | 发版, 改 `.github/workflows/release.yml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
-| 改 `npm/skills/acde/`、`acde skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |
+| 改 `npm/skills/acdev/`、`acdev skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |
 | 改命令行和运行时之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-acdert.md` |
 | 跑或加命令行的测试, 在 Windows 上跑 `bun test` | `docs/cli-tests.md` |
 | 挑下一件命令行的事做, 或判断某个功能是不是已经计划过 | `docs/roadmap.md` |

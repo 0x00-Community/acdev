@@ -189,7 +189,10 @@ export class LocatorAssertions {
     const ms = options.timeout ?? acde.timeout
     return acde.trace.step(`expect ${target} to match screenshot ${label}`, async () => {
       const expected = update ? null : Screenshots.read(path)
-      if (!expected && !update && ci) throw new AssertionError(`expected ${target} to match screenshot ${path}, but there is no such file (CI is set, so acde does not write it; run acde test --update-screenshots and commit it)`)
+      if (!expected && !update && ci) {
+        throw new AssertionError(`expected ${target} to match screenshot ${path}, but there is no such file `
+          + '(CI is set, so acdev does not write it; run acdev test --update-screenshots and commit it)')
+      }
       const deadline = Date.now() + ms
       let previous: Image | null = null
       let why = ''
@@ -208,7 +211,7 @@ export class LocatorAssertions {
             }
             mkdirSync(dirname(path), { recursive: true })
             writeFileSync(path, Png.encode(actual))
-            console.log(`acde: ${update ? 'updated' : 'wrote'} screenshot ${path}`)
+            console.log(`acdev: ${update ? 'updated' : 'wrote'} screenshot ${path}`)
             return
           }
           if (actual.width !== expected.width || actual.height !== expected.height) {

@@ -408,7 +408,7 @@ if (process.env['FAKE_ACDERT_LOGS']) {
     '14.392 W acde js: fake page warning',
     '14.393 I acde acde_host: [alpha#7] alert: fake alert',
     '14.394 I acde acde_host: Alpha (alpha) waits for the user to allow "camera" (prompt 1; fake)',
-    '14.394 I acde-dev-conn acde_hostwin::dev: acde dev: reload alpha',
+    '14.394 I acde-dev-conn acde_hostwin::dev: acdev dev: reload alpha',
     '14.394 I acde acde_host: broker started (2ms)',
     '14.395 D acde acde_render::gpu: fake debug',
     'thread \'main\' panicked at fake.rs:1:1:',

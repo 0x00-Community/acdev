@@ -46,7 +46,7 @@ describe('errors in the source say where they are', () => {
 })
 
 describe('development builds keep the source', () => {
-  test('acde dev builds are not minified and carry source maps; acde build stays minified without them', async () => {
+  test('acdev dev builds are not minified and carry source maps; acdev build stays minified without them', async () => {
     const { AppPackage } = await import('../src/package.ts')
     const dir = project({
       'package.json': '{"name": "mapped"}',

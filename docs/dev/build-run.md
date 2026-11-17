@@ -23,7 +23,7 @@ D3D12 调试层 (要装「图形工具」可选功能). 没有: 通知、WebGPU�
 脚本以无窗口模式运行, 测试包和日志写到 `logs/standalone.*`.
 
 Windows 上用 `bash scripts/check-backends.sh` 验收应用后端 (见 `docs/web/backend.md`「Windows 后端契约」). 测试包 (`scripts/backends/`) 有 Node、Bun 两个带后端的应用和一个旧预加载的;
-预加载从并排检出的 acde (`../acde/src/listen.ts`, 或设 `ACDE_SRC` / 直接给成品 `ACDE_LISTEN`) 现场打包. 每个后端: 页面跑 GET、带体 POST、分块、8 个并发、
+预加载从并排检出的 acdev (`../acde/src/listen.ts`, 或设 `ACDE_SRC` / 直接给成品 `ACDE_LISTEN`) 现场打包. 每个后端: 页面跑 GET、带体 POST、分块、8 个并发、
 2 MiB 双向、WebSocket 文本和二进制 (Bun 另有 1 MiB 消息和发布订阅); acdert、后端和后端的子进程没有 TCP 监听、UDP 端点、名字带它们 pid 的新命名管道;
 Bun 的本代目录在默认 base 下, DACL 读回只有 SYSTEM 和当前用户, 启动时扫掉了预先放的残留目录; 杀后端后重起、子进程一起没了、旧目录删了、场景再跑一遍
 (WebSocket 重连); 经 Broker 停止 3 秒内 (SHUTDOWN) 结束、子进程和目录没了; 关窗后 acdert 退 0, 进程和本代目录都不在. 旧预加载的 node 不起, 打 warn.
@@ -40,7 +40,7 @@ Bun 的本代目录在默认 base 下, DACL 读回只有 SYSTEM 和当前用户,
 acdert                                    # 会话: 桌面按 `docs/runtime/packages.md`「桌面包」的规则选
 acdert --desktop dopame                   # 那个桌面 (id 或包目录)
 acdert --greeter                          # 登录页 (greetd)
-acdert desktop <id|目录>                  # 调试桌面 (acde dev)
+acdert desktop <id|目录>                  # 调试桌面 (acdev dev)
 acdert app <id|目录>                      # 调试窗口: 只跑一个应用
 acdert desktops                           # 装了的桌面和外部会话 (不要显示器)
 acdert --version                          # 发行版本和契约级别: acdert <版本> (contract level 1)
@@ -57,7 +57,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 前端的 `doctor` 子命令见 acdebin-dbg `docs/doctor.md`.
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
-内存, 见 `docs/web/storage.md`「网页存储」)、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acde: <message>`, 不带 `Error:`, 和 acde 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
+内存, 见 `docs/web/storage.md`「网页存储」)、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设、空或 `0` 时只打一行 `acdev: <message>`, 不带 `Error:`, 和 acdev 的 `Output.debug` 同一条规则)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
 `ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HOST_FAULT`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见 `docs/graphics/render-gpu.md`「shell」.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
@@ -76,7 +76,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 ## 日志和计时
 
-Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追加在默认的 `warn,acde=info,…` 后面; 每行
+Rust 一律 `log` 的宏, `src/log` (`acde-log`) 装 env_logger: `RUST_LOG` 追加在默认的 `warn,acdev=info,…` 后面; 每行
 `<进程启动以来的毫秒> <级别> <线程名> <target>: <内容>`; 写 stderr 在 `acde-log` 线程上 (积压超过 8 MB 丢掉并记数), 退出和 panic 时
 `acde_log::flush()`. smithay 的 tracing 进同一个 logger. JS 的 `console.*` 是 target `js`; acde-host 用 `log.ts` 的 `Log` (`Log.clock()` 和
 `acde_log::now_ms()` 同一个零点).

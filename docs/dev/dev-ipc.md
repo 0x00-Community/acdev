@@ -1,24 +1,24 @@
-# acde dev: IPC、调试请求、dev 日志和热重载
+# acdev dev: IPC、调试请求、dev 日志和热重载
 
 > 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
 
-IPC: acdert 是服务端, 在 `ACDE_DEV` 上听 (hostwin `dev.rs`, 线程 `acde-dev`, 每条连接一条 `acde-dev-conn`), acde dev 和工具 (acde 的命令、
-MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址和 0700 的目录由 acde dev 定好、旧 socket 它先删, acdert bind 后设 0600,
-退出后 acde dev 删), Windows 上是命名管道服务端 (`FILE_FLAG_FIRST_PIPE_INSTANCE` 防别人抢先占名、`PIPE_REJECT_REMOTE_CLIENTS`、SDDL
+IPC: acdert 是服务端, 在 `ACDE_DEV` 上听 (hostwin `dev.rs`, 线程 `acde-dev`, 每条连接一条 `acde-dev-conn`), acdev dev 和工具 (acdev 的命令、
+MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址和 0700 的目录由 acdev dev 定好、旧 socket 它先删, acdert bind 后设 0600,
+退出后 acdev dev 删), Windows 上是命名管道服务端 (`FILE_FLAG_FIRST_PIPE_INSTANCE` 防别人抢先占名、`PIPE_REJECT_REMOTE_CLIENTS`、SDDL
 `D:P(A;;GA;;;OW)` 只给当前用户, 接一个再开下一个实例). 这条 IPC 能在页面里求值, 所以只给自己. 一行一个 JSON. 发 `{"type":"hello","role":"dev"}`
-的那条连接是 acde dev 的: 它断了 acdert 就退出, acdert 主动发的事件也只发给它; 别的 hello 忽略. Windows 上读之前先 `PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上
+的那条连接是 acdev dev 的: 它断了 acdert 就退出, acdert 主动发的事件也只发给它; 别的 hello 忽略. Windows 上读之前先 `PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上
 挂着的读会让写 (回答) 一直等着. 工程的构建结果经
 `ACDE_PATH` (Windows 用 `;` 分隔) 交给 acdert, 不装进包目录; 日志就是 acdert 的 stderr.
 
-acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写给每条 acde dev 的连接, 没有就丢; 一行
+acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写给每条 acdev dev 的连接, 没有就丢; 一行
 `{"type":"event","event",…}`):
 
 - `{"type":"event","event":"devtools","web","app","window"}`: 宿主窗口里按了 F12 (#196). hostwin `App::key` 前面的
   `dev::DevtoolsKey` (只在有 `ACDE_DEV` 时开) 拦下不带修饰键的 F12: 按下推一个 `devtools` 事件给 Broker (`window` 是有焦点的窗口),
   按住的重复和松开都吞掉, 页面收不到 (宿主窗口失焦时清掉「按住」: 打开的浏览器抢走焦点, 松开常常到不了这里); 带修饰键的 F12、没有 `ACDE_DEV` 时的 F12 照常给页面. Broker 把窗口换成 web (那个窗口的 web,
   原生窗口的 owner, 都没有时桌面), `DevRequests.devtools` 发事件: `web` 是 web 名 (即 `/json/list` 的目标 id), `app` 是应用 id
-  (桌面是 null), `window` 是窗口号. 按键不进页面线程, 所以页面停在断点上时 F12 也照样到. acde dev 收到后和 `acde devtools <web>`
-  一样打开 DevTools (见 acde 的 `dev.ts`).
+  (桌面是 null), `window` 是窗口号. 按键不进页面线程, 所以页面停在断点上时 F12 也照样到. acdev dev 收到后和 `acdev devtools <web>`
+  一样打开 DevTools (见 acdev 的 `dev.ts`).
 
 收到的消息 (`reload` / `quit` 哪条连接发都照做):
 
@@ -80,7 +80,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   - `init {code, web?, once?}` → `{id}`: 页面加载前要跑的脚本 (`WebInit.devInit`, 在页面的 HTML 解析之前, 全局都在、`document` 还空),
     `web` 是 web 名或应用 id, 不给是所有页面; `once` 的只给下一个起来的页面. `uninit {init?}` → `{removed, left}`.
   - `reload {web}` → `{web}`: 和 IPC 的 `reload` 一样重开这个应用的窗口 (或重起桌面), 等它重开.
-  - `resize {web, width, height}` → `{width, height}`: 页面 (不含标题栏) 改成这么大. `free` 窗口经 `Shell.place`; 铺满的 (单应用的 acde dev、
+  - `resize {web, width, height}` → `{width, height}`: 页面 (不含标题栏) 改成这么大. `free` 窗口经 `Shell.place`; 铺满的 (单应用的 acdev dev、
     桌面) 改宿主窗口 (`Shell.resizeScreen` → hostwin `Cmd::Resize`: headless 直接换输出尺寸, winit `request_inner_size`, Windows 还没有);
     会话里回错.
 - **DevTools 端点**: 见 `docs/dev/devtools.md`.
@@ -97,7 +97,7 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
   页面重启、崩溃了记录还在); Broker 的 `DevLog` 两种各留最后 5000 条、文字最长 16 KB, 请求按 web + id 合成一条, web 没了时还开着的记成
   `the page went away`.
 
-**热重载** (acde 构建时不压缩, `NODE_ENV` 是 development). acde 比较构建前后的产物 (acde 仓库 `src/changes.ts`): 只有 `.css` / `.js` 变了、
+**热重载** (acdev 构建时不压缩, `NODE_ENV` 是 development). acdev 比较构建前后的产物 (acdev 仓库 `src/changes.ts`): 只有 `.css` / `.js` 变了、
 HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应用的窗口 (或桌面) 发 `devhot`, web (acde-host `devhot.ts`) 重读入口 HTML,
 都能热替换才动手, 否则整页重载:
 

@@ -74,32 +74,32 @@ export class Uninstall {
     const dir = options.dir ?? AppPackage.packagesDir()
     if (target === undefined) {
       const installed = Uninstall.list(dir)
-      if (installed.length === 0) options.say(`acde: no packages installed in ${dir}`)
+      if (installed.length === 0) options.say(`acdev: no packages installed in ${dir}`)
       for (const entry of installed) options.say(Uninstall.describe(entry))
       return 0
     }
     const entry = Uninstall.find(target, dir)
     if (!entry) {
-      console.error(`acde: ${target} is not installed in ${dir} (acde uninstall lists what is)`)
+      console.error(`acdev: ${target} is not installed in ${dir} (acdev uninstall lists what is)`)
       return Uninstall.NOT_INSTALLED
     }
     const users = Uninstall.users(entry, options.sessions ?? Sessions.list())
     if (users.length > 0) {
       const pids = users.map((session) => session.pid).join(', ')
-      console.error(`acde: ${entry.id} is in use by acde dev ${pids}; stop it first (acde stop --session <pid>)`)
+      console.error(`acdev: ${entry.id} is in use by acdev dev ${pids}; stop it first (acdev stop --session <pid>)`)
       return Uninstall.IN_USE
     }
     const what = entry.link === null
-      ? `${entry.path} (a copy acde install made)`
+      ? `${entry.path} (a copy acdev install made)`
       : `the link ${entry.path} (the project it points at, ${entry.link}, stays)`
-    options.say(`acde: removes ${entry.id}: ${what}`)
+    options.say(`acdev: removes ${entry.id}: ${what}`)
     if (!options.yes) {
       if (!options.confirm) {
-        console.error(`acde: not removed: pass --yes to remove ${entry.id} without asking`)
+        console.error(`acdev: not removed: pass --yes to remove ${entry.id} without asking`)
         return Uninstall.DECLINED
       }
       if (!(await options.confirm(`Remove ${entry.id}?`))) {
-        console.error(`acde: not removed: ${entry.id}`)
+        console.error(`acdev: not removed: ${entry.id}`)
         return Uninstall.DECLINED
       }
     }
@@ -110,18 +110,18 @@ export class Uninstall {
     if (drop === undefined && listed.length > 0 && !options.yes && options.confirm)
       drop = await options.confirm(`Also remove the data of ${entry.id} (${listed.join(', ')})?`)
     Uninstall.remove(entry)
-    options.say(`acde: uninstalled ${entry.id} from ${entry.path}`)
+    options.say(`acdev: uninstalled ${entry.id} from ${entry.path}`)
     if (drop === true) {
       for (const path of data) rmSync(path, { recursive: true, force: true })
-      for (const path of data) options.say(`acde: removed its data ${path}`)
+      for (const path of data) options.say(`acdev: removed its data ${path}`)
       for (const found of entries) {
         const problem = Uninstall.forget(found)
         options.say(problem === null
-          ? `acde: removed its entries from ${found.file} (${found.keys.join(', ')})`
-          : `acde: could not remove its entries from ${found.file}: ${problem}`)
+          ? `acdev: removed its entries from ${found.file} (${found.keys.join(', ')})`
+          : `acdev: could not remove its entries from ${found.file}: ${problem}`)
       }
     } else if (listed.length > 0) {
-      options.say(`acde: kept its data (delete it by hand; --data removes it while uninstalling): ${listed.join(', ')}`)
+      options.say(`acdev: kept its data (delete it by hand; --data removes it while uninstalling): ${listed.join(', ')}`)
     }
     return 0
   }

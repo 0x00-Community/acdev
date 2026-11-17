@@ -19,7 +19,7 @@ export function runtime() {
 }
 
 export function installDir(env = process.env) {
-  return env.ACDE_INSTALL || join(homedir(), '.acde')
+  return env.ACDE_INSTALL || join(homedir(), '.acdev')
 }
 
 export function installed(root = ROOT) {
@@ -63,11 +63,11 @@ export function findAcdert(root = ROOT, env = process.env) {
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
   const found = RUNTIMES.map((name) => which(`${name}${EXE}`, env)).find(Boolean)
   if (found) return { path: found, from: 'PATH' }
-  const missing = beside ? `no ${beside}, which the acde installer puts there: run the installer again, ` : ''
+  const missing = beside ? `no ${beside}, which the acdev installer puts there: run the installer again, ` : ''
   return {
     path: null,
     from: null,
-    problem: `acde dev needs the Dopame runtime (acdebin-dbg) and found none: ${missing}` +
+    problem: `acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ${missing}` +
       'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
   }
 }
@@ -75,7 +75,7 @@ export function findAcdert(root = ROOT, env = process.env) {
 export function requireAcdert(root = ROOT, env = process.env) {
   const found = findAcdert(root, env)
   if (found.path) return found.path
-  throw new Error(`${found.problem} (acde doctor checks the whole setup)`)
+  throw new Error(`${found.problem} (acdev doctor checks the whole setup)`)
 }
 
 export function atLeast(version, minimum) {
@@ -124,13 +124,13 @@ export function cliEnv(exe, env = process.env, platform = process.platform) {
 function checkRuntime() {
   if (process.versions.bun) {
     if (!atLeast(process.versions.bun, BUN_MINIMUM)) {
-      throw new Error(`acde needs Bun ${BUN_MINIMUM.join('.')} or newer (this is ${process.versions.bun}): ` +
+      throw new Error(`acdev needs Bun ${BUN_MINIMUM.join('.')} or newer (this is ${process.versions.bun}): ` +
         'update it (bun upgrade, or https://bun.sh)')
     }
     return
   }
   if (!atLeast(process.versions.node, NODE_MINIMUM)) {
-    throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}): ` +
+    throw new Error(`acdev needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}): ` +
       'update it (https://nodejs.org)')
   }
 }
@@ -142,7 +142,7 @@ export function run(args, exe = cliRuntime()) {
   else for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
   return new Promise((done) => {
     child.on('error', (error) => {
-      process.stderr.write(`acde: ${exe}: ${error.message}\n`)
+      process.stderr.write(`acdev: ${exe}: ${error.message}\n`)
       done(1)
     })
     child.on('exit', (code, signal) => done(code ?? 128 + (constants.signals[signal] ?? 0)))

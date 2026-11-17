@@ -18,7 +18,7 @@ import { slug } from '../src/paths.ts'
 import { cleanup, env, fakeAcdert, fakeBrowser, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
-const LAUNCHER = join(import.meta.dir, '../bin/acde.mjs')
+const LAUNCHER = join(import.meta.dir, '../bin/acdev.mjs')
 
 afterAll(cleanup)
 
@@ -62,7 +62,7 @@ class FakeAcdert {
   }
 }
 
-describe('dev IPC: tools and acde dev talk to acdert directly', () => {
+describe('dev IPC: tools and acdev dev talk to acdert directly', () => {
   const fakes: FakeAcdert[] = []
 
   async function acdert(answer?: FakeAcdert['answer']): Promise<FakeAcdert> {
@@ -78,7 +78,7 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
 
   const unixOnly = (why: string) => test.skipIf(skipping(WINDOWS, why))
 
-  unixOnly('session dir modes and socket files: Unix only')('acde dev prepares a private session dir and clears ' +
+  unixOnly('session dir modes and socket files: Unix only')('acdev dev prepares a private session dir and clears ' +
     'a stale socket before acdert listens', () => {
     const dir = join(tmp(), 'sessions')
     mkdirSync(dir, { mode: 0o755 })
@@ -196,21 +196,21 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(Sessions.pick([a, ab, c], join(root, 'a')).pid).toBe(11)
     const said: string[] = []
     expect(Sessions.pick([c], join(root, 'elsewhere'), undefined, (line) => said.push(line)).pid).toBe(13)
-    expect(said).toEqual([expect.stringMatching(/^acde: using acde dev 13 \(.+\), the only one running$/)])
+    expect(said).toEqual([expect.stringMatching(/^acdev: using acdev dev 13 \(.+\), the only one running$/)])
     expect(Sessions.pick([a, ab, c], join(root, 'a'), undefined, (line) => said.push(line)).pid).toBe(11)
     expect(said).toHaveLength(1)
     expect(Sessions.pick([a, ab, c], join(root, 'elsewhere'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a, c], join(root, 'elsewhere')))
-      .toThrow(/^none of the 2 acde dev sessions runs .*elsewhere; pick one with --session <pid>:\n  11  app alpha/)
-    expect(() => Sessions.pick([a, { ...a, pid: 14 }], join(root, 'a'))).toThrow('several acde dev sessions run')
-    expect(() => Sessions.pick([], root)).toThrow('no acde dev is running')
+      .toThrow(/^none of the 2 acdev dev sessions runs .*elsewhere; pick one with --session <pid>:\n {2}11 {2}app alpha/)
+    expect(() => Sessions.pick([a, { ...a, pid: 14 }], join(root, 'a'))).toThrow('several acdev dev sessions run')
+    expect(() => Sessions.pick([], root)).toThrow('no acdev dev is running')
     mkdirSync(join(root, 'other'))
     writeFileSync(join(root, 'other', 'acde.config.jsonc'), '{}')
-    const other = `no acde dev runs the project in ${join(root, 'other')}; `
+    const other = `no acdev dev runs the project in ${join(root, 'other')}; `
       + 'to use another one, pass --session <pid>:\n  13'
     expect(() => Sessions.pick([c], join(root, 'other'))).toThrow(other)
     expect(Sessions.pick([c], join(root, 'other'), 13).pid).toBe(13)
-    expect(() => Sessions.pick([a], root, 99)).toThrow('no acde dev with pid 99:\n  11')
+    expect(() => Sessions.pick([a], root, 99)).toThrow('no acdev dev with pid 99:\n  11')
   })
 
   test('claims: one holder per project, even one whose event loop is blocked; a dead or reused holder is taken '
@@ -297,7 +297,7 @@ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000)
     expect(Sessions.list(dir)[0]!.options).toEqual({ desktop: desk, app: null })
   })
 
-  test('sessions of acde test: pick and running pass them by; --session still reaches them', () => {
+  test('sessions of acdev test: pick and running pass them by; --session still reaches them', () => {
     const root = realpathSync(tmp())
     const a = session({ pid: 11, dirs: [join(root, 'a')], apps: ['alpha'] })
     const tested = session({ pid: 12, dirs: [join(root, 'a')], apps: ['alpha'], headless: true, test: true })
@@ -308,9 +308,10 @@ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000)
     expect(Sessions.pick([tested, a], join(root, 'a'), 12).pid).toBe(12)
     const said: string[] = []
     expect(Sessions.pick([elsewhere, a], join(root, 'elsewhere'), undefined, (line) => said.push(line)).pid).toBe(11)
-    expect(said).toEqual([expect.stringMatching(/^acde: using acde dev 11 \(app alpha\), the only one running$/)])
+    expect(said).toEqual([expect.stringMatching(/^acdev: using acdev dev 11 \(app alpha\), the only one running$/)])
     expect(() => Sessions.pick([tested], join(root, 'a')))
-      .toThrow(/^no acde dev is running, only sessions of acde test, which are reached only with --session <pid>:\n {2}12 {2}app alpha \(headless, acde test\)/)
+      .toThrow(new RegExp('^no acdev dev is running, only sessions of acdev test, which are reached only with --session <pid>:\\n'
+        + ' {2}12 {2}app alpha \\(headless, acdev test\\)'))
     expect(Sessions.running([tested, elsewhere], [join(root, 'a'), join(root, 'b')])).toEqual([])
     expect(Sessions.running([tested, a], [join(root, 'a')]).map((s) => s.pid)).toEqual([11])
     const dir = join(tmp(), 'acde-dev')
@@ -368,7 +369,7 @@ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000)
   })
 })
 
-describe('acde dev with a stand-in acdert', () => {
+describe('acdev dev with a stand-in acdert', () => {
   function project(dir: string, config: object, files: Record<string, string> = {}): string {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify(config))
@@ -450,14 +451,14 @@ describe('acde dev with a stand-in acdert', () => {
       const focused = await dev.tool(['devtools'], alpha, undefined, noBrowser)
       expect(focused.code, focused.stderr).toBe(0)
       expect(focused.stdout).toMatch(frontend(7))
-      expect(focused.stderr).toContain('acde: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste')
+      expect(focused.stderr).toContain('acdev: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste')
       const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, noBrowser)
       expect(desk.code, desk.stderr).toBe(0)
       expect(desk.stdout).toMatch(frontend(0))
       expect((await dev.tool(['devtools', 'alpha'], alpha, undefined, noBrowser)).stdout).toMatch(frontend(7))
       const nowhere = await dev.tool(['devtools', 'nope'], alpha, undefined, noBrowser)
       expect(nowhere.code).toBe(1)
-      expect(nowhere.stderr).toContain('acde: no DevTools target for nope; the targets are:\n  0  page  Desk\n')
+      expect(nowhere.stderr).toContain('acdev: no DevTools target for nope; the targets are:\n  0  page  Desk\n')
       const listed = (e: object) => (e as { devtools?: string }).devtools === '/json/list?token=fake-token'
       expect(dev.entries().some(listed)).toBe(true)
       const launched: string[] = []
@@ -479,7 +480,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect(JSON.parse(piped.stdout)).toEqual({ web: 'desktop', code: '1 +\n1' })
       const failed = await dev.tool(['eval', 'nope', '1'], alpha)
       expect(failed.code).toBe(1)
-      expect(failed.stderr).toContain('acde: no web "nope"')
+      expect(failed.stderr).toContain('acdev: no web "nope"')
       const shot = await dev.tool(['shot', 'alpha#7'], base)
       expect(shot.stdout.trim()).toBe(join(realpathSync(base), 'alpha#7.png'))
       expect(readFileSync(join(base, 'alpha#7.png')).subarray(1, 4).toString()).toBe('PNG')
@@ -489,24 +490,24 @@ describe('acde dev with a stand-in acdert', () => {
       expect(inspected.stdout).toBe('w1 alpha "Alpha":\n- button "Add" [disabled] [w1.3]\n')
       const missing = await dev.tool(['inspect', '--find', 'Save'], alpha)
       expect(missing.code).toBe(2)
-      expect(missing.stderr).toContain('acde: no element\'s name or value contains "Save"; ')
+      expect(missing.stderr).toContain('acdev: no element\'s name or value contains "Save"; ')
       expect((await dev.tool(['inspect'], alpha)).stdout).toBe('snapshot {"window":null,"find":null,"all":false}\n')
       expect((await dev.tool(['act', 'w1.5', 'type', 'hello world'], alpha)).stdout).toBe('type w1.5 "hello world"\n')
       expect((await dev.tool(['act', 'w1.5', 'fail'], alpha)).code).toBe(1)
       const unknown = await dev.tool(['act', 'w1.404', 'click'], alpha)
       expect([unknown.code, unknown.stdout]).toEqual([1, ''])
-      expect(unknown.stderr).toBe('acde: act w1.404: there is no such element (any more); '
-        + 'acde inspect --find TEXT gives the current refs\n')
-      const windows = 'the windows: w0 desktop, w1 "Alpha" (acde inspect lists them)'
+      expect(unknown.stderr).toBe('acdev: act w1.404: there is no such element (any more); '
+        + 'acdev inspect --find TEXT gives the current refs\n')
+      const windows = 'the windows: w0 desktop, w1 "Alpha" (acdev inspect lists them)'
       const noWindow = await dev.tool(['inspect', '--window', 'w9'], alpha)
-      expect([noWindow.code, noWindow.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      expect([noWindow.code, noWindow.stderr]).toEqual([1, `acdev: no window w9; ${windows}\n`])
       const noQuery = await dev.tool(['query', 'h1', '--window', 'w9'], alpha)
-      expect([noQuery.code, noQuery.stderr]).toEqual([1, `acde: no window w9; ${windows}\n`])
+      expect([noQuery.code, noQuery.stderr]).toEqual([1, `acdev: no window w9; ${windows}\n`])
       const away = await dev.tool(['act', 'w9.1', 'click'], alpha)
-      expect([away.code, away.stderr]).toEqual([1, `acde: act w9.1: no window w9; ${windows}\n`])
+      expect([away.code, away.stderr]).toEqual([1, `acdev: act w9.1: no window w9; ${windows}\n`])
       const untyped = await dev.tool(['act', 'w1.5', 'type'], alpha)
       expect([untyped.code, untyped.stderr])
-        .toEqual([1, 'acde: act: type needs the text to type: acde act w1.5 type "hello"\n'])
+        .toEqual([1, 'acdev: act: type needs the text to type: acdev act w1.5 type "hello"\n'])
       expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)
       expect((await dev.tool(['inspect', '--offscreen'], alpha)).code).toBe(0)
       const logged = await dev.tool(['console'], alpha)
@@ -514,7 +515,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect((await dev.tool(['console', '--level', 'loud'], alpha)).stderr).toContain('--level loud: one of')
       const noRequests = await dev.tool(['network', '--failed'], alpha)
       expect(noRequests.stdout).toBe('')
-      expect(noRequests.stderr).toBe('acde: no requests\n')
+      expect(noRequests.stderr).toBe('acdev: no requests\n')
       expect(noRequests.code).toBe(0)
       const queried = await dev.tool(['query', '[data-testid="add"]', '--window', 'w1'], alpha)
       expect(queried.stdout).toBe('1 in w1:\n- button "Add" [disabled] [w1.3] <button>\n')
@@ -522,17 +523,17 @@ describe('acde dev with a stand-in acdert', () => {
       expect((await dev.tool(['query', '.ghost', '--window=w1'], alpha)).stdout)
         .toBe('1 in w1:\n- generic [w1.99] <div> [hidden]\n')
       const nothing = await dev.tool(['query', 'nav'], alpha)
-      expect([nothing.code, nothing.stdout, nothing.stderr]).toEqual([2, '', 'acde: nothing in w1 matches "nav"\n'])
+      expect([nothing.code, nothing.stdout, nothing.stderr]).toEqual([2, '', 'acdev: nothing in w1 matches "nav"\n'])
       expect((await dev.tool(['query', '*', '--ref', 'w1.4', '--limit', '5'], alpha)).stderr)
-        .toBe('acde: nothing in w1 matches "*"\n')
+        .toBe('acdev: nothing in w1 matches "*"\n')
       expect(dev.entries().findLast((e) => e.got?.['op'] === 'query')?.got)
         .toMatchObject({ selector: '*', ref: 'w1.4', limit: 5 })
       for (const limit of ['0', '3001', 'few']) {
         const refused = await dev.tool(['query', 'li', '--limit', limit], alpha)
         expect([refused.code, refused.stderr]).toEqual([1,
-          `acde: query: --limit ${limit}: how many elements to list at most, 1 to 3000 (acde query --help)\n`])
+          `acdev: query: --limit ${limit}: how many elements to list at most, 1 to 3000 (acdev query --help)\n`])
       }
-      expect((await dev.tool(['query'], alpha)).stderr).toContain('query: 1 arguments, not 0 (acde query --help)')
+      expect((await dev.tool(['query'], alpha)).stderr).toContain('query: 1 arguments, not 0 (acdev query --help)')
       const screen = await dev.tool(['screen', '-o', join(base, 'all.png')], alpha)
       expect(screen.stdout.trim()).toBe(join(base, 'all.png'))
       expect(readFileSync(join(base, 'all.png')).subarray(1, 4).toString()).toBe('PNG')
@@ -557,7 +558,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect(marked).toEqual({ console: 2, network: 1 })
       const quiet = await dev.tool(['console', '--since', 'reload'], alpha)
       expect(quiet.stdout).toBe('')
-      expect(quiet.stderr).toBe('acde: no console entries in that range\n')
+      expect(quiet.stderr).toBe('acdev: no console entries in that range\n')
       expect((await dev.tool(['console', '--since', '1'], alpha)).stdout).toBe('   1 log    alpha#7  alpha ready\n')
       const wrong = await dev.tool(['network', '--since', 'later'], alpha)
       expect(wrong.code).toBe(1)
@@ -568,10 +569,10 @@ describe('acde dev with a stand-in acdert', () => {
     expect(await dev.child.exited).toBe(0)
     expect(readdirSync(dev.sessions)).toEqual([])
     expect(readdirSync(dev.root).filter((f) => f.endsWith('.sock'))).toEqual([])
-    expect((await dev.tool(['webs'], base)).stderr).toContain('no acde dev is running')
+    expect((await dev.tool(['webs'], base)).stderr).toContain('no acdev dev is running')
     const gone = await dev.tool(['devtools'], base, undefined, { ACDE_BROWSER: 'none' })
     expect(gone.code).toBe(1)
-    expect(gone.stderr).toContain('no acde dev is running')
+    expect(gone.stderr).toContain('no acdev dev is running')
   }, 120_000)
 
   test('a file saved atomically (renamed over) is still watched: the next in-place write rebuilds too', async () => {
@@ -674,24 +675,24 @@ describe('acde dev with a stand-in acdert', () => {
     } finally {
       await dev.stop()
     }
-    expect(await dev.output).toContain('acde: waiting for a change to build again')
+    expect(await dev.output).toContain('acdev: waiting for a change to build again')
   }, 60_000)
 
-  test('a window session outlives a runtime crash: acde dev starts acdebin-dbg again; headless ones end', async () => {
+  test('a window session outlives a runtime crash: acdev dev starts acdebin-dbg again; headless ones end', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
     try {
       await until('the session file', () => existsSync(dev.file))
       const lost = await dev.tool(['act', 'w1', 'focus'], alpha)
-      expect(lost.stderr).toBe('acde: acdebin-dbg closed the connection\n')
+      expect(lost.stderr).toBe('acdev: acdebin-dbg closed the connection\n')
       await until('the second runtime', () => dev.entries().filter((e) => e.argv).length >= 2)
       await until('its hello', () => dev.entries().filter((e) => e.got?.['type'] === 'hello').length >= 2)
       expect((await dev.tool(['webs'], alpha)).code).toBe(0)
     } finally {
       await dev.stop()
     }
-    expect(await dev.output).toContain('acde: acdebin-dbg exited (1); starting it again')
+    expect(await dev.output).toContain('acdev: acdebin-dbg exited (1); starting it again')
   }, 60_000)
 
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
@@ -728,10 +729,10 @@ describe('acde dev with a stand-in acdert', () => {
       '123.456 I acde-child-out acdert::child: [app#backend] hi',
       '123.457 I acde-child-out acdert::backends: [app#backend] hi',
       '38.157 I acde acde_host: [withapi#backend] started (pid 5135, port 3000)',
-      '15489.032 I acde acde_host: [withapi#1048576] acde dev: state restored (0 kept)',
+      '15489.032 I acde acde_host: [withapi#1048576] acdev dev: state restored (0 kept)',
       '16153.128 I acde acde_host: [ledger#1048576] alert: hi',
-      '21.000 I acde acde_host: Ledger (ledger) waits for the user to allow "camera" (prompt 1; answer it with acde allow '
-        + 'or acde deny, the acde driver, or acde:permissions)',
+      '21.000 I acde acde_host: Ledger (ledger) waits for the user to allow "camera" (prompt 1; answer it with acdev allow '
+        + 'or acdev deny, the acdev driver, or acde:permissions)',
       '22.000 I acde acde_host: color scheme: dark (emulated)',
       '14.383 W main acde_hostwin: a warning',
       '14.384 E acde acde_host: an error',
@@ -745,7 +746,7 @@ describe('acde dev with a stand-in acdert', () => {
       '32.130 I acde acde_host: broker started (2ms)',
       '22700.843 I acde acde_host: ended (signal), exit 0',
       '22700.844 I acde acde_host: session logout, exit 0',
-      '15442.335 I acde-dev-conn acde_hostwin::dev: acde dev: reload withapi',
+      '15442.335 I acde-dev-conn acde_hostwin::dev: acdev dev: reload withapi',
       '95.000 I acde acdert::backends: removed /tmp/b/app, left by an acdert that is gone',
       '19.236 D acde-warm acde_render::gpu: [vello] warm-up',
       '20.000 T acde acde_host: [app#1] traced',
@@ -780,7 +781,7 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
-  test('acde dev killed from outside: acdert follows; the next tool drops the session file it left', async () => {
+  test('acdev dev killed from outside: acdert follows; the next tool drops the session file it left', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([alpha], base)
@@ -800,18 +801,18 @@ describe('acde dev with a stand-in acdert', () => {
     expect(await gone()).toBe(true)
     const webs = await dev.tool(['webs'], alpha)
     expect(webs.code).toBe(1)
-    expect(webs.stderr).toContain('no acde dev is running')
+    expect(webs.stderr).toContain('no acdev dev is running')
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
     expect(readdirSync(dev.sessions).filter((f) => f.startsWith(`${dev.child.pid}.`))).toEqual([])
 
     Sessions.write({ ...session, pid: process.pid }, dev.sessions)
     const reused = await dev.tool(['webs'], alpha)
     expect(reused.code).toBe(1)
-    expect(reused.stderr).toContain(`acde dev ${process.pid} is gone`)
+    expect(reused.stderr).toContain(`acdev dev ${process.pid} is gone`)
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
   }, 30_000)
 
-  test('a second acde dev on the same project is refused; SIGINT to acde dev alone ends it and its files; '
+  test('a second acdev dev on the same project is refused; SIGINT to acdev dev alone ends it and its files; '
     + 'a session file whose pid now belongs to another process refuses nothing and is dropped', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
@@ -829,8 +830,8 @@ describe('acde dev with a stand-in acdert', () => {
       const pid = dev.child.pid
       const second = await dev.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: acdert })
       expect(second.code).toBe(1)
-      expect(second.stderr).toBe(`acde: acde dev ${pid} already runs ${realpathSync(alpha)}; `
-        + `stop it first (acde stop --session ${pid}), or pass --force to start another\n`)
+      expect(second.stderr).toBe(`acdev: acdev dev ${pid} already runs ${realpathSync(alpha)}; `
+        + `stop it first (acdev stop --session ${pid}), or pass --force to start another\n`)
       if (!WINDOWS) {
         dev.child.kill('SIGINT')
         const ended = await Promise.race([dev.child.exited.then(() => 'ended'), Bun.sleep(3_000).then(() => 'late')])
@@ -843,8 +844,8 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
-  test('a session of acde test says so in its file, keeps the marker from acdert, and is passed by: ' +
-    'a plain acde dev starts beside it and the tools in the project pick the plain one', async () => {
+  test('a session of acdev test says so in its file, keeps the marker from acdert, and is passed by: ' +
+    'a plain acdev dev starts beside it and the tools in the project pick the plain one', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const tested = start([alpha, '--headless', '--force'], base, { ACDE_TEST_SESSION: '1' })
@@ -856,13 +857,13 @@ describe('acde dev with a stand-in acdert', () => {
       expect(started.env!['ACDE_TEST_SESSION']).toBeNull()
       const only = await tested.tool(['webs'], alpha)
       expect(only.code).toBe(1)
-      expect(only.stderr).toContain('no acde dev is running, only sessions of acde test')
+      expect(only.stderr).toContain('no acdev dev is running, only sessions of acdev test')
       const reached = await tested.tool(['webs', '--session', String(tested.child.pid)], alpha)
       expect(reached.code).toBe(0)
       expect(reached.stdout).toContain('alpha#7')
       const plain = start([alpha, '--headless'], base, {}, tested.root)
       try {
-        await until('the session file of the plain acde dev', () => existsSync(plain.file))
+        await until('the session file of the plain acdev dev', () => existsSync(plain.file))
         expect((JSON.parse(readFileSync(plain.file, 'utf8')) as Session).test).toBeUndefined()
         const listed = await tested.tool(['webs'], alpha)
         expect(listed.code).toBe(0)
@@ -874,8 +875,8 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
-  test('two acde dev started at the same moment on one project: one runs, the other is refused; the claim of a '
-    + 'killed acde dev holds nothing; a running acde dev --force still refuses a plain one', async () => {
+  test('two acdev dev started at the same moment on one project: one runs, the other is refused; the claim of a '
+    + 'killed acdev dev holds nothing; a running acdev dev --force still refuses a plain one', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const root = tmp()
@@ -884,11 +885,11 @@ describe('acde dev with a stand-in acdert', () => {
       const first = both.map((dev) => dev.child.exited.then((c) => [dev, c] as const))
       const late = Bun.sleep(15_000).then(() => [null, null] as const)
       const [loser, code] = await Promise.race([...first, late])
-      if (loser === null) throw new Error('both acde dev still run after 15 s: neither was refused')
+      if (loser === null) throw new Error('both acdev dev still run after 15 s: neither was refused')
       const winner = both.find((dev) => dev !== loser)!
       expect(code).toBe(1)
-      expect(await loser.output).toBe(`acde: acde dev ${winner.child.pid} already runs ${alpha}; `
-        + `stop it first (acde stop --session ${winner.child.pid}), or pass --force to start another\n`)
+      expect(await loser.output).toBe(`acdev: acdev dev ${winner.child.pid} already runs ${alpha}; `
+        + `stop it first (acdev stop --session ${winner.child.pid}), or pass --force to start another\n`)
       await until('the session file of the one that runs', () => existsSync(winner.file))
       winner.child.kill('SIGKILL')
       await winner.child.exited
@@ -906,7 +907,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect(await next.stop()).toBe(0)
       const plain = await next.tool(['dev', alpha, '--headless'], base, undefined, { ACDERT: fakeAcdert(root) })
       expect(plain.code).toBe(1)
-      expect(plain.stderr).toContain(`acde: acde dev ${forced.child.pid} already runs ${alpha}`)
+      expect(plain.stderr).toContain(`acdev: acdev dev ${forced.child.pid} already runs ${alpha}`)
     } finally {
       await forced?.stop()
       if (next.child.exitCode === null) await next.stop()
@@ -915,8 +916,8 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(join(root, 'acde-dev'))).toEqual([])
   }, 60_000)
 
-  test.skipIf(skipping(WINDOWS, 'SIGINT to one process: Unix only'))('through the launcher (bin/acde.mjs): SIGINT to '
-    + 'the launcher alone ends acde dev; one Ctrl+C to the whole group is one interrupt; a second one later forces',
+  test.skipIf(skipping(WINDOWS, 'SIGINT to one process: Unix only'))('through the launcher (bin/acdev.mjs): SIGINT to '
+    + 'the launcher alone ends acdev dev; one Ctrl+C to the whole group is one interrupt; a second one later forces',
   async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
@@ -979,27 +980,27 @@ describe('acde dev with a stand-in acdert', () => {
   }, 60_000)
 
   test('act w1 close that ends a single-app session exits 0, any other lost connection 1; ' +
-    'acde stop ends a session in the background', async () => {
+    'acdev stop ends a session in the background', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const closing = start([], alpha)
     await until('the session file', () => existsSync(closing.file))
     const closed = await closing.tool(['act', 'w1', 'close'], alpha)
     expect(closed.stderr).toBe('')
-    expect(closed.stdout).toBe(`closed w1; acdebin-dbg exited with it, so acde dev ${closing.child.pid} ended\n`)
+    expect(closed.stdout).toBe(`closed w1; acdebin-dbg exited with it, so acdev dev ${closing.child.pid} ended\n`)
     expect(closed.code).toBe(0)
     expect(await closing.child.exited).toBe(0)
 
     const crashing = start(['--headless'], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
     await until('the session file', () => existsSync(crashing.file))
     const lost = await crashing.tool(['act', 'w1', 'focus'], alpha)
-    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acde: acdebin-dbg closed the connection\n'])
+    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acdev: acdebin-dbg closed the connection\n'])
     await crashing.child.exited
 
     const desktop = start(['--desktop', 'dopame', '--headless'], alpha, { FAKE_ACDERT_DIES_ON: 'close' })
     await until('the session file', () => existsSync(desktop.file))
     const crashed = await desktop.tool(['act', 'w1', 'close'], alpha)
-    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acde: acdebin-dbg closed the connection\n'])
+    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acdev: acdebin-dbg closed the connection\n'])
     await desktop.child.exited
 
     const stopping = start([], alpha)
@@ -1007,17 +1008,17 @@ describe('acde dev with a stand-in acdert', () => {
     const began = performance.now()
     const stopped = await stopping.tool(['stop'], alpha)
     expect(performance.now() - began).toBeLessThan(2_000)
-    expect(stopped.stdout).toBe(`acde: stopped acde dev ${stopping.child.pid}\n`)
+    expect(stopped.stdout).toBe(`acdev: stopped acdev dev ${stopping.child.pid}\n`)
     expect(stopped.code).toBe(0)
     expect(await stopping.child.exited).toBe(0)
     expect(existsSync(stopping.file)).toBe(false)
     expect(stopping.entries().some((e) => e.got?.['type'] === 'quit')).toBe(true)
     const none = await stopping.tool(['stop'], alpha)
     expect(none.code).toBe(1)
-    expect(none.stderr).toContain('no acde dev is running')
+    expect(none.stderr).toContain('no acdev dev is running')
   }, 30_000)
 
-  test('acde devtools against a runtime that answers only a port: no token in the list or the address', async () => {
+  test('acdev devtools against a runtime that answers only a port: no token in the list or the address', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([], alpha, { FAKE_ACDERT_DEVTOOLS_TOKENLESS: '1' })
@@ -1033,7 +1034,7 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 60_000)
 
-  test('acde devtools starts the browser on its own profile, opens the front end with Target.createTarget, '
+  test('acdev devtools starts the browser on its own profile, opens the front end with Target.createTarget, '
     + 'then reuses that browser and brings an open front end to the front', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
@@ -1052,14 +1053,14 @@ describe('acde dev with a stand-in acdert', () => {
       await until('the session file', () => existsSync(dev.file))
       const first = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
       expect(first.code, first.stderr).toBe(0)
-      expect(first.stderr).toContain(`acde: opened DevTools for Alpha in ${browser}`)
+      expect(first.stderr).toContain(`acdev: opened DevTools for Alpha in ${browser}`)
       const url = first.stdout.trim()
       expect(url).toStartWith('devtools://devtools/bundled/devtools_app.html?ws=127.0.0.1%3A')
       const started = said().filter((entry) => entry.started)
       expect(started).toHaveLength(1)
       const profile = started[0]!.started!.find((arg) => arg.startsWith('--user-data-dir='))!.slice(16)
       const caches = process.platform === 'darwin' ? join(base, 'Library', 'Caches') : cache
-      expect(profile.startsWith(join(caches, 'acde', 'devtools'))).toBe(true)
+      expect(profile.startsWith(join(caches, 'acdev', 'devtools'))).toBe(true)
       expect(started[0]!.started).toContain('--remote-debugging-port=0')
       expect(started[0]!.started).toContain('--no-startup-window')
       expect(started[0]!.started).toContain('--disable-sync')
@@ -1068,13 +1069,13 @@ describe('acde dev with a stand-in acdert', () => {
         .toEqual([url])
       const again = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
       expect(again.code, again.stderr).toBe(0)
-      expect(again.stderr).toContain(`acde: brought DevTools for Alpha to the front in ${browser}`)
+      expect(again.stderr).toContain(`acdev: brought DevTools for Alpha to the front in ${browser}`)
       expect(said().filter((entry) => entry.started)).toHaveLength(1)
       expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(1)
       expect(said().filter((entry) => entry.method === 'Target.activateTarget').map((entry) => entry.params))
         .toEqual([{ targetId: 'fake-target-1' }])
       const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, vars)
-      expect(desk.stderr).toContain(`acde: opened DevTools for Desk in ${browser}`)
+      expect(desk.stderr).toContain(`acdev: opened DevTools for Desk in ${browser}`)
       expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(2)
       const nowhere = { ...vars, ACDE_BROWSER: join(base, 'nope') }
       const missing = await dev.tool(['devtools', 'alpha'], alpha, undefined, nowhere)
@@ -1092,7 +1093,7 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 60_000)
 
-  test('F12 in a host window: acde dev opens DevTools on the page acdert names, prints the address when no browser '
+  test('F12 in a host window: acdev dev opens DevTools on the page acdert names, prints the address when no browser '
     + 'opens it, once per press, and a page with no target only prints why', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
@@ -1117,8 +1118,8 @@ describe('acde dev with a stand-in acdert', () => {
     const output = await dev.output
     const address = /devtools:\/\/devtools\/bundled\/devtools_app\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7%3Ftoken%3Dfake-token\n/g
     expect(output.match(address)).toHaveLength(2)
-    expect(output.split('acde: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste').length - 1).toBe(2)
-    expect(output).toContain('acde: F12: no DevTools target for gone#3; the targets are:')
+    expect(output.split('acdev: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste').length - 1).toBe(2)
+    expect(output).toContain('acdev: F12: no DevTools target for gone#3; the targets are:')
   }, 60_000)
 
   test('F12 with a browser: the first press opens DevTools, the next brings it to the front', async () => {
@@ -1155,8 +1156,8 @@ describe('acde dev with a stand-in acdert', () => {
       await dev.stop()
     }
     const output = await dev.output
-    expect(output).toContain(`acde: opened DevTools for Alpha in ${browser}`)
-    expect(output).toContain(`acde: brought DevTools for Alpha to the front in ${browser}`)
+    expect(output).toContain(`acdev: opened DevTools for Alpha in ${browser}`)
+    expect(output).toContain(`acdev: brought DevTools for Alpha to the front in ${browser}`)
     expect(output).not.toContain('devtools://')
   }, 60_000)
 
@@ -1171,42 +1172,42 @@ describe('acde dev with a stand-in acdert', () => {
         const ran = await dev.tool(argv, alpha)
         return [ran.code, ran.stdout, ran.stderr]
       }
-      const hints = 'alpha waits for approval of camera: acde allow (or acde deny)\n' +
-        'beta waits for approval of microphone: acde allow (or acde deny)\n'
+      const hints = 'alpha waits for approval of camera: acdev allow (or acdev deny)\n' +
+        'beta waits for approval of microphone: acdev allow (or acdev deny)\n'
       const webs = await said('webs')
       expect(webs[1]).toContain('alpha#7  app      alpha  7       Alpha\n')
       expect(webs[1]).toEndWith(hints)
       const waiting = '  1  alpha  camera  (request)\n  2  beta  microphone  (request)\n'
       expect(await said('permissions')).toEqual([0, `pending:\n${waiting}decisions: none\n`, ''])
       const several =
-        `acde: 2 approval prompts wait; name one (its id, or <app> <capability>) or pass --all:\n${waiting}`
+        `acdev: 2 approval prompts wait; name one (its id, or <app> <capability>) or pass --all:\n${waiting}`
       expect(await said('allow')).toEqual([1, '', several])
       expect(await said('deny')).toEqual([1, '', several])
-      expect(await said('allow', '7')).toEqual([1, '', 'acde: no approval prompt 7 is waiting (waiting: 1, 2)\n'])
+      expect(await said('allow', '7')).toEqual([1, '', 'acdev: no approval prompt 7 is waiting (waiting: 1, 2)\n'])
       expect(await said('deny', 'alpha', 'network'))
-        .toEqual([1, '', 'acde: no approval prompt of alpha for network is waiting (waiting: 1, 2)\n'])
-      expect(await said('allow', 'alpha')).toEqual([1, '', 'acde: allow: alpha is not a prompt id ' +
-        '(acde permissions lists them); or give <app> <capability> (acde allow --help)\n'])
+        .toEqual([1, '', 'acdev: no approval prompt of alpha for network is waiting (waiting: 1, 2)\n'])
+      expect(await said('allow', 'alpha')).toEqual([1, '', 'acdev: allow: alpha is not a prompt id ' +
+        '(acdev permissions lists them); or give <app> <capability> (acdev allow --help)\n'])
       expect(await said('deny', '1', '--all')).toEqual([1, '',
-        'acde: deny: --all answers every waiting prompt; leave the prompt out (acde deny --help)\n'])
+        'acdev: deny: --all answers every waiting prompt; leave the prompt out (acdev deny --help)\n'])
       expect((await dev.tool(['allow', 'a', 'b', 'c'], alpha)).stderr)
-        .toContain('allow: 0 to 2 arguments, not 3 (acde allow --help)')
+        .toContain('allow: 0 to 2 arguments, not 3 (acdev allow --help)')
       expect(dev.entries().some((e) => e.got?.['op'] === 'answer')).toBe(false)
 
       expect(await said('allow', 'alpha', 'camera')).toEqual([0, 'allowed alpha camera (prompt 1)\n', ''])
-      expect((await dev.tool(['webs'], alpha)).stdout).toEndWith('beta waits for approval of microphone: acde allow (or acde deny)\n')
+      expect((await dev.tool(['webs'], alpha)).stdout).toEndWith('beta waits for approval of microphone: acdev allow (or acdev deny)\n')
       expect(await said('deny')).toEqual([0, 'denied beta microphone (prompt 2)\n', ''])
       const decided = '  alpha  camera  granted\n  beta  microphone  denied\n'
       expect(await said('permissions')).toEqual([0, `pending: none\ndecisions:\n${decided}`, ''])
-      expect(await said('allow')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
-      expect(await said('deny', '--all')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
-      expect(await said('allow', 'beta', 'microphone')).toEqual([1, '', 'acde: no approval prompt of beta for ' +
+      expect(await said('allow')).toEqual([1, '', 'acdev: no approval prompt is waiting\n'])
+      expect(await said('deny', '--all')).toEqual([1, '', 'acdev: no approval prompt is waiting\n'])
+      expect(await said('allow', 'beta', 'microphone')).toEqual([1, '', 'acdev: no approval prompt of beta for ' +
         'microphone is waiting: it is already denied (revoke takes that back)\n'])
       expect(await said('revoke', 'beta', 'microphone')).toEqual([0, 'revoked beta microphone\n', ''])
       expect(await said('revoke', 'beta', 'microphone')).toEqual([1, '',
-        'acde: no decision about beta microphone to revoke (permissions lists the decisions)\n'])
+        'acdev: no decision about beta microphone to revoke (permissions lists the decisions)\n'])
       expect((await dev.tool(['revoke', 'beta'], alpha)).stderr)
-        .toContain('revoke: 2 arguments, not 1 (acde revoke --help)')
+        .toContain('revoke: 2 arguments, not 1 (acdev revoke --help)')
       const sent = dev.entries()
         .flatMap((e) => (e.got?.['op'] === 'answer' ? [[e.got['prompt'], e.got['allow']]] : []))
       expect(sent).toEqual([[1, true], [2, false]])
@@ -1252,7 +1253,7 @@ describe('acde dev with a stand-in acdert', () => {
     await alone.child.exited
   }, 30_000)
 
-  test('a runtime of another contract level: acde dev stops before starting it', async () => {
+  test('a runtime of another contract level: acdev dev stops before starting it', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     for (const [level, runtime] of [[String(API_LEVEL + 1), API_LEVEL + 1], ['none', 0]] as const) {
@@ -1263,7 +1264,7 @@ describe('acde dev with a stand-in acdert', () => {
     }
   }, 30_000)
 
-  test('acde eval while acde dev rebuilds and reloads again and again finds the one session every time', async () => {
+  test('acdev eval while acdev dev rebuilds and reloads again and again finds the one session every time', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([alpha], base)
@@ -1275,8 +1276,8 @@ describe('acde dev with a stand-in acdert', () => {
         for (let i = 0; i < 12; i++) {
           for (const from of [alpha, base]) {
             const ran = await dev.tool(['eval', 'alpha', '1'], from)
-            expect(ran.stderr).not.toContain('acde dev sessions runs')
-            expect(ran.stderr).not.toContain('no acde dev is running')
+            expect(ran.stderr).not.toContain('acdev dev sessions runs')
+            expect(ran.stderr).not.toContain('no acdev dev is running')
             expect([ran.code, ran.stderr]).toEqual([0, from === base ? expect.stringContaining('the only one') : ''])
           }
         }
@@ -1300,7 +1301,7 @@ describe('acde dev with a stand-in acdert', () => {
       [[a, d1, '--app', 'same'], '--app picks the window of one project'],
       [[a, '--app', 'nope'], '--app nope: not an app id of this project (its apps: same); --app takes an app id\n'],
       [[a, '--app', a], `--app ${a}: not an app id of this project (its apps: same); --app takes an app id; `
-        + `give a directory as the first argument: acde dev ${a}`],
+        + `give a directory as the first argument: acdev dev ${a}`],
       [[a, b], `app same is in both ${a} and ${b}`],
       [[d1, d2], 'several desktops (d1, d2): pick one with --desktop <id>'],
       [[a, '--desktop', join(base, 'nowhere')], 'no project or package there'],

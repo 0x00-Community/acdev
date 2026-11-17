@@ -57,7 +57,7 @@
     `handoff.rs` `EXTENSIONS` 里 (PDF、图片、音视频、纯文本 / Markdown / CSV / JSON、新版 Office (`.docx` `.xlsx` `.pptx`) 和 OpenDocument).
     可执行文件、脚本、快捷方式 (`.exe` `.bat` `.ps1` `.js` `.lnk` `.url` `.hta` `.docm` …) 一律不交. 也不交 (决定, 2026-11-10): 旧版 Office
     (`.doc` `.xls` `.ppt`, 能带宏)、`.html` `.htm` `.svg` (在浏览器里跑本地脚本)、`.rtf` (能嵌 OLE 对象). 选的是收窄类型, 不是给下载补
-    Mark of the Web: acde 的下载和应用自己写的文件都没有 `Zone.Identifier`, 交给 Office 时不进受保护视图, 收窄对所有来源都成立.
+    Mark of the Web: acdev 的下载和应用自己写的文件都没有 `Zone.Identifier`, 交给 Office 时不进受保护视图, 收窄对所有来源都成立.
     Windows 不关区域检查 (文件本来带的 Mark of the Web 照旧提示).
   - Rust 拒绝 (`code: 'refused'`) 或系统打不开 (`failed`) 都回 `no_app`, 文字带原因. 系统找不到默认程序时 Windows 弹它自己的「打开方式」.
   - 安全边界: 只有 `Opener.open` 这条路 (桌面、有 `openFiles` 的应用、`acdert open`), 靠能力、调用方的根和上面的过滤限范围.
@@ -66,8 +66,8 @@
     不交给系统. headless (`ACDE_HEADLESS`) 照样检查, 只打一行 info 不打开. Linux (会话和宿主窗口) 不注入, 行为不变.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 请求带 `handle` (见 `docs/web/fs.md`「拖放和打开请求的句柄」),
   按路径的根的拿 `{root, path, file}` (`fs.locate`), 能看路径的拿 `{url}`, 第 1 级的第三方应用只有 `handle`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots` (宿主窗口也不交给系统).
-- **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效; Windows 见上,
+- **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acdev` 下生效; Windows 见上,
   扩展名的选择写 `acde-extensions.list`). `acde.handlers(路径)` 列能打开它的应用, `association` 是给 `setDefault` 的键.
 - `acdert applications <目录> [--package <包目录>]` 给有 `mimeTypes` 的应用写 `acde-<app>.desktop` (`Exec=acdert open --app <app> %U`,
-  `NoDisplay`, `OnlyShowIn=acde;`) 和 `acde-mimeapps.list`.
+  `NoDisplay`, `OnlyShowIn=acdev;`) 和 `acde-mimeapps.list`.
 - 总线名字只在自己的会话里拿 (`ACDE_BUS_NAMES=1/0` 强制), 允许被替换; 不装 D-Bus activation 文件.

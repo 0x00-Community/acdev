@@ -13,4 +13,4 @@ ACDE_APP=acdert/web/packages/acde-host/dist target/debug/acdebin-dbg doctor
 ```
 
 不在安装目录里跑时要用 `ACDE_APP` 指向 `acdert/web/packages/acde-host/dist`. acdert 的 `web/` 已删除 (acdert 91e7dd1e), 取代方案未定:
-现在没有页面资源可构建, `acdert` 本身也编不过 (`src/host/mod.rs` 读 `web/` 里的 `level.js`). 用 `acde` (`npm/`): `ACDERT=<本仓库>/target/debug/acdebin-dbg acde dev`.
+现在没有页面资源可构建, `acdert` 本身也编不过 (`src/host/mod.rs` 读 `web/` 里的 `level.js`). 用 `acdev` (`npm/`): `ACDERT=<本仓库>/target/debug/acdebin-dbg acdev dev`.

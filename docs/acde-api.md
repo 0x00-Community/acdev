@@ -29,16 +29,16 @@
 
 | 原文件 | 原来做什么 | 现在 |
 | --- | --- | --- |
-| `src/runtime/load.js` (`load()`, 及各入口里 `load` 的声明) | 可选的 `acde:*` 模块: `import('acde:<name>')` 的默认导出, 拿不到时是 null | 没有: 应用直接写 `import('acde:<name>')`, 拿不到时 reject; `acde check` 只拦可选模块的静态导入 |
-| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert `src/host/mod.rs:60` 编译时读它, Broker 和 `acde check/build/dev/doctor` 也用 | `npm/src/manifest/level.ts` |
+| `src/runtime/load.js` (`load()`, 及各入口里 `load` 的声明) | 可选的 `acde:*` 模块: `import('acde:<name>')` 的默认导出, 拿不到时是 null | 没有: 应用直接写 `import('acde:<name>')`, 拿不到时 reject; `acdev check` 只拦可选模块的静态导入 |
+| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert `src/host/mod.rs:60` 编译时读它, Broker 和 `acdev check/build/dev/doctor` 也用 | `npm/src/manifest/level.ts` |
 | `src/runtime/places.js` (`SHARED_PLACES`) | 共享位置的列表 (类型留下了) | `npm/src/manifest/places.ts` |
 | `src/runtime/platforms.js` (`PLATFORM_SUPPORT`、`RUNNING_MODES`、`platformSupport()`) | 各平台、各跑法下有哪些模块 | `npm/src/manifest/platforms.ts` |
-| `src/vite.js` (`@dopame/acde-api/vite`) | Vite 插件: 构建时把 `acde:*` 留作外部模块, dev 时换成会 reject 的替身 | `npm/src/vite-plugin.ts` (`acde build` 用) |
-| `src/validate.ts` (`@dopame/acde-api/manifest`) | 清单校验 (`Manifest`、`ICON_NAMES`、`SHELL_MODULES`、`APP_MODULES`、能力列表、导入规则), Broker 和 `acde check/build` 共用 | `npm/src/manifest/index.ts` |
+| `src/vite.js` (`@dopame/acde-api/vite`) | Vite 插件: 构建时把 `acde:*` 留作外部模块, dev 时换成会 reject 的替身 | `npm/src/vite-plugin.ts` (`acdev build` 用) |
+| `src/validate.ts` (`@dopame/acde-api/manifest`) | 清单校验 (`Manifest`、`ICON_NAMES`、`SHELL_MODULES`、`APP_MODULES`、能力列表、导入规则), Broker 和 `acdev check/build` 共用 | `npm/src/manifest/index.ts` |
 | `src/frame.ts` (`FrameThemes`) | 窗框主题的颜色、样式解析成传给原生的格式 | 没有 (运行时一侧的逻辑) |
 | `src/index.js` | 上面那些值的再导出 | 没有 |
 | `scripts/build.mjs` | esbuild 打 `dist/` 并检查产物 | 没有 |
-| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (编辑器补全) | `npm/templates/config.schema.json`, `acde new` 拷进工程成 `acde.config.schema.json`, 模板的 `$schema` 指向它 |
+| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (编辑器补全) | `npm/templates/config.schema.json`, `acdev new` 拷进工程成 `acde.config.schema.json`, 模板的 `$schema` 指向它 |
 | `test/` | 上面逻辑的测试 | 没有 |
 
 `acde-dom` (DOM, 改用 blitz, 属系统侧) 和 `acde-host` (窗口表与策略归 winman; 应用登记、权限、服务宿主、应用互相打开归 acdebin-system)
@@ -57,7 +57,7 @@
 - `OpenHandler.id`: acde 应用 id; 原生程序是它的 desktop entry (`x.desktop`), Windows 上是注册名 (路径或打包应用 id).
 - `OpenHandler.icon`: 图标名或 URL; Windows 程序给 `data:image/png` URL 或 `''`.
 - `OpenHandler.default`: 没指定应用时 `openPath` 用它打开这个文件 (用户记住的选择, 否则第一个合适的).
-- `OpenHandler.system`: Windows: 这个程序是系统自己对这个扩展名的默认程序 (只读, acde 从不改).
+- `OpenHandler.system`: Windows: 这个程序是系统自己对这个扩展名的默认程序 (只读, acdev 从不改).
 - `AcdeOpenFiles.handlers`: 能打开这个文件的应用. 系统不知道它的类型时 `mime` 是 `''` (Windows); `association` 是 `setDefault` 记住选择用的键:
   MIME 类型, Windows 上是扩展名 (`.md`).
 - `AcdeOpenFiles.setDefault`: 为一个 MIME 类型 (Windows 上为一个扩展名, 如 `.md`) 记住 `handler`; 不动系统自己的默认.

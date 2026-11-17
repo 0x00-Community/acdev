@@ -26,7 +26,7 @@ export class Output {
 
   static labelled(line: string, c: Palette): string {
     if (!c.on || line.includes('\x1b[')) return line
-    const [, prefix = '', label = '', rest = ''] = /^(acde: )?(\S+:)(.*)$/s.exec(line) ?? []
+    const [, prefix = '', label = '', rest = ''] = /^(acdev: )?(\S+:)(.*)$/s.exec(line) ?? []
     const paint = Output.LABELS[label]
     if (!paint) return line
     return `${prefix}${(c[paint] as (text: string) => string)(label)}${rest}`
@@ -44,7 +44,7 @@ export class Output {
   }
 
   static option(command: string, option: string, value: string, expected: string): Error {
-    return new Error(`${command}: --${option} ${value}: ${expected} (acde ${command} --help)`)
+    return new Error(`${command}: --${option} ${value}: ${expected} (acdev ${command} --help)`)
   }
 
   static message(error: unknown): string {
@@ -55,7 +55,7 @@ export class Output {
   static fail(error: unknown, stream: Sink = process.stderr, env: NodeJS.ProcessEnv = process.env): void {
     const c = Output.palette(stream, env)
     const [head = '', ...rest] = Output.message(error).split('\n')
-    const said = Help.block(Help.unbroken(head), Help.terminal(stream), '      ', `${c.error('acde:')} `)
+    const said = Help.block(Help.unbroken(head), Help.terminal(stream), '      ', `${c.error('acdev:')} `)
     stream.write(`${[...said, ...rest].join('\n')}\n`)
     if (Output.debug(env) && error instanceof Error && error.stack) stream.write(`${error.stack}\n`)
   }

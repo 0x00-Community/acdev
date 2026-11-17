@@ -80,7 +80,7 @@ export abstract class Bundler {
     const wanted = env['ACDE_BUNDLER'] || (Runtime.bun ? 'bun' : 'vite')
     if (wanted === 'vite') return new ViteBundler(dir)
     if (wanted === 'bun' && Runtime.bun) return new BunBundler()
-    throw new Error(`ACDE_BUNDLER=${wanted}: vite, or bun when acde runs on bun`)
+    throw new Error(`ACDE_BUNDLER=${wanted}: vite, or bun when acdev runs on bun`)
   }
 
   static isHtml(entry: string): boolean {

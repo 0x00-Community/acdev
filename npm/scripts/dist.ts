@@ -71,23 +71,23 @@ if (sdk.name !== '@dopame/acde-api' || (values.sdk !== undefined && sdk.version 
 const runtime = values.runtime === undefined ? null : resolve(values.runtime)
 if (runtime !== null && !existsSync(runtime)) throw new Error(`--runtime ${runtime}: no such directory`)
 
-const skill = join(ROOT, 'skills', 'acde')
+const skill = join(ROOT, 'skills', 'acdev')
 const unfit = skillProblems(skill)
-if (unfit.length > 0) throw new Error(`skills/acde does not follow the skill rules:\n${unfit.join('\n')}`)
+if (unfit.length > 0) throw new Error(`skills/acdev does not follow the skill rules:\n${unfit.join('\n')}`)
 
-const name = `acde-${version}`
+const name = `acdev-${version}`
 const dir = join(out, version)
 const stage = join(dir, '.stage')
 const top = join(stage, name)
-const lib = join(top, 'lib', 'acde')
+const lib = join(top, 'lib', 'acdev')
 rmSync(stage, { recursive: true, force: true })
 
 mkdirSync(join(top, 'bin'), { recursive: true })
 mkdirSync(join(lib, 'dist'), { recursive: true })
-copyFileSync(join(ROOT, 'bin', 'acde.sh'), join(top, 'bin', 'acde'))
-chmodSync(join(top, 'bin', 'acde'), 0o755)
-const cmd = readFileSync(join(ROOT, 'bin', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
-writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
+copyFileSync(join(ROOT, 'bin', 'acdev.sh'), join(top, 'bin', 'acdev'))
+chmodSync(join(top, 'bin', 'acdev'), 0o755)
+const cmd = readFileSync(join(ROOT, 'bin', 'acdev.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
+writeFileSync(join(top, 'bin', 'acdev.cmd'), cmd)
 for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
@@ -165,7 +165,7 @@ async function bundle(
     naming: { entry: shared ? '[dir]/[name].js' : file!, chunk: 'chunk-[hash].js' },
     minify: true,
     sourcemap: 'none',
-    external: ['acde/launcher'],
+    external: ['acdev/launcher'],
     define: preload,
   })
   if (!built.success) throw new AggregateError(built.logs, `bundling ${entries.join(', ')} failed`)
@@ -206,7 +206,7 @@ function pinTimes(path: string): void {
 
 function published() {
   return {
-    name: 'acde',
+    name: 'acdev',
     version,
     description: SELF.description,
     license: SELF.license,

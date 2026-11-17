@@ -38,19 +38,19 @@ function fixAfter(out: string, title: string): string {
   return at >= 0 && lines[at + 1]?.startsWith('       fix: ') ? lines[at + 1]!.slice('       fix: '.length) : ''
 }
 
-describe('acde doctor', () => {
+describe('acdev doctor', () => {
   test('no acdert: an error that says where it looked and how to get one; the checks that need it are skipped', async () => {
     const s = standIn()
     const ran = await doctor([], s.project, { ...s.env, ACDERT: '', PATH: NO_ACDERT })
     expect(ran.code).toBe(1)
     expect(line(ran.stdout, 'acdebin-dbg')).toBe(
-      'error  acdebin-dbg: acde dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
+      'error  acdebin-dbg: acdev dev needs the Dopame runtime (acdebin-dbg) and found none: ' +
       'set ACDERT to an acdebin-dbg binary, or put acdebin-dbg on PATH',
     )
     expect(fixAfter(ran.stdout, 'acdebin-dbg')).toContain('set ACDERT to its target/release/acdebin-dbg')
     expect(line(ran.stdout, 'contract level')).toBe('skip   contract level: needs an acdebin-dbg that runs')
     expect(line(ran.stdout, 'runtime check')).toBe('skip   runtime check: needs an acdebin-dbg that runs')
-    expect(ran.stdout.trim().split('\n').at(-1)).toMatch(/^acde doctor: 1 error, \d+ warnings?$/)
+    expect(ran.stdout.trim().split('\n').at(-1)).toMatch(/^acdev doctor: 1 error, \d+ warnings?$/)
   }, 60_000)
 
   test('ACDERT that is not there, or that does not run, is an error with the reason', async () => {
@@ -79,17 +79,17 @@ describe('acde doctor', () => {
     expect(line(ran.stdout, 'acdebin-dbg'))
       .toBe(`ok     acdebin-dbg: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
     expect(line(ran.stdout, 'contract level')).toBe(
-      `warn   contract level: level ${API_LEVEL} on both sides, but acde ${Versions.acde()} is built with SDK ${Versions.sdk()}, ` +
+      `warn   contract level: level ${API_LEVEL} on both sides, but acdev ${Versions.acde()} is built with SDK ${Versions.sdk()}, ` +
       `which pairs with acdebin-dbg ${Versions.sdk()} and this one is 0.0.0`,
     )
     expect(line(ran.stdout, 'host files')).toBe('ok     host files: /fake/app/dist')
     expect(line(ran.stdout, 'gpu')).toBe('ok     gpu: Fake GPU (Metal, integrated GPU): drew a test frame in 1 ms')
-    expect(line(ran.stdout, 'project')).toBe('ok     project: alpha, app (acde.config.jsonc): acde check finds nothing wrong')
-    expect(line(ran.stdout, 'acde dev sessions')).toBe('ok     acde dev sessions: none running')
+    expect(line(ran.stdout, 'project')).toBe('ok     project: alpha, app (acde.config.jsonc): acdev check finds nothing wrong')
+    expect(line(ran.stdout, 'acdev dev sessions')).toBe('ok     acdev dev sessions: none running')
     expect(ran.code).toBe(0)
   }, 60_000)
 
-  test('what acdert doctor finds wrong is an error of acde doctor; an acdert without it is a warning', async () => {
+  test('what acdert doctor finds wrong is an error of acdev doctor; an acdert without it is a warning', async () => {
     const s = standIn()
     const gpu = await doctor([], s.project, { ...s.env, FAKE_ACDERT_DOCTOR: 'gpu' })
     expect(gpu.code).toBe(1)
@@ -106,14 +106,14 @@ describe('acde doctor', () => {
       .toBe('error  runtime check: acdebin-dbg doctor gave no report: acdert doctor: it broke')
   }, 60_000)
 
-  test('a runtime of another contract level is an error: acde dev would refuse it', async () => {
+  test('a runtime of another contract level is an error: acdev dev would refuse it', async () => {
     const s = standIn()
     const other = API_LEVEL + 1
     const ran = await doctor([], s.project, { ...s.env, FAKE_ACDERT_LEVEL: String(other) })
     expect(ran.code).toBe(1)
     expect(line(ran.stdout, 'contract level')).toBe(
-      `error  contract level: acde builds level ${API_LEVEL} apps, but acdebin-dbg 0.0.0 runs level ${other}: ` +
-      'acde dev refuses to start it',
+      `error  contract level: acdev builds level ${API_LEVEL} apps, but acdebin-dbg 0.0.0 runs level ${other}: ` +
+      'acdev dev refuses to start it',
     )
   }, 60_000)
 
@@ -123,13 +123,13 @@ describe('acde doctor', () => {
     expect(ran.code).toBe(1)
     const report = JSON.parse(ran.stdout) as { ok: boolean; checks: Check[] }
     expect(report.ok).toBe(false)
-    expect(report.checks.map((check) => check.id)).toEqual(expect.arrayContaining(['acde', 'acdert', 'contract', 'runtime.host', 'runtime.gpu', 'project']))
+    expect(report.checks.map((check) => check.id)).toEqual(expect.arrayContaining(['acdev', 'acdert', 'contract', 'runtime.host', 'runtime.gpu', 'project']))
     expect(report.checks.find((check) => check.id === 'runtime.gpu')).toEqual({
       id: 'runtime.gpu', title: 'gpu', status: 'error', summary: 'no usable Metal driver was found', fix: 'update the GPU driver',
     })
   }, 60_000)
 
-  test('the project: acde check findings, a directory that is not a project, dependencies that are not installed', async () => {
+  test('the project: acdev check findings, a directory that is not a project, dependencies that are not installed', async () => {
     const s = standIn()
     const named = await doctor([tmp()], s.project, s.env)
     expect(named.code).toBe(1)
@@ -140,7 +140,8 @@ describe('acde doctor', () => {
     expect(line(absent.stdout, 'project')).toBe(`error  project: ${nowhere} does not exist: pass the directory of an `
       + 'acde project, or leave it out to check this machine only')
     const here = await doctor([], tmp(), s.env)
-    expect(line(here.stdout, 'project')).toMatch(/^skip   project: no acde project in .*: run acde doctor in a project, or pass its directory, to check it too$/)
+    expect(line(here.stdout, 'project')).toMatch(
+      /^skip {3}project: no acde project in .*: run acdev doctor in a project, or pass its directory, to check it too$/)
     const bad = join(tmp(), 'bad')
     mkdirSync(bad)
     writeFileSync(join(bad, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'Not An Id' }))
@@ -148,7 +149,7 @@ describe('acde doctor', () => {
     const wrong = await doctor([bad], s.project, s.env)
     expect(wrong.code).toBe(1)
     expect(line(wrong.stdout, 'project')).toMatch(/^error  project: /)
-    expect(fixAfter(wrong.stdout, 'project')).toBe('acde check lists them')
+    expect(fixAfter(wrong.stdout, 'project')).toBe('acdev check lists them')
     writeFileSync(join(s.project, 'package.json'), JSON.stringify({ name: 'alpha', packageManager: 'bun@1.4.4', dependencies: { 'left-pad': '1.3.0' } }))
     const deps = await doctor([], s.project, s.env)
     expect(line(deps.stdout, 'dependencies')).toBe('warn   dependencies: not installed: left-pad')
@@ -159,18 +160,18 @@ describe('acde doctor', () => {
     expect(line(hoisted.stdout, 'dependencies')).toMatch(/^ok     dependencies: installed with bun \(runs on Bun /)
   }, 60_000)
 
-  test('an older SDK: one line, under dependencies, with acde sdk update as the fix', async () => {
+  test('an older SDK: one line, under dependencies, with acdev sdk update as the fix', async () => {
     const s = standIn()
     const old = 'https://pkgs.example.test/acdert/0.0.1/acde-api-0.0.1.tar.gz'
     const sdkLines = (out: string) => out.split('\n').filter((text) => text.includes('@dopame/acde-api'))
-    const said = `warn   dependencies: @dopame/acde-api: the project has 0.0.1; this acde pairs with ${Versions.sdk()} `
+    const said = `warn   dependencies: @dopame/acde-api: the project has 0.0.1; this acdev pairs with ${Versions.sdk()} `
     writeFileSync(join(s.project, 'package.json'), JSON.stringify({
       name: 'alpha', packageManager: 'bun@1.4.4', devDependencies: { '@dopame/acde-api': old },
     }))
     const missing = await doctor([], s.project, s.env)
     expect(sdkLines(missing.stdout)).toHaveLength(1)
     expect(sdkLines(missing.stdout)[0]).toStartWith(said)
-    expect(fixAfter(missing.stdout, 'dependencies')).toBe('run acde sdk update')
+    expect(fixAfter(missing.stdout, 'dependencies')).toBe('run acdev sdk update')
     expect(line(missing.stdout, 'project')).toMatch(/^ok     project: /)
     const installed = join(dirname(s.project), 'node_modules', '@dopame', 'acde-api')
     mkdirSync(installed, { recursive: true })
@@ -178,17 +179,17 @@ describe('acde doctor', () => {
     const stale = await doctor([], s.project, s.env)
     expect(sdkLines(stale.stdout)).toHaveLength(1)
     expect(line(stale.stdout, 'dependencies')).toStartWith(said)
-    expect(fixAfter(stale.stdout, 'dependencies')).toBe('run acde sdk update')
-    expect(stale.stdout).not.toContain('acde check lists them')
+    expect(fixAfter(stale.stdout, 'dependencies')).toBe('run acdev sdk update')
+    expect(stale.stdout).not.toContain('acdev check lists them')
     const elsewhere = await doctor([s.project], tmp(), s.env)
     expect(sdkLines(elsewhere.stdout)).toHaveLength(1)
-    expect(fixAfter(elsewhere.stdout, 'dependencies')).toBe(`run acde sdk update ${realpathSync(s.project)}`)
+    expect(fixAfter(elsewhere.stdout, 'dependencies')).toBe(`run acdev sdk update ${realpathSync(s.project)}`)
     const below = await doctor(['alpha'], dirname(s.project), s.env)
     expect(sdkLines(below.stdout)).toHaveLength(1)
-    expect(fixAfter(below.stdout, 'dependencies')).toBe('run acde sdk update alpha')
-    expect(fixAfter((await doctor(['.'], s.project, s.env)).stdout, 'dependencies')).toBe('run acde sdk update')
+    expect(fixAfter(below.stdout, 'dependencies')).toBe('run acdev sdk update alpha')
+    expect(fixAfter((await doctor(['.'], s.project, s.env)).stdout, 'dependencies')).toBe('run acdev sdk update')
     mkdirSync(join(s.root, 'my app'))
-    expect(Doctor.sdkFix(join(s.root, 'my app'), true, s.root)).toBe('run acde sdk update "my app"')
+    expect(Doctor.sdkFix(join(s.root, 'my app'), true, s.root)).toBe('run acdev sdk update "my app"')
   }, 60_000)
 
   test('a package.json above the project that is not JSON: findings that name it, not a crash', async () => {
@@ -197,18 +198,19 @@ describe('acde doctor', () => {
     writeFileSync(join(s.project, 'package.json'), JSON.stringify({ name: 'alpha' }))
     const ran = await doctor([], s.project, s.env)
     expect(ran.code).toBe(1)
-    expect(ran.stderr).not.toMatch(/^acde: /m)
+    expect(ran.stderr).not.toMatch(/^acdev: /m)
     expect(line(ran.stdout, 'project')).toMatch(/^ok     project: alpha/)
-    expect(line(ran.stdout, 'dependencies')).toMatch(/^error  dependencies: \S+package\.json is not valid JSON \(.+\): acde reads it to tell which package manager the project uses$/)
+    expect(line(ran.stdout, 'dependencies')).toMatch(new RegExp('^error {2}dependencies: \\S+package\\.json is not valid JSON \\(.+\\): '
+      + 'acdev reads it to tell which package manager the project uses$'))
     expect(fixAfter(ran.stdout, 'dependencies')).toBe('make that package.json valid JSON')
-    expect(ran.stdout).toContain('acde doctor: ')
+    expect(ran.stdout).toContain('acdev doctor: ')
     const checked = await collect([process.execPath, CLI, 'check'], { cwd: s.project, env: env(s.env) })
     expect(checked.code).toBe(0)
     const sdk = await collect([process.execPath, CLI, 'sdk'], { cwd: s.project, env: env(s.env) })
-    expect([sdk.code, sdk.stdout.trim().split('\n').at(-1)]).toEqual([0, 'run acde sdk update to add it'])
+    expect([sdk.code, sdk.stdout.trim().split('\n').at(-1)]).toEqual([0, 'run acdev sdk update to add it'])
   }, 60_000)
 
-  test('an app that waits for approval in a running acde dev: a warning that names it', async () => {
+  test('an app that waits for approval in a running acdev dev: a warning that names it', async () => {
     const s = standIn()
     const dev = Bun.spawn([process.execPath, CLI, 'dev'], {
       cwd: s.project, env: env({ ...s.env, FAKE_ACDERT_WAITS: '1' }), stdout: 'ignore', stderr: 'ignore',
@@ -217,28 +219,28 @@ describe('acde doctor', () => {
       const dir = Sessions.dir(env(s.env))
       for (let i = 0; i < 200 && Sessions.list(dir).length === 0; i++) await sleep(50)
       const ran = await doctor([], s.project, s.env)
-      expect(line(ran.stdout, 'acde dev sessions')).toMatch(/^ok     acde dev sessions: 1 running: /)
+      expect(line(ran.stdout, 'acdev dev sessions')).toMatch(/^ok {5}acdev dev sessions: 1 running: /)
       expect(line(ran.stdout, 'approval')).toBe(
-        `warn   approval: alpha waits for approval of camera in acde dev ${dev.pid}, so its getUserMedia waits until the prompt is answered`,
+        `warn   approval: alpha waits for approval of camera in acdev dev ${dev.pid}, so its getUserMedia waits until the prompt is answered`,
       )
-      expect(fixAfter(ran.stdout, 'approval')).toBe('acde allow (or acde deny): approving is the user\'s decision')
+      expect(fixAfter(ran.stdout, 'approval')).toBe('acdev allow (or acdev deny): approving is the user\'s decision')
     } finally {
       dev.kill()
       await dev.exited
     }
   }, 60_000)
 
-  test('acde dev: an acdert that exits before it is ready points at acde doctor', async () => {
+  test('acdev dev: an acdert that exits before it is ready points at acdev doctor', async () => {
     const s = standIn()
     const ran = await collect([process.execPath, CLI, 'dev'], { cwd: s.project, env: env({ ...s.env, FAKE_ACDERT_FAILS: '1' }) })
     expect(ran.code).toBe(1)
     expect(ran.stderr).toContain('web layer unavailable: fake acdert has no GPU')
-    expect(ran.stderr).toContain('acde: acdebin-dbg exited (1) before it was ready; ' +
-      'acde doctor checks the runtime, the GPU and this setup')
-    expect(ran.stderr).toContain(`acde: ${DevSession.WINDOW_HINT}`)
+    expect(ran.stderr).toContain('acdev: acdebin-dbg exited (1) before it was ready; ' +
+      'acdev doctor checks the runtime, the GPU and this setup')
+    expect(ran.stderr).toContain(`acdev: ${DevSession.WINDOW_HINT}`)
   }, 60_000)
 
-  test('acde dev and acde test --headed without a display (Linux) stop at once and point at headless', async () => {
+  test('acdev dev and acdev test --headed without a display (Linux) stop at once and point at headless', async () => {
     const s = standIn()
     const bare = env(s.env)
     delete bare['WAYLAND_DISPLAY']
@@ -250,50 +252,50 @@ describe('acde doctor', () => {
     if (process.platform !== 'linux') return
     const dev = await collect([process.execPath, CLI, 'dev'], { cwd: s.project, env: bare })
     expect([dev.code, dev.stderr.trim()])
-      .toEqual([1, 'acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless'])
+      .toEqual([1, 'acdev: no display here (no WAYLAND_DISPLAY or DISPLAY): run acdev dev --headless'])
     const headed = await collect([process.execPath, CLI, 'test', '--headed'], { cwd: s.project, env: bare })
     expect([headed.code, headed.stderr.trim()])
-      .toEqual([1, 'acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde test without --headed'])
+      .toEqual([1, 'acdev: no display here (no WAYLAND_DISPLAY or DISPLAY): run acdev test without --headed'])
   }, 60_000)
 
-  test('an npm install: the @dopame/acde wrapper on PATH runs this platform package', () => {
-    const lib = join(tmp(), 'lib', 'node_modules', '@dopame', 'acde')
-    const home = join(lib, 'node_modules', '@dopame', 'acde-linux-x64')
+  test('an npm install: the @dopame/acdev wrapper on PATH runs this platform package', () => {
+    const lib = join(tmp(), 'lib', 'node_modules', '@dopame', 'acdev')
+    const home = join(lib, 'node_modules', '@dopame', 'acdev-linux-x64')
     mkdirSync(home, { recursive: true })
-    writeFileSync(join(home, 'package.json'), JSON.stringify({ name: '@dopame/acde-linux-x64', version: '0.0.0' }))
-    writeFileSync(join(lib, 'acde.mjs'), '')
-    const other = join(tmp(), 'acde.mjs')
+    writeFileSync(join(home, 'package.json'), JSON.stringify({ name: '@dopame/acdev-linux-x64', version: '0.0.0' }))
+    writeFileSync(join(lib, 'acdev.mjs'), '')
+    const other = join(tmp(), 'acdev.mjs')
     writeFileSync(other, '')
     expect(Doctor.fromNpm(home)).toBe(true)
     expect(Doctor.fromNpm(join(tmp(), 'versions', '0.0.0'))).toBe(false)
-    expect(Doctor.npmWrapper(join(lib, 'acde.mjs'), home)).toBe(true)
+    expect(Doctor.npmWrapper(join(lib, 'acdev.mjs'), home)).toBe(true)
     expect(Doctor.npmWrapper(other, home)).toBe(false)
   })
 
   test('format: one line per check, a fix under it, a last line that counts', () => {
     const checks: Check[] = [
-      Doctor.ok('acde', 'acde', '0.0.9'),
-      Doctor.warn('skill', 'agent skill', 'not installed', 'acde skills install'),
+      Doctor.ok('acdev', 'acdev', '0.0.9'),
+      Doctor.warn('skill', 'agent skill', 'not installed', 'acdev skills install'),
       Doctor.error('acdert', 'acdert', 'not found', 'run the installer again'),
       Doctor.skip('contract', 'contract level', 'needs an acdert that runs'),
     ]
     expect(Doctor.format(checks, Color.palette(false))).toBe([
-      'ok     acde: 0.0.9',
+      'ok     acdev: 0.0.9',
       'warn   agent skill: not installed',
-      '       fix: acde skills install',
+      '       fix: acdev skills install',
       'error  acdert: not found',
       '       fix: run the installer again',
       'skip   contract level: needs an acdert that runs',
-      'acde doctor: 1 error, 1 warning',
+      'acdev doctor: 1 error, 1 warning',
     ].join('\n'))
     const coloured = Doctor.format(checks, Color.palette(true)).split('\n')
-    expect(coloured[0]).toBe('\x1b[32mok    \x1b[39m acde: 0.0.9')
+    expect(coloured[0]).toBe('\x1b[32mok    \x1b[39m acdev: 0.0.9')
     expect(coloured[1]).toBe('\x1b[33mwarn  \x1b[39m agent skill: not installed')
     expect(coloured[3]).toStartWith('\x1b[1;31merror \x1b[22;39m acdert')
     expect(coloured[5]).toStartWith('\x1b[2mskip  \x1b[22m contract')
     expect(Doctor.format([checks[0]!], Color.palette(false)))
-      .toBe('ok     acde: 0.0.9\nacde doctor: everything acde needs is here')
-    expect(Doctor.format(checks.slice(0, 2)).split('\n').at(-1)).toBe('acde doctor: no errors, 1 warning')
+      .toBe('ok     acdev: 0.0.9\nacdev doctor: everything acdev needs is here')
+    expect(Doctor.format(checks.slice(0, 2)).split('\n').at(-1)).toBe('acdev doctor: no errors, 1 warning')
     expect(Doctor.failed(checks)).toBe(true)
     expect(Doctor.failed(checks.slice(0, 2))).toBe(false)
   })
@@ -303,7 +305,7 @@ describe('acde doctor', () => {
     const display = 'neither WAYLAND_DISPLAY nor DISPLAY is set, so acdert app and acdert desktop cannot open a host '
       + 'window here: they would try to start a session on the screen (DRM) instead'
     const checks = [
-      Doctor.warn('display', 'display', display, 'run acde dev --headless, or run it inside a graphical session'),
+      Doctor.warn('display', 'display', display, 'run acdev dev --headless, or run it inside a graphical session'),
       Doctor.ok('acdert', 'acdert', `acdert 0.0.9 (contract level 1) at ${home}/bin/acdert (installed next to acde)`),
     ]
     const lines = Doctor.format(checks, Color.palette(false), 60).split('\n')
@@ -312,7 +314,7 @@ describe('acde doctor', () => {
       '       so acdert app and acdert desktop cannot open a host',
       '       window here: they would try to start a session on the',
       '       screen (DRM) instead',
-      '       fix: run acde dev --headless, or run it inside a graphical session',
+      '       fix: run acdev dev --headless, or run it inside a graphical session',
     ])
     expect(lines).toContain(`       ${home}/bin/acdert (installed`)
     const prose = lines.filter((l) => !l.includes(home) && !l.includes('fix:'))
@@ -323,16 +325,16 @@ describe('acde doctor', () => {
     'so a path or command in a summary or fix copies whole', () => {
     const home = '/Users/Jane Doe/Library/Application Support/acde'
     const checks = [
-      Doctor.warn('path', 'PATH', `acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
+      Doctor.warn('path', 'PATH', `acdev on PATH is another one (/usr/local/bin/acdev), not this one (${home})`,
         `add ${home}/bin to PATH (the installer does that unless it is told not to)`),
-      Doctor.warn('latest', 'latest release', 'acde 0.0.10 is out; this is 0.0.9', Doctor.installer({})),
+      Doctor.warn('latest', 'latest release', 'acdev 0.0.10 is out; this is 0.0.9', Doctor.installer({})),
     ]
     expect(Doctor.format(checks, Color.palette(false), null).split('\n')).toEqual([
-      `warn   PATH: acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
+      `warn   PATH: acdev on PATH is another one (/usr/local/bin/acdev), not this one (${home})`,
       `       fix: add ${home}/bin to PATH (the installer does that unless it is told not to)`,
-      'warn   latest release: acde 0.0.10 is out; this is 0.0.9',
+      'warn   latest release: acdev 0.0.10 is out; this is 0.0.9',
       `       fix: ${Doctor.installer({})}`,
-      'acde doctor: no errors, 2 warnings',
+      'acdev doctor: no errors, 2 warnings',
     ])
   })
 
@@ -341,28 +343,28 @@ describe('acde doctor', () => {
     expect(Versions.newer('0.0.9', '0.0.10')).toBe(false)
     expect(Versions.newer('0.0.9', '0.0.9')).toBe(false)
     expect(Versions.newer('0.1.0', '0.0.99')).toBe(true)
-    const root = join(tmp(), 'acde')
-    expect(Doctor.inside(join(root, 'bin', 'acde'), root)).toBe(true)
+    const root = join(tmp(), 'acdev')
+    expect(Doctor.inside(join(root, 'bin', 'acdev'), root)).toBe(true)
     expect(Doctor.inside(root, root)).toBe(true)
     expect(Doctor.inside(`${root}-other`, root)).toBe(false)
     expect(Doctor.inside(join(root, '..', 'x'), root)).toBe(false)
   })
 })
 
-describe('acde doctor --fix', () => {
-  const SKILL = 'install the acde skill for the coding agents found here (acde skills install)'
+describe('acdev doctor --fix', () => {
+  const SKILL = 'install the acdev skill for the coding agents found here (acdev skills install)'
 
   test('fixes the skill and .acde/ in .gitignore without asking, then checks again', async () => {
     const s = standIn()
     const vars: Record<string, string> = { ...s.env, ...isolated(), FAKE_ACDERT_DOCTOR: 'ok' }
     const git = spawnSync('git', ['init', '-q'], { cwd: s.project })
     const before = await doctor([], s.project, vars)
-    expect(line(before.stdout, 'agent skill')).toBe('warn   agent skill: the acde skill is not installed for any coding agent')
+    expect(line(before.stdout, 'agent skill')).toBe('warn   agent skill: the acdev skill is not installed for any coding agent')
     const ran = await doctor(['--fix'], s.project, vars)
     expect(ran.stdout).toContain(`fixing: ${SKILL}\n`)
     expect(ran.stdout).toContain(`fixed: ${SKILL}\n`)
-    expect(existsSync(join(vars['HOME']!, '.agents', 'skills', 'acde', 'SKILL.md'))).toBe(true)
-    const after = ran.stdout.slice(ran.stdout.indexOf('acde doctor: after fixing:\n'))
+    expect(existsSync(join(vars['HOME']!, '.agents', 'skills', 'acdev', 'SKILL.md'))).toBe(true)
+    const after = ran.stdout.slice(ran.stdout.indexOf('acdev doctor: after fixing:\n'))
     expect(after).toMatch(/\nok     agent skill: current in /)
     if (git.status === 0) {
       expect(ran.stdout).toContain(`added .acde/ to ${join(s.project, '.gitignore')}\n`)
@@ -371,7 +373,7 @@ describe('acde doctor --fix', () => {
     }
     expect(ran.code).toBe(0)
     const again = await doctor(['--fix'], s.project, vars)
-    expect(again.stdout).toContain('acde doctor: nothing here it can fix; the fix lines say what to do')
+    expect(again.stdout).toContain('acdev doctor: nothing here it can fix; the fix lines say what to do')
     expect(again.stdout).not.toContain('after fixing')
   }, 120_000)
 
@@ -392,7 +394,7 @@ describe('acde doctor --fix', () => {
     expect(line(yes.stdout.slice(yes.stdout.indexOf('after fixing')), 'dependencies')).toMatch(/^ok     dependencies: installed with bun/)
     const refused = await doctor(['--yes'], s.project, vars)
     expect(refused.code).toBe(1)
-    expect(refused.stderr).toBe('acde: doctor: --yes is for --fix (acde doctor --help)\n')
+    expect(refused.stderr).toBe('acdev: doctor: --yes is for --fix (acdev doctor --help)\n')
   }, 120_000)
 
   test('a sessions directory that is not a directory is made again', async () => {
@@ -402,11 +404,11 @@ describe('acde doctor --fix', () => {
     writeFileSync(dir, 'not a directory')
     const broken = await doctor([], s.project, vars)
     expect(broken.code).toBe(1)
-    expect(line(broken.stdout, 'acde dev sessions')).toBe(`error  acde dev sessions: ${dir} is not a plain directory; remove it and run again`)
+    expect(line(broken.stdout, 'acdev dev sessions')).toBe(`error  acdev dev sessions: ${dir} is not a plain directory; remove it and run again`)
     const ran = await doctor(['--fix'], s.project, vars)
     expect(ran.stdout).toContain(`made ${dir} again\n`)
     expect(statSync(dir).isDirectory()).toBe(true)
-    expect(line(ran.stdout.slice(ran.stdout.indexOf('after fixing')), 'acde dev sessions')).toBe('ok     acde dev sessions: none running')
+    expect(line(ran.stdout.slice(ran.stdout.indexOf('after fixing')), 'acdev dev sessions')).toBe('ok     acdev dev sessions: none running')
     expect(ran.code).toBe(0)
   }, 120_000)
 
@@ -448,6 +450,6 @@ describe('acde doctor --fix', () => {
     const none: string[] = []
     expect(await Doctor.fix([checks[4]!], { yes: true, output: 'capture', say: (text) => none.push(text), confirm: null, allowing: '' }))
       .toEqual([])
-    expect(none).toEqual(['acde doctor: nothing here it can fix; the fix lines say what to do'])
+    expect(none).toEqual(['acdev doctor: nothing here it can fix; the fix lines say what to do'])
   })
 })

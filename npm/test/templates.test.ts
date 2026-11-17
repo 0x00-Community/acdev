@@ -138,7 +138,7 @@ describe('templates at contract level 1', () => {
 
   const vite = join(import.meta.dir, 'fixtures', 'create-vite')
   for (const template of readdirSync(vite)) {
-    test(`create-vite ${template}: no page or README mentions HMR once acde adopts it (acde dev reloads)`, () => {
+    test(`create-vite ${template}: no page or README mentions HMR once acde adopts it (acdev dev reloads)`, () => {
       const dir = tmp()
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite' }))
       cpSync(join(vite, template), dir, { recursive: true })
@@ -182,7 +182,7 @@ describe('templates at contract level 1', () => {
     expectLevel1App(own, 'made-by-vite')
   })
 
-  test('--backend on a Vite project adds server.ts alone, and acde build bundles it as the backend', async () => {
+  test('--backend on a Vite project adds server.ts alone, and acdev build bundles it as the backend', async () => {
     const dir = tmp()
     mkdirSync(join(dir, 'src'))
     writeFileSync(join(dir, 'src/main.ts'), 'document.title = "vite"\n')

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
-import { installDir, installed } from 'acde/launcher'
+import { installDir, installed } from 'acdev/launcher'
 import { up } from './paths.ts'
 import { Output } from './output.ts'
 import { PackageManager } from './pm.ts'
@@ -46,7 +46,7 @@ export class Sdk {
     }
     const spec = self.dependencies[Sdk.NAME] ?? ''
     if (!spec.startsWith('file:'))
-      throw new Error(`acde's package.json: ${Sdk.NAME} is not a file: dependency (${spec})`)
+      throw new Error(`acdev's package.json: ${Sdk.NAME} is not a file: dependency (${spec})`)
     return realpathSync(resolve(Sdk.ROOT, spec.slice('file:'.length)))
   }
 
@@ -95,11 +95,11 @@ export class Sdk {
     if (state.spec === null) return null
     const path = Sdk.path(dir, state.spec)
     if (path === null || path !== Sdk.dir()) {
-      return `package.json: ${Sdk.NAME} is ${state.spec}, but this acde's SDK is ${Sdk.spec()}: run acde sdk update`
+      return `package.json: ${Sdk.NAME} is ${state.spec}, but this acdev's SDK is ${Sdk.spec()}: run acdev sdk update`
     }
     if (state.version !== state.paired) {
       const has = state.version === null ? state.spec : `${state.version} (${state.spec})`
-      return `package.json: ${Sdk.NAME} is ${has}, but this acde pairs with ${state.paired}: run acde sdk update`
+      return `package.json: ${Sdk.NAME} is ${has}, but this acdev pairs with ${state.paired}: run acdev sdk update`
     }
     if (state.installed === null || state.installed === state.version) return null
     return `package.json names ${Sdk.NAME} ${state.version}, but ${state.installed} is installed: run ${pm()} install`
@@ -111,8 +111,8 @@ export class Sdk {
     const warning = Sdk.warning(state, () => PackageManager.of(dir).name, dir)
     return [
       `project: ${project}`,
-      `this acde: ${state.paired} (${Sdk.spec()})`,
-      ...(warning ? [warning] : state.spec === null ? ['run acde sdk update to add it'] : ['up to date']),
+      `this acdev: ${state.paired} (${Sdk.spec()})`,
+      ...(warning ? [warning] : state.spec === null ? ['run acdev sdk update to add it'] : ['up to date']),
     ]
   }
 
@@ -162,7 +162,7 @@ export class Sdk {
       for (const [name, stop] of stops) process.off(name, stop)
     }
     if (signal === null && failure === null) {
-      return `acde: ${Sdk.NAME} is ${state.paired} (${spec}), installed with ${pm.name}`
+      return `acdev: ${Sdk.NAME} is ${state.paired} (${spec}), installed with ${pm.name}`
     }
     const failed = Sdk.#restore(kept)
     const was = state.spec === null ? `no ${Sdk.NAME}` : `${Sdk.NAME} ${state.version ?? state.spec}`

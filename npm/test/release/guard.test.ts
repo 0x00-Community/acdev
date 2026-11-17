@@ -43,15 +43,15 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   for (const file of [`acde-host-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
-    const top = `acde-${VERSION}`
+    const top = `acdev-${VERSION}`
     const write = (path: string, text: string) => {
       mkdirSync(join(stage, top, path, '..'), { recursive: true })
       writeFileSync(join(stage, top, path), text)
     }
-    write('bin/acde', 'shim')
-    write('lib/acde/package.json', '{"name":"acde"}')
-    write('lib/acde/dist/cli.js', 'console.log(1)\n')
-    write('lib/acde/templates/app/index.html', '<!doctype html>')
+    write('bin/acdev', 'shim')
+    write('lib/acdev/package.json', '{"name":"acdev"}')
+    write('lib/acdev/dist/cli.js', 'console.log(1)\n')
+    write('lib/acdev/templates/app/index.html', '<!doctype html>')
     write('LICENSE', 'license')
     for (const item of plant.filter((p) => p.where === 'archive' && (p.triple ?? triple) === triple)) {
       write(item.path, item.text ?? '')
@@ -68,7 +68,7 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   writeFileSync(join(out, 'install.ps1'), 'ps1')
   writeFileSync(join(out, 'install.md'), 'md')
   writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, files: readdirSync(version).sort() }))
-  if (tamper) writeFileSync(join(version, `acde-${VERSION}.tar.gz`), 'changed after the checksum')
+  if (tamper) writeFileSync(join(version, `acdev-${VERSION}.tar.gz`), 'changed after the checksum')
   for (const item of plant.filter((p) => p.where === 'release')) {
     mkdirSync(join(out, item.path, '..'), { recursive: true })
     writeFileSync(join(out, item.path), item.text ?? '')
@@ -122,24 +122,24 @@ describe('release guard', () => {
   }, 180_000)
 
   const forbidden: [string, string, string, string][] = [
-    ['a source map', 'lib/acde/dist/cli.js.map', '{}', 'source map, symbol or log file'],
-    ['a sourcesContent field', 'lib/acde/dist/extra.js', 'x;var s="sourcesContent";', 'sourcesContent'],
+    ['a source map', 'lib/acdev/dist/cli.js.map', '{}', 'source map, symbol or log file'],
+    ['a sourcesContent field', 'lib/acdev/dist/extra.js', 'x;var s="sourcesContent";', 'sourcesContent'],
     [
-      'a sourceMappingURL comment', 'lib/acde/dist/extra.js', 'x\n//# sourceMappingURL=cli.js.map\n',
+      'a sourceMappingURL comment', 'lib/acdev/dist/extra.js', 'x\n//# sourceMappingURL=cli.js.map\n',
       'source map reference',
     ],
     [
-      'a sourceURL naming a file', 'lib/acde/dist/extra.js', 'x\n//# sourceURL=../src/app.ts\n',
+      'a sourceURL naming a file', 'lib/acdev/dist/extra.js', 'x\n//# sourceURL=../src/app.ts\n',
       'sourceURL naming a file',
     ],
-    ['a TypeScript source outside the templates', 'lib/acde/dist/app.ts', 'export {}', 'TypeScript source'],
-    ['a symbol file', 'lib/acde/dist/cli.pdb', 'pdb', 'source map, symbol or log file'],
+    ['a TypeScript source outside the templates', 'lib/acdev/dist/app.ts', 'export {}', 'TypeScript source'],
+    ['a symbol file', 'lib/acdev/dist/cli.pdb', 'pdb', 'source map, symbol or log file'],
     ['a dotenv file', '.env', 'TOKEN=1', 'dotfile or symbol bundle'],
     ['a dot directory', '.acde/state.json', '{}', 'dotfile or symbol bundle'],
-    ['a test fixture', 'lib/acde/fixtures/page.html', '<p>', 'test, fixture or log directory'],
-    ['a log file', 'lib/acde/dist/run.log', 'ran', 'source map, symbol or log file'],
-    ['a GitHub token', 'lib/acde/dist/config.js', 'x="ghp_abcdefghijklmnopqrstuvwxyz0123"', 'GitHub token'],
-    ['a local build path', 'lib/acde/dist/config.js', 'x="D:\\Projects\\AgentComputer\\acde"', 'local build path'],
+    ['a test fixture', 'lib/acdev/fixtures/page.html', '<p>', 'test, fixture or log directory'],
+    ['a log file', 'lib/acdev/dist/run.log', 'ran', 'source map, symbol or log file'],
+    ['a GitHub token', 'lib/acdev/dist/config.js', 'x="ghp_abcdefghijklmnopqrstuvwxyz0123"', 'GitHub token'],
+    ['a local build path', 'lib/acdev/dist/config.js', 'x="D:\\Projects\\AgentComputer\\acde"', 'local build path'],
   ]
   for (const [label, path, text, reason] of forbidden) {
     test(`fails on ${label} inside an archive`, () => {
@@ -151,7 +151,7 @@ describe('release guard', () => {
 
   test('still passes the interpolated sourceURL the driver writes at run time', () => {
     const text = 'x=`/*# sourceURL=${name} */`'
-    const made = guard(release([{ where: 'archive', triple: TRIPLES[0], path: 'lib/acde/dist/driver/index.js', text }]))
+    const made = guard(release([{ where: 'archive', triple: TRIPLES[0], path: 'lib/acdev/dist/driver/index.js', text }]))
     expect(made.code, made.out).toBe(0)
   }, 180_000)
 
@@ -163,7 +163,7 @@ describe('release guard', () => {
 
   test.skipIf(process.platform === 'win32')('fails on a symbolic link inside an archive', () => {
     const root = tmp()
-    const top = `acde-${VERSION}`
+    const top = `acdev-${VERSION}`
     const stage = join(root, 'stage')
     mkdirSync(join(stage, top, 'lib'), { recursive: true })
     writeFileSync(join(stage, top, 'LICENSE'), 'license')
@@ -172,7 +172,7 @@ describe('release guard', () => {
     const file = join(out, VERSION, `${top}.tar.gz`)
     systemTar(['-czf', file, '-C', stage, top])
     const lines = TRIPLES.map((triple) => {
-      const name = `acde-${VERSION}.tar.gz`
+      const name = `acdev-${VERSION}.tar.gz`
       return `${sha(join(out, VERSION, name))}  ${name}`
     })
     writeFileSync(join(out, VERSION, 'SHA256SUMS'), `${lines.join('\n')}\n`)

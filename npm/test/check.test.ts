@@ -25,7 +25,7 @@ function oldProject(dir = tmp(), fields: Record<string, unknown> = {}): string {
 
 afterAll(cleanup)
 
-describe('acde check on a project', () => {
+describe('acdev check on a project', () => {
   test('check: the SDK validator judges the config at level 1 before anything builds', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
@@ -53,7 +53,7 @@ describe('acde check on a project', () => {
     expect(system.code).toBe(0)
   })
 
-  test('check and acde sdk: an SDK at another path, a tarball, or this acde\'s own', async () => {
+  test('check and acdev sdk: an SDK at another path, a tarball, or this acdev\'s own', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'portable' }))
@@ -66,8 +66,8 @@ describe('acde check on a project', () => {
       write(spec)
       const checked = await cli(['check'], dir)
       expect(checked.code).toBe(0)
-      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, but this acde's SDK is `
-        + `${Sdk.spec()}: run acde sdk update`)
+      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, but this acdev's SDK is `
+        + `${Sdk.spec()}: run acdev sdk update`)
     }
     expect((await cli(['sdk'], dir)).stdout).toContain(`project: 0.0.7 (`)
     write(Sdk.spec())
@@ -95,7 +95,7 @@ describe('acde check on a project', () => {
     expect((await cli(['check'], dir)).stderr).toBe('')
   })
 
-  test('acde sdk and acde check name the same package manager for the install', async () => {
+  test('acdev sdk and acdev check name the same package manager for the install', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
@@ -109,7 +109,7 @@ describe('acde check on a project', () => {
     expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe(said)
   })
 
-  test('a failing acde sdk update puts package.json, the lockfile and .npmrc back and says so', async () => {
+  test('a failing acdev sdk update puts package.json, the lockfile and .npmrc back and says so', async () => {
     const broken = brokenSdk()
     const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
     const project = (pm: string) => {
@@ -139,19 +139,19 @@ describe('acde check on a project', () => {
     expect(existsSync(join(npm, 'package-lock.json'))).toBe(false)
   }, 120_000)
 
-  test('acde sdk update changes nothing when the package manager of the project is not on PATH', async () => {
+  test('acdev sdk update changes nothing when the package manager of the project is not on PATH', async () => {
     const dir = oldProject()
     writeFileSync(join(dir, 'pnpm-lock.yaml'), 'the old lock\n')
     const before = readFileSync(join(dir, 'package.json'), 'utf8')
     const failed = await cli(['sdk', 'update'], dir, { PATH: tmp() })
     expect(failed.code).toBe(1)
-    expect(failed.stderr).toBe('acde: sdk: pnpm is not on PATH, and this project installs with pnpm: nothing was changed\n')
+    expect(failed.stderr).toBe('acdev: sdk: pnpm is not on PATH, and this project installs with pnpm: nothing was changed\n')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
     expect(existsSync(join(dir, '.npmrc'))).toBe(false)
   })
 
-  test('acde sdk update puts back what it can, each file on its own, and names what it could not', async () => {
+  test('acdev sdk update puts back what it can, each file on its own, and names what it could not', async () => {
     const dir = oldProject()
     writeFileSync(join(dir, 'pnpm-lock.yaml'), 'the old lock\n')
     writeFileSync(join(dir, 'package-lock.json'), 'the old npm lock\n')
@@ -166,7 +166,7 @@ describe('acde check on a project', () => {
     ].join('\n'))
     const failed = await cli(['sdk', 'update'], dir, { PATH: bin })
     expect(failed.code).toBe(1)
-    expect(failed.stderr).toContain(`acde: sdk: pnpm install exited with 1, and the update to ${Sdk.paired()} could not `
+    expect(failed.stderr).toContain(`acdev: sdk: pnpm install exited with 1, and the update to ${Sdk.paired()} could not `
       + 'be undone completely: could not put back package-lock.json (EISDIR')
     expect(failed.stderr).toContain('; package.json and pnpm-lock.yaml are as before (@dopame/acde-api 0.0.7); '
       + 'node_modules may be half updated: run pnpm install to match them')
@@ -175,7 +175,7 @@ describe('acde check on a project', () => {
     expect(existsSync(join(dir, 'yarn.lock'))).toBe(false)
   })
 
-  test('acde sdk update in a workspace member keeps and writes the files where the package manager has them', async () => {
+  test('acdev sdk update in a workspace member keeps and writes the files where the package manager has them', async () => {
     const root = realpathSync(tmp())
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'mono', private: true, workspaces: ['packages/*'] }))
     writeFileSync(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n")
@@ -218,7 +218,7 @@ describe('acde check on a project', () => {
     expect(existsSync(join(member, '.npmrc'))).toBe(false)
   })
 
-  test('acde sdk update with npm writes this acde\'s SDK path and no .npmrc', async () => {
+  test('acdev sdk update with npm writes this acdev\'s SDK path and no .npmrc', async () => {
     const npm = fakePm('npm', [
       'const [command] = process.argv.slice(2)',
       "if (command === '--version') console.log('11.10.0')",
@@ -227,11 +227,11 @@ describe('acde check on a project', () => {
     const dir = oldProject(tmp(), { packageManager: 'npm@11.10.0' })
     const kept = await cli(['sdk', 'update'], dir, { PATH: npm })
     expect(kept.code, kept.out).toBe(0)
-    expect(kept.stdout).toBe(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with npm\n`)
+    expect(kept.stdout).toBe(`acdev: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with npm\n`)
     expect(existsSync(join(dir, '.npmrc'))).toBe(false)
   })
 
-  test('acde sdk update: a package manager that does not start leaves the project as it was', async () => {
+  test('acdev sdk update: a package manager that does not start leaves the project as it was', async () => {
     if (WINDOWS) return
     const dir = oldProject()
     writeFileSync(join(dir, 'pnpm-lock.yaml'), 'the old lock\n')
@@ -240,13 +240,13 @@ describe('acde check on a project', () => {
     writeFileSync(join(bin, 'pnpm'), 'not a program', { mode: 0o644 })
     const failed = await cli(['sdk', 'update'], dir, { PATH: bin })
     expect(failed.code).toBe(1)
-    expect(failed.stderr).toContain('acde: sdk: pnpm install did not start (')
+    expect(failed.stderr).toContain('acdev: sdk: pnpm install did not start (')
     expect(failed.stderr).toContain(`so the update to ${Sdk.paired()} was undone: package.json and pnpm-lock.yaml are `
       + 'as before (@dopame/acde-api 0.0.7)\n')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
   })
 
-  test('acde sdk update: Ctrl+C stops the install, waits for it and then puts the project back', async () => {
+  test('acdev sdk update: Ctrl+C stops the install, waits for it and then puts the project back', async () => {
     if (WINDOWS) return
     const dir = oldProject()
     writeFileSync(join(dir, 'pnpm-lock.yaml'), 'the old lock\n')
@@ -271,14 +271,14 @@ describe('acde check on a project', () => {
     child.kill('SIGINT')
     expect(await child.exited).toBe(3)
     const stderr = await new Response(child.stderr).text()
-    expect(stderr).toBe(`acde: sdk: interrupted (SIGINT), so the update to ${Sdk.paired()} was undone: package.json and `
+    expect(stderr).toBe(`acdev: sdk: interrupted (SIGINT), so the update to ${Sdk.paired()} was undone: package.json and `
       + 'pnpm-lock.yaml are as before (@dopame/acde-api 0.0.7); node_modules may be half updated: run pnpm install '
       + 'to match them\n')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
   })
 
-  test('acde sdk update points package.json at this acde\'s SDK and installs it', async () => {
+  test('acdev sdk update points package.json at this acdev\'s SDK and installs it', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
@@ -288,7 +288,7 @@ describe('acde check on a project', () => {
     }, null, 2))
     const updated = await cli(['sdk', 'update'], dir)
     expect(updated.code, updated.out).toBe(0)
-    expect(updated.stdout).toContain(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with bun`)
+    expect(updated.stdout).toContain(`acdev: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with bun`)
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies['@dopame/acde-api']).toBe(Sdk.spec())
     const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@dopame/acde-api/package.json'), 'utf8'))

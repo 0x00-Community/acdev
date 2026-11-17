@@ -2,7 +2,7 @@
 
 > 运行时库的文档, 文中代码路径 (`src/`、`tests/`、`scripts/`、`vendor/`、`protocol/`、`include/`) 相对 `acdert/`.
 
-acde dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
+acdev dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
 
 - **DevTools 端点** (只在有 `ACDE_DEV` 时, Chrome DevTools Protocol, #172): runtime 模块 `devtools/` (napi `DevTools.open()` /
   `DevTools.targets(list)`), 宿主窗口和 Linux 会话一样. Broker 建 `DevRequests` 时 `open()`: 在 `127.0.0.1` 上听系统挑的端口,
@@ -21,7 +21,7 @@ acde dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
   false 时答 `-32601 '<method>' wasn't found`; 请求带 `sessionId` 的回答原样带回. 只收文本帧 (16 MB 以内), 二进制帧关连接;
   控制帧不超过 125 字节、不分片. 防护 (同 Chrome 的调试端口): `Host` 头只认 `127.0.0.1`、`localhost`、`[::1]` (可带端口), 别的 (含没有) 先回 400
   (防 DNS 重绑定); 然后 HTTP 和 WebSocket 请求带了 `Origin` 而不是 `devtools://devtools` 的回 403 (浏览器里的网页连本机端口时一定带自己的
-  `Origin` 且改不了), 不带 `Origin` 的 (命令行工具、`acde devtools`、`chrome://inspect` 和从它打开的 DevTools) 照常. 只在 dev 模式开、只听
+  `Origin` 且改不了), 不带 `Origin` 的 (命令行工具、`acdev devtools`、`chrome://inspect` 和从它打开的 DevTools) 照常. 只在 dev 模式开、只听
   127.0.0.1; 同一台机器上的其他本地用户能连到, 和 Chrome、Node 的调试端口一样; 同时最多 32 条连接, 多的接下就关; 请求头从建连起 10 秒内读完, 否则断开. `Client::send` 只把帧放进
   这个客户端的有界队列 (256 帧) 就返回, 不阻塞调用方 (页面线程也能调); 每个客户端一条 `acde-devtools-send` 线程按序写出, 套接字写超时
   10 秒; 队列满、写失败或超时都断开这个客户端.
@@ -43,7 +43,7 @@ acde dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
   域. 没人接的页面错误 (`host.reportError`) 也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的
   `description` 里).
   **重载不断开** (#202): Broker 让同一个 web 重来前 (`Web.terminate` 时 `reloading` 为真: `location.reload` 的 `window.reload`、单应用
-  acde dev 的 `devReload`、桌面的 `devReload`) 先调 napi `DevTools.reloading(web 名)`, 端点记 10 秒 (`RELOAD_WAIT`); 期间目标留在
+  acdev dev 的 `devReload`、桌面的 `devReload`) 先调 napi `DevTools.reloading(web 名)`, 端点记 10 秒 (`RELOAD_WAIT`); 期间目标留在
   `/json/list` 里, 它的客户端不因列表变化被关. 旧页面 `closed` 时 `Pages` 见到这个记号就不发 detached, 把会话挂起 (记着客户端开过的域和
   `enable` 参数, 挂起期间收到的消息排队); 同名新页面 `opened` 时清掉记号, 在新 inspector 上重新 `connect`: 开过 Runtime 的先补发
   `Runtime.executionContextsCleared`, 再按原顺序重放各域的 `enable` (负数 id, 回复不给客户端; V8 因此自己发 `executionContextCreated`,
@@ -61,7 +61,7 @@ acde dev 的 IPC 和调试请求见 `docs/dev/dev-ipc.md`.
   (和上下文 auxData 的 `frameId` 一样), `url` 是页面地址, `resources` 还空着. 加一个域: 在 `devtools/` 写一个 `DevToolsDomain`, 在 `worker.ts`
   `DevToolsPage.install` 的列表里加上; 域名不在 `DOMAINS` 里时再加进去 (不加就仍然交给 V8).
   `DOM` (#190, `devtools/dom.ts`, 页面一侧的取数在 `devtools/pagedom.ts`): 只读的元素树. `getDocument` / `requestChildNodes` (发 `setChildNodes`) /
-  `describeNode` 的 `nodeId` 和 `backendNodeId` 都是 render 的节点 id (`WebInternals.idOf`, 和 `acde inspect` 的 ref 同一个), 只有空白的文本节点
+  `describeNode` 的 `nodeId` 和 `backendNodeId` 都是 render 的节点 id (`WebInternals.idOf`, 和 `acdev inspect` 的 ref 同一个), 只有空白的文本节点
   不列. 哪些节点展开过 (子节点发给了前端) 按客户端 session 各记一份: `getDocument` 只重置自己的, `setChildNodes` 只发给要它的 session,
   断开或 `disable` 时删掉那份, 所以几个前端各看各的、后连上的也拿得到完整的树. `enable` 或 `getDocument` 之后用页面的 `MutationObserver`
   (不让页面看到) 逐个 session 推: 父节点在它那里展开过就推 `childNodeInserted` / `childNodeRemoved`, 只是见过 (它的父节点展开过) 推

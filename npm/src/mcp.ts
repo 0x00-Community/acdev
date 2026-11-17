@@ -17,9 +17,9 @@ const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = [
-  `acde: see and drive the desktop and apps of an acde dev session (acdebin-dbg runs them, not a browser). For Chrome `
-    + `DevTools on a page, the user runs acde devtools in a terminal (an acdert from 0.0.9 or older has none).`,
-  `- A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde `
+  `acdev: see and drive the desktop and apps of an acdev dev session (acdebin-dbg runs them, not a browser). For Chrome `
+    + `DevTools on a page, the user runs acdev devtools in a terminal (an acdert from 0.0.9 or older has none).`,
+  `- A session: the acdev dev whose projects hold the working directory is used. If none runs, call start (it runs acdev `
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
   `- Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, `
     + `one per line with a ref like [w3.12]. find narrows to elements whose name or value contains a text; window `
@@ -37,7 +37,7 @@ const INSTRUCTIONS = [
   `- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource `
     + `requests and the images, stylesheets and fonts they load (status, size, time, error); both answer next, pass it `
     + `as since to read only newer entries. emulate switches the colour scheme. logs is the raw `
-    + `output of an acde dev that start ran.`,
+    + `output of an acdev dev that start ran.`,
   `- act drag moves an element onto another ref (pointer drags and HTML5 drag and drop, also into another window); act `
     + `select picks options of a <select> by value or text.`,
   `- route fakes the response (or a failure) of a page's fetch / XHR whose URL matches, so a test or an agent can try `
@@ -83,7 +83,7 @@ export class Mcp {
   constructor(options: McpOptions = {}) {
     this.#cwd = options.cwd ?? process.cwd()
     this.#pinned = options.session
-    this.server = new McpServer({ name: 'acde', version: Versions.acde() }, { instructions: INSTRUCTIONS })
+    this.server = new McpServer({ name: 'acdev', version: Versions.acde() }, { instructions: INSTRUCTIONS })
     this.#register()
   }
 
@@ -120,9 +120,9 @@ export class Mcp {
     s.registerTool(
       'sessions',
       {
-        description: 'List the running acde dev sessions (pid, desktop or app, project directories) and which one the '
+        description: 'List the running acdev dev sessions (pid, desktop or app, project directories) and which one the '
           + 'tools use. Pass use to pin a session by pid.',
-        inputSchema: z.object({ use: z.number().int().positive().optional().describe('pid of the acde dev to use from '
+        inputSchema: z.object({ use: z.number().int().positive().optional().describe('pid of the acdev dev to use from '
           + 'now on') }),
         annotations: look,
       },
@@ -132,15 +132,15 @@ export class Mcp {
     s.registerTool(
       'doctor',
       {
-        description: 'Check this machine for acde dev, one line per check (ok, warn, error, skip) with a fix for '
-          + 'what is wrong: acde on PATH, Bun and Node.js, acdebin-dbg (found, runs, pairs with this acde, and its '
+        description: 'Check this machine for acdev dev, one line per check (ok, warn, error, skip) with a fix for '
+          + 'what is wrong: acdev on PATH, Bun and Node.js, acdebin-dbg (found, runs, pairs with this acdev, and its '
           + 'own check of the GPU and its files), running sessions and approvals they wait for, the project, the '
-          + 'agent skill. Call it first when acde dev or start does not come up.',
+          + 'agent skill. Call it first when acdev dev or start does not come up.',
         inputSchema: z.object({
           dir: z.string().optional().describe('the project directory to check, relative to the working directory '
             + '(default: the working directory)'),
           online: z.boolean().optional()
-            .describe('also ask the acde download site (ACDE_DIST) whether a newer acde is out'),
+            .describe('also ask the acdev download site (ACDE_DIST) whether a newer acdev is out'),
         }),
         annotations: { readOnlyHint: true, openWorldHint: true },
       },
@@ -153,11 +153,11 @@ export class Mcp {
     s.registerTool(
       'doctor_fix',
       {
-        description: 'Check this machine as doctor does, then fix what acde may fix without asking: install the acde '
+        description: 'Check this machine as doctor does, then fix what acdev may fix without asking: install the acdev '
           + 'skill, add .acde/ to .gitignore, make the sessions directory again. What downloads, installs or stops '
-          + 'something (the acde installer again for a missing or mismatched acdebin-dbg, the project\'s install, '
-          + 'stopping a session that does not answer) is skipped here and named: that needs the user, who runs acde '
-          + 'doctor --fix in a terminal (it asks) or agrees to acde doctor --fix --yes. Approvals, GPU drivers and '
+          + 'something (the acdev installer again for a missing or mismatched acdebin-dbg, the project\'s install, '
+          + 'stopping a session that does not answer) is skipped here and named: that needs the user, who runs acdev '
+          + 'doctor --fix in a terminal (it asks) or agrees to acdev doctor --fix --yes. Approvals, GPU drivers and '
           + 'the project\'s code are never touched. Answers what it did, then the checks again.',
         inputSchema: z.object({
           dir: z.string().optional().describe('the project directory, inside the working directory (default: the '
@@ -173,7 +173,7 @@ export class Mcp {
         const lines: string[] = []
         await Doctor.fix(await Doctor.run(options), {
           yes: false, output: 'capture', say: (line) => lines.push(line), confirm: null,
-          allowing: 'the user runs acde doctor --fix in a terminal, or agrees to acde doctor --fix --yes',
+          allowing: 'the user runs acdev doctor --fix in a terminal, or agrees to acdev doctor --fix --yes',
         })
         const after = await Doctor.run(options)
         return Mcp.#text(`${lines.join('\n')}\n\n${Doctor.format(after)}`)
@@ -183,9 +183,9 @@ export class Mcp {
     s.registerTool(
       'start',
       {
-        description: 'Run acde dev (build, start acdebin-dbg, rebuild and reload on change) and use that session. '
+        description: 'Run acdev dev (build, start acdebin-dbg, rebuild and reload on change) and use that session. '
           + 'Without dirs it runs the project in the working directory. Its output is kept for logs. Stops when this '
-          + 'server stops. When an acde dev already runs exactly this (the same projects, desktop, app and '
+          + 'server stops. When an acdev dev already runs exactly this (the same projects, desktop, app and '
           + 'headless), start uses that session instead (it says so; logs and stop are only for one start ran); when '
           + 'one runs these projects otherwise, start fails and names it; force: true starts another.',
         inputSchema: z.object({
@@ -196,7 +196,7 @@ export class Mcp {
           app: z.string().optional().describe('with one project holding several apps, which one to open'),
           headless: z.boolean().optional().describe('no host window on screen; pages, input and screenshots work the '
             + 'same'),
-          force: z.boolean().optional().describe('start another acde dev even when one already runs these projects '
+          force: z.boolean().optional().describe('start another acdev dev even when one already runs these projects '
             + '(by default start uses that one)'),
         }),
         annotations: drive,
@@ -207,7 +207,7 @@ export class Mcp {
     s.registerTool(
       'stop',
       {
-        description: 'Stop the acde dev that start ran.',
+        description: 'Stop the acdev dev that start ran.',
         inputSchema: z.object({}),
         annotations: { ...drive, destructiveHint: true },
       },
@@ -665,7 +665,7 @@ export class Mcp {
         this.#safe(async () => {
           const acde = await this.#acde()
           if (!acde.session.headless && args.system !== true) {
-            throw new Error(`clipboard: acde dev ${acde.session.pid} has a window on screen, so its clipboard is the `
+            throw new Error(`clipboard: acdev dev ${acde.session.pid} has a window on screen, so its clipboard is the `
               + 'user\'s system clipboard; ask the user, then call again with system: true (or use a session started '
               + 'with headless: true)')
           }
@@ -687,7 +687,7 @@ export class Mcp {
     s.registerTool(
       'logs',
       {
-        description: 'Output of the acde dev that start ran and of its acdebin-dbg: builds, reloads, page console.* '
+        description: 'Output of the acdev dev that start ran and of its acdebin-dbg: builds, reloads, page console.* '
           + '(target js), page errors ([app#window] page error: …), app backends ([app#backend]). Answers the last '
           + 'lines, or those from since on; next is what to pass as since to read only newer ones.',
         inputSchema: z.object({
@@ -709,7 +709,7 @@ export class Mcp {
       this.#launched = null
       this.#pinned = undefined
       const last = launched.logs!.tail(30).text
-      throw new Error(`the acde dev started here (pid ${launched.session.pid}) stopped; last output:\n${last}`)
+      throw new Error(`the acdev dev started here (pid ${launched.session.pid}) stopped; last output:\n${last}`)
     }
     const attached = this.#attached
     if (attached && !attached.closed && (this.#pinned === undefined || this.#pinned === attached.session.pid))
@@ -725,7 +725,7 @@ export class Mcp {
       })
     } catch (error) {
       if (stopped === undefined) throw error
-      throw new Error(`acde dev ${stopped} stopped; ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(`acdev dev ${stopped} stopped; ${error instanceof Error ? error.message : String(error)}`)
     }
     return this.#attached
   }
@@ -752,11 +752,11 @@ export class Mcp {
     if (use !== undefined) {
       if (!sessions.some((s) => s.pid === use)) {
         const running = sessions.length ? `; running: ${sessions.map((s) => s.pid).join(', ')}` : ''
-        throw new Error(`no acde dev with pid ${use}${running}`)
+        throw new Error(`no acdev dev with pid ${use}${running}`)
       }
       this.#pinned = use
     }
-    if (!sessions.length) return Mcp.#text(`no acde dev is running; start runs one here (${this.#cwd})`)
+    if (!sessions.length) return Mcp.#text(`no acdev dev is running; start runs one here (${this.#cwd})`)
     const current = this.#pinned ?? this.#current()
     const lines = sessions.map((s) =>
       `${s.pid === current ? '*' : ' '} ${Sessions.describe(s)}`
@@ -783,7 +783,7 @@ export class Mcp {
     force?: boolean | undefined
   }): Promise<Result> {
     if (this.#launched && !this.#launched.closed)
-      throw new Error(`acde dev ${this.#launched.session.pid} started here is running; stop it first`)
+      throw new Error(`acdev dev ${this.#launched.session.pid} started here is running; stop it first`)
     if (!args.force) {
       const wanted = Sessions.wanted(this.#cwd, args)
       const running = await Sessions.live(Sessions.running(Sessions.list(), wanted.dirs))
@@ -794,14 +794,14 @@ export class Mcp {
         this.#attached = acde
         this.#pinned = same.pid
         const webs = await Mcp.#webs(acde)
-        return Mcp.#text(`attached to acde dev ${same.pid}, which already runs ${same.dirs.join(', ')}; it was `
+        return Mcp.#text(`attached to acdev dev ${same.pid}, which already runs ${same.dirs.join(', ')}; it was `
           + `started elsewhere, so logs and stop do not reach it (start {force: true} starts another)\n\n${webs}`)
       }
       const other = running[0]
       if (other) {
-        throw new Error(`acde dev ${other.pid} already runs ${other.dirs.join(', ')} (${Sessions.what(other)}), which is `
+        throw new Error(`acdev dev ${other.pid} already runs ${other.dirs.join(', ')} (${Sessions.what(other)}), which is `
           + `not what start asked for; to use it, sessions {use: ${other.pid}}; to start another beside it, start {force: `
-          + `true}; or stop it first (acde stop --session ${other.pid})`)
+          + `true}; or stop it first (acdev stop --session ${other.pid})`)
       }
     }
     const acde = await Acde.launch({
@@ -817,16 +817,16 @@ export class Mcp {
     const runs = acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`
     const what = `${runs}${args.headless ? ' without a window (headless)' : ''}`
     const webs = await Mcp.#webs(acde)
-    return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${webs}`)
+    return Mcp.#text(`acdev dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${webs}`)
   }
 
   async #stop(): Promise<Result> {
     const launched = this.#launched
-    if (!launched) throw new Error('start did not run an acde dev here')
+    if (!launched) throw new Error('start did not run an acdev dev here')
     await launched.close()
     this.#launched = null
     if (this.#pinned === launched.session.pid) this.#pinned = undefined
-    return Mcp.#text(`stopped acde dev ${launched.session.pid}`)
+    return Mcp.#text(`stopped acdev dev ${launched.session.pid}`)
   }
 
   async #waitFor(args: {
@@ -858,7 +858,7 @@ export class Mcp {
   #logs(args: { tail?: number | undefined; since?: number | undefined; grep?: string | undefined }): Result {
     const launched = this.#launched
     if (!launched?.logs) {
-      throw new Error('logs has the output of an acde dev that start ran; this session was started elsewhere, '
+      throw new Error('logs has the output of an acdev dev that start ran; this session was started elsewhere, '
         + 'its output is in that terminal')
     }
     const grep = args.grep === undefined ? undefined : new RegExp(args.grep, 'i')
@@ -866,7 +866,7 @@ export class Mcp {
       ? launched.logs.since(args.since, { limit: args.tail ?? 5000, ...(grep && { grep }) })
       : launched.logs.tail(args.tail ?? 100, grep ? { grep } : {})
     const dropped = slice.dropped ? ` (${slice.dropped} older lines were dropped)` : ''
-    const head = `next: ${slice.next}${dropped}${launched.closed ? ' (acde dev has exited)' : ''}`
+    const head = `next: ${slice.next}${dropped}${launched.closed ? ' (acdev dev has exited)' : ''}`
     return Mcp.#text(slice.lines.length ? `${head}\n${slice.text}` : `${head}\n(no lines)`)
   }
 

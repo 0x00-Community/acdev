@@ -4,7 +4,7 @@
 
 网页存储见 `docs/web/storage.md`, 应用后端和请求路由见 `docs/web/backend.md`.
 
-工程、构建和 `acde dev` 是 acde 仓库的事 (`acde new / check / build / install / dev`, 框架识别、模板、listen preload). 本仓库对外只发 SDK
+工程、构建和 `acdev dev` 是 acdev 仓库的事 (`acdev new / check / build / install / dev`, 框架识别、模板、listen preload). 本仓库对外只发 SDK
 `@dopame/acde-api`. 运行时只认构建出来的包: 清单 `package.json`、`web/`、`backend/server.js` 和 `backend/acde-listen.js` (把每个
 `listen(P)` 换成 `<sockets>/P.sock`).
 
@@ -17,7 +17,7 @@
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
 - **样式表和别的子资源** (`<link rel=stylesheet>`、`<img>`、`@font-face`、CSS 背景图): 应用包里的文件 render 直接读盘; 读不到的 http / https /
   `blob:` 地址 render 的 `Loader` 发到页面线程, 经页面的网络栈取 (acde-dom `core/resources.ts` `loadResource`: 和 `fetch` 同一套路由、代理、
-  证书、重定向, `acde network` 里是 `image` / `stylesheet` / `font`). 规则按 destination 照浏览器: 图片和样式表 no-cors (不带 `Origin`, body 照用),
+  证书、重定向, `acdev network` 里是 `image` / `stylesheet` / `font`). 规则按 destination 照浏览器: 图片和样式表 no-cors (不带 `Origin`, body 照用),
   字体 cors; 样式表要 2xx 的 `text/css`, 图片不看状态码; 失败在 console 报 `Failed to load resource: <url>: <原因>`. `<link crossorigin>` 是 CORS
   请求 (空值和别的值不带凭据, `use-credentials` 带), 没过 CORS 检查算失败; 改 `crossorigin` 和改 `href` / `rel` 一样重取.
   `document.fonts` 列的是各表的 `@font-face` (acde-dom `fontFaceTexts`, 内部读 render 的规则, 跨源 (opaque) 的表也算, 像浏览器), 页面读这种表的 `cssRules` 仍是 `SecurityError`.
@@ -42,8 +42,8 @@
   (HTML、脚本、样式、JSON、wasm、字体、图片、音视频), 固定、和系统无关; 别的 (文稿、表格、压缩包、`.md` …) 是 `application/octet-stream` (#106).
   用户文件的类型不走这张表, 走宿主系统 (`env.fileType`, #98).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
-  `localStorage` / `sessionStorage` 见 `docs/web/storage.md`「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null; acde dev 里能事先答复, 见
-  `docs/dev/dev-ipc.md`「acde dev」的 `dialog`. 页面可以等用户回答的模态对话框还没有);
+  `localStorage` / `sessionStorage` 见 `docs/web/storage.md`「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null; acdev dev 里能事先答复, 见
+  `docs/dev/dev-ipc.md`「acdev dev」的 `dialog`. 页面可以等用户回答的模态对话框还没有);
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见 `docs/web/default-apps.md`「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见 `docs/web/fs.md`「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 在所有宿主上都报 Linux (`X11; Linux x86_64` / `Linux x86_64`, Broker 的 `UserAgent`,
   经 `WebInit.navigator`), 产品段是 `acdert/<真实版本>`. 运行时对应用呈现统一的 Linux 环境: 交互语义一律照 Linux (编辑快捷键是 Ctrl;
@@ -176,7 +176,7 @@
   `IdleDetector` (Idle Detection, 只在 Linux): runtime `idle.rs` 读 logind 会话的 `IdleHint` / `IdleSinceHintMonotonic` / `LockedHint` 并跟着
   PropertiesChanged; `userState` 是 idle 当且仅当会话标了空闲且已空闲到 threshold (不到就定时补算), `screenState` 看 LockedHint. 空闲提示由桌面写给
   logind (acdebin-system 的合成器、宿主桌面的会话管理器), 所以比 threshold 更早的空闲要等桌面先标. 授权是审批能力 `idleDetection` (清单声明,
-  `IdleDetector.requestPermission()` 弹 acde 的批准提示, `permissions.query({name: 'idle-detection'})` 看它); threshold 小于 1 分钟 TypeError.
+  `IdleDetector.requestPermission()` 弹 acdev 的批准提示, `permissions.query({name: 'idle-detection'})` 看它); threshold 小于 1 分钟 TypeError.
 - **摄像头和麦克风** (`getUserMedia`; src/media `capture/`, src/host `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
   - 权限: 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
     `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、
@@ -185,7 +185,7 @@
     `CaptureNative` 上两个可选成员 `request(kind)` / `onPermission(cb)`, 不知道批准是什么):
     - `navigator.permissions.query({name: 'camera'})`: 批准了 → 系统的状态 (`granted` / `prompt` / `denied`); 还没问或正在问 (`not-asked` /
       `asking`) → `prompt`; 被拒、撤销、平台没有这项能力 (`WebInit.tier.capabilities` 里是 `unsupported`) → `denied`. 批准状态一变
-      (`Permits.set`, 不管是 `getUserMedia`、`acde:capabilities` `request()` 还是桌面 / `acde allow` / `revoke` 引起的) `PermissionStatus` 发 `change`.
+      (`Permits.set`, 不管是 `getUserMedia`、`acde:capabilities` `request()` 还是桌面 / `acdev allow` / `revoke` 引起的) `PermissionStatus` 发 `change`.
     - `getUserMedia`: 先照旧选设备和模式 (`denied` 当场 `NotAllowedError`; 选不出来 `NotFoundError` / `OverconstrainedError`, 都不问人), 选好后对要的每一类
       调 `request`: 状态是 `prompt` 时经 rpc `capabilities.request` 弹批准提示 (和 `acde:capabilities` `request()` 同一个, `reason: 'request'`, 已经在问的并进去),
       答应了才开设备, 拒绝 (或问不成) 是 `NotAllowedError: Permission denied`, 不开设备. 音频和视频都要时先问 `microphone` 再问 `camera`, 一个一个来,
@@ -196,7 +196,7 @@
     - 还没有: 撤销之后已经在用的轨道不会 `ended` (它开着的设备照常出数据), 只是不能再开新的.
     批准之后还有系统的询问: macOS TCC (`AVCaptureDevice requestAccess`, 第一次 `getUserMedia`
     时弹; acdert 二进制的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`, 见 src/host
-    `build.rs`; 从终端起时 TCC 记在终端名下); Linux 本机程序直接读 PipeWire / V4L2, 没有系统询问. acde 自己不画询问框 (批准提示由桌面或 `acde allow` 答).
+    `build.rs`; 从终端起时 TCC 记在终端名下); Linux 本机程序直接读 PipeWire / V4L2, 没有系统询问. acdev 自己不画询问框 (批准提示由桌面或 `acdev allow` 答).
     `navigator.permissions` 是真的 `Permissions` / `PermissionStatus`.
   - 设备 (`acde_media::capture`): Linux 用 GStreamer `DeviceMonitor` (`Audio/Source`、`Video/Source`, PipeWire / V4L2 提供者, 去掉
     输出的 monitor), 打开用设备自己的元素 (`create_element`), 摄像头按选中的模式 (设备 caps 和宽高帧率的交集) 解成 RGBA, 麦克风转成

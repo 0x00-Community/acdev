@@ -50,7 +50,7 @@ async function answer(out: string, path: string): Promise<string> {
   }
 }
 
-describe('acde build', () => {
+describe('acdev build', () => {
   const out = join(tmp(), 'out')
   let built: Awaited<ReturnType<typeof cli>>
   beforeAll(async () => {
@@ -139,7 +139,7 @@ describe('acde build', () => {
     expect(JSON.parse(readFileSync(join(out, 'backend/package.json'), 'utf8'))).toEqual({ type: 'module' })
   })
 
-  test('the built backend under its preload, as acde runs it, answers on <port>.sock', async () => {
+  test('the built backend under its preload, as acdev runs it, answers on <port>.sock', async () => {
     expect(await answer(out, '/api/hello')).toBe('hello from the backend')
   })
 })
@@ -197,7 +197,7 @@ describe('backends', () => {
     expect((await cli(['check'], dir)).code).toBe(0)
   })
 
-  test('entry "/" without a backend, or another path ending in /, is an error of acde check and acde build', async () => {
+  test('entry "/" without a backend, or another path ending in /, is an error of acdev check and acdev build', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "rendered"}')
     writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/" }')
@@ -213,7 +213,7 @@ describe('backends', () => {
   })
 })
 
-describe('acde install / dev', () => {
+describe('acdev install / dev', () => {
   test('install copies the package to $XDG_DATA_HOME/acde/packages/<id>, replacing an older copy', async () => {
     const data = tmp()
     const out = join(tmp(), 'out')
@@ -263,7 +263,7 @@ describe('acde.config.jsonc', () => {
     const installed = await cli(['install'], dir, { XDG_DATA_HOME: data })
     expect(installed.code).toBe(0)
     expect(installed.stdout)
-      .toMatch(/^acde: built app hello into \.acde\nacde: installed hello in .+ \(\d+(?: ms|\.\d s)\)\n$/)
+      .toMatch(/^acdev: built app hello into \.acde\nacdev: installed hello in .+ \(\d+(?: ms|\.\d s)\)\n$/)
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
     expect(built.acde).toEqual({
       apiLevel: API_LEVEL,
@@ -433,22 +433,22 @@ describe('acde.config.jsonc', () => {
     const checked = await cli(['check'], dir)
     expect(checked.code).toBe(1)
     expect(checked.stderr).toContain(`no acde.config.jsonc or package.json in ${realpathSync(dir)}: not an acde `
-      + 'project; run this in a project directory (or pass it), or create one with acde new <name>')
+      + 'project; run this in a project directory (or pass it), or create one with acdev new <name>')
     const frob = await cli(['sdk', 'frob'], dir)
     expect(frob.code).toBe(1)
     expect(frob.stderr).toContain('sdk: frob is not a subcommand or a directory: the only subcommand is update '
-      + '(acde sdk update [dir]); acde sdk [dir] shows the SDK of a project')
-    expect((await cli(['sdk'], dir)).stderr).toContain(': run it in a project directory, or pass one (acde new <name> ')
+      + '(acdev sdk update [dir]); acdev sdk [dir] shows the SDK of a project')
+    expect((await cli(['sdk'], dir)).stderr).toContain(': run it in a project directory, or pass one (acdev new <name> ')
   })
 
   test('new --template html --backend: the page answers from server.ts', async () => {
     const dir = join(tmp(), 'with-api')
     const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API', '--no-install'], tmp())
     expect(made.code).toBe(0)
-    expect(made.stdout).toMatch(/^acde: HTML in (?:.+[\\/])?with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
-    expect(made.stdout).toContain(`acde: then:\n  ${Creator.LATER.join('\n  ')}\n`)
+    expect(made.stdout).toMatch(/^acdev: HTML in (?:.+[\\/])?with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
+    expect(made.stdout).toContain(`acdev: then:\n  ${Creator.LATER.join('\n  ')}\n`)
     for (const step of Creator.LATER) expect(step.length).toBeLessThanOrEqual(70)
-    expect(made.stdout).toContain('\n  acde install: build it and add it to this machine\'s desktop\n')
+    expect(made.stdout).toContain('\n  acdev install: build it and add it to this machine\'s desktop\n')
     const out = join(tmp(), 'out')
     expect((await cli(['build', '--out', out], dir)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({
@@ -482,7 +482,7 @@ describe('acde.config.jsonc', () => {
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Sdk.spec() })
-    expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
+    expect(pkg.scripts).toEqual({ 'acde:dev': 'acdev dev', 'acde:build': 'acdev build', 'acde:check': 'acdev check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
@@ -512,9 +512,9 @@ describe('a project made by acde from its checkout', () => {
 
   function tools(names: readonly string[]): string {
     const bin = tmp()
-    const entry = join(ROOT, 'bin/acde.mjs')
+    const entry = join(ROOT, 'bin/acdev.mjs')
     if (WINDOWS) {
-      writeFileSync(join(bin, 'acde.cmd'), `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`)
+      writeFileSync(join(bin, 'acdev.cmd'), `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`)
       return bin
     }
     for (const name of names) {
@@ -523,7 +523,7 @@ describe('a project made by acde from its checkout', () => {
       writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(realpathSync(found))} "$@"\n`, { mode: 0o755 })
     }
     writeFileSync(
-      join(bin, 'acde'),
+      join(bin, 'acdev'),
       `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`,
       { mode: 0o755 },
     )
@@ -544,7 +544,7 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is this acde\'s npm/acde-api, by path; ACDE_SDK names another', () => {
+  test('the SDK is this acdev\'s npm/acde-api, by path; ACDE_SDK names another', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
@@ -582,12 +582,12 @@ describe('a project made by acde from its checkout', () => {
         const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         expect(pkg.devDependencies['vite']).toBe(vite)
         expect(pkg.devDependencies['acde']).toBeUndefined()
-        expect(pkg.scripts).toEqual({ dev: 'acde dev', build: 'acde build', check: 'acde check' })
+        expect(pkg.scripts).toEqual({ dev: 'acdev dev', build: 'acdev build', check: 'acdev check' })
       }
     }
   })
 
-  test('which package manager: the user agent, else the runtime acde runs on', () => {
+  test('which package manager: the user agent, else the runtime acdev runs on', () => {
     const saved = {
       agent: process.env['npm_config_user_agent'],
       runtime: process.env['ACDE_HOST_RUNTIME'],
@@ -647,7 +647,7 @@ describe('a project made by acde from its checkout', () => {
 
   for (const pm of ['bun', 'npm', 'pnpm', 'yarn'] as const) {
     const skip = pm !== 'bun' && (!which(pm) || !which('node'))
-    test.skipIf(skip)(`${pm}: acde new installs this acde's SDK by path; run build`, async () => {
+    test.skipIf(skip)(`${pm}: acdev new installs this acdev's SDK by path; run build`, async () => {
       {
         const dir = join(tmp(), `by-${pm}`)
         const path = tools(pm === 'bun' ? ['bun'] : [pm, 'node', 'bun'])

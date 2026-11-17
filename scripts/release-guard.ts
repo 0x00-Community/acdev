@@ -29,7 +29,7 @@ const TARGETS = ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin', 'x86_64-app
 const targets = values.targets!.split(',').filter(Boolean)
 if (targets.length === 0) fail('--targets: the triples this release ships, comma-separated')
 for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: unknown target ${target} (one of ${TARGETS.join(', ')})`)
-const archives = [`acde-${version}.tar.gz`]
+const archives = [`acdev-${version}.tar.gz`]
 const windows = (target: string) => target.endsWith('-windows-msvc')
 const runtimes = targets.map((target) => `acdebin-dbg-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
 const host = `acde-host-${version}.tar.gz`

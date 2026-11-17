@@ -170,7 +170,7 @@ export class Devtools {
     if (options.address === 'always') console.log(url)
     const fallback = (why: string) => {
       if (options.address === 'fallback') console.log(url)
-      console.error(`acde: DevTools for ${title}: ${why}; ${paste}`)
+      console.error(`acdev: DevTools for ${title}: ${why}; ${paste}`)
     }
     if (!browser) {
       const off = lookup.env['ACDE_BROWSER'] === Devtools.NONE
@@ -185,8 +185,8 @@ export class Devtools {
       return fallback(`could not open it in ${browser.name} (${why})`)
     }
     console.error(how === 'focused'
-      ? `acde: brought DevTools for ${title} to the front in ${browser.name}`
-      : `acde: opened DevTools for ${title} in ${browser.name}`)
+      ? `acdev: brought DevTools for ${title} to the front in ${browser.name}`
+      : `acdev: opened DevTools for ${title} in ${browser.name}`)
   }
 
   static async #wanted(acde: Acde, named: string | null): Promise<string[]> {

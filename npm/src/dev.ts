@@ -144,7 +144,7 @@ export class DevSession {
   static #notApp(app: string, apps: readonly string[]): string {
     const listed = apps.length ? `its apps: ${apps.join(', ')}` : 'it has no apps'
     const pathy = /[\\/]/.test(app) || app === '.' || app === '..' || DevSession.#isDirectory(resolve(app))
-    const hint = pathy ? `; give a directory as the first argument: acde dev ${app}` : ''
+    const hint = pathy ? `; give a directory as the first argument: acdev dev ${app}` : ''
     return `--app ${app}: not an app id of this project (${listed}); --app takes an app id${hint}`
   }
 
@@ -201,7 +201,7 @@ export class DevSession {
   }
 
   static readonly WINDOW_HINT =
-    'if acdebin-dbg could not open a window here (no display, e.g. over ssh), run acde dev --headless'
+    'if acdebin-dbg could not open a window here (no display, e.g. over ssh), run acdev dev --headless'
 
   static runtimeLevel(acdert: string): Promise<RuntimeProbe> {
     return Runtime.level(acdert)
@@ -220,14 +220,14 @@ export class DevSession {
     const refused = this.#units.map((u) => DevSession.refusal(u, level)).filter((r) => r !== null)
     if (refused.length === 0) return
     const told = said ? `says ${JSON.stringify(said)}` : 'printed nothing'
-    const why = failed ? `\n${this.#acdert} --version: ${failed} (acde doctor checks the whole setup)`
+    const why = failed ? `\n${this.#acdert} --version: ${failed} (acdev doctor checks the whole setup)`
       : level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
         'it is older than contract levels; use an acdebin-dbg that has them' : ''
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
   static #refusal(pid: number, dir: string): Error {
-    return new Error(`acde dev ${pid} already runs ${dir}; stop it first (acde stop --session ${pid}), `
+    return new Error(`acdev dev ${pid} already runs ${dir}; stop it first (acdev stop --session ${pid}), `
       + 'or pass --force to start another')
   }
 
@@ -249,7 +249,7 @@ export class DevSession {
 
   async run(): Promise<number> {
     const display = this.#headless ? null : Runtime.noDisplay()
-    if (display) throw new Error(`${display}: run acde dev --headless`)
+    if (display) throw new Error(`${display}: run acdev dev --headless`)
     const claims = await this.#claim()
     try {
       return await this.#run()
@@ -265,7 +265,7 @@ export class DevSession {
   async #run(): Promise<number> {
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
-      if (sdk) console.error(`acde: warning: ${sdk}`)
+      if (sdk) console.error(`acdev: warning: ${sdk}`)
     }
     await this.#firstBuild()
     const target = this.#plan()
@@ -281,7 +281,7 @@ export class DevSession {
         .join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
       const headless = this.#headless ? ' (headless)' : ''
-      console.log(`acde: dev ${target.kind} ${target.id}${headless}: ${what}; rebuilding and reloading on change`)
+      console.log(`acdev: dev ${target.kind} ${target.id}${headless}: ${what}; rebuilding and reloading on change`)
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         ACDE_DEV: this.#endpoint,
@@ -319,15 +319,15 @@ export class DevSession {
           () => runtime.running,
           () =>
             console.error(
-              `acde: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
-                'an acdebin-dbg older than acde dev never does (no reload, no acde webs / eval …): use a newer one',
+              `acdev: acdebin-dbg has not opened ${this.#endpoint} after 10 s; ` +
+                'an acdebin-dbg older than acdev dev never does (no reload, no acdev webs / eval …): use a newer one',
             ),
         )
         if (!this.#link && first) {
           const code = await started.exited
           if (code !== 0)
-            console.error(`acde: acdebin-dbg exited (${code}) before it was ready; ` +
-              'acde doctor checks the runtime, the GPU and this setup')
+            console.error(`acdev: acdebin-dbg exited (${code}) before it was ready; ` +
+              'acdev doctor checks the runtime, the GPU and this setup')
           this.#hint(code)
           return code
         }
@@ -350,7 +350,7 @@ export class DevSession {
           this.#hint(code)
           return code
         }
-        console.error(`acde: acdebin-dbg exited (${code}); starting it again (acde dev keeps a window session running)`)
+        console.error(`acdev: acdebin-dbg exited (${code}); starting it again (acdev dev keeps a window session running)`)
         await new Promise((done) => setTimeout(done, DevSession.REVIVE_MS))
         DevClient.prepare(this.#endpoint)
       }
@@ -385,7 +385,7 @@ export class DevSession {
     while (crashes.length && now - crashes[0]! > DevSession.CRASH_WINDOW_MS) crashes.shift()
     if (crashes.length <= DevSession.CRASHES) return true
     const within = DevSession.CRASH_WINDOW_MS / 1000
-    console.error(`acde: acdebin-dbg exited ${crashes.length} times within ${within} s; giving up`)
+    console.error(`acdev: acdebin-dbg exited ${crashes.length} times within ${within} s; giving up`)
     return false
   }
 
@@ -400,7 +400,7 @@ export class DevSession {
       } catch (error) {
         if (!this.#resilient) throw error
         const message = error instanceof Error ? error.message : String(error)
-        console.error(`acde: build failed: ${message}\nacde: waiting for a change to build again`)
+        console.error(`acdev: build failed: ${message}\nacdev: waiting for a change to build again`)
         await this.#nextChange()
       }
     }
@@ -445,12 +445,12 @@ export class DevSession {
       const target = Devtools.pick(await Devtools.targets(endpoint), wanted, web)
       await Devtools.present(target, endpoint, { address: 'fallback' })
     } catch (error) {
-      console.error(`acde: F12: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`acdev: F12: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
   #hint(code: number): void {
-    if (!this.#headless && code !== 0 && code < 128) console.error(`acde: ${DevSession.WINDOW_HINT}`)
+    if (!this.#headless && code !== 0 && code < 128) console.error(`acdev: ${DevSession.WINDOW_HINT}`)
   }
 
   #publish(): void {
@@ -472,7 +472,7 @@ export class DevSession {
       })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
-      console.error(`acde: acde webs / eval / shot / inspect / act will not find this session: ${reason}`)
+      console.error(`acdev: acdev webs / eval / shot / inspect / act will not find this session: ${reason}`)
     }
   }
 
@@ -568,17 +568,17 @@ export class DevSession {
       unit.served = served
       const took = `${who}rebuilt (${Math.round(performance.now() - started)} ms)`
       if (reload === 'none') {
-        console.log(`acde: ${took}; nothing the runtime loads changed, so no reload`)
+        console.log(`acdev: ${took}; nothing the runtime loads changed, so no reload`)
         return
       }
-      console.log(`acde: ${took}, ${reload === 'hot' ? 'swapping its styles and scripts in place' : 'reloading'}`)
+      console.log(`acdev: ${took}, ${reload === 'hot' ? 'swapping its styles and scripts in place' : 'reloading'}`)
       this.#reloaded = (await this.#marks()) ?? this.#reloaded
       const hot = reload === 'hot' ? { hot: true } : {}
       for (const app of built.apps) this.#link?.send({ type: 'reload', app, ...hot })
       if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#link?.send({ type: 'reload', ...hot })
       if (this.#link) this.#publish()
     } catch (error) {
-      console.error(`acde: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`acdev: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

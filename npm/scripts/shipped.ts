@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-const SOURCE_DIRECTORIES = ['lib/acde/src', 'lib/acde/test', 'lib/acde-api/test', 'bin/app/src']
+const SOURCE_DIRECTORIES = ['lib/acdev/src', 'lib/acdev/test', 'lib/acde-api/test', 'bin/app/src']
 const FORBIDDEN_SEGMENTS = new Set([
   'fixtures', '__fixtures__', '__snapshots__', '__screenshots__', 'test-results', 'test', 'tests', 'logs', 'coverage',
 ])
@@ -60,7 +60,7 @@ export function shipLeaks(root: string): string[] {
       found.push(`${path}: test, fixture or log directory`)
     }
     if (FORBIDDEN_NAME.test(path)) found.push(`${path}: source map, symbol or log file`)
-    if (TYPESCRIPT.test(path) && !DECLARATION.test(path) && !path.startsWith('lib/acde/templates/')) {
+    if (TYPESCRIPT.test(path) && !DECLARATION.test(path) && !path.startsWith('lib/acdev/templates/')) {
       found.push(`${path}: TypeScript source`)
     }
     const text = readFileSync(entry.file).toString('latin1')

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction, InspectArg, InspectWindow } from '@dopame/acde-api'
-import { cliEnv, cliFile, runtimes } from 'acde/launcher'
+import { cliEnv, cliFile, runtimes } from 'acdev/launcher'
 import { DevClient } from '../ipc.ts'
 import { PackageManager } from '../pm.ts'
 import { Runtime, type Child } from '../runtime.ts'
@@ -117,25 +117,25 @@ export class Acde {
     const seen = { pages: 0, windows: 0, lost: false }
     const late = () => {
       const state = seen.lost
-        ? 'acdebin-dbg closed the connection, and acde dev has not exited'
+        ? 'acdebin-dbg closed the connection, and acdev dev has not exited'
         : `acdebin-dbg runs and answers, but no window appeared (pages: ${seen.pages}, windows: ${seen.windows}) `
           + 'and no approval prompt waits'
-      return LaunchError.stalled('window', `acde dev did not start ${within}:\n${state}; ${last}`, logs)
+      return LaunchError.stalled('window', `acdev dev did not start ${within}:\n${state}; ${last}`, logs)
     }
     const unregistered = () => {
       const others = Sessions.list(dir).filter((s) => s.pid !== child.pid && s.started >= since)
       const instead = others.length
-        ? '; another process registered instead (acde dev handed over to it):\n' +
+        ? '; another process registered instead (acdev dev handed over to it):\n' +
           others.map((s) => `  ${Sessions.describe(s)}`).join('\n')
         : ` in ${dir}`
       const state = others.length ? last
         : `no session yet: its build did not finish, or acdebin-dbg did not start listening; ${last}`
-      const head = `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${state}`
+      const head = `acdev dev (pid ${child.pid}) did not register a session ${within}${instead}\n${state}`
       return LaunchError.stalled('session', head, logs)
     }
     const alive = () => {
       if (exited !== null)
-        throw LaunchError.stalled('exited', `acde dev exited (${exited}) before it was ready:`, logs, exited)
+        throw LaunchError.stalled('exited', `acdev dev exited (${exited}) before it was ready:`, logs, exited)
     }
     try {
       const session = await Poll.until(limit, () => {
@@ -195,7 +195,7 @@ export class Acde {
       const code = (error as NodeJS.ErrnoException).code
       if (code === 'ECONNREFUSED' || code === 'ENOENT') {
         Sessions.remove(session.pid)
-        throw new Error(`acde dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
+        throw new Error(`acdev dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
       }
       throw error
     }
@@ -259,7 +259,7 @@ export class Acde {
         if (!early) throw error
         if (Date.now() >= until) {
           throw new Error(`${web}: its window has no page yet (still loading after ${Acde.PAGE_WAIT_MS / 1000} s); `
-            + 'try again when acde webs lists it with a title')
+            + 'try again when acdev webs lists it with a title')
         }
         await sleep(200)
       }
@@ -601,7 +601,7 @@ export class Acde {
 
   endedBy(ref: string): ActResult | null {
     if (!this.#client.ended || this.#closing || this.session.desktop !== null || !/^w\d+$/.test(ref)) return null
-    const text = `closed ${ref}; acdebin-dbg exited with it, so acde dev ${this.session.pid} ended`
+    const text = `closed ${ref}; acdebin-dbg exited with it, so acdev dev ${this.session.pid} ended`
     return { ok: true, text, ended: true }
   }
 
@@ -672,11 +672,11 @@ export class Acde {
 
   static unsupported(op: string, error: unknown): unknown {
     if (!(error instanceof Error) || !error.message.startsWith(`no op ${op} (`)) return error
-    return new Error(`this acdebin-dbg does not support ${op}; acde doctor checks the pairing`, { cause: error })
+    return new Error(`this acdebin-dbg does not support ${op}; acdev doctor checks the pairing`, { cause: error })
   }
 
   #connected(): void {
-    if (this.#client.ended) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
+    if (this.#client.ended) throw new Error(`acdev dev ${this.session.pid} is no longer connected`)
   }
 
   static #page<T>(op: string, answer: unknown): DevPage<T> {

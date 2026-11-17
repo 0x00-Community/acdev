@@ -85,7 +85,7 @@ describe('Runtime.spawn / which', () => {
 
 describe('Frameworks.detect', () => {
   const pkg = { devDependencies: { vite: '8' } }
-  test('vite is the framework unless the config names an entry (then acde builds it; on Node with that vite)', () => {
+  test('vite is the framework unless the config names an entry (then acdev builds it; on Node with that vite)', () => {
     expect(Frameworks.detect({ pkg })?.name).toBe('vite')
     expect(Frameworks.detect({ pkg, entry: true })).toBeNull()
     expect(Frameworks.detect({ pkg, entry: true }, 'vite')?.name).toBe('vite')

@@ -92,13 +92,13 @@ describe('the QEMU command line', () => {
     expect(machine.args({ gl: true }, true).join(' ')).toContain('-device virtio-vga-gl -display gtk,gl=on')
   })
 
-  test('acde vm: an unknown subcommand, and stop or status with no guest', async () => {
+  test('acdev vm: an unknown subcommand, and stop or status with no guest', async () => {
     const dir = tmp()
     const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDE_VM_DIR: dir }) })
     const unknown = await run(['bogus'])
     expect(unknown.code).toBe(1)
     expect(unknown.stderr).toContain('unknown subcommand "bogus": fetch, start, stop')
-    expect((await run(['stop'])).stderr).toBe('acde vm: not running\n')
+    expect((await run(['stop'])).stderr).toBe('acdev vm: not running\n')
     expect((await run(['status'])).stdout).toContain('guest: not running')
     expect((await run(['run', 'true'])).stderr).toContain(`no guest is running from ${dir}`)
   })

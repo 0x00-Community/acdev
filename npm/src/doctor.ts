@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { API_LEVEL } from './manifest/index.ts'
 import {
   BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
-} from 'acde/launcher'
+} from 'acdev/launcher'
 import { Agents } from './agents.ts'
 import { Color, type Palette } from './color.ts'
 import { Project } from './app.ts'
@@ -82,7 +82,7 @@ type Available = Readonly<Record<'bun' | 'node', string | null>>
 
 const FROM: Readonly<Record<NonNullable<FoundAcdert['from']>, string>> = {
   ACDERT: 'from ACDERT',
-  install: 'installed next to acde',
+  install: 'installed next to acdev',
   PATH: 'on PATH',
 }
 
@@ -96,7 +96,7 @@ export class Doctor {
   static readonly ACDE_MS = 60_000
   static readonly INSTALL_MS = 15 * 60_000
   static readonly KEEP_LINES = 20
-  static readonly ANSWER = 'acde allow (or acde deny): approving is the user\'s decision'
+  static readonly ANSWER = 'acdev allow (or acdev deny): approving is the user\'s decision'
   static readonly PLATFORMS: Readonly<Record<string, string>> = { darwin: 'macos', win32: 'windows', linux: 'linux' }
   static readonly STATUSES: readonly Status[] = ['ok', 'warn', 'error', 'skip']
 
@@ -138,10 +138,10 @@ export class Doctor {
     const count = (status: Status) => checks.filter((check) => check.status === status).length
     const [errors, warnings] = [count('error'), count('warn')]
     const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-    const label = (errors > 0 ? c.error : warnings > 0 ? c.warn : c.ok)('acde doctor:')
+    const label = (errors > 0 ? c.error : warnings > 0 ? c.warn : c.ok)('acdev doctor:')
     if (errors > 0) lines.push(`${label} ${plural(errors, 'error')}, ${plural(warnings, 'warning')}`)
     else if (warnings > 0) lines.push(`${label} no errors, ${plural(warnings, 'warning')}`)
-    else lines.push(`${label} everything acde needs is here`)
+    else lines.push(`${label} everything acdev needs is here`)
     return lines.join('\n')
   }
 
@@ -151,17 +151,17 @@ export class Doctor {
 
   static acde(): Check {
     const runtime = Runtime.bun ? `Bun ${process.versions['bun']}` : `Node.js ${process.versions.node}`
-    return Doctor.ok('acde', 'acde', `${Versions.acde()} on ${runtime} (${Doctor.home()})`)
+    return Doctor.ok('acdev', 'acdev', `${Versions.acde()} on ${runtime} (${Doctor.home()})`)
   }
 
   static onPath(env: NodeJS.ProcessEnv = process.env): Check {
     const home = Doctor.home()
-    const found = which('acde', env)
-    if (!found) return Doctor.warn('path', 'PATH', `no acde on PATH (this one is in ${home})`, Doctor.pathFix(home))
+    const found = which('acdev', env)
+    if (!found) return Doctor.warn('path', 'PATH', `no acdev on PATH (this one is in ${home})`, Doctor.pathFix(home))
     if (Doctor.inside(Doctor.real(found), Doctor.real(home)) || Doctor.npmWrapper(found, home))
-      return Doctor.ok('path', 'PATH', `acde on PATH is this one (${found})`)
-    return Doctor.warn('path', 'PATH', `acde on PATH is another one (${found}), not this one (${home})`,
-      'remove the other acde from PATH, or put this one first')
+      return Doctor.ok('path', 'PATH', `acdev on PATH is this one (${found})`)
+    return Doctor.warn('path', 'PATH', `acdev on PATH is another one (${found}), not this one (${home})`,
+      'remove the other acdev from PATH, or put this one first')
   }
 
   static runtimes(available: Available): Check {
@@ -169,7 +169,7 @@ export class Doctor {
     const bunText = bun ? `Bun ${BUN_MINIMUM.join('.')}+ at ${bun}` : `no Bun ${BUN_MINIMUM.join('.')}+ on PATH`
     const nodeText = node ? `Node.js ${NODE_MINIMUM.join('.')}+ at ${node}` : `no Node.js ${NODE_MINIMUM.join('.')}+ on PATH`
     const summary = `${bunText}; ${nodeText}`
-    if (!bun) return Doctor.warn('runtimes', 'Bun and Node.js', `${summary}: acde test and projects that use bun need Bun`,
+    if (!bun) return Doctor.warn('runtimes', 'Bun and Node.js', `${summary}: acdev test and projects that use bun need Bun`,
       'install Bun (https://bun.sh)')
     return Doctor.ok('runtimes', 'Bun and Node.js', summary)
   }
@@ -196,10 +196,10 @@ export class Doctor {
   static contract(probe: RuntimeProbe, reinstall: Repair | null = null): Check {
     const version = /^(?:acdebin-dbg|acdert) (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
     const sdk = Versions.sdk()
-    const pairs = `acde ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdebin-dbg ${sdk}`
+    const pairs = `acdev ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdebin-dbg ${sdk}`
     if (probe.level !== API_LEVEL) {
-      const summary = `acde builds level ${API_LEVEL} apps, but acdebin-dbg ${version} runs ` +
-        `level ${probe.level}: acde dev refuses to start it`
+      const summary = `acdev builds level ${API_LEVEL} apps, but acdebin-dbg ${version} runs ` +
+        `level ${probe.level}: acdev dev refuses to start it`
       return Doctor.mend(Doctor.error('contract', 'contract level', summary, Doctor.pairFix(sdk)), reinstall)
     }
     if (version !== sdk) {
@@ -253,13 +253,13 @@ export class Doctor {
     if (problem) {
       const info = lstatSync(dir)
       const replaceable = info.isSymbolicLink() || !info.isDirectory()
-      const failing = Doctor.error('sessions', 'acde dev sessions', problem, `remove ${dir}`)
+      const failing = Doctor.error('sessions', 'acdev dev sessions', problem, `remove ${dir}`)
       return [replaceable ? Doctor.mend(failing, { action: 'sessions-dir', target: dir, ask: false,
         does: `remove ${dir}, which is not a plain directory, and make it again` }) : failing]
     }
     const running = Sessions.list(dir)
-    if (running.length === 0) return [Doctor.ok('sessions', 'acde dev sessions', 'none running')]
-    const checks = [Doctor.ok('sessions', 'acde dev sessions', `${running.length} running: ` +
+    if (running.length === 0) return [Doctor.ok('sessions', 'acdev dev sessions', 'none running')]
+    const checks = [Doctor.ok('sessions', 'acdev dev sessions', `${running.length} running: ` +
       running.map((session) => Sessions.describe(session)).join('; '))]
     for (const session of running) checks.push(...(await Doctor.waiting(session)))
     return checks
@@ -271,13 +271,13 @@ export class Doctor {
       prompts = await Doctor.#within(Doctor.#pending(session), Doctor.SESSION_MS)
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
-      const stuck = Doctor.warn('sessions', 'acde dev sessions', `acde dev ${session.pid} does not answer: ${why}`,
-        `acde stop --session ${session.pid}`)
+      const stuck = Doctor.warn('sessions', 'acdev dev sessions', `acdev dev ${session.pid} does not answer: ${why}`,
+        `acdev stop --session ${session.pid}`)
       return [Doctor.mend(stuck, { action: 'stop', target: String(session.pid), ask: true,
-        does: `stop acde dev ${session.pid}, which does not answer (acde stop --session ${session.pid})` })]
+        does: `stop acdev dev ${session.pid}, which does not answer (acdev stop --session ${session.pid})` })]
     }
     return prompts.map((prompt) => Doctor.warn('approval', 'approval', `${prompt.app} waits for approval of ${prompt.capability} ` +
-      `in acde dev ${session.pid}, so its getUserMedia waits until the prompt is answered`, Doctor.ANSWER))
+      `in acdev dev ${session.pid}, so its getUserMedia waits until the prompt is answered`, Doctor.ANSWER))
   }
 
   static project(dir: string, named: boolean, available: Available): Check[] {
@@ -288,7 +288,7 @@ export class Doctor {
     if (!Doctor.isProject(dir)) {
       const summary = `no acde project in ${dir} (no ${Project.CONFIGS[0]}, no acde field in package.json)`
       return [named ? Doctor.error('project', 'project', summary)
-        : Doctor.skip('project', 'project', `${summary}: run acde doctor in a project, or pass its directory, to check it too`)]
+        : Doctor.skip('project', 'project', `${summary}: run acdev doctor in a project, or pass its directory, to check it too`)]
     }
     const pkg = new AppPackage(dir)
     const fix = Doctor.sdkFix(dir, named)
@@ -323,9 +323,9 @@ export class Doctor {
     else if (sdk !== null && errors.length === 0 && warnings.length === 1 && warnings[0] === sdk)
       return Doctor.warn('project', 'project', `${pkg.name}: ${sdk}`, sdkFix)
     const more = (list: readonly string[]) => (list.length > 1 ? ` (and ${list.length - 1} more)` : '')
-    if (errors.length > 0) return Doctor.error('project', 'project', `${pkg.name}: ${errors[0]}${more(errors)}`, 'acde check lists them')
-    if (warnings.length > 0) return Doctor.warn('project', 'project', `${pkg.name}: ${warnings[0]}${more(warnings)}`, 'acde check lists them')
-    return Doctor.ok('project', 'project', `${pkg.name}, ${pkg.kind}: acde check finds nothing wrong`)
+    if (errors.length > 0) return Doctor.error('project', 'project', `${pkg.name}: ${errors[0]}${more(errors)}`, 'acdev check lists them')
+    if (warnings.length > 0) return Doctor.warn('project', 'project', `${pkg.name}: ${warnings[0]}${more(warnings)}`, 'acdev check lists them')
+    return Doctor.ok('project', 'project', `${pkg.name}, ${pkg.kind}: acdev check finds nothing wrong`)
   }
 
   static platform(pkg: AppPackage, platform: string): Check {
@@ -357,7 +357,7 @@ export class Doctor {
     const runtime = pm.runtime === 'bun' ? `Bun ${BUN_MINIMUM.join('.')}+` : `Node.js ${NODE_MINIMUM.join('.')}+`
     if (!available[pm.runtime]) {
       return Doctor.warn('dependencies', 'dependencies', `this project uses ${pm.name}, so it runs on ${runtime}, which is not on ` +
-        `PATH: acde builds it on ${Runtime.bun ? 'Bun' : 'Node.js'} instead`,
+        `PATH: acdev builds it on ${Runtime.bun ? 'Bun' : 'Node.js'} instead`,
         pm.runtime === 'bun' ? 'install Bun (https://bun.sh)' : 'install Node.js (https://nodejs.org)')
     }
     const sdkCheck = Doctor.#sdk(dir, manifest, sdkFix)
@@ -388,8 +388,8 @@ export class Doctor {
     const has = named !== null && installed !== null && named !== installed
       ? `package.json names ${named}, ${installed} is installed`
       : `the project has ${installed ?? named ?? state.spec}`
-    return Doctor.warn('dependencies', 'dependencies', `${Sdk.NAME}: ${has}; this acde pairs with ${sdk} `
-      + `(acde sdk update sets it to ${Sdk.spec()} and reinstalls)`, fix)
+    return Doctor.warn('dependencies', 'dependencies', `${Sdk.NAME}: ${has}; this acdev pairs with ${sdk} `
+      + `(acdev sdk update sets it to ${Sdk.spec()} and reinstalls)`, fix)
   }
 
   static installedPackage(dir: string, name: string): string | null {
@@ -415,20 +415,20 @@ export class Doctor {
 
   static skill(): Check {
     if (!existsSync(join(Skills.SOURCE, 'SKILL.md')))
-      return Doctor.warn('skill', 'agent skill', `the acde skill is not in this install (${Skills.SOURCE})`, 'install acde again')
+      return Doctor.warn('skill', 'agent skill', `the acdev skill is not in this install (${Skills.SOURCE})`, 'install acdev again')
     const source = Skills.stable()
     const seen = Skills.places(Agents.all()).map((place) => ({ place, state: Skills.look(source, place).state }))
     const placed = seen.filter(({ state }) => state === 'current' || state === 'outdated' || state === 'broken')
     const install: Repair = { action: 'skill', target: '', ask: false,
-      does: 'install the acde skill for the coding agents found here (acde skills install)' }
+      does: 'install the acdev skill for the coding agents found here (acdev skills install)' }
     if (placed.length === 0) {
-      return Doctor.mend(Doctor.warn('skill', 'agent skill', 'the acde skill is not installed for any coding agent',
-        'acde skills install'), install)
+      return Doctor.mend(Doctor.warn('skill', 'agent skill', 'the acdev skill is not installed for any coding agent',
+        'acdev skills install'), install)
     }
     const stale = placed.filter(({ state }) => state !== 'current')
     if (stale.length > 0) {
       return Doctor.mend(Doctor.warn('skill', 'agent skill', stale.map(({ place, state }) => `${Skills.at(place)} is ${state}`)
-        .join('; '), 'acde skills install'), install)
+        .join('; '), 'acdev skills install'), install)
     }
     return Doctor.ok('skill', 'agent skill', `current in ${placed.map(({ place }) => Skills.at(place)).join(', ')}`)
   }
@@ -446,18 +446,18 @@ export class Doctor {
       return Doctor.warn('latest', 'latest release', `could not read ${base}/latest: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (Versions.newer(latest, current))
-      return Doctor.warn('latest', 'latest release', `acde ${latest} is out; this is ${current}`, Doctor.installer(env))
+      return Doctor.warn('latest', 'latest release', `acdev ${latest} is out; this is ${current}`, Doctor.installer(env))
     const relation = latest === current ? 'the latest release' : `newer than the latest release (${latest})`
-    return Doctor.ok('latest', 'latest release', `acde ${current} is ${relation}`)
+    return Doctor.ok('latest', 'latest release', `acdev ${current} is ${relation}`)
   }
 
   static fromNpm(home: string = Doctor.home()): boolean {
-    return basename(dirname(home)) === '@dopame' && basename(home).startsWith('acde-')
+    return basename(dirname(home)) === '@dopame' && basename(home).startsWith('acdev-')
   }
 
   static npmWrapper(found: string, home: string): boolean {
     const file = Doctor.real(found)
-    if (basename(file) !== 'acde.mjs' || !Doctor.fromNpm(home)) return false
+    if (basename(file) !== 'acdev.mjs' || !Doctor.fromNpm(home)) return false
     try {
       const resolved = createRequire(file).resolve(`${basename(dirname(home))}/${basename(home)}/package.json`)
       return Doctor.real(dirname(resolved)) === Doctor.real(home)
@@ -467,7 +467,7 @@ export class Doctor {
   }
 
   static installer(env: NodeJS.ProcessEnv = process.env, version?: string): string {
-    if (Doctor.fromNpm()) return `install it again from npm: npm install -g @dopame/acde${version ? `@${version}` : ''}`
+    if (Doctor.fromNpm()) return `install it again from npm: npm install -g @dopame/acdev${version ? `@${version}` : ''}`
     const base = (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
     if (process.platform === 'win32') return `run the installer again: irm ${base}/install.ps1 | iex`
     return `run the installer again: curl -fsSL ${base}/install.sh | sh`
@@ -484,8 +484,8 @@ export class Doctor {
       action: 'reinstall',
       target: version,
       ask: true,
-      does: `run the installer of acde ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdebin-dbg ` +
-        `released with it, checks it against SHA256SUMS and puts it next to acde`,
+      does: `run the installer of acdev ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdebin-dbg ` +
+        `released with it, checks it against SHA256SUMS and puts it next to acdev`,
     }
   }
 
@@ -514,7 +514,7 @@ export class Doctor {
   static async fix(checks: readonly Check[], options: FixOptions): Promise<Fixed[]> {
     const repairs = Doctor.repairs(checks)
     if (repairs.length === 0) {
-      options.say('acde doctor: nothing here it can fix; the fix lines say what to do')
+      options.say('acdev doctor: nothing here it can fix; the fix lines say what to do')
       return []
     }
     const done: Fixed[] = []
@@ -611,14 +611,14 @@ export class Doctor {
     if (found.from === 'ACDERT') return 'point ACDERT at an acdebin-dbg binary, or unset it'
     if (installed(packageRoot()))
       return `${Doctor.installer(process.env, Versions.acde())} ` +
-        '(it puts the acdebin-dbg that pairs with acde next to it)'
+        '(it puts the acdebin-dbg that pairs with acdev next to it)'
     return 'build acdebin-dbg (cargo build --release -p acdebin-dbg in an acdebin-dbg checkout, with acdert ' +
       'beside it) and set ACDERT to its target/release/acdebin-dbg, or put acdebin-dbg on PATH'
   }
 
   static pairFix(sdk: string): string {
     if (installed(packageRoot()))
-      return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdebin-dbg that pairs with acde)`
+      return `${Doctor.installer(process.env, Versions.acde())} (it installs the acdebin-dbg that pairs with acdev)`
     return `use acdebin-dbg ${sdk}: set ACDERT to it, or put it on PATH`
   }
 
@@ -635,7 +635,7 @@ export class Doctor {
   }
 
   static pathFix(home: string): string {
-    if (!installed(packageRoot())) return `bun link (in ${home}) puts this checkout's acde on PATH`
+    if (!installed(packageRoot())) return `bun link (in ${home}) puts this checkout's acdev on PATH`
     if (Doctor.fromNpm()) return 'add the bin directory of npm\'s global prefix (npm prefix -g) to PATH'
     const root = Doctor.installRoot()
     const bin = process.platform === 'win32' ? join(root, 'current', 'bin') : join(root, 'bin')
@@ -659,7 +659,7 @@ export class Doctor {
     return { id, title, status: 'ok', summary }
   }
 
-  static readonly SDK_FIX = 'run acde sdk update'
+  static readonly SDK_FIX = 'run acdev sdk update'
 
   static sdkFix(dir: string, named: boolean, cwd = process.cwd()): string {
     const [at, here] = [Doctor.real(dir), Doctor.real(cwd)]

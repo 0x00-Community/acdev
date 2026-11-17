@@ -6,7 +6,7 @@ type Handler = (machine: Machine, rest: readonly string[], flags: Flags) => Prom
 const WAIT = 300
 
 function say(line: string): void {
-  console.error(`acde vm: ${line}`)
+  console.error(`acdev vm: ${line}`)
 }
 
 function seconds(text: string | undefined): number {
@@ -17,7 +17,7 @@ function seconds(text: string | undefined): number {
 }
 
 function count(sub: string, rest: readonly string[], min: number, max: number, usage: string): void {
-  if (rest.length < min || rest.length > max) throw new Error(`vm ${sub}: ${usage} (acde vm --help)`)
+  if (rest.length < min || rest.length > max) throw new Error(`vm ${sub}: ${usage} (acdev vm --help)`)
 }
 
 async function start(machine: Machine, rest: readonly string[], flags: Flags): Promise<number> {
@@ -38,7 +38,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
     say('the guest is ready')
     return 0
   }
-  say(`the guest agent did not answer in ${wait} s; the guest still runs (acde vm wait, acde vm stop)`)
+  say(`the guest agent did not answer in ${wait} s; the guest still runs (acdev vm wait, acdev vm stop)`)
   return 1
 }
 
@@ -46,7 +46,7 @@ async function status(machine: Machine, rest: readonly string[]): Promise<number
   count('status', rest, 0, 0, 'no arguments')
   const pid = machine.pid()
   console.log(`dir: ${machine.dir}`)
-  console.log(`image: ${machine.image() ?? 'none (acde vm fetch)'}`)
+  console.log(`image: ${machine.image() ?? 'none (acdev vm fetch)'}`)
   console.log(`kvm: ${Machine.kvm() ? 'yes' : 'no (/dev/kvm does not open: TCG)'}`)
   if (pid === null) {
     console.log('guest: not running')
@@ -113,7 +113,7 @@ export function runVm(args: readonly string[], flags: Flags): Promise<number> {
   const handler = Object.hasOwn(HANDLERS, sub) ? HANDLERS[sub]! : null
   if (!handler) {
     throw new Error(`vm: ${sub ? `unknown subcommand ${JSON.stringify(sub)}` : 'a subcommand'}: `
-      + `${Object.keys(HANDLERS).join(', ')} (acde vm --help)`)
+      + `${Object.keys(HANDLERS).join(', ')} (acdev vm --help)`)
   }
   return handler(new Machine(), rest, flags)
 }

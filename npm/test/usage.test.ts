@@ -19,7 +19,7 @@ function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
 
 afterAll(cleanup)
 
-describe('acde check --platform', () => {
+describe('acdev check --platform', () => {
   function project(config: object): string {
     const dir = tmp()
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify(config))
@@ -86,9 +86,9 @@ describe('acde check --platform', () => {
 
     const unknown = await cli(['check', '--platform', 'beos'], desk)
     expect(unknown.code).toBe(1)
-    expect(unknown.stderr).toBe('acde: check: --platform beos: windows, macos, linux (acde check --help)\n')
+    expect(unknown.stderr).toBe('acdev: check: --platform beos: windows, macos, linux (acdev check --help)\n')
     expect(() => new AppPackage(desk).platform('beos')).toThrow(
-      'check: --platform beos: windows, macos, linux (acde check --help)')
+      'check: --platform beos: windows, macos, linux (acdev check --help)')
   })
 })
 
@@ -97,14 +97,14 @@ describe('option errors', () => {
     const dir = realpathSync(tmp())
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'outs' }))
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
-    const holds = 'a directory that does not hold the project (acde empties it before each build)'
+    const holds = 'a directory that does not hold the project (acdev empties it before each build)'
     for (const command of ['build', 'install']) {
       const ran = await cli([command, '--out', '.'], dir)
       expect(ran.code).toBe(1)
-      expect(ran.stderr).toBe(`acde: ${command}: --out ${dir}: ${holds} (acde ${command} --help)\n`)
+      expect(ran.stderr).toBe(`acdev: ${command}: --out ${dir}: ${holds} (acdev ${command} --help)\n`)
     }
     await expect(new AppPackage(dir).build(dirname(dir), { dev: true })).rejects.toThrow(
-      `dev: --out ${dirname(dir)}: ${holds} (acde dev --help)`)
+      `dev: --out ${dirname(dir)}: ${holds} (acdev dev --help)`)
     expect(existsSync(join(dir, 'index.html'))).toBe(true)
   })
 })
@@ -122,21 +122,21 @@ describe('mistakes', () => {
     const lines = (text: string) => text.trim().split('\n')
     const unknown = await cli(['frobnicate'], APP)
     expect(unknown.code).toBe(1)
-    expect(lines(unknown.stderr)).toEqual(['acde: unknown command "frobnicate" (acde --help lists the commands)'])
+    expect(lines(unknown.stderr)).toEqual(['acdev: unknown command "frobnicate" (acdev --help lists the commands)'])
     const argument = await cli(['build', '--bogus'], APP)
     expect(argument.code).toBe(1)
-    expect(lines(argument.stderr)).toEqual(['acde: build: unknown argument --bogus (acde build --help)'])
+    expect(lines(argument.stderr)).toEqual(['acdev: build: unknown argument --bogus (acdev build --help)'])
     const value = (await cli(['build', '--out'], APP)).stderr
-    expect(lines(value)).toEqual(['acde: build: --out needs a value (acde build --help)'])
-    expect(lines((await cli(['eval'], APP)).stderr)).toEqual(['acde: eval: 2 arguments, not 0 (acde eval --help)'])
+    expect(lines(value)).toEqual(['acdev: build: --out needs a value (acdev build --help)'])
+    expect(lines((await cli(['eval'], APP)).stderr)).toEqual(['acdev: eval: 2 arguments, not 0 (acdev eval --help)'])
     const action = await cli(['act', 'w1.2', 'tap'], APP)
     expect(action.code).toBe(1)
     const actions = ACTIONS.join(', ')
-    expect(lines(action.stderr)).toEqual([`acde: act: tap is not an action (${actions}) (acde act --help)`])
+    expect(lines(action.stderr)).toEqual([`acdev: act: tap is not an action (${actions}) (acdev act --help)`])
     const input = await cli(['input', 'notes', '{"type":"move"}'], APP)
     expect(input.code).toBe(1)
-    expect(lines(input.stderr)).toEqual(['acde: input: the events are a non-empty JSON array of objects with a type (acde input --help)'])
-    expect(lines((await cli(['input', 'notes', 'nope'], APP)).stderr)[0]).toStartWith('acde: input: the events are a JSON array (')
+    expect(lines(input.stderr)).toEqual(['acdev: input: the events are a non-empty JSON array of objects with a type (acdev input --help)'])
+    expect(lines((await cli(['input', 'notes', 'nope'], APP)).stderr)[0]).toStartWith('acdev: input: the events are a JSON array (')
     expect((await cli(['input', '--help'], APP)).stdout.replace(/\s+/g, ' ')).toContain('keydown, wait, keyup holds a key.')
     expect(ACTIONS).toContain('fill')
     expect(ACTIONS).toContain('fullscreen')
@@ -144,20 +144,20 @@ describe('mistakes', () => {
       .toContain('A window ref (w1) also takes close, minimize, restore, fill, fullscreen.')
     const level = lines((await cli(['console', '--level', 'loud'], APP)).stderr)
     const levels = [...Tools.LEVELS].join(', ')
-    expect(level).toEqual([`acde: console: --level loud: one of ${levels} (acde console --help)`])
+    expect(level).toEqual([`acdev: console: --level loud: one of ${levels} (acdev console --help)`])
     const shaped: [string[], string][] = [
-      [['test', '--timeout', 'x'], 'acde: test: --timeout x: milliseconds per test, 1 or more (acde test --help)'],
-      [['test', '--workers', '0'], 'acde: test: --workers 0: how many test files run at once, 1 or more '
-        + '(acde test --help)'],
-      [['test', '--retries', '-1'], 'acde: test: --retries -1: how often to run a failing test again, 0 or more '
-        + '(acde test --help)'],
-      [['test', '--video=sometimes'], 'acde: test: --video sometimes: failed (the default: only for failing tests), '
-        + 'on or off (acde test --help)'],
-      [['webs', '--session', 'abc'], 'acde: webs: --session abc: the process id of an acde dev (acde webs --help)'],
-      [['devtools', '--session', 'abc'], 'acde: devtools: --session abc: the process id of an acde dev '
-        + '(acde devtools --help)'],
-      [['query', 'p', '--limit', 'x'], 'acde: query: --limit x: how many elements to list at most, 1 to 3000 '
-        + '(acde query --help)'],
+      [['test', '--timeout', 'x'], 'acdev: test: --timeout x: milliseconds per test, 1 or more (acdev test --help)'],
+      [['test', '--workers', '0'], 'acdev: test: --workers 0: how many test files run at once, 1 or more '
+        + '(acdev test --help)'],
+      [['test', '--retries', '-1'], 'acdev: test: --retries -1: how often to run a failing test again, 0 or more '
+        + '(acdev test --help)'],
+      [['test', '--video=sometimes'], 'acdev: test: --video sometimes: failed (the default: only for failing tests), '
+        + 'on or off (acdev test --help)'],
+      [['webs', '--session', 'abc'], 'acdev: webs: --session abc: the process id of an acdev dev (acdev webs --help)'],
+      [['devtools', '--session', 'abc'], 'acdev: devtools: --session abc: the process id of an acdev dev '
+        + '(acdev devtools --help)'],
+      [['query', 'p', '--limit', 'x'], 'acdev: query: --limit x: how many elements to list at most, 1 to 3000 '
+        + '(acdev query --help)'],
     ]
     for (const [argv, said] of shaped) {
       const ran = await cli(argv, APP)
@@ -166,14 +166,14 @@ describe('mistakes', () => {
     }
     const nameless = await cli(['new', '--yes'], APP)
     expect(nameless.code).toBe(1)
-    const asked = 'acde: new: a directory (or run it in a terminal to be asked) (acde new --help)'
+    const asked = 'acdev: new: a directory (or run it in a terminal to be asked) (acdev new --help)'
     expect(lines(nameless.stderr)).toEqual([asked])
     const bare = await cli([], APP)
     expect(bare.code).toBe(0)
     expect(lines(bare.stdout)).toEqual([
-      expect.stringMatching(/^acde \S+: build, run and test apps for Dopame$/),
-      '  acde new my-app   then   cd my-app   then   acde dev',
-      'Run acde --help for every command.',
+      expect.stringMatching(/^acdev \S+: build, run and test apps for Dopame$/),
+      '  acdev new my-app   then   cd my-app   then   acdev dev',
+      'Run acdev --help for every command.',
     ])
     expect(bare.stderr).toBe('')
   })
@@ -191,23 +191,23 @@ describe('mistakes', () => {
     for (const argv of [['--help'], ['help'], ['-h']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
-      expect(help.stdout).toContain('Usage: acde <command> [options]')
+      expect(help.stdout).toContain('Usage: acdev <command> [options]')
       expect(help.stdout).toMatch(/^Agents:\n {2}mcp +Serve the session tools over MCP \(stdio\)\n {2}skills +Install/m)
       expect(help.stdout).not.toContain('\x1b[')
     }
     for (const argv of [['new', '-h'], ['help', 'new'], ['new', 'x', '--help']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
-      expect(help.stdout).toStartWith('Usage: acde new [dir] [options]')
+      expect(help.stdout).toStartWith('Usage: acdev new [dir] [options]')
       expect(help.stdout).toContain('  --template T  The template: html')
-      expect(help.stdout).toContain('Examples:\n  $ acde new my-app')
-      expect(help.stdout).not.toContain('acde build')
+      expect(help.stdout).toContain('Examples:\n  $ acdev new my-app')
+      expect(help.stdout).not.toContain('acdev build')
     }
-    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  The acde dev to use')
+    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  The acdev dev to use')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1' })).stdout).toContain('\x1b[1;32mUsage:\x1b[22;39m')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1', NO_COLOR: '1' })).stdout).not.toContain('\x1b[')
     expect((await cli(['help', 'nope'], APP)).stderr.trim()).toBe(
-      'acde: help: unknown command "nope" (acde --help lists the commands)',
+      'acdev: help: unknown command "nope" (acdev --help lists the commands)',
     )
   })
 
@@ -248,13 +248,13 @@ describe('mistakes', () => {
   })
 })
 
-describe('acde new when a step fails', () => {
+describe('acdev new when a step fails', () => {
   test('a failed install keeps the project and says how to finish it', async () => {
     const dir = join(tmp(), 'no-deps')
     const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDE_SDK: brokenSdk() })
     expect(made.code).toBe(1)
     expect(made.stdout).toBe('')
-    expect(made.stderr).toStartWith(`acde: the project is in ${dir}, but its dependencies are not installed; `
+    expect(made.stderr).toStartWith(`acdev: the project is in ${dir}, but its dependencies are not installed; `
       + 'once the cause below is fixed, run bun install there: ')
     expect(made.stderr).toMatch(/run bun install there: \S*bun(?:\.exe)? install failed \(exit /)
     expect(existsSync(join(dir, 'acde.config.jsonc'))).toBe(true)

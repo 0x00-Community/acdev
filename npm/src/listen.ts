@@ -24,7 +24,7 @@ function toPort(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined
   const port = typeof value === 'string' ? Number(value) : value
   if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new RangeError(`acde: bad port ${String(value)}`)
+    throw new RangeError(`acdev: bad port ${String(value)}`)
   }
   return port
 }
@@ -35,7 +35,7 @@ function envPort(): number {
 }
 
 function refuse(what: string): never {
-  throw Object.assign(new Error(`acde: ${what}: an acde app listens on unix sockets only`), { code: 'EACCES' })
+  throw Object.assign(new Error(`acdev: ${what}: an acde app listens on unix sockets only`), { code: 'EACCES' })
 }
 
 function prepare(port: number): string {
@@ -69,7 +69,7 @@ const announced = new Set<number>()
 function announce(port: number): void {
   if (announced.has(port)) return
   announced.add(port)
-  console.log(`acde: port ${port} is served through acde, not over TCP: the app's pages reach it `
+  console.log(`acdev: port ${port} is served through acde, not over TCP: the app's pages reach it `
     + `(a relative URL such as /api/…, or localhost:${port}); other programs on this machine cannot`)
 }
 
@@ -152,7 +152,7 @@ function listenChannel(server: NetServer, mapped: Mapped): NetServer {
   const host = mapped.host && net.isIP(mapped.host) ? mapped.host : '::'
   for (const cb of mapped.cb) server.once('listening', cb as () => void)
   if (!serveChannel(port, (socket) => void server.emit('connection', socket), () => server.close())) {
-    const message = `acde: listen EADDRINUSE: port ${port} is already served`
+    const message = `acdev: listen EADDRINUSE: port ${port} is already served`
     const taken = Object.assign(new Error(message), { code: 'EADDRINUSE' })
     process.nextTick(() => server.emit('error', taken))
     return server
@@ -315,7 +315,7 @@ async function respond(app: FetchApp, server: object, req: IncomingMessage, res:
     if (res.destroyed) return
     if (!(response instanceof Response)) {
       const got = response === undefined ? 'nothing' : typeof response
-      throw new TypeError(`acde: the fetch handler returned ${got}, not a Response`)
+      throw new TypeError(`acdev: the fetch handler returned ${got}, not a Response`)
     }
     await send(response, req, res)
   } catch (error) {

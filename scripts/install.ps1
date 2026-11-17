@@ -18,22 +18,22 @@ function Install-Acde {
     $ProgressPreference = 'SilentlyContinue'
 
     $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
-    $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
+    $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acdev' }
 
     $shell = $PSVersionTable.PSVersion
     $desktop = $PSVersionTable.PSEdition -ne 'Core'
     if ($desktop) {
         if ($shell -lt [version]'5.1') {
-            throw "acde: needs Windows PowerShell 5.1 or PowerShell 7.2+, this is $shell"
+            throw "acdev: needs Windows PowerShell 5.1 or PowerShell 7.2+, this is $shell"
         }
         $protocols = [Net.ServicePointManager]::SecurityProtocol
         [Net.ServicePointManager]::SecurityProtocol = $protocols -bor [Net.SecurityProtocolType]::Tls12
     } else {
         if (-not $IsWindows) {
-            throw "acde: install.ps1 is for Windows; on macOS and Linux run: curl -fsSL $dist/install.sh | sh"
+            throw "acdev: install.ps1 is for Windows; on macOS and Linux run: curl -fsSL $dist/install.sh | sh"
         }
         if ($shell -lt [version]'7.2') {
-            throw "acde: PowerShell $shell is out of support: use PowerShell 7.2+ or Windows PowerShell 5.1"
+            throw "acdev: PowerShell $shell is out of support: use PowerShell 7.2+ or Windows PowerShell 5.1"
         }
     }
 
@@ -83,7 +83,7 @@ function Install-Acde {
             $total = $response.Content.Headers.ContentLength
             if ($script:announce) {
                 $sized = if ($total) { " ($(Format-Size $total))" } else { '' }
-                Write-Host "acde: downloading $script:announce$sized"
+                Write-Host "acdev: downloading $script:announce$sized"
                 $script:announce = $null
             }
             $source = Wait-Task ($response.Content.ReadAsStreamAsync()) 'opening the download'
@@ -139,7 +139,7 @@ function Install-Acde {
         $reason = $null
         for ($attempt = 1; $attempt -le 3; $attempt++) {
             if ($attempt -gt 1) {
-                Write-Host "acde: ${reason}: trying again ($attempt of 3)"
+                Write-Host "acdev: ${reason}: trying again ($attempt of 3)"
                 Start-Sleep -Seconds ($attempt - 1)
             }
             try {
@@ -156,7 +156,7 @@ function Install-Acde {
                 $reason = Get-Reason $_
             }
         }
-        throw "acde: could not download ${Uri}: $reason"
+        throw "acdev: could not download ${Uri}: $reason"
     }
 
     $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
@@ -179,41 +179,41 @@ function Install-Acde {
     function Assert-Sum([string]$Sums, [string]$File, [string]$Path) {
         $want = Get-Listed $Sums $File
         if (-not $want) {
-            throw "acde: $File is not in its SHA256SUMS"
+            throw "acdev: $File is not in its SHA256SUMS"
         }
         $got = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($got -ne $want) {
-            throw "acde: checksum mismatch for ${File}: expected $want, got $got; not installing it"
+            throw "acdev: checksum mismatch for ${File}: expected $want, got $got; not installing it"
         }
     }
 
     function Confirm-Download([string]$Sums, [string]$File, [string]$Path) {
         Assert-Sum $Sums $File $Path
-        Write-Host "acde: ${File}: $(Format-Size (Get-Item -LiteralPath $Path).Length), SHA-256 matches"
+        Write-Host "acdev: ${File}: $(Format-Size (Get-Item -LiteralPath $Path).Length), SHA-256 matches"
     }
 
     $tar = Join-Path -Path $env:SystemRoot -ChildPath 'System32\tar.exe'
     if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) {
-        throw 'acde: needs tar.exe, which Windows 10 1803 and later ship'
+        throw 'acdev: needs tar.exe, which Windows 10 1803 and later ship'
     }
 
     $temp = [System.IO.Path]::GetTempPath()
-    $work = Join-Path -Path $temp -ChildPath ("acde-install-" + [guid]::NewGuid().ToString('N'))
+    $work = Join-Path -Path $temp -ChildPath ("acdev-install-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     $http = New-Object -TypeName System.Net.Http.HttpClient
     $http.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
     try {
         if (-not $Version) {
-            Write-Host "acde: looking up the latest acde at $dist"
+            Write-Host "acdev: looking up the latest acdev at $dist"
             $latest = Join-Path -Path $work -ChildPath 'latest'
             Save-Remote "$dist/latest" $latest
             $Version = (Get-Content -LiteralPath $latest -Raw).Trim()
         }
         if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
-            throw "acde: bad version '$Version' (x.y.z)"
+            throw "acdev: bad version '$Version' (x.y.z)"
         }
-        $name = "acde-$Version"
-        Write-Host "acde: installing $name from $dist"
+        $name = "acdev-$Version"
+        Write-Host "acdev: installing $name from $dist"
         $tarball = Join-Path -Path $work -ChildPath "$name.tar.gz"
         $sums = Join-Path -Path $work -ChildPath 'SHA256SUMS'
         Save-Remote "$dist/$Version/SHA256SUMS" $sums
@@ -223,7 +223,7 @@ function Install-Acde {
         $binary = "acdebin-dbg-$triple.tar.gz"
         if (-not (Get-Listed $sums $binary)) {
             if (Get-Listed $sums 'acdert-version') {
-                throw ("acde: acde $Version comes from before acde and its runtime were released together: " +
+                throw ("acdev: acdev $Version comes from before acdev and its runtime were released together: " +
                     'leave out -Version and ACDE_VERSION for the latest')
             }
             $supported = @(Get-Content -LiteralPath $sums | ForEach-Object {
@@ -232,11 +232,11 @@ function Install-Acde {
             } | Where-Object { $_ -like 'acdebin-dbg-*' } | ForEach-Object {
                 ($_ -replace '^acdebin-dbg-', '') -replace '\.tar\.[gx]z$', ''
             } | Sort-Object -Unique)
-            throw ("acde: acde $Version has no acdebin-dbg for this platform ($triple); " +
+            throw ("acdev: acdev $Version has no acdebin-dbg for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
         $bundle = "acde-host-$Version.tar.gz"
-        Write-Host "acde: getting acdebin-dbg $Version for $triple"
+        Write-Host "acdev: getting acdebin-dbg $Version for $triple"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
         $bundleFile = Join-Path -Path $work -ChildPath $bundle
         Save-Remote "$dist/$Version/$binary" $binaryFile -Shown
@@ -244,34 +244,34 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$bundle" $bundleFile -Shown
         Confirm-Download $sums $bundle $bundleFile
 
-        Write-Host "acde: unpacking"
+        Write-Host "acdev: unpacking"
         $unpacked = Join-Path -Path $work -ChildPath 'x'
         New-Item -ItemType Directory -Path $unpacked | Out-Null
         & $tar -xzf $tarball -C $unpacked
         if ($LASTEXITCODE -ne 0) {
-            throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
+            throw "acdev: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
         }
         $staged = Join-Path -Path $unpacked -ChildPath $name
         $runtimeDir = Join-Path -Path $work -ChildPath 'runtime'
         New-Item -ItemType Directory -Path $runtimeDir | Out-Null
         & $tar -xzf $binaryFile -C $runtimeDir
         if ($LASTEXITCODE -ne 0) {
-            throw "acde: could not unpack $binary (tar exit $LASTEXITCODE)"
+            throw "acdev: could not unpack $binary (tar exit $LASTEXITCODE)"
         }
         $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdebin-dbg.exe'
         if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
-            throw "acde: $binary does not hold acdebin-dbg.exe"
+            throw "acdev: $binary does not hold acdebin-dbg.exe"
         }
         Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdebin-dbg.exe')
         $bundleDir = Join-Path -Path $work -ChildPath 'host'
         New-Item -ItemType Directory -Path $bundleDir | Out-Null
         & $tar -xzf $bundleFile -C $bundleDir
         if ($LASTEXITCODE -ne 0) {
-            throw "acde: could not unpack $bundle (tar exit $LASTEXITCODE)"
+            throw "acdev: could not unpack $bundle (tar exit $LASTEXITCODE)"
         }
         $broker = Join-Path -Path $bundleDir -ChildPath 'app\dist\broker.js'
         if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) {
-            throw "acde: $bundle does not hold app/dist/broker.js"
+            throw "acdev: $bundle does not hold app/dist/broker.js"
         }
         $app = Join-Path -Path $staged -ChildPath 'bin\app'
         Move-Item -LiteralPath (Join-Path -Path $bundleDir -ChildPath 'app') -Destination $app
@@ -283,7 +283,7 @@ function Install-Acde {
         foreach ($stale in $olds) {
             Remove-Item -LiteralPath $stale.FullName -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $stale.FullName) {
-                Write-Host "acde: $($stale.FullName), an earlier copy, is still in use; it is removed on a later run"
+                Write-Host "acdev: $($stale.FullName), an earlier copy, is still in use; it is removed on a later run"
             }
         }
         $aside = $null
@@ -292,8 +292,8 @@ function Install-Acde {
             try {
                 Rename-Item -LiteralPath $target -NewName $aside
             } catch {
-                throw ("acde: could not replace $target, a program in it is still running: " +
-                    'stop acde dev (and acdebin-dbg) and run the installer again')
+                throw ("acdev: could not replace $target, a program in it is still running: " +
+                    'stop acdev dev (and acdebin-dbg) and run the installer again')
             }
         }
         Move-Item -LiteralPath $staged -Destination $target
@@ -301,7 +301,7 @@ function Install-Acde {
             $asideDir = Join-Path -Path $versions -ChildPath $aside
             Remove-Item -LiteralPath $asideDir -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $asideDir) {
-                Write-Host ("acde: the files acde $Version replaced are still in use (a running acde dev?); " +
+                Write-Host ("acdev: the files acdev $Version replaced are still in use (a running acdev dev?); " +
                     "stop it and delete $asideDir, or run the installer again later and it removes it")
             }
         }
@@ -328,12 +328,12 @@ function Install-Acde {
             try {
                 Rename-Item -LiteralPath $old.FullName -NewName $gone -ErrorAction Stop
             } catch {
-                Write-Host ("acde: kept acde $($old.Name) ($($old.FullName)): a program in it is still running; " +
+                Write-Host ("acdev: kept acdev $($old.Name) ($($old.FullName)): a program in it is still running; " +
                     'the next install removes it')
                 continue
             }
             Remove-Item -LiteralPath (Join-Path -Path $versions -ChildPath $gone) -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "acde: removed acde $($old.Name) ($($old.FullName))"
+            Write-Host "acdev: removed acdev $($old.Name) ($($old.FullName))"
         }
     } finally {
         $http.Dispose()
@@ -352,7 +352,7 @@ function Install-Acde {
             if ($next -ne $old) {
                 $key.SetValue('Path', $next, [Microsoft.Win32.RegistryValueKind]::ExpandString)
                 $how = if ($entries -contains $bin) { 'moved' } else { 'added' }
-                Write-Host "acde: $how $bin to the front of your user PATH"
+                Write-Host "acdev: $how $bin to the front of your user PATH"
             }
         } finally {
             $key.Close()
@@ -362,9 +362,9 @@ function Install-Acde {
         $system = [string][Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
         foreach ($dir in @($system -split ';' | Where-Object { $_ -and $_ -ne $bin })) {
             $expanded = [Environment]::ExpandEnvironmentVariables($dir)
-            foreach ($name in 'acde.exe', 'acde.cmd', 'acde.bat') {
+            foreach ($name in 'acdev.exe', 'acdev.cmd', 'acdev.bat') {
                 if (Test-Path -LiteralPath (Join-Path -Path $expanded -ChildPath $name) -PathType Leaf) {
-                    Write-Host ("acde: warning: $expanded on the system PATH has another $name, and the system " +
+                    Write-Host ("acdev: warning: $expanded on the system PATH has another $name, and the system " +
                         'PATH comes before yours: new terminals run that one until it is removed')
                     break
                 }
@@ -372,11 +372,11 @@ function Install-Acde {
         }
     }
 
-    Write-Host "acde: installed acde $Version with acdebin-dbg $Version into $install"
-    Write-Host "  acde     $(Join-Path -Path $bin -ChildPath 'acde.cmd')"
+    Write-Host "acdev: installed acdev $Version with acdebin-dbg $Version into $install"
+    Write-Host "  acdev     $(Join-Path -Path $bin -ChildPath 'acdev.cmd')"
     Write-Host "  acdebin-dbg  $(Join-Path -Path $bin -ChildPath 'acdebin-dbg.exe')"
-    Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
-    Write-Host '  acde skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acde'
+    Write-Host '  acdev new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
+    Write-Host '  acdev skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acdev'
 
     $bun = Get-Command bun -ErrorAction SilentlyContinue
     $node = Get-Command node -ErrorAction SilentlyContinue
@@ -390,7 +390,7 @@ function Install-Acde {
         if ($bunOk) {
             $runs = $true
         } else {
-            Write-Host ("acde: needs Bun 1.4 or newer, and the bun on PATH is ${bunVersion}: " +
+            Write-Host ("acdev: needs Bun 1.4 or newer, and the bun on PATH is ${bunVersion}: " +
                 'update it (bun upgrade, or https://bun.sh)')
         }
     }
@@ -403,19 +403,19 @@ function Install-Acde {
         if ($nodeOk) {
             $runs = $true
         } else {
-            Write-Host ("acde: needs Node.js 22.3 or newer, and the node on PATH is ${nodeVersion}: " +
+            Write-Host ("acdev: needs Node.js 22.3 or newer, and the node on PATH is ${nodeVersion}: " +
                 'update it (https://nodejs.org)')
         }
     }
     if (-not $runs -and -not $bun -and -not $node) {
-        Write-Host ('acde: runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither: ' +
+        Write-Host ('acdev: runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither: ' +
             'install Bun (https://bun.sh) or Node.js (https://nodejs.org)')
     }
     if (@($env:Path -split ';') -notcontains $bin) {
         if ($NoModifyPath) {
-            Write-Host "acde: $bin is not on PATH; add it to your user Path, and in this terminal run:"
+            Write-Host "acdev: $bin is not on PATH; add it to your user Path, and in this terminal run:"
         } else {
-            Write-Host 'acde: acde is on PATH in new terminals; in this one, run:'
+            Write-Host 'acdev: acdev is on PATH in new terminals; in this one, run:'
         }
         Write-Host ''
         Write-Host "  `$env:Path = `"$bin;`$env:Path`""

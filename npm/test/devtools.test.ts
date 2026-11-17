@@ -6,7 +6,7 @@ function lookup(platform: NodeJS.Platform, present: readonly string[], env: Reco
   return { platform, env, home: '/Users/me', exists: (path) => present.includes(path) }
 }
 
-describe('acde devtools', () => {
+describe('acdev devtools', () => {
   test('Windows: Edge, else Chrome, under Program Files or the user profile', () => {
     const env = {
       'ProgramFiles(x86)': 'C:\\PF86', ProgramFiles: 'C:\\PF', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',

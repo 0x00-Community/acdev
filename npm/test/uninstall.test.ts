@@ -38,7 +38,7 @@ function machine() {
   }
 }
 
-describe('acde uninstall and the apps\' data', () => {
+describe('acdev uninstall and the apps\' data', () => {
   test('--data removes the package and its apps\' storage, backend data and legacy storage, nothing else', async () => {
     const m = machine()
     const said: string[] = []
@@ -49,10 +49,10 @@ describe('acde uninstall and the apps\' data', () => {
     expect(existsSync(m.pkg)).toBe(false)
     for (const path of m.data) expect(existsSync(path), path).toBe(false)
     expect(existsSync(m.other)).toBe(true)
-    for (const path of m.data) expect(said).toContain(`acde: removed its data ${path}`)
+    for (const path of m.data) expect(said).toContain(`acdev: removed its data ${path}`)
     expect(JSON.parse(readFileSync(m.permissions, 'utf8'))).toEqual({ 'other:terminal': 'granted' })
     expect(JSON.parse(readFileSync(m.windows, 'utf8'))).toEqual({ other: '[10,10,400,300]' })
-    expect(said).toContain(`acde: removed its entries from ${m.entries[0]}`)
+    expect(said).toContain(`acdev: removed its entries from ${m.entries[0]}`)
   })
 
   test('an entries file that is not JSON is left alone and said so', async () => {
@@ -74,7 +74,7 @@ describe('acde uninstall and the apps\' data', () => {
     })
     expect(existsSync(kept.pkg)).toBe(false)
     for (const path of kept.data) expect(existsSync(path), path).toBe(true)
-    expect(said.at(-1)).toBe(`acde: kept its data (delete it by hand; --data removes it while uninstalling): ${
+    expect(said.at(-1)).toBe(`acdev: kept its data (delete it by hand; --data removes it while uninstalling): ${
       [...kept.data, ...kept.entries].join(', ')}`)
     expect(JSON.parse(readFileSync(kept.permissions, 'utf8'))['notes:terminal']).toBe('granted')
 

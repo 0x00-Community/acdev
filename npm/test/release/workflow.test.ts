@@ -59,7 +59,7 @@ describe('release.yml', () => {
   })
 
   test('concurrent releases queue and are never cancelled midway', () => {
-    expect(workflow.concurrency).toEqual({ group: 'acde-release', 'cancel-in-progress': false })
+    expect(workflow.concurrency).toEqual({ group: 'acdev-release', 'cancel-in-progress': false })
   })
 
   test('the jobs run plan, build, host, pkgs, guard, upload, npm, tag, latest, with their needs', () => {
@@ -92,7 +92,7 @@ describe('release.yml', () => {
 
   test('the versioned files are uploaded before the tag, and latest.json is updated after the tag', () => {
     const upload = runs('upload')
-    const archive = indexIn(upload, 'publish_once "out/$v/acde-$v.tar.gz"')
+    const archive = indexIn(upload, 'publish_once "out/$v/acdev-$v.tar.gz"')
     expect(archive).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
     expect(upload).toContain('aws s3 cp "s3://$BUCKET/$key" readback.tmp')
     expect(upload).toContain('does not read back as uploaded')
@@ -173,7 +173,7 @@ describe('release.yml', () => {
     const run = runs('tag')
     expect(run).toContain('test "$(git rev-parse HEAD)" = "$SHA"')
     expect(run).toContain('git ls-remote --exit-code --tags origin "refs/tags/$TAG"')
-    expect(run).toContain('tag -a "$TAG" -m "acde $TAG" "$SHA"')
+    expect(run).toContain('tag -a "$TAG" -m "acdev $TAG" "$SHA"')
     expect(run).toContain('git push origin "refs/tags/$TAG"')
     expect(run).toContain('bump the version in package.json')
     expect(run).toContain('a rerun continues')
@@ -222,7 +222,7 @@ describe('release.yml', () => {
   test('the CLI archive is built by dist.ts, the runtime files beside it, no desktop', () => {
     expect(runs('pkgs')).toContain('bun scripts/dist.ts --api')
     expect(runs('pkgs')).not.toMatch(/--desktop|--triple/)
-    expect(runs('upload')).toContain('"out/$v/acde-$v.tar.gz"')
+    expect(runs('upload')).toContain('"out/$v/acdev-$v.tar.gz"')
   })
 
   test('Linux jobs run on debian12, inside node:22-bookworm (the builds run on each target\'s own runner)', () => {
@@ -235,7 +235,7 @@ describe('release.yml', () => {
 
   test('the version directory holds the CLI, the SDK, the host files and the builds; listed, uploaded and invalidated', () => {
     const upload = runs('upload')
-    for (const file of ['acde-$v.tar.gz', 'acde-api-$v.tar.gz', 'acde-host-$v.tar.gz', 'acdebin-dbg-$t.tar.gz', 'acdebin-dbg-$t.tar.xz']) {
+    for (const file of ['acdev-$v.tar.gz', 'acde-api-$v.tar.gz', 'acde-host-$v.tar.gz', 'acdebin-dbg-$t.tar.gz', 'acdebin-dbg-$t.tar.xz']) {
       expect(upload).toContain(`echo "$v/${file}"`)
       expect(indexIn(upload, `publish_once "out/$v/${file}"`)).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
     }
@@ -254,7 +254,7 @@ describe('release.yml', () => {
       expect(runs(job)).toContain('sha256sum -c SHA256SUMS')
     }
     const upload = runs('upload')
-    expect(upload).toContain('echo "$v/acde-$v.tar.gz"')
+    expect(upload).toContain('echo "$v/acdev-$v.tar.gz"')
     expect(indexIn(upload, 'diff "$expected" actual')).toBeLessThan(indexIn(upload, 'publish_once()'))
     const steps = jobs['upload']!.steps.map((item) => item.name ?? '')
     expect(steps.indexOf('check the allow-list and the checksums once more')).toBeLessThan(

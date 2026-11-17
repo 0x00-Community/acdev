@@ -11,7 +11,7 @@ import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const CLI = join(ROOT, 'src/cli.ts')
-const SKILL = join(ROOT, 'skills/acde')
+const SKILL = join(ROOT, 'skills/acdev')
 
 function cli(args: string[], home: string, cwd = home) {
   const vars = {
@@ -22,7 +22,7 @@ function cli(args: string[], home: string, cwd = home) {
 }
 
 function broken(change: (dir: string) => void): string[] {
-  const dir = join(tmp(), 'acde')
+  const dir = join(tmp(), 'acdev')
   cpSync(SKILL, dir, { recursive: true })
   change(dir)
   return skillProblems(dir)
@@ -39,7 +39,7 @@ describe('the skill', () => {
     expect(skillProblems(SKILL)).toEqual([])
   })
 
-  test('names every command acde has', async () => {
+  test('names every command acdev has', async () => {
     const usage = (await cli(['--help'], tmp())).stdout
     const commands = [...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!)
     const helps = await Promise.all(commands.map(async (command) => (await cli([command, '--help'], tmp())).stdout))
@@ -48,26 +48,26 @@ describe('the skill', () => {
     expect(commands).toContain('skills')
     expect(flags).toContain('--headless')
     const reference = readFileSync(join(SKILL, 'references/reference/cli.md'), 'utf8')
-    expect(commands.filter((command) => !reference.includes(`acde ${command}`))).toEqual([])
+    expect(commands.filter((command) => !reference.includes(`acdev ${command}`))).toEqual([])
     expect(flags.filter((flag) => !reference.includes(flag))).toEqual([])
   })
 
-  test('install.md, the steps an agent follows, uses commands acde has and is where the skill says', async () => {
+  test('install.md, the steps an agent follows, uses commands acdev has and is where the skill says', async () => {
     const usage = (await cli(['--help'], tmp())).stdout
     const commands = new Set([...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!))
     const steps = readFileSync(join(ROOT, '..', 'scripts', 'install.md'), 'utf8')
     const code = [...steps.matchAll(/^```\w*\n([\s\S]*?)^```$|`([^`\n]+)`/gm)]
       .flatMap((match) => (match[1] ?? match[2]!).split('\n'))
-    const used = code.flatMap((line) => /^acde ([a-z]+)\b/.exec(line)?.[1] ?? [])
+    const used = code.flatMap((line) => /^acdev ([a-z]+)\b/.exec(line)?.[1] ?? [])
     expect(used.length).toBeGreaterThan(8)
     expect(used.filter((command) => !commands.has(command))).toEqual([])
-    const prompt = `Read ${Pkgs.ACDE}/install.md and follow it to set up acde on this machine.`
+    const prompt = `Read ${Pkgs.ACDE}/install.md and follow it to set up acdev on this machine.`
     for (const page of ['start/install.md', 'guide/agents.md']) {
       expect(readFileSync(join(SKILL, 'references', page), 'utf8')).toContain(prompt)
     }
   })
 
-  test('names every tool acde mcp has', () => {
+  test('names every tool acdev mcp has', () => {
     const source = ['src/mcp.ts', 'src/mcppage.ts'].map((file) => readFileSync(join(ROOT, file), 'utf8')).join('\n')
     const tools = [...source.matchAll(/registerTool\(\s*'([a-z_]+)'/g)].map((match) => match[1]!)
     expect(tools.length).toBeGreaterThan(10)
@@ -78,7 +78,7 @@ describe('the skill', () => {
 
   test('the check reports what breaks the format', () => {
     const skill = (change: (text: string) => string) => broken((dir) => edit(join(dir, 'SKILL.md'), change))
-    expect(skill((text) => text.replace('name: acde', 'name: Acde'))[0]).toContain('name "Acde"')
+    expect(skill((text) => text.replace('name: acdev', 'name: Acdev'))[0]).toContain('name "Acdev"')
     expect(skill((text) => text.replace(/^description: .*$/m, 'description:'))[0])
       .toContain('description is 0 characters')
     expect(skill((text) => text.replace('name: acde', 'name: acde\nversion: 1'))[0])
@@ -92,7 +92,7 @@ describe('the skill', () => {
   test('the check reports references the docs cannot be built from', () => {
     const page = 'references/guide/dev.md'
     const said = (change: (text: string) => string) => broken((dir) => edit(join(dir, page), change)).join('\n')
-    expect(said((text) => text.replace('# acde dev', '---\ntitle: acde dev\n---')))
+    expect(said((text) => text.replace('# acdev dev', '---\ntitle: acdev dev\n---')))
       .toContain(`${page}:1: start with "# Title"`)
     expect(said((text) => `${text}\n# Again\n`)).toContain('a second "# " heading')
     expect(said((text) => `${text}\n[x](/guide/tools/)\n`)).toContain('a path from the site root')
@@ -111,7 +111,7 @@ describe('the skill', () => {
   })
 })
 
-describe('acde skills', () => {
+describe('acdev skills', () => {
   test('lists each skills directory once, the shared one first', () => {
     const home = tmp()
     const agents = Agents.all({}, home)
@@ -132,15 +132,15 @@ describe('acde skills', () => {
   })
 
   test('the status table wraps the agent names, never a path, even one with spaces', () => {
-    const path = '/Users/Jane Doe/Library/Application Support/agents/skills/acde'
-    const rows = [['skill', ['/opt/acde/skills/acde']], ['link, current', [path, '(Claude', 'Code,', 'Codex)']]] as const
+    const path = '/Users/Jane Doe/Library/Application Support/agents/skills/acdev'
+    const rows = [['skill', ['/opt/acde/skills/acdev']], ['link, current', [path, '(Claude', 'Code,', 'Codex)']]] as const
     expect(Skills.table(rows, 40)).toEqual([
-      `${'skill'.padEnd(16)}/opt/acde/skills/acde`,
+      `${'skill'.padEnd(16)}/opt/acde/skills/acdev`,
       `${'link, current'.padEnd(16)}${path}`,
       `${' '.repeat(16)}(Claude Code, Codex)`,
     ])
     expect(Skills.table(rows, null)).toEqual([
-      `${'skill'.padEnd(16)}/opt/acde/skills/acde`,
+      `${'skill'.padEnd(16)}/opt/acde/skills/acdev`,
       `${'link, current'.padEnd(16)}${path} (Claude Code, Codex)`,
     ])
   })
@@ -149,20 +149,20 @@ describe('acde skills', () => {
     const home = tmp()
     mkdirSync(join(home, '.claude'))
     mkdirSync(join(home, '.cursor', 'skills'), { recursive: true })
-    const shared = join(home, '.agents', 'skills', 'acde')
-    const claude = join(home, '.claude', 'skills', 'acde')
-    const cursor = join(home, '.cursor', 'skills', 'acde')
+    const shared = join(home, '.agents', 'skills', 'acdev')
+    const claude = join(home, '.claude', 'skills', 'acdev')
+    const cursor = join(home, '.cursor', 'skills', 'acdev')
 
     const before = await cli(['skills'], home)
     expect(before.code).toBe(0)
     expect(before.stdout).toContain(`${'skill'.padEnd(16)}${realpathSync(SKILL)}`)
     expect(before.stdout).toContain(`${'not installed'.padEnd(16)}${claude} (Claude Code)`)
     expect(before.stdout).not.toContain('.gemini')
-    expect(before.stdout).toContain('acde skills install')
+    expect(before.stdout).toContain('acdev skills install')
 
     const installed = await cli(['skills', 'install'], home)
     expect(installed.code).toBe(0)
-    expect(installed.stdout).toContain(`acde: skill linked to ${claude} (Claude Code)`)
+    expect(installed.stdout).toContain(`acdev: skill linked to ${claude} (Claude Code)`)
     for (const dest of [shared, claude, cursor]) {
       expect(lstatSync(dest).isSymbolicLink()).toBe(true)
       expect(realpathSync(dest)).toBe(realpathSync(SKILL))
@@ -178,10 +178,10 @@ describe('acde skills', () => {
     expect(status.stdout).toContain(`link, current   ${cursor} (Cursor)`)
 
     const removed = await cli(['skills', 'remove'], home)
-    expect(removed.stdout).toContain(`acde: skill removed from ${claude}`)
+    expect(removed.stdout).toContain(`acdev: skill removed from ${claude}`)
     for (const dest of [shared, claude, cursor]) expect(lstatSync(dest, { throwIfNoEntry: false })).toBeUndefined()
     const made = join(home, '.claude', 'skills')
-    expect(removed.stdout).toContain(`acde: removed ${made}, which skills install had created`)
+    expect(removed.stdout).toContain(`acdev: removed ${made}, which skills install had created`)
     expect(existsSync(join(home, '.agents'))).toBe(false)
     expect(existsSync(join(home, '.claude'))).toBe(true)
     expect(existsSync(join(home, '.cursor', 'skills'))).toBe(true)
@@ -191,9 +191,9 @@ describe('acde skills', () => {
 
   test('--agent, --dir and --copy choose where and how', async () => {
     const home = tmp()
-    const gemini = join(home, '.gemini', 'skills', 'acde')
+    const gemini = join(home, '.gemini', 'skills', 'acdev')
     const chosen = await cli(['skills', 'install', '--agent', 'gemini-cli', '--copy'], home)
-    expect(chosen.stdout.trim()).toBe(`acde: skill copied to ${gemini} (Gemini CLI)`)
+    expect(chosen.stdout.trim()).toBe(`acdev: skill copied to ${gemini} (Gemini CLI)`)
     expect(lstatSync(gemini).isDirectory()).toBe(true)
     expect(readFileSync(join(gemini, 'SKILL.md'), 'utf8')).toBe(readFileSync(join(SKILL, 'SKILL.md'), 'utf8'))
     expect((await cli(['skills'], home)).stdout).toContain(`copy, current   ${gemini} (Gemini CLI)`)
@@ -205,8 +205,8 @@ describe('acde skills', () => {
     const project = join(home, 'project')
     mkdirSync(project)
     const local = await cli(['skills', 'install', '--dir', '.agents/skills'], home, project)
-    const dest = join(realpathSync(project), '.agents', 'skills', 'acde')
-    expect(local.stdout.trim()).toBe(`acde: skill linked to ${dest}`)
+    const dest = join(realpathSync(project), '.agents', 'skills', 'acdev')
+    expect(local.stdout.trim()).toBe(`acdev: skill linked to ${dest}`)
     const inProject = (...args: string[]) => cli(['skills', ...args, '--dir', '.agents/skills'], home, project)
     expect((await inProject()).stdout).toContain(`link, current   ${dest}`)
     expect((await inProject('remove')).stdout).toContain(`removed from ${dest}`)
@@ -221,7 +221,7 @@ describe('acde skills', () => {
     const kept = join(home, 'kept')
     cpSync(SKILL, kept, { recursive: true })
     mkdirSync(join(home, '.agents', 'skills'), { recursive: true })
-    const shared = join(home, '.agents', 'skills', 'acde')
+    const shared = join(home, '.agents', 'skills', 'acdev')
     symlinkSync(kept, shared, process.platform === 'win32' ? 'junction' : 'dir')
     expect((await cli(['skills'], home)).stdout).toContain(`link, outdated  ${shared}`)
     rmSync(kept, { recursive: true })
@@ -232,12 +232,12 @@ describe('acde skills', () => {
 
   test('refuses what it cannot do', async () => {
     const home = tmp()
-    const foreign = join(home, '.agents', 'skills', 'acde')
+    const foreign = join(home, '.agents', 'skills', 'acdev')
     mkdirSync(foreign, { recursive: true })
     writeFileSync(join(foreign, 'SKILL.md'), '---\nname: other\ndescription: Not ours.\n---\n')
     const blocked = await cli(['skills', 'install'], home)
     expect(blocked.code).toBe(1)
-    expect(blocked.stderr).toContain(`${foreign}: not the acde skill`)
+    expect(blocked.stderr).toContain(`${foreign}: not the acdev skill`)
     expect(readFileSync(join(foreign, 'SKILL.md'), 'utf8')).toContain('name: other')
     expect((await cli(['skills'], home)).stdout).toContain(`${'another skill'.padEnd(16)}${foreign}`)
     expect((await cli(['skills', 'remove'], home)).stdout).toContain('not installed anywhere')
@@ -246,7 +246,8 @@ describe('acde skills', () => {
     const said = async (...args: string[]) => (await cli(['skills', ...args], home)).stderr
     expect(await said('update')).toContain('skills update: one of status, install, remove, path')
     const nobody = await said('install', '--agent', 'nobody')
-    expect(nobody).toMatch(/^acde: skills: --agent nobody: not an agent acde knows \(claude-code, codex, cursor, .* and \d+ more\); for any other, pass its skills directory with --dir \(acde skills --help\)\n$/)
+    expect(nobody).toMatch(new RegExp('^acdev: skills: --agent nobody: not an agent acdev knows \\(claude-code, codex, cursor, .* and \\d+ more\\); '
+      + 'for any other, pass its skills directory with --dir \\(acdev skills --help\\)\\n$'))
     expect(await said('install', '--agent', 'codex', '--dir', 'x')).toContain('--agent or --dir, not both')
     expect((await cli(['skills', 'remove', '--copy'], home)).stderr).toContain('--copy is for skills install')
   })

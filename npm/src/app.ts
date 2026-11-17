@@ -81,7 +81,7 @@ export class Project {
     const found = Project.CONFIGS.map((name) => join(this.dir, name)).find((path) => existsSync(path))
     if (!found && !existsSync(file)) {
       throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}: not an acde project; `
-        + 'run this in a project directory (or pass it), or create one with acde new <name>')
+        + 'run this in a project directory (or pass it), or create one with acdev new <name>')
     }
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
     if (found) {
@@ -196,7 +196,7 @@ export class Project {
     const up = relative(out, this.dir)
     if (up === '' || (!up.startsWith('..') && !isAbsolute(up))) {
       throw CliOutput.option(options.command ?? (this.#dev ? 'dev' : 'build'), 'out', out,
-        'a directory that does not hold the project (acde empties it before each build)')
+        'a directory that does not hold the project (acdev empties it before each build)')
     }
     rmSync(out, { recursive: true, force: true })
     mkdirSync(out, { recursive: true })
@@ -229,7 +229,7 @@ export class Project {
     const framework =
       own && this.config.type === 'app' ? Frameworks.detect(this.#detecting, this.config.framework) : null
     if (framework) {
-      console.log(`acde: ${framework.label}: building with its own tools`)
+      console.log(`acdev: ${framework.label}: building with its own tools`)
       await Frameworks.install(this.dir)
       const scratch = mkdtempSync(join(tmpdir(), 'acde-'))
       try {

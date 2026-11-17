@@ -31,7 +31,7 @@ export class DevtoolsBrowser {
   }
 
   static profile(lookup: Lookup, browser: Browser): string {
-    return join(DevtoolsBrowser.cacheDir(lookup), 'acde', 'devtools', slug(browser.name).toLowerCase())
+    return join(DevtoolsBrowser.cacheDir(lookup), 'acdev', 'devtools', slug(browser.name).toLowerCase())
   }
 
   static args(profile: string): string[] {

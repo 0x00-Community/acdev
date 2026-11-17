@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
-import { cliEnv } from 'acde/launcher'
+import { cliEnv } from 'acdev/launcher'
 import { Color, type Palette } from '../color.ts'
 import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
@@ -108,22 +108,22 @@ export class TestRunner {
       ...(run.filtered ? [`${plural(run.filtered, 'file')} skipped (no test matches -t)`] : []),
       ...(run.unrun ? [`${plural(run.unrun, 'file')} not run (--bail)`] : []),
     ]
-    return `${(failed.length ? c.error : c.ok)('acde test:')} ${parts.join('; ')}`
+    return `${(failed.length ? c.error : c.ok)('acdev test:')} ${parts.join('; ')}`
   }
 
   static async run(options: RunnerOptions): Promise<number> {
     if (!Runtime.bun) {
-      throw new Error('acde test needs bun (the tests run on bun test): install it from https://bun.sh, ' +
-        'then run acde test again')
+      throw new Error('acdev test needs bun (the tests run on bun test): install it from https://bun.sh, ' +
+        'then run acdev test again')
     }
     const display = options.headed ? Runtime.noDisplay() : null
-    if (display) throw new Error(`${display}: run acde test without --headed`)
+    if (display) throw new Error(`${display}: run acdev test without --headed`)
     const cwd = options.cwd ?? process.cwd()
     const suites = TestRunner.suites(options.targets, cwd)
     const where = (options.targets.length ? options.targets : ['.']).join(', ')
     if (!suites.length) {
-      console.log(`acde test: no e2e tests (${TestRunner.PATTERN}) in ${where} yet; nothing to run`)
-      console.log(`acde test: write one as e2e/app.e2e.ts (the acde skill's testing guide: A first test)`)
+      console.log(`acdev test: no e2e tests (${TestRunner.PATTERN}) in ${where} yet; nothing to run`)
+      console.log(`acdev test: write one as e2e/app.e2e.ts (the acdev skill's testing guide: A first test)`)
       return 0
     }
     const bun = process.execPath
@@ -153,7 +153,7 @@ export class TestRunner {
     const wanted = options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers())
     const workers = Math.max(1, Math.min(suites.length, wanted))
     const parallel = workers > 1
-    if (parallel) console.log(`acde test: ${suites.length} files, ${workers} at a time`)
+    if (parallel) console.log(`acdev test: ${suites.length} files, ${workers} at a time`)
     const kept = new Set<string>()
     const failed: string[] = []
     const filtered: string[] = []
@@ -185,7 +185,7 @@ export class TestRunner {
         ...(options.bail ? ['--bail'] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
-      const header = `acde test: ${shown}${settings.headless ? '' : ' (headed)'}`
+      const header = `acdev test: ${shown}${settings.headless ? '' : ' (headed)'}`
       if (!parallel) console.log(header)
       const marks = join(scratch, `marks-${index}.txt`)
       const env = cliEnv(bun, {
@@ -204,7 +204,7 @@ export class TestRunner {
       }
       if (options.pattern !== undefined && E2e.unselected(marks)) {
         filtered.push(shown)
-        console.log(`acde test: ${shown}: no test matches -t ${JSON.stringify(options.pattern)}, skipped`)
+        console.log(`acdev test: ${shown}: no test matches -t ${JSON.stringify(options.pattern)}, skipped`)
         return
       }
       ran++
@@ -226,7 +226,7 @@ export class TestRunner {
     await Promise.all(Array.from({ length: workers }, (_, slot) => worker(slot)))
     if (!ran && filtered.length) {
       const files = `${filtered.length} file${filtered.length === 1 ? '' : 's'}`
-      console.log(`acde test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)
+      console.log(`acdev test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)
       return 1
     }
     const unrun = suites.length - ran - filtered.length
