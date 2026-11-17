@@ -1,7 +1,8 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { connect } from 'node:net'
 import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
+import { crateBinary } from './binary.ts'
 
 export const PORT = 5252
 const MAX = 16 << 20
@@ -318,19 +319,6 @@ export class Devd {
   }
 
   static binary(root: string, env: NodeJS.ProcessEnv = process.env): string {
-    const given = env['ACDEV_DEVD']
-    if (given) {
-      if (!existsSync(given)) throw new Error(`ACDEV_DEVD=${given}: no such file`)
-      return given
-    }
-    const crate = join(root, '..', 'crates', 'devd')
-    const built = join(crate, 'target', 'release', 'acdevd')
-    if (existsSync(built)) return built
-    if (!existsSync(join(crate, 'Cargo.toml'))) throw new Error('vm: no acdevd: set ACDEV_DEVD to the acdevd binary')
-    const made = spawnSync('cargo', ['build', '--release', '--quiet', '--manifest-path', join(crate, 'Cargo.toml')], {
-      stdio: ['ignore', 'inherit', 'inherit'],
-    })
-    if (made.status !== 0 || !existsSync(built)) throw new Error(`vm: building acdevd failed (cargo exited ${made.status})`)
-    return built
+    return crateBinary(root, { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD' }, env)
   }
 }
