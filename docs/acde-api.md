@@ -30,7 +30,7 @@
 | 原文件 | 原来做什么 | 现在 |
 | --- | --- | --- |
 | `src/runtime/load.js` (`load()`, 及各入口里 `load` 的声明) | 可选的 `acde:*` 模块: `import('acde:<name>')` 的默认导出, 拿不到时是 null | 没有: 应用直接写 `import('acde:<name>')`, 拿不到时 reject; `acdev check` 只拦可选模块的静态导入 |
-| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert `src/host/mod.rs:60` 编译时读它, Broker 和 `acdev check/build/dev/doctor` 也用 | `npm/src/manifest/level.ts` |
+| `src/runtime/level.js` (`API_LEVEL`) | 契约级别 (值 1); acdert 编译时读它, Broker 和 `acdev check/build/dev/doctor` 也用 | 值移到本包的 `api-level` (只写一个数字的纯数据, 随包发布); acdert `src/host/mod.rs` 编译时 `include_str!` 读, 命令行 `npm/src/manifest/level.ts` 读同一文件 |
 | `src/runtime/places.js` (`SHARED_PLACES`) | 共享位置的列表 (类型留下了) | `npm/src/manifest/places.ts` |
 | `src/runtime/platforms.js` (`PLATFORM_SUPPORT`、`RUNNING_MODES`、`platformSupport()`) | 各平台、各跑法下有哪些模块 | `npm/src/manifest/platforms.ts` |
 | `src/vite.js` (`@dopame/acde-api/vite`) | Vite 插件: 构建时把 `acde:*` 留作外部模块, dev 时换成会 reject 的替身 | `npm/src/vite-plugin.ts` (`acdev build` 用) |

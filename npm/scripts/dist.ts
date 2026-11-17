@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
 import { Bundler } from '../src/bundler.ts'
+import { API_LEVEL } from '../src/manifest/level.ts'
 import { Pkgs } from '../src/pkgs.ts'
 import { shipLeaks } from './shipped.ts'
 import { skillProblems } from './skill.ts'
@@ -94,6 +95,7 @@ copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
 const preload = {
   ACDEV_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())),
   ACDEV_SDK_VERSION: JSON.stringify(sdk.version),
+  ACDEV_API_LEVEL: String(API_LEVEL),
 }
 await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
 await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')
