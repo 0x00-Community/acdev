@@ -54,6 +54,11 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   if (wait !== 0) machine.devdBinary()
   const pid = await machine.start(options, say)
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
+  const outputs = options.outputs ?? 1
+  if (options.display === 'none' && outputs > 1) {
+    await machine.switchOnOutputs()
+    say(`displays 1 to ${outputs - 1} are switched on (QEMU's D-Bus display, no window)`)
+  }
   if (options.display === 'viewer') say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {

@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use winit::event_loop::EventLoop;
 
-const USAGE: &str = "usage: acdev-viewer --qmp QMP_SOCKET [--title TITLE]   (show a QEMU guest started with -display dbus,p2p=yes)";
+const USAGE: &str = "usage: acdev-viewer --qmp QMP_SOCKET [--title TITLE]   (show a QEMU guest started with -display dbus,p2p=yes)
+       acdev-viewer --qmp QMP_SOCKET --outputs N        (no window: switch the guest's displays 1 to N-1 on, then exit)";
 
 struct Stderr;
 
@@ -39,24 +40,35 @@ fn start_logging() {
 struct Args {
     qmp: PathBuf,
     title: String,
+    outputs: Option<u32>,
 }
 
 fn args() -> Result<Args, String> {
     let mut qmp = None;
     let mut title = String::from("acdev");
+    let mut outputs = None;
     let mut given = std::env::args().skip(1);
     while let Some(flag) = given.next() {
         match (flag.as_str(), given.next()) {
             ("--qmp", Some(path)) => qmp = Some(PathBuf::from(path)),
             ("--title", Some(text)) => title = text,
+            ("--outputs", Some(count)) => outputs = Some(count.parse().map_err(|_| format!("acdev-viewer: --outputs {count}: a count"))?),
             _ => return Err(USAGE.into()),
         }
     }
-    Ok(Args { qmp: qmp.ok_or(USAGE)?, title })
+    Ok(Args { qmp: qmp.ok_or(USAGE)?, title, outputs })
+}
+
+fn switch_on(args: &Args, outputs: u32) -> Result<(), String> {
+    let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
+    display::switch_on(stream, outputs).map_err(|e| format!("acdev-viewer: D-Bus display: {e}"))
 }
 
 fn run() -> Result<(), String> {
     let args = args()?;
+    if let Some(outputs) = args.outputs {
+        return switch_on(&args, outputs);
+    }
     let event_loop = EventLoop::with_user_event().build().map_err(|e| format!("acdev-viewer: event loop: {e}"))?;
     let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
     let frame = Arc::new(Mutex::new(display::Frame::default()));

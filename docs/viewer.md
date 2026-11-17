@@ -21,6 +21,11 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 4. 在自己那一端上建点对点 D-Bus 连接 (客户端一方), 对 `/org/qemu/Display1/Console_0` 调 `Console.RegisterListener`, 交另一对套接字的
    一端; 调用返回后在自己那一端上提供 `/org/qemu/Display1/Listener`. 顺序照 qemu-display (先注册, 再建连接).
 
+## 只打开输出, 不开窗口
+
+`acdev-viewer --qmp … --outputs N`: 同样连上 D-Bus 显示, 对 `Console_1`…`Console_{N-1}` 调 `Console.SetUIInfo` (1280×800, 横向依次
+排开) 让 virtio-gpu 把这些输出标成已连接, 然后退出. `acdev vm start --headless --outputs N` 用它 (见 `docs/vm.md`「多个显示输出」).
+
 ## 画面
 
 - 只实现 `org.qemu.Display1.Listener` 的基础方法: `Scanout` (整帧, 换分辨率)、`Update` (矩形)、`Disable`、`MouseSet`、`CursorDefine`;

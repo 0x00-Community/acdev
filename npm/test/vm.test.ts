@@ -318,6 +318,8 @@ describe('the QEMU command line', () => {
     expect(one).not.toContain('max_outputs')
     expect(machine.args({ outputs: 2 }, true).join(' ')).toContain('-device virtio-vga,id=gpu0,max_outputs=2 ')
     expect(machine.args({ outputs: 3, gl: true }, true).join(' ')).toContain('-device virtio-vga-gl,id=gpu0,max_outputs=3 ')
+    expect(machine.args({ display: 'none' }, true).join(' ')).toContain('-display none')
+    expect(machine.args({ display: 'none', outputs: 2 }, true).join(' ')).toContain('-display dbus,p2p=yes')
   })
 
   test('two PCIe root ports, rp1 and rp2, take hot-plugged devices', () => {

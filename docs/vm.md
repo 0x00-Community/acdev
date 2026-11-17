@@ -77,9 +77,16 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
   `status` 写出走的是哪种.
 - 多个显示输出: `--outputs N` (1–16, 默认 1) 给显卡加 `max_outputs=N` (`virtio-vga` / `virtio-vga-gl` 的属性, 默认 1; 上限是 QEMU 的
   `VIRTIO_GPU_MAX_SCANOUTS` 16, 本机 QEMU 8.2.2 的 `-device virtio-vga,help` 核对过). 显卡固定 `id=gpu0`, 截图 `--output K` 就是 QMP
-  `screendump` 的 `device: "gpu0", head: K` (`head` 必须和 `device` 一起给, QEMU `qapi/ui.json`). 显示后端: QEMU 的 GTK 窗口每个输出一个
-  标签页 (`ui/gtk.c` 按控制台建页); `--headless` 没有窗口, 截图照样按输出取; `--vnc` 和 `--viewer` 只显示第一个输出 (VNC 服务端绑一个
-  控制台〔未核实〕, acdev-viewer 只接 `Console_0`), 和 `--outputs` 2 以上一起用时直接报错.
+  `screendump` 的 `device: "gpu0", head: K` (`head` 必须和 `device` 一起给, QEMU `qapi/ui.json`).
+  - 第 1 个以后的输出要有显示前端"接上"才算连接: QEMU 8.2.2 的 virtio-gpu 起来时只打开第 0 个输出 (`hw/display/virtio-gpu-base.c`
+    `enabled_output_bitmask = 1`), 其余要等前端经 `dpy_set_ui_info` 报一个非零大小 (`virtio_gpu_ui_info`). GTK 窗口为每个输出建一个标签页
+    并报大小, 所以都连上; `-display none` 不报, 第二个输出一直是 disconnected (2026-11-18 winman-test 实测).
+  - 所以 `--headless --outputs N` (N ≥ 2) 不用 `-display none`, 改用 `-display dbus,p2p=yes` (不开窗口), 起来后 acdev 跑一次
+    `acdev-viewer --qmp … --outputs N`: 经 D-Bus 对 `Console_1`…`Console_{N-1}` 调 `SetUIInfo` (1280×800, 依次向右排), 就是 GTK 做的那件事
+    (`ui/dbus-console.c` `dbus_console_set_ui_info` → `dpy_set_ui_info`), 然后退出; 打开的状态留在显卡里. 要 acdev-viewer (同 `--viewer`).
+    `egl-headless` 不报大小 (`ui/egl-headless.c` 不调 `dpy_set_ui_info`), 不能用.
+  - `--vnc` 和 `--viewer` 只显示第一个输出 (VNC 服务端绑一个控制台〔未核实〕, acdev-viewer 只接 `Console_0`), 和 `--outputs` 2 以上
+    一起用时直接报错.
 - 热插拔: q35 的根总线 `pcie.0` 不能热插拔 (`device_add` 报 `Bus 'pcie.0' does not support hotplugging`), 所以 `start` 预留两个
   PCIe 根端口 `rp1`、`rp2` (`chassis` / `slot` 11、12). 热插拔时 `device_add` 带 `bus=rp1` 或 `bus=rp2`, 一个端口挂一个设备.
 - 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,

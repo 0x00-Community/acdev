@@ -10,6 +10,8 @@ use zbus::blocking::connection::Builder;
 const PIXMAN_X8R8G8B8: u32 = 0x2002_0888;
 const PIXMAN_A8R8G8B8: u32 = 0x2002_8888;
 const LISTENER: &str = "/org/qemu/Display1/Listener";
+const OUTPUT_WIDTH: u32 = 1280;
+const OUTPUT_HEIGHT: u32 = 800;
 
 #[derive(Default)]
 pub struct Frame {
@@ -55,6 +57,9 @@ pub enum Input {
 #[zbus::proxy(interface = "org.qemu.Display1.Console", default_service = "org.qemu", default_path = "/org/qemu/Display1/Console_0")]
 trait Console {
     fn register_listener(&self, listener: zbus::zvariant::Fd<'_>) -> zbus::Result<()>;
+
+    #[zbus(name = "SetUIInfo")]
+    fn set_ui_info(&self, width_mm: u16, height_mm: u16, xoff: i32, yoff: i32, width: u32, height: u32) -> zbus::Result<()>;
 }
 
 #[zbus::proxy(interface = "org.qemu.Display1.Keyboard", default_service = "org.qemu", default_path = "/org/qemu/Display1/Console_0")]
@@ -152,6 +157,17 @@ pub fn connect(stream: UnixStream, frame: Arc<Mutex<Frame>>, events: EventLoopPr
         }
     });
     Ok(Display { _bus: bus, _listener: listener, inputs })
+}
+
+pub fn switch_on(stream: UnixStream, outputs: u32) -> zbus::Result<()> {
+    let bus = Builder::async_io_unix_stream(stream).p2p().build()?;
+    for head in 1..outputs {
+        let console = ConsoleProxyBlocking::builder(&bus).path(format!("/org/qemu/Display1/Console_{head}"))?.build()?;
+        let xoff = i32::try_from(head * OUTPUT_WIDTH).unwrap_or(i32::MAX);
+        console.set_ui_info(0, 0, xoff, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT)?;
+        log::info!("display {head} switched on ({OUTPUT_WIDTH}x{OUTPUT_HEIGHT})");
+    }
+    Ok(())
 }
 
 fn forward(keyboard: &KeyboardProxyBlocking<'_>, mouse: &MouseProxyBlocking<'_>, input: Input) -> zbus::Result<()> {

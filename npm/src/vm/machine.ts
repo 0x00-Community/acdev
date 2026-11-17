@@ -242,7 +242,7 @@ export class Machine {
     const accel = kvm ? ['-accel', 'kvm', '-cpu', 'host'] : ['-accel', 'tcg,thread=multi', '-cpu', 'max']
     const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
     const gpu = ['-device', `${options.gl ? 'virtio-vga-gl' : 'virtio-vga'},id=${Machine.GPU}${heads}`]
-    const shown = ['-display', Machine.#display(display, options.gl ?? false)]
+    const shown = ['-display', Machine.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
@@ -266,8 +266,8 @@ export class Machine {
     ]
   }
 
-  static #display(display: NonNullable<StartOptions['display']>, gl: boolean): string {
-    if (display === 'none') return 'none'
+  static #display(display: NonNullable<StartOptions['display']>, gl: boolean, outputs: number): string {
+    if (display === 'none') return outputs > 1 ? 'dbus,p2p=yes' : 'none'
     if (display === 'vnc') return 'vnc=127.0.0.1:0'
     if (display === 'viewer') return 'dbus,p2p=yes'
     return gl ? 'gtk,gl=on' : 'gtk'
@@ -331,13 +331,31 @@ export class Machine {
     return 'killed'
   }
 
+  #viewer(): string {
+    return crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
+  }
+
+  async switchOnOutputs(): Promise<void> {
+    const outputs = this.outputs()
+    if (outputs < 2) return
+    const viewer = this.#viewer()
+    let failed = ''
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const ran = spawnSync(viewer, ['--qmp', this.qmp, '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
+      if (ran.status === 0) return
+      failed = (ran.stderr || ran.error?.message || `exit ${ran.status}`).trim()
+      await new Promise((done) => setTimeout(done, 500))
+    }
+    throw new Error(`vm: switching on displays 1 to ${outputs - 1} failed: ${failed}`)
+  }
+
   view(): number {
     this.running()
     const display = join(this.run, 'display')
     if (!existsSync(display) || readFileSync(display, 'utf8').trim() !== 'viewer') {
       throw new Error('vm: the guest was started without --viewer (its screen is in QEMU\'s own window or none)')
     }
-    const viewer = crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
+    const viewer = this.#viewer()
     const log = openSync(join(this.logs, 'viewer.log'), 'a')
     const title = `acdev: ${basename(this.dir)}`
     const child = Runtime.spawn(['setsid', viewer, '--qmp', this.qmp, '--title', title], { stdio: ['ignore', log, log], env: this.env })
