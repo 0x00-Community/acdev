@@ -35,6 +35,7 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 - 窗口按客户机分辨率要求大小; 大小不一样时按最近点缩放.
 - 指针: virtio-gpu 的指针在单独的平面上, 不在帧里: `CursorDefine` (ARGB) 转成 winit 的自定义指针, `MouseSet` 的 `on` 决定显示与否;
   宿主指针本身就是客户机指针 (virtio 平板是绝对坐标).
+- 画帧只在 `RedrawRequested` 里做: 收到新帧时请求重画, 由 winit 按合成器的帧回调节流, 不在事件里直接提交缓冲.
 
 ## 键鼠
 

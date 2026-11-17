@@ -60,6 +60,12 @@ impl Viewer {
         }
     }
 
+    fn redraw(&self) {
+        if let Some(shown) = self.shown.as_ref() {
+            shown.window.request_redraw();
+        }
+    }
+
     fn guest_point(&self) -> Option<(u32, u32)> {
         let shown = self.shown.as_ref()?;
         let size = shown.window.inner_size();
@@ -154,7 +160,8 @@ impl ApplicationHandler<Event> for Viewer {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::RedrawRequested | WindowEvent::Resized(_) => self.draw(),
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::Resized(_) => self.redraw(),
             WindowEvent::KeyboardInput { event, .. } => self.key(event.physical_key, event.state),
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = position;
@@ -177,7 +184,7 @@ impl ApplicationHandler<Event> for Viewer {
         match event {
             Event::Resized => {
                 self.fit_to_guest();
-                self.draw();
+                self.redraw();
             }
             Event::Redraw => shown.window.request_redraw(),
             Event::Cursor { width, height, hot_x, hot_y, rgba } => match CustomCursor::from_rgba(rgba, width, height, hot_x, hot_y) {
