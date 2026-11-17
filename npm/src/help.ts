@@ -321,7 +321,9 @@ export class Help {
             + 'over vsock, run COMMAND runs a command as root in the guest, streams its output and exits with its code '
             + '(--detach: in the background, its output in a log; kill PID stops it); shell [COMMAND] opens an '
             + 'interactive terminal (a pty that follows the window size; exits with its code); logs [SOURCE] shows the '
-            + 'journal, a systemd unit, a guest file or a --detach program\'s log (--follow, --grep); push LOCAL [REMOTE] copies a file '
+            + 'journal, a systemd unit, a guest file or a --detach program\'s log (--follow, --grep); dev [DIR] builds the '
+            + 'Cargo project in DIR on the host, pushes its binaries to /opt/acdev/bin, runs them and shows their output, '
+            + 'then builds, pushes and restarts again whenever a source file changes; push LOCAL [REMOTE] copies a file '
             + 'or directory in (default /opt/acdev/<name>); '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
@@ -341,10 +343,13 @@ export class Help {
           { flag: '--follow', about: 'logs: keep showing new lines until Ctrl+C' },
           { flag: '--grep REGEX', about: 'logs: only the lines that match (ignoring case)' },
           { flag: '--lines N', about: 'logs: how many earlier lines first (default 50)' },
+          { flag: '--bin A,B', about: 'dev: only these binaries of the project (default: all)' },
+          { flag: '--run COMMAND', about: 'dev: what to run in the guest, with /opt/acdev/bin on PATH (default: the first binary)' },
         ],
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',
           'acdev vm logs 1234 --follow --grep error',
+          "acdev vm dev ../winman --run 'systemctl stop greetd; winman --card /dev/dri/card1 winman-test-client'",
           'acdev vm screenshot screen.png', 'acdev vm stop',
         ],
       },

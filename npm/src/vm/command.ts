@@ -1,4 +1,5 @@
 import { LineFilter, logCommand } from './logs.ts'
+import { DevLoop } from './loop.ts'
 import { Machine, type StartOptions } from './machine.ts'
 
 type Flags = ReadonlyMap<string, string>
@@ -97,6 +98,19 @@ async function logs(machine: Machine, rest: readonly string[], flags: Flags): Pr
   return code
 }
 
+async function dev(machine: Machine, rest: readonly string[], flags: Flags): Promise<number> {
+  count('dev', rest, 0, 1, 'at most the Cargo project DIR')
+  machine.running()
+  const bins = (flags.get('bin') ?? '').split(',').map((bin) => bin.trim()).filter(Boolean)
+  const loop = new DevLoop(machine.devd(), { dir: rest[0] ?? '.', bins, run: flags.get('run') ?? null }, say)
+  const stopped = new AbortController()
+  const stop = () => stopped.abort()
+  process.once('SIGINT', stop).once('SIGTERM', stop)
+  say(`watching ${loop.dir}; Ctrl+C stops the program and ends`)
+  await loop.watch(stopped.signal)
+  return 0
+}
+
 const STOPPED = { 'not running': 'not running', off: 'powered off', killed: 'no power-off in 60 s: killed qemu' }
 
 const HANDLERS: Readonly<Record<string, Handler>> = {
@@ -140,6 +154,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   },
   shell,
   logs,
+  dev,
   async kill(machine, rest, flags) {
     count('kill', rest, 1, 1, 'PID')
     machine.running()

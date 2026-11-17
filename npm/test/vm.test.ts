@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { which } from '../launcher.mjs'
@@ -7,6 +8,7 @@ import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, type Frame, type Transport } from '../src/vm/devd.ts'
 import { Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
+import { BIN, executables, snapshot, startCommand } from '../src/vm/loop.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -187,6 +189,36 @@ describe('acdev vm logs', () => {
   })
 })
 
+describe('acdev vm dev', () => {
+  const artifact = (name: string, kind: string, executable: string | null) =>
+    JSON.stringify({ reason: 'compiler-artifact', target: { name, kind: [kind] }, executable })
+
+  test('the binaries come from cargo\'s artifacts, only those asked for; a missing one is an error', () => {
+    const lines = [artifact('detour', 'lib', null), artifact('winman', 'bin', '/t/winman'), 'Compiling ...',
+      artifact('winman-test-client', 'bin', '/t/winman-test-client'), JSON.stringify({ reason: 'build-finished', success: true })]
+    expect(executables(lines, [])).toEqual([{ name: 'winman', path: '/t/winman' },
+      { name: 'winman-test-client', path: '/t/winman-test-client' }])
+    expect(executables(lines, ['winman-test-client'])).toEqual([{ name: 'winman-test-client', path: '/t/winman-test-client' }])
+    expect(() => executables(lines, ['nope'])).toThrow('cargo built no binary nope')
+  })
+
+  test('a change to a source file shows, one under target does not; the program runs from the pushed binaries', () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'src'))
+    mkdirSync(join(dir, 'target'))
+    writeFileSync(join(dir, 'src', 'main.rs'), 'fn main() {}')
+    const before = snapshot(dir)
+    writeFileSync(join(dir, 'target', 'out'), 'x')
+    expect(snapshot(dir)).toBe(before)
+    utimesSync(join(dir, 'src', 'main.rs'), new Date(), new Date(Date.now() + 5000))
+    expect(snapshot(dir)).not.toBe(before)
+    const built = [{ name: 'winman', path: '/t/winman' }]
+    expect(startCommand({ dir, bins: [], run: null }, built)).toBe(`export PATH=${BIN}:$PATH; winman`)
+    expect(startCommand({ dir, bins: [], run: 'winman --card /dev/dri/card1 winman-test-client' }, built))
+      .toBe(`export PATH=${BIN}:$PATH; winman --card /dev/dri/card1 winman-test-client`)
+  })
+})
+
 describe('the QEMU command line', () => {
   test('KVM, virtio display, keyboard and tablet, the serial log, the share', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
@@ -214,8 +246,38 @@ describe('the QEMU command line', () => {
 const IMAGE = process.env['ACDEV_VM_TEST_IMAGE'] ?? ''
 const QEMU = which('qemu-system-x86_64') !== null && Machine.kvm() && IMAGE !== '' && existsSync(IMAGE)
 
+async function devLoop(vmDir: string): Promise<string[]> {
+  const project = join(vmDir, 'hello')
+  mkdirSync(join(project, 'src'), { recursive: true })
+  writeFileSync(join(project, 'Cargo.toml'), '[package]\nname = "hello"\nversion = "0.1.0"\nedition = "2021"\n[workspace]\n')
+  const source = (word: string) => writeFileSync(join(project, 'src', 'main.rs'),
+    `fn main() { println!("${word}"); std::thread::sleep(std::time::Duration::from_secs(600)); }\n`)
+  source('v1')
+  const child = spawn(process.execPath, [CLI, 'vm', 'dev', project], { env: env({ ACDEV_VM_DIR: vmDir }), stdio: ['ignore', 'pipe', 'pipe'] })
+  let out = ''
+  child.stdout.on('data', (chunk: Buffer) => {
+    out += chunk.toString()
+  })
+  const seen = async (word: string) => {
+    for (let waited = 0; !out.includes(word); waited += 500) {
+      if (waited > 240_000) throw new Error(`no ${word} from acdev vm dev: ${out}`)
+      await new Promise((tick) => setTimeout(tick, 500))
+    }
+    return word
+  }
+  try {
+    const words = [await seen('v1')]
+    source('v2')
+    words.push(await seen('v2'))
+    return words
+  } finally {
+    child.kill('SIGINT')
+    await new Promise((done) => child.on('close', done))
+  }
+}
+
 describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
-  test.skipIf(!QEMU)('start --headless waits until ready with acdevd; run, push, detach, logs and kill, shell, screenshot; stop', async () => {
+  test.skipIf(!QEMU)('start --headless waits until ready with acdevd; run, push, detach, logs and kill, shell, the dev loop, screenshot; stop', async () => {
     const dir = tmp()
     const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDEV_VM_DIR: dir }) })
     try {
@@ -241,6 +303,7 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
       expect(shell.code, shell.out).toBe(4)
       expect(shell.stdout).toContain('24 80')
       expect(shell.stdout).toContain('tty')
+      expect(await devLoop(dir)).toEqual(['v1', 'v2'])
       expect((await run(['status'])).stdout).toContain('acdevd (vsock cid')
       const shot = join(dir, 'screen.png')
       expect((await run(['screenshot', shot])).code).toBe(0)
