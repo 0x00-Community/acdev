@@ -1,3 +1,4 @@
+import { LineFilter, logCommand } from './logs.ts'
 import { Machine, type StartOptions } from './machine.ts'
 
 type Flags = ReadonlyMap<string, string>
@@ -81,6 +82,21 @@ async function shell(machine: Machine, rest: readonly string[]): Promise<number>
   }
 }
 
+async function logs(machine: Machine, rest: readonly string[], flags: Flags): Promise<number> {
+  count('logs', rest, 0, 1, 'at most one SOURCE: a process group id, a guest file or a systemd unit')
+  machine.running()
+  const lines = Number(flags.get('lines') ?? 50)
+  if (!Number.isInteger(lines) || lines < 0) throw new Error(`vm logs: --lines ${flags.get('lines')}: a count, 0 or more`)
+  const filter = new LineFilter(flags.get('grep'), (text) => process.stdout.write(text))
+  const command = logCommand(rest[0], { follow: flags.has('follow'), lines })
+  const code = await machine.devd().run(['/bin/sh', '-c', command], {
+    stdout: (chunk) => filter.push(chunk),
+    stderr: (chunk) => process.stderr.write(chunk),
+  })
+  filter.end()
+  return code
+}
+
 const STOPPED = { 'not running': 'not running', off: 'powered off', killed: 'no power-off in 60 s: killed qemu' }
 
 const HANDLERS: Readonly<Record<string, Handler>> = {
@@ -114,7 +130,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     if (flags.has('detach')) {
       const { pid, log } = await machine.devd().detach(argv)
       console.log(pid)
-      say(`running in the background as process group ${pid}; its output goes to guest:${log} (acdev vm kill ${pid})`)
+      say(`running in the background as process group ${pid}; its output goes to guest:${log} (acdev vm logs ${pid} --follow, acdev vm kill ${pid})`)
       return 0
     }
     return machine.devd().run(argv, {
@@ -123,6 +139,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     })
   },
   shell,
+  logs,
   async kill(machine, rest, flags) {
     count('kill', rest, 1, 1, 'PID')
     machine.running()

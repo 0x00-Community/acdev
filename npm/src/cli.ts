@@ -58,7 +58,11 @@ class Cli {
     devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
-    vm: { args: [1, Infinity], flags: ['image', 'share', 'wait'], switches: ['fresh', 'headless', 'vnc', 'gl', 'detach', 'force'] },
+    vm: {
+      args: [1, Infinity],
+      flags: ['image', 'share', 'wait', 'grep', 'lines'],
+      switches: ['fresh', 'headless', 'vnc', 'gl', 'detach', 'force', 'follow'],
+    },
     test: {
       args: [0, Infinity],
       flags: ['desktop', 'test-name-pattern', 'timeout', 'workers', 'retries', 'video'],

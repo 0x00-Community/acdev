@@ -6,6 +6,7 @@ import { which } from '../launcher.mjs'
 import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, type Frame, type Transport } from '../src/vm/devd.ts'
 import { Machine } from '../src/vm/machine.ts'
+import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -165,6 +166,27 @@ describe('the acdevd protocol, host side', () => {
   })
 })
 
+describe('acdev vm logs', () => {
+  test('a process group id or a path is a file, a name a unit, nothing the whole journal', () => {
+    expect(logCommand('42', { follow: true, lines: 10 })).toBe(`exec tail -n 10 -F '${DEVD_LOGS}/42.log'`)
+    expect(logCommand("/var/log/it's.log", { follow: false, lines: 5 })).toBe("exec tail -n 5 '/var/log/it'\\''s.log'")
+    expect(logCommand('greetd', { follow: true, lines: 50 })).toBe("exec journalctl --no-pager -o short-precise -n 50 -f -u 'greetd'")
+    expect(logCommand(undefined, { follow: false, lines: 0 })).toBe('exec journalctl --no-pager -o short-precise -n 0')
+  })
+
+  test('the filter keeps whole matching lines across chunks, ignoring case', () => {
+    const seen: string[] = []
+    const filter = new LineFilter('frame', (text) => seen.push(text))
+    filter.push(Buffer.from('winman: Frame 1\nother\nwinman: fra'))
+    filter.push(Buffer.from('me 2\nlast frame'))
+    filter.end()
+    expect(seen).toEqual(['winman: Frame 1\n', 'winman: frame 2\n', 'last frame\n'])
+    const all: string[] = []
+    new LineFilter(undefined, (text) => all.push(text)).push(Buffer.from('as is'))
+    expect(all).toEqual(['as is'])
+  })
+})
+
 describe('the QEMU command line', () => {
   test('KVM, virtio display, keyboard and tablet, the serial log, the share', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
@@ -193,7 +215,7 @@ const IMAGE = process.env['ACDEV_VM_TEST_IMAGE'] ?? ''
 const QEMU = which('qemu-system-x86_64') !== null && Machine.kvm() && IMAGE !== '' && existsSync(IMAGE)
 
 describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
-  test.skipIf(!QEMU)('start --headless waits until ready with acdevd; run, push, detach and kill, shell, screenshot; stop', async () => {
+  test.skipIf(!QEMU)('start --headless waits until ready with acdevd; run, push, detach, logs and kill, shell, screenshot; stop', async () => {
     const dir = tmp()
     const run = (args: string[]) => collect([process.execPath, CLI, 'vm', ...args], { cwd: dir, env: env({ ACDEV_VM_DIR: dir }) })
     try {
@@ -209,8 +231,12 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
       const detached = await run(['run', '--detach', '--', 'echo up; exec sleep 60'])
       expect(detached.code, detached.out).toBe(0)
       const pid = detached.stdout.trim()
+      const logged = await run(['logs', pid, '--grep', 'UP'])
+      expect(logged.code, logged.out).toBe(0)
+      expect(logged.stdout).toBe('up\n')
       expect((await run(['kill', pid])).code).toBe(0)
       expect((await run(['run', `cat /var/log/acdevd/${pid}.log`])).stdout).toBe('up\n')
+      expect((await run(['logs', 'acdevd', '--lines', '20'])).stdout).toContain('listening on vsock port')
       const shell = await run(['shell', '--', 'stty size; [ -t 0 ] && echo tty; exit 4'])
       expect(shell.code, shell.out).toBe(4)
       expect(shell.stdout).toContain('24 80')

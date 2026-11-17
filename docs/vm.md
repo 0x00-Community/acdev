@@ -38,6 +38,7 @@ acdev vm start --headless --share ~/winman/target/release
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
+acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个进程组的输出, 只留含 error 的行
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
@@ -60,6 +61,9 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
   `/var/log/acdevd/<进程组号>.log`; `kill PID` (`--force` 用 SIGKILL) 停掉整个进程组; 在宿主上按 Ctrl+C 断开时, 前台运行的程序被结束.
 - `shell` 在客户机里开一个伪终端 (pty): 本地终端切到原始模式, 按键原样送进去 (Ctrl+C 给客户机里的程序), 本地窗口改大小时跟着改,
   退出码就是 shell 的. 不带命令时是 root 在 `/etc/passwd` 里的登录 shell (`-l`); 标准输入不是终端时也能用, 读完时送一个 Ctrl+D.
+- `logs [SOURCE]` 经 `run` 在客户机里跑 `journalctl` 或 `tail`: 不带时是整个日志 (journald), 数字是 `run --detach` 的进程组号
+  (`/var/log/acdevd/<号>.log`), `/` 开头是客户机里的文件, 其余当 systemd 单元名 (`journalctl -u`). 先给最后 `--lines` 行 (默认 50),
+  `--follow` 一直跟着, 按 Ctrl+C 断开时客户机里的 `tail` / `journalctl` 随之结束. `--grep` 是正则 (不分大小写), 在宿主上按整行过滤.
 - guest agent 只用来装 acdevd、`mount` 和 `console`.
 
 ## 把 winman 和测试客户端放进去跑
@@ -75,7 +79,7 @@ acdev vm push target/release/winman /opt/acdev/winman
 acdev vm push target/release/winman-test-client /opt/acdev/winman-test-client
 acdev vm run -- 'systemctl stop greetd'
 pid=$(acdev vm run --detach -- '/opt/acdev/winman --card /dev/dri/card1 /opt/acdev/winman-test-client')
-acdev vm run -- "cat /var/log/acdevd/$pid.log"
+acdev vm logs "$pid"
 acdev vm screenshot winman.png
 acdev vm kill "$pid"
 ```
