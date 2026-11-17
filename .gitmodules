@@ -1,0 +1,4 @@
+[submodule "acdert/vendor/blitz"]
+	path = acdert/vendor/blitz
+	url = ../blitz.git
+	branch = main
