@@ -1,3 +1,4 @@
+| 改 SDK `@dopame/acde-api` (`npm/acde-api/`, 只有类型声明), 或在别的工程里引用它 | `docs/acde-api.md` |
 # acdev
 
 acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
@@ -26,8 +27,9 @@ acdev (原 acdebin-dbg, 2026-11-17 并入 acdert 后改名) 是 acde (Dopame 的
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
-`acdert/web/` (acde-api、acde-dom、acde-host) 已于 acdert 91e7dd1e 删除 (CTO 决定), 取代方案未定: `acdert` 编不过 (`acdert/src/host/mod.rs` 读
-`web/` 里的 `level.js`), 命令行的 SDK 依赖装不上, 发不了新版本. 这是已知状态, 文档里指向 `web/` 的地方都按删除前写, 等方案定了再改.
+`acdert/web/` (acde-api、acde-dom、acde-host) 已于 acdert 91e7dd1e 删除 (CTO 决定). SDK 的替代品是 `npm/acde-api/` 的 `@dopame/acde-api`, 只有类型声明
+(见 `docs/acde-api.md`); acde-dom、acde-host 不搬. `acdert` 仍编不过 (`acdert/src/host/mod.rs` 读 `web/` 里的 `level.js`), 命令行的类型检查也不通
+(它用的清单校验和 Vite 插件不在新包里), 发不了新版本. 文档里其余指向 `web/` 的地方按删除前写.
 
 ## 代码约定
 
