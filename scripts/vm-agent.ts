@@ -100,12 +100,17 @@ async function openAgent(path: string, timeoutMs: number): Promise<Channel> {
   const channel = await Channel.open(path)
   const id = Math.floor(Math.random() * 2 ** 31)
   channel.send('guest-sync', { id })
-  for (;;) {
-    const answer = await channel.reply(timeoutMs).catch((error: Error) => {
-      if (error instanceof SyntaxError) return undefined
-      throw error
-    })
-    if (answer === id) return channel
+  try {
+    for (;;) {
+      const answer = await channel.reply(timeoutMs).catch((error: Error) => {
+        if (error instanceof SyntaxError) return undefined
+        throw error
+      })
+      if (answer === id) return channel
+    }
+  } catch (error) {
+    channel.close()
+    throw error
   }
 }
 

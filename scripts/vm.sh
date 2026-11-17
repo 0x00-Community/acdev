@@ -23,7 +23,7 @@ usage: scripts/vm.sh fetch                      download the newest Dopame OS x8
          --share DIR       export DIR to the guest over 9p (tag acdev; scripts/vm.sh mount)
          --headless        no window (screenshots still work)
          --vnc             a VNC display on 127.0.0.1:5900 instead of a window
-         --gl              virtio-vga-gl with an OpenGL window (virgl)
+         --gl              virtio-vga-gl with an OpenGL window (virgl; not on the roadmap, see docs/vm.md)
          --kernel FILE     boot this kernel directly (with --initrd and --append, root= included)
          --initrd FILE
          --append TEXT     kernel command line for --kernel; console=ttyS0 is added
@@ -192,7 +192,7 @@ push() {
   else
     ga exec 30 "mkdir -p '$(dirname -- "$remote")'"
     ga push "$local_path" "$remote"
-    [[ -x $local_path ]] && ga exec 30 "chmod +x '$remote'"
+    if [[ -x $local_path ]]; then ga exec 30 "chmod 755 '$remote'"; else ga exec 30 "chmod 644 '$remote'"; fi
   fi
   say "$local_path -> guest:$remote"
 }
@@ -222,7 +222,8 @@ case ${1:-} in
     need_running
     ga exec 60 'for f in /boot/loader/entries/*.conf /efi/loader/entries/*.conf /boot/efi/loader/entries/*.conf; do
       [ -f "$f" ] || continue
-      grep -q "console=ttyS0" "$f" || sed -i "s/^options /options console=tty0 console=ttyS0,115200 /" "$f"
+      sed -i -e "/^options /s/ console=[^ ]*//g" -e "/^options /s/ loglevel=6//g" \
+        -e "s/^options .*/& console=tty0 console=ttyS0,115200 loglevel=6/" "$f"
       echo "$f"
     done'
     say 'from the next boot the kernel logs to the serial log too' ;;
