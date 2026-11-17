@@ -6,7 +6,7 @@
       "name": "acde",
       "dependencies": {
         "@clack/prompts": "^1.8.1",
-        "@dopame/acde-api": "file:../../acdert/web/packages/acde-api",
+        "@dopame/acde-api": "file:../acdert/web/packages/acde-api",
         "@modelcontextprotocol/server": "2.4.0",
         "string-width": "^8.3.0",
         "zod": "^4.6.7",
@@ -25,7 +25,7 @@
 
     "@clack/prompts": ["@clack/prompts@1.8.1", "", { "dependencies": { "@clack/core": "1.5.1", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ=="],
 
-    "@dopame/acde-api": ["@dopame/acde-api@file:../../acdert/web/packages/acde-api", { "peerDependencies": { "vite": ">=5" }, "optionalPeers": ["vite"] }],
+    "@dopame/acde-api": ["@dopame/acde-api@file:../acdert/web/packages/acde-api", { "peerDependencies": { "vite": ">=5" }, "optionalPeers": ["vite"] }],
 
     "@inversifyjs/common": ["@inversifyjs/common@1.5.2", "", {}, "sha512-WlzR9xGadABS9gtgZQ+luoZ8V6qm4Ii6RQfcfC9Ho2SOlE6ZuemFo7PKJvKI0ikm8cmKbU8hw5UK6E4qovH21w=="],
 

@@ -508,7 +508,7 @@ describe('acde.config.jsonc', () => {
 })
 
 describe('a project made by acde from its checkout', () => {
-  const API = realpathSync(join(import.meta.dir, '../../../acdert/web/packages/acde-api'))
+  const API = realpathSync(join(import.meta.dir, '../../acdert/web/packages/acde-api'))
   const ROOT = realpathSync(join(import.meta.dir, '..'))
 
   function tools(names: readonly string[]): string {

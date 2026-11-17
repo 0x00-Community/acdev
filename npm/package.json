@@ -7,7 +7,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "http://gitea.dopamine/AC/acdebin-dbg",
+    "url": "http://gitea.dopamine/AC/acdev",
     "directory": "npm"
   },
   "engines": {
@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
-    "@dopame/acde-api": "file:../../acdert/web/packages/acde-api",
+    "@dopame/acde-api": "file:../acdert/web/packages/acde-api",
     "@modelcontextprotocol/server": "2.4.0",
     "string-width": "^8.3.0",
     "zod": "^4.6.7"
