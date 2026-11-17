@@ -8,9 +8,8 @@
 
 ```sh
 cargo build -p acdev                              # target/debug/acdev
-(cd acdert/web && bun install && bun run build)      # acde-host 的 dist (web/ 已删除, 见下)
-ACDE_APP=acdert/web/packages/acde-host/dist target/debug/acdev doctor
+target/debug/acdev doctor
 ```
 
 构建运行时库要有 bun: `acdert/build.rs` 把 `acdert/js/` 的页面包打进二进制 (`ACDEV_BUN` 指定 bun 的路径). 管理中枢 (broker.js) 随
-`web/` 删除 (acdert 91e7dd1e) 后没有取回, 宿主窗口跑法起不来; `ACDE_APP` 只用来找它. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.
+`web/` 删除 (acdert 91e7dd1e) 后没有取回, 原来进它的入口现在是单应用启动器 (`target/debug/acdev app <目录>`), 桌面起不来. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.

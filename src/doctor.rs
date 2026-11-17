@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -50,7 +49,7 @@ pub fn run(args: &[String]) -> i32 {
         [flag] if flag == "--json" => true,
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
-            println!("  checks what acdev needs to run apps on this machine: its host files, the GPU (it draws a test frame),");
+            println!("  checks what acdev needs to run apps on this machine: the GPU (it draws a test frame),");
             println!("  and on Linux the display; --json: one JSON object on stdout. Exit code 1 when a check fails.");
             return 0;
         }
@@ -60,8 +59,7 @@ pub fn run(args: &[String]) -> i32 {
             return 2;
         }
     };
-    let mut checks = vec![host()];
-    checks.extend(display());
+    let mut checks: Vec<Check> = display().into_iter().collect();
     checks.push(gpu());
     let version = env!("CARGO_PKG_VERSION");
     let exe = std::env::current_exe().map(|path| path.display().to_string()).unwrap_or_default();
@@ -86,58 +84,6 @@ pub fn run(args: &[String]) -> i32 {
         }
     }
     i32::from(checks.iter().any(|c| c.status == Status::Error))
-}
-
-fn host() -> Check {
-    let dir = acdert::app_dir();
-    let shown = resolved(&dir);
-    let missing: Vec<&str> = ["broker.js", "web.js"].into_iter().filter(|file| !dir.join(file).is_file()).collect();
-    if missing.is_empty() {
-        return Check::new("host", "host files", Status::Ok, shown.display().to_string(), None);
-    }
-    let fix = if std::env::var_os("ACDE_APP").is_some() {
-        "point ACDE_APP at the directory that holds broker.js and web.js, or unset it"
-    } else {
-        "install acdev again with the acdev installer, which puts its app/ directory next to the binary \
-         (in a source checkout: cd web && bun install && bun run build)"
-    };
-    Check::new("host", "host files", Status::Error, format!("no {} in {}", missing.join(" or "), shown.display()), Some(fix))
-}
-
-fn resolved(path: &Path) -> PathBuf {
-    let mut missing = Vec::new();
-    let mut at = path;
-    loop {
-        if let Ok(real) = std::fs::canonicalize(at) {
-            return missing.iter().rev().fold(plain(&real), |path: PathBuf, part| path.join(part));
-        }
-        let (Some(parent), Some(name)) = (at.parent(), at.file_name()) else { return path.to_path_buf() };
-        missing.push(name.to_owned());
-        at = parent;
-    }
-}
-
-#[cfg(windows)]
-fn plain(real: &Path) -> PathBuf {
-    use std::path::{Component, Prefix};
-    let mut parts = real.components();
-    let start = match parts.next() {
-        Some(Component::Prefix(prefix)) => match prefix.kind() {
-            Prefix::VerbatimDisk(disk) => format!("{}:", char::from(disk)),
-            Prefix::VerbatimUNC(server, share) => format!(r"\\{}\{}", server.to_string_lossy(), share.to_string_lossy()),
-            _ => return real.to_path_buf(),
-        },
-        _ => return real.to_path_buf(),
-    };
-    let mut plain = PathBuf::from(start);
-    plain.push(std::path::MAIN_SEPARATOR_STR);
-    plain.extend(parts.filter(|part| !matches!(part, Component::RootDir)));
-    plain
-}
-
-#[cfg(not(windows))]
-fn plain(real: &Path) -> PathBuf {
-    real.to_path_buf()
 }
 
 #[cfg(target_os = "linux")]
@@ -235,17 +181,4 @@ fn draw() -> Result<(String, bool), String> {
     }
     let software = info.device_type == wgpu::DeviceType::Cpu;
     Ok((format!("{name}: drew a test frame in {} ms", started.elapsed().as_millis()), software))
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::plain;
-    use std::path::Path;
-
-    #[test]
-    fn verbatim_paths_are_shown_plain() {
-        assert_eq!(plain(Path::new(r"\\?\D:\Projects\app\dist")), Path::new(r"D:\Projects\app\dist"));
-        assert_eq!(plain(Path::new(r"\\?\UNC\server\share\app")), Path::new(r"\\server\share\app"));
-        assert_eq!(plain(Path::new(r"D:\plain")), Path::new(r"D:\plain"));
-    }
 }
