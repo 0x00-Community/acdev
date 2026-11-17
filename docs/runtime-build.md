@@ -12,5 +12,5 @@ cargo build -p acdev                              # target/debug/acdev
 ACDE_APP=acdert/web/packages/acde-host/dist target/debug/acdev doctor
 ```
 
-不在安装目录里跑时要用 `ACDE_APP` 指向 `acdert/web/packages/acde-host/dist`. acdert 的 `web/` 已删除 (acdert 91e7dd1e), 取代方案未定:
-现在没有页面资源可构建, `acdert` 本身也编不过 (`src/host/mod.rs` 读 `web/` 里的 `level.js`). 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.
+构建运行时库要有 bun: `acdert/build.rs` 把 `acdert/js/` 的页面包打进二进制 (`ACDEV_BUN` 指定 bun 的路径). 管理中枢 (broker.js) 随
+`web/` 删除 (acdert 91e7dd1e) 后没有取回, 宿主窗口跑法起不来; `ACDE_APP` 只用来找它. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.

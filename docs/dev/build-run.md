@@ -9,8 +9,8 @@ cd web && bun install && bun run build         # packages/acde-host/dist/{broker
 ACDE_PATH=<acde-dopame 的包目录> ../target/release/acdert --desktop dopame
 ```
 
-`ACDE_APP` 指向直接包含 `broker.js` 和 `web.js` 的目录, 源码构建用 `web/packages/acde-host/dist` 的绝对路径. 未设置时,
-acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/acde-host/dist`. 若 `CARGO_TARGET_DIR` 在别处, 显式设置 `ACDE_APP`.
+`ACDE_APP` 指向直接包含 `broker.js` 的目录. 未设置时, acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/acde-host/dist`.
+页面包不再是文件: 构建时打进二进制 (见 `docs/runtime/layout.md`「js」).
 验证平台: macOS 和 Windows 11 LTSC x64 (宿主窗口); Linux 的会话在有 GPU 的真机上, Linux 的宿主窗口只写不验.
 
 **Windows**: 只出一个 x64 binary, MSVC v143 编. 要 VS 2022 17.11 以上 (MSVC 14.41+) 的 C++ 工具和 ATL 组件

@@ -28,9 +28,10 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
 `acdert/web/` (acde-api、acde-dom、acde-host) 已于 acdert 91e7dd1e 删除 (CTO 决定). SDK 的替代品是 `npm/acde-api/` 的 `@dopame/acde-api`, 只有类型声明
-(见 `docs/acde-api.md`); acde-dom、acde-host 不搬. 契约级别只有一个来源: `npm/acde-api/api-level` (只写一个数字的纯数据文件, 用户 2026-11-17 定), 运行时编译时
+(见 `docs/acde-api.md`). 契约级别只有一个来源: `npm/acde-api/api-level` (只写一个数字的纯数据文件, 用户 2026-11-17 定), 运行时编译时
 `include_str!` 读它, 命令行 `npm/src/manifest/level.ts` 也读它; 清单校验和 Vite 插件在 `npm/src/manifest/`、`npm/src/vite-plugin.ts`.
-运行时要的页面资源 (broker.js、web.js) 仍没有来源, 发不了新版本. 文档里其余指向 `web/` 的地方按删除前写.
+网页接口层 (原 acde-dom) 和页面胶水 (原 acde-host 的页面一侧) 已取回到 `acdert/js/`, 作运行时内部组件嵌进二进制 (见 `docs/runtime/layout.md`「js」);
+管理中枢 (broker.js) 没有取回. 文档里其余指向 `web/` 的地方按删除前写.
 
 ## 代码约定
 
@@ -93,7 +94,8 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 | 改默认应用、文件类型判断、打开方式或 Windows 的文件关联 | `docs/web/default-apps.md` |
 | 改 `acde:inspect` 的语义树、ref 和操作, 或原生窗口的 AT-SPI | `docs/web/inspect.md` |
 | 改 `acdert/src/render` 的接口、canvas 2D、窗框绘制、模糊、GPU 设备或性能预算 | `docs/graphics/render-gpu.md` |
-| 改 WebGL (`acdert/src/webgl`、acde-dom `webgl/`) 或 GLSL 前端 | `docs/graphics/webgl.md` |
+| 改 WebGL (`acdert/src/webgl`、`acdert/js/dom/src/webgl/`) 或 GLSL 前端 | `docs/graphics/webgl.md` |
+| 改运行时自带的 JS (`acdert/js/`: 网页接口层、页面胶水) 或它的打包 | `docs/runtime/layout.md`「js」 |
 | 改 `acdert/vendor/blitz`, 或升 stylo / parley / html5ever / naga 这类钉住版本的依赖 | `docs/graphics/vendor.md` |
 | 构建运行时、在 Windows 上编、升 v8 或改依赖镜像、设环境变量、跑 `acdert` 的命令和 doctor、看日志和 `perf::` 计时 | `docs/dev/build-run.md` |
 | 改 acdev dev 的 IPC、调试请求 (eval / shot / route / clock / input …)、dev 日志或热重载 (运行时一侧) | `docs/dev/dev-ipc.md` |
