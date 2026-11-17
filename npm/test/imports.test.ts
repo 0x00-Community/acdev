@@ -112,17 +112,16 @@ describe('a third-party app, with Bun and with Vite', () => {
     await passes(app({ fs: true }, "import { fs } from 'acde:fs'\nconsole.log(fs)\n"))
   })
 
-  test('a static import of an optional capability fails and says to load() it', async () => {
+  test('a static import of an optional capability fails and says to import it dynamically', async () => {
     const dir = app({ fs: true, terminal: true }, "import 'acde:fs'\nimport { terminal } from 'acde:terminal'\n", {
       optional: ['terminal'],
     })
     await fails(dir, `src/main.ts:2: app "notes": acde:terminal is optional ("terminal" is in optional): ` +
-      `reach it with load('terminal') from @dopame/acde-api instead of importing it`)
+      `import it dynamically, await import('acde:terminal'), which rejects where this platform lacks it`)
   })
 
-  test('load() of an optional capability passes', async () => {
-    const main = "import { load } from '@dopame/acde-api'\n" +
-      "const terminal = await load('terminal')\nconsole.log(terminal)\n"
+  test('a dynamic import of an optional capability passes', async () => {
+    const main = "const terminal = await import('acde:terminal').catch(() => null)\nconsole.log(terminal)\n"
     await passes(app({ terminal: true }, main, { optional: ['terminal'] }))
   })
 

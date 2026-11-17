@@ -63,7 +63,7 @@ export class Imports {
       const required = { ...app, capabilities: Imports.#without(app) }
       for (const file of Imports.#reach(entries, read, root)) {
         const at = relative(dir, file).split(sep).join('/')
-        for (const { spec, line } of read(file).filter((found) => found.spec.startsWith('acde:'))) {
+        for (const { spec, line, dynamic } of read(file).filter((found) => found.spec.startsWith('acde:'))) {
           const name = spec.slice('acde:'.length)
           const where = `${at}:${line}: app ${JSON.stringify(app.id)}`
           const rule = Manifest.importRule(name, app, { system })
@@ -73,9 +73,9 @@ export class Imports {
           }
           if (rule.unverified) notes.add(`${where}: ${rule.unverified}`)
           const strict = Manifest.importRule(name, required, { system })
-          if (!strict.allowed && strict.missing) {
+          if (!strict.allowed && strict.missing && !dynamic) {
             errors.add(`${where}: acde:${name} is optional (${JSON.stringify(strict.missing)} is in optional): ` +
-              `reach it with load('${name}') from @dopame/acde-api instead of importing it`)
+              `import it dynamically, await import('acde:${name}'), which rejects where this platform lacks it`)
           }
         }
       }

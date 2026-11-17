@@ -63,9 +63,7 @@ On Node.js, acde bundles with the project's own Vite (which is why the built-in 
 
 The project's dev dependencies include `@dopame/acde-api`, the SDK version this acde was built with, as a tarball from `https://pkgs.dopame.ai/acde/<version>/` (so the project installs on any machine and in CI; the SDK is not on npm). `acde new` installs it. After upgrading acde, `acde check` and `acde dev` say when the project's SDK is older; `acde sdk update` brings it to the version this acde pairs with. It provides:
 
-- TypeScript types for all `acde:` modules and the manifest
-- `load()`: load an `acde:` module optionally
-- The Vite plugin `@dopame/acde-api/vite`
+- TypeScript types for all `acde:` modules and the manifest (declarations only: the SDK has no JavaScript)
 
 To reference the types in a JS file:
 

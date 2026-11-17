@@ -26,7 +26,7 @@ acdert has its own renderer and is not Chromium. Standard APIs follow the spec, 
 - **System access goes through `acde:` modules only** (`import { fs } from 'acde:fs'`), and only for capabilities the config requests. There is no global object. Importing a module that was not requested fails. See [Capabilities](references/guide/capabilities.md).
 - **The backend has no TCP port.** A backend's `listen(port)` becomes a unix socket, and the page reaches it with a same-origin `fetch('/api/…')`. Do not `curl localhost`. See [Backend](references/guide/backend.md).
 - **Developer tools.** In 0.0.9 there are none: use the commands below to look at pages; after 0.0.9, F12 in an `acde dev` window or `acde devtools` opens the DevTools of Chrome or Edge on the page, over the Chrome DevTools Protocol. See [acde dev](references/guide/dev.md#devtools).
-- **Platforms differ.** An app that requires a capability the platform lacks does not start there; one that lists it as optional gets `null` from `load()`. See [Platform support](references/reference/platforms.md).
+- **Platforms differ.** An app that requires a capability the platform lacks does not start there; one that lists it as optional finds that `import('acde:<name>')` rejects. See [Platform support](references/reference/platforms.md).
 
 ## The working loop
 

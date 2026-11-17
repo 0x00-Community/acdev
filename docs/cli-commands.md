@@ -56,10 +56,11 @@ stderr 输出 (`src/output.ts` `Output`, acde#83): `cli.ts` 一开始 `Output.in
 有错误时退出 1, 没有时打 `ok: <平台> (<模式>…): every required capability is there`.
 
 **`acde:` 导入** (`src/imports.ts`, `AppPackage.imports`): `acde check` 和 `acde build` (构建前, Bun 和 Vite 一样) 对每个应用找它入口可达的
-源码里对 `acde:` 的导入 (静态 `import` / `export … from`、字面量的动态 `import()`; `import type` 和注释不算), 交给 SDK 的
-`Manifest.importRule(名字, 应用清单, {system})` 判: 不许时报 `<文件>:<行>: app "<id>": <SDK 的原因>` (原因里有缺的声明). 许了的再用去掉
-`optional` 那些能力的清单判一次, 不许说明它只能经可选能力拿到, 报 `acde:<名字> is optional (…): reach it with load('<名字>') …`
-(可选能力只经 `@dopame/acde-api` 的 `load()`, 它不是字面量导入, 不查). 规则只来自 SDK, CLI 不存一份.
+源码里对 `acde:` 的导入 (静态 `import` / `export … from`、字面量的动态 `import()`; `import type` 和注释不算), 交给
+`Manifest.importRule(名字, 应用清单, {system})` (`src/manifest/`, 原 SDK 的 `validate.ts`) 判: 不许时报 `<文件>:<行>: app "<id>": <原因>`
+(原因里有缺的声明). 许了的再用去掉 `optional` 那些能力的清单判一次, 不许说明它只能经可选能力拿到: 静态导入报
+`acde:<名字> is optional (…): import it dynamically, await import('acde:<名字>') …`, 动态 `import()` 放行 (平台没有时它 reject;
+SDK 原来的 `load()` 随 2026-11-17 改成只有声明而去掉, 动态导入是它的替代).
 - 谁的源码: 工程的应用从 `entry` (默认 `index.html`) 起; 框架应用 (没有单一入口) 是工程里除 `SKIPPED` 目录、e2e 文件、`.d.ts` 外的全部源码;
   桌面工程是 `apps` 各自的 `entry`, 都是系统应用 (`system: true`); 手写的包按 `assets` 把应用的 `entry` URL 换成文件, 有 `desktops` 的包是系统应用.
   桌面页 (`app` 为 null, 什么都许) 和桌面服务 (经 `ctx.import`, 按桌面清单的 `services` 授权) 不查;

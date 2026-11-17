@@ -77,13 +77,11 @@ Everything in `capabilities` is required by default: if the platform lacks one, 
 ```
 
 - The app also starts on a platform that lacks the capability.
-- An optional module must not be imported statically (`acde check`: `acde:terminal is optional ("terminal" is in optional): reach it with load('terminal') from @dopame/acde-api instead of importing it`). Get it with `load()`, which resolves to `null` while the module is unavailable.
+- An optional module must not be imported statically (`acde check`: `acde:terminal is optional ("terminal" is in optional): import it dynamically, await import('acde:terminal'), which rejects where this platform lacks it`). Import it dynamically; the promise rejects while the module is unavailable.
 - `camera` and `microphone` have no module to load: the page calls `navigator.mediaDevices.getUserMedia()`, which asks the user the first time. See [Web compatibility](../reference/web.md#media).
 
 ```js
-import { load } from '@dopame/acde-api'
-
-const terminal = await load('terminal') // null where this platform lacks it
+const terminal = await import('acde:terminal').then((m) => m.default, () => null) // null where this platform lacks it
 ```
 
 Making `fs` optional makes its shared places optional too.
@@ -132,13 +130,10 @@ Types for every module ship in the SDK, `@dopame/acde-api`. Reference the entry 
 
 To preview the same code in an ordinary browser:
 
-- In a Vite project, add the `@dopame/acde-api/vite` plugin; the dev server then stubs `acde:*`. See [Frameworks](frameworks.md#vite-plugin).
-- Or load modules on demand with `load()`, which returns `null` when the module is unavailable:
+- Import `acde:` modules dynamically and fall back when the import rejects (a browser has no `acde:` modules):
 
 ```js
-import { load } from '@dopame/acde-api'
-
-const fs = await load('fs')
+const fs = await import('acde:fs').then((m) => m.default, () => null)
 ```
 
 ## Modules

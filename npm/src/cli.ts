@@ -383,8 +383,8 @@ class Cli {
     for (const note of target.notes) console.error(`${err.dim('note:')} ${note}`)
     for (const error of target.errors) console.error(`${err.error('error:')} ${error}`)
     if (target.errors.length > 0) {
-      console.error(`hint: to run on ${platform} without it, list the capability in "optional" and import it with `
-        + `load('<name>') from @dopame/acde-api`)
+      console.error(`hint: to run on ${platform} without it, list the capability in "optional" and import it `
+        + `dynamically: await import('acde:<name>') rejects where the platform lacks it`)
     }
     const modes = `${platform} (${target.modes.join(', ')})`
     if (target.errors.length === 0) console.log(`${out.ok('ok:')} ${modes}: every required capability is there`)

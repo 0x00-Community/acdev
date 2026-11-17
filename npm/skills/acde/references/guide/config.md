@@ -25,7 +25,7 @@ A project's config lives in `acde.config.jsonc` at its root (`acde.config.json` 
 | `entry` | Entry point: an HTML page (default `index.html`), or a module whose default export is a `WindowApp`. Omit it when building with a framework |
 | `framework` | How to build; defaults to `auto`. See [Frameworks](frameworks.md) |
 | `capabilities` | System capabilities the app requests, such as `{ "fs": true }`; see [Capabilities](capabilities.md). Declaring one grants it; the camera and the microphone also ask the user (see [Camera and microphone](capabilities.md#camera-and-microphone)) |
-| `optional` | Names from `capabilities` that the app can run without; the app starts where this platform lacks them, and reaches them with `load()`. See [Optional capabilities](capabilities.md#optional-capabilities) |
+| `optional` | Names from `capabilities` that the app can run without; the app starts where this platform lacks them, and reaches them with a dynamic `import('acde:<name>')`. See [Optional capabilities](capabilities.md#optional-capabilities) |
 | `services` | Names of the [desktop services](services.md) the app uses, e.g. `["clock"]`. The app starts only where they run |
 | `size` | Default size of the window's content area, `[width, height]` in logical pixels; defaults to `[800, 600]`. The title bar is not included. A desktop opens the window at this size; a single app run by `acde dev` fills the host window, which opens at this size (see [Windows](window.md#size-and-title-bar)) |
 | `frame` | Whether the window has a system title bar; defaults to `true` |

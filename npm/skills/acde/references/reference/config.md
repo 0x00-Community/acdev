@@ -27,7 +27,7 @@ type AcdeConfig = AppConfig | DesktopConfig
 | `entry` | string | `"index.html"` | HTML, or a module whose default export is a `WindowApp`; omit when using a framework |
 | `framework` | `Framework` | `"auto"` | See below |
 | `capabilities` | `Capabilities` | `{}` | System capabilities; see [Manifest](manifest.md#capabilities). A desktop service's name here is an error |
-| `optional` | string[] | `[]` | Names that are also in `capabilities`: the app runs without them and reaches them with `load()` |
+| `optional` | string[] | `[]` | Names that are also in `capabilities`: the app runs without them and reaches them with a dynamic `import('acde:<name>')` |
 | `services` | string[] | `[]` | Desktop services the app uses, imported as `acde:<name>`; not the name of a system module |
 | `size` | `[number, number]` | `[800, 600]` | Content area in logical pixels, positive integers. When `acde dev` runs the app alone, the size the host window opens at (the app fills it); not applied with `--headless` |
 | `frame` | boolean | `true` | System title bar |

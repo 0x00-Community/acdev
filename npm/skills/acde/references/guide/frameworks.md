@@ -47,28 +47,13 @@ On Bun it uses `Bun.build`; on Node.js it uses the project's Vite (if it's missi
 
 ## Vite plugin
 
-If you `import { fs } from 'acde:fs'` in a Vite project, the dev server (`vite dev`, in a regular browser) doesn't know about `acde:` modules. Add the SDK's plugin:
-
-```js
-// vite.config.js
-import acde from '@dopame/acde-api/vite'
-
-export default {
-  plugins: [acde()],
-}
-```
-
-At build time, `acde:*` imports stay external. In the dev server they're replaced with a stub: calls reject with `only there when the app runs in acde`, and `on()` returns a no-op unsubscribe function. That way the same code still opens in a browser.
-
-acde adds this plugin automatically when it builds a project with Vite.
+When acde builds a project with Vite it adds its own plugin: `acde:*` imports stay external. The plugin comes with acde, not with the SDK, so a project's own `vite.config` cannot import it; a plain `vite dev` in a regular browser doesn't know `acde:` modules (see below).
 
 ## acde: modules
 
-If the same code needs to run both in a browser and in acde, use `load()`. It returns `null` when the module isn't available:
+If the same code needs to run both in a browser and in acde, import the module dynamically; the import rejects where the module isn't available:
 
 ```js
-import { load } from '@dopame/acde-api'
-
-const fs = await load('fs')
+const fs = await import('acde:fs').then((m) => m.default, () => null)
 if (fs) console.log(await fs.roots())
 ```

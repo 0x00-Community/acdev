@@ -15,7 +15,7 @@
   // (desktop, documents, downloads, music, pictures, videos).
   "capabilities": {},
   // optional: capabilities the app can run without; they are not imported statically but taken with
-  // load('<name>') from @dopame/acde-api.
+  // await import('acde:<name>'), which rejects where the platform lacks them.
   "optional": [],
   // services: desktop services the app uses (import 'acde:<name>'); not the name of a system module.
   "services": [],
