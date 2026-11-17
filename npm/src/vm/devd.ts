@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { connect } from 'node:net'
 import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
 
@@ -85,9 +85,18 @@ export class SocketTransport implements Transport {
   open(): Connection {
     const socket = connect(this.address)
     socket.setNoDelay(true)
+    let failed: Error | null = null
+    socket.on('error', (error) => {
+      failed ??= error
+    })
     const decoder = new Frames()
     const frames = (async function* () {
-      for await (const chunk of socket) yield* decoder.push(chunk as Buffer)
+      try {
+        for await (const chunk of socket) yield* decoder.push(chunk as Buffer)
+      } catch (error) {
+        throw failed ?? error
+      }
+      if (failed) throw failed
     })()
     return {
       write: (data: Buffer) => void socket.write(data),
@@ -253,7 +262,7 @@ export class Devd {
         } else if (frame.kind === Kind.DATA && open) writeSync(open.fd, frame.body)
         else if (frame.kind === Kind.END && open) {
           closeSync(open.fd)
-          chmodSync(open.part, open.mode & 0o7777)
+          chmodSync(open.part, open.mode & 0o777)
           renameSync(open.part, open.target)
           open = null
         } else if (frame.kind === Kind.OK) return frame.body.readUInt32LE(0)
@@ -261,7 +270,10 @@ export class Devd {
       }
       return fail(undefined, 'pull')
     } finally {
-      if (open) closeSync(open.fd)
+      if (open) {
+        closeSync(open.fd)
+        rmSync(open.part, { force: true })
+      }
       conn.close()
     }
   }

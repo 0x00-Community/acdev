@@ -185,6 +185,23 @@ describe('the acdevd protocol, host side', () => {
     expect(existsSync(join(dir, 'evil'))).toBe(false)
   })
 
+  test('pull keeps only the permission bits, and an error midway leaves no half file', async () => {
+    const dir = tmp()
+    const header = (mode: number, name: string) => Buffer.concat([u32(mode), Buffer.from(name)])
+    const setuid = new Scripted(() => [frame(Kind.PUSH, header(0o4755, '')), frame(Kind.END), frame(Kind.OK, u32(1))])
+    expect(await new Devd(setuid).pull('/usr/bin/su', join(dir, 'su'))).toBe(1)
+    expect(statSync(join(dir, 'su')).mode & 0o7777).toBe(0o755)
+    const broken = new Scripted(() => [frame(Kind.PUSH, header(0o644, '')), frame(Kind.DATA, Buffer.from('half')),
+      frame(Kind.ERROR, Buffer.from('read failed'))])
+    await expect(new Devd(broken).pull('/var/big', join(dir, 'big'))).rejects.toThrow('acdevd: read failed')
+    expect([existsSync(join(dir, 'big')), existsSync(join(dir, 'big.acdev-part'))]).toEqual([false, false])
+  })
+
+  test('a socket that does not connect gives an error, not a crash', async () => {
+    const devd = new Devd(new SocketTransport({ path: join(tmp(), 'nobody.sock') }), Buffer.from('k'))
+    await expect(devd.version()).rejects.toThrow(/ENOENT|ECONNREFUSED|no such/i)
+  })
+
   test('with a key every connection starts with it', async () => {
     const transport = new Scripted((sent) => (sent.length < 2 ? [] : [frame(Kind.OK, Buffer.from('0.3.0'))]))
     expect(await new Devd(transport, Buffer.from('k3y')).version()).toBe('0.3.0')

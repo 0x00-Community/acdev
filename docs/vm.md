@@ -40,7 +40,7 @@ acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
 acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个进程组的输出, 只留含 error 的行
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
-acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (权限位照旧); LOCAL 是已有目录时放进 LOCAL/<名字>
+acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (只留读写执行位); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
 acdev vm console                                # 客户机内核日志从下次启动起进串口
