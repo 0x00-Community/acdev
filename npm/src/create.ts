@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts'
 import { spawnSync } from 'node:child_process'
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
+  copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installed, runtimes, which } from 'acde/launcher'
@@ -37,6 +37,7 @@ export interface Created {
 export class Creator {
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly TEMPLATES = join(Creator.ROOT, 'templates')
+  static readonly SCHEMA = 'acde.config.schema.json'
   static readonly INSTALLED = installed(Creator.ROOT)
   static readonly VITE = '^8'
 
@@ -233,6 +234,7 @@ export class Creator {
 
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
     for (const layer of [kind, ...layers]) Creator.#copy(join(Creator.TEMPLATES, layer), dir, { id, label })
+    Creator.#schema(dir)
     Creator.#wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm === 'bun' ? {} : { vite: Creator.VITE })
   }
 
@@ -245,6 +247,7 @@ export class Creator {
   static adopt(dir: string, id: string, label: string, framework: string): void {
     if (!existsSync(join(dir, 'package.json'))) throw new Error(`${framework} made no package.json in ${dir}`)
     Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
+    Creator.#schema(dir)
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
     Creator.#title(dir, label)
     Creator.#reloads(dir)
@@ -368,6 +371,10 @@ export class Creator {
     }
     json.devDependencies = { ...json.devDependencies, [Sdk.NAME]: Sdk.url(), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
+  }
+
+  static #schema(dir: string): void {
+    copyFileSync(join(Creator.TEMPLATES, 'config.schema.json'), join(dir, Creator.SCHEMA))
   }
 
   static #copy(

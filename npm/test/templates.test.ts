@@ -51,7 +51,7 @@ describe('templates at contract level 1', () => {
 
   test('the desktop template says what its config can give a service: the fields of the schema', () => {
     type Form = { type: string; properties?: Record<string, unknown>; required?: string[] }
-    const schema = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@dopame/acde-api/config.schema.json'), 'utf8')) as
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, '../templates/config.schema.json'), 'utf8')) as
       { oneOf: { properties: { type: { const?: string }; services?: { additionalProperties?: { oneOf?: Form[] } } } }[] }
     const desktop = schema.oneOf.find((one) => one.properties.type.const === 'desktop')!
     const forms = desktop.properties.services!.additionalProperties!.oneOf!

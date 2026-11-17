@@ -1,5 +1,5 @@
 {
-  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  "$schema": "./acde.config.schema.json",
   // A desktop: one full-screen web page behind all windows. System features come from acde:* modules, both the app and
   // the shell modules. For editor types write /// <reference types="@dopame/acde-api/shell" />.
   "type": "desktop",

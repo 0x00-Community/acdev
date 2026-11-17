@@ -38,7 +38,7 @@
 | `src/frame.ts` (`FrameThemes`) | 窗框主题的颜色、样式解析成传给原生的格式 | 没有 (运行时一侧的逻辑) |
 | `src/index.js` | 上面那些值的再导出 | 没有 |
 | `scripts/build.mjs` | esbuild 打 `dist/` 并检查产物 | 没有 |
-| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (模板的 `$schema` 指向它); 不是 `.d.ts`, 没搬 | 没有 |
+| `config.schema.json` | `acde.config.jsonc` 的 JSON Schema (编辑器补全) | `npm/templates/config.schema.json`, `acde new` 拷进工程成 `acde.config.schema.json`, 模板的 `$schema` 指向它 |
 | `test/` | 上面逻辑的测试 | 没有 |
 
 `acde-dom` (DOM, 改用 blitz, 属系统侧) 和 `acde-host` (窗口表与策略归 winman; 应用登记、权限、服务宿主、应用互相打开归 acdebin-system)

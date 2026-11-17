@@ -12,7 +12,7 @@ acde dev
 
 ```jsonc
 {
-  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  "$schema": "./acde.config.schema.json",
   "type": "desktop",
   "id": "my-desktop",
   "label": "My Desktop",

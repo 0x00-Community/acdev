@@ -45,6 +45,8 @@
   `… was undone: package.json and <锁文件> are as before`. 收到信号时先停包管理器 (SIGINT 发 SIGTERM, SIGTERM / SIGHUP 原样转; Windows 上
   Ctrl+C 本来就到它, 不转), 等它退出再写回 (不然它还会写锁文件), 第二个信号 SIGKILL; 被打断退出码 3 (`Exit.DECLINED`), 别的失败 1.
   `node_modules` 不回滚; 安装真跑过时才提示重跑安装.
+- 配置的 JSON Schema (`templates/config.schema.json`, 原 SDK 的 `config.schema.json`, 用户 2026-11-17 定随模板走): `lay` 和 `adopt` 把它拷进工程,
+  名为 `acde.config.schema.json`, 模板配置的 `$schema` 指向它. 升级 acde 后工程里的这份不会自己更新. 说明文字是英文 (同下「模板的注释」).
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到

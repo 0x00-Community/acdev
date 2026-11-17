@@ -4,7 +4,7 @@ A project's config lives in `acde.config.jsonc` at its root (`acde.config.json` 
 
 ```jsonc
 {
-  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  "$schema": "./acde.config.schema.json",
   "type": "app",
   "id": "notes",
   "label": "Notes",
