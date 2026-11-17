@@ -140,6 +140,11 @@ QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有
   (当时经 `scripts/vm.sh` 的前身). 2026-11-17 又经 acdevd 验证: `push` 进 winman 和测试客户端, `run --detach` 跑起来 (日志里有 virtio_gpu
   和输入设备, 截图有测试窗口), `kill` 后进程都退出.
 
+## 已知问题
+
+- QEMU 8.2.2: 对 virtio 键盘执行 QMP `input-send-event` 时带上 `device` 参数, QEMU 会异常退出 (abort) (2026-11-18 winman-test 验收热插拔时
+  发现). 不带 `device` 时发给默认的输入设备.
+
 ## 还没有
 
 - 只有 x86_64 和 Linux 宿主. aarch64 客户机 (os 仓只写好、没构建过)、WHPX、Hypervisor.framework 在下一个里程碑.
