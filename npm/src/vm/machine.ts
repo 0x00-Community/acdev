@@ -45,6 +45,7 @@ export class Machine {
   readonly env: NodeJS.ProcessEnv
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..', '..'))
   static readonly DEVD = '/usr/local/bin/acdevd'
+  static readonly HOTPLUG = ['rp1', 'rp2'] as const
   static readonly UNIT = '/etc/systemd/system/acdevd.service'
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
@@ -256,6 +257,7 @@ export class Machine {
       ...(link.kind === 'vsock' ? ['-device', `vhost-vsock-pci,guest-cid=${this.cid()}`] : []),
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
       '-pidfile', join(this.run, 'qemu.pid'),
+      ...Machine.HOTPLUG.flatMap((port, i) => ['-device', `pcie-root-port,id=${port},bus=pcie.0,chassis=${11 + i},slot=${11 + i}`]),
       ...gpu, ...shown, ...share,
     ]
   }

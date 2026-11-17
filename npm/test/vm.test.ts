@@ -311,6 +311,13 @@ describe('the QEMU command line', () => {
     expect(() => crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: '/no/such/viewer' })).toThrow('ACDEV_VIEWER=/no/such/viewer: no such file')
   })
 
+  test('two PCIe root ports, rp1 and rp2, take hot-plugged devices', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    const args = machine.args({}, true).join(' ')
+    expect(args).toContain('-device pcie-root-port,id=rp1,bus=pcie.0,chassis=11,slot=11')
+    expect(args).toContain('-device pcie-root-port,id=rp2,bus=pcie.0,chassis=12,slot=12')
+  })
+
   test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
     const unix = machine.args({}, true, { kind: 'unix', path: '/r/devd.sock' }).join(' ')
