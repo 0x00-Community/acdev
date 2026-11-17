@@ -35,7 +35,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {
-    say('the guest is ready')
+    say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over vsock (cid ${machine.cid()})`)
     return 0
   }
   say(`the guest agent did not answer in ${wait} s; the guest still runs (acdev vm wait, acdev vm stop)`)
@@ -53,6 +53,8 @@ async function status(machine: Machine, rest: readonly string[]): Promise<number
     return 0
   }
   console.log(`guest: running (pid ${pid}), ${(await machine.ready(0)) ? 'ready' : 'not ready yet'}`)
+  const devd = await machine.devd().version().catch((error: Error) => `not answering (${error.message})`)
+  console.log(`acdevd (vsock cid ${machine.cid()}): ${devd}`)
   console.log(`serial log: ${machine.serial}`)
   return 0
 }
@@ -83,12 +85,29 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     console.log(await machine.screenshot(rest[0]!))
     return 0
   },
-  async run(machine, rest) {
+  async run(machine, rest, flags) {
     count('run', rest, 1, Infinity, 'a command')
-    const done = await machine.exec(rest.join(' '))
-    process.stdout.write(done.stdout)
-    process.stderr.write(done.stderr)
-    return done.code
+    machine.running()
+    const argv = ['/bin/sh', '-c', rest.join(' ')]
+    if (flags.has('detach')) {
+      const { pid, log } = await machine.devd().detach(argv)
+      console.log(pid)
+      say(`running in the background as process group ${pid}; its output goes to guest:${log} (acdev vm kill ${pid})`)
+      return 0
+    }
+    return machine.devd().run(argv, {
+      stdout: (chunk) => process.stdout.write(chunk),
+      stderr: (chunk) => process.stderr.write(chunk),
+    })
+  },
+  async kill(machine, rest, flags) {
+    count('kill', rest, 1, 1, 'PID')
+    machine.running()
+    const pid = Number(rest[0])
+    if (!Number.isInteger(pid) || pid <= 0) throw new Error(`vm kill: ${rest[0]} is not a process id`)
+    await machine.devd().kill(pid, flags.has('force'))
+    say(`stopped process group ${pid}`)
+    return 0
   },
   async push(machine, rest) {
     count('push', rest, 1, 2, 'LOCAL [REMOTE]')

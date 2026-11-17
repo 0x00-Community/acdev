@@ -10,6 +10,7 @@ import { Readable } from 'node:stream'
 import { which } from 'acdev/launcher'
 import { Runtime } from '../runtime.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
+import { Devd, RelayTransport } from './devd.ts'
 
 export interface StartOptions {
   readonly image?: string
@@ -32,6 +33,9 @@ export class Machine {
   ]
   readonly dir: string
   readonly env: NodeJS.ProcessEnv
+  static readonly ROOT = realpathSync(join(import.meta.dirname, '..', '..'))
+  static readonly DEVD = '/usr/local/bin/acdevd'
+  static readonly UNIT = '/etc/systemd/system/acdevd.service'
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.env = env
@@ -137,6 +141,15 @@ export class Machine {
     return realpathSync(path)
   }
 
+  cid(): number {
+    const digest = createHash('sha256').update(this.dir).digest()
+    return 3 + (digest.readUInt32LE(0) % 0xffff0)
+  }
+
+  devd(): Devd {
+    return new Devd(new RelayTransport(Devd.binary(Machine.ROOT, this.env), this.cid()))
+  }
+
   static kvm(): boolean {
     try {
       openSync('/dev/kvm', 'r+')
@@ -180,6 +193,7 @@ export class Machine {
       '-chardev', `socket,path=${this.qga},server=on,wait=off,id=qga0`,
       '-device', 'virtio-serial', '-device', 'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0',
       '-qmp', `unix:${this.qmp},server=on,wait=off`,
+      '-device', `vhost-vsock-pci,guest-cid=${this.cid()}`,
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
       '-pidfile', join(this.run, 'qemu.pid'),
       ...gpu, ...shown, ...share,
@@ -258,23 +272,39 @@ export class Machine {
     const from = resolve(local)
     if (!existsSync(from)) throw new Error(`vm: no ${local}`)
     const to = remote ?? posix.join('/opt/acdev', basename(from))
+    await this.devd().push(Devd.files(from, to))
+    return to
+  }
+
+  async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
+    const binary = Devd.binary(Machine.ROOT, this.env)
+    const data = readFileSync(binary)
+    const sum = createHash('sha256').update(data).digest('hex')
     const agent = await GuestAgent.open(this.qga)
     try {
-      if (statSync(from).isDirectory()) {
-        const tar = spawnSync('tar', ['-C', from, '-cf', '-', '.'], { maxBuffer: 2 ** 31 })
-        if (tar.status !== 0) throw new Error(`vm: tar ${from}: ${tar.stderr.toString().trim()}`)
-        await agent.write('/tmp/acdev-push.tar', tar.stdout)
-        await Machine.#check(agent, `mkdir -p '${to}' && tar -xf /tmp/acdev-push.tar -C '${to}' && rm -f /tmp/acdev-push.tar`)
+      const there = await agent.exec(`sha256sum ${Machine.DEVD} 2>/dev/null`, 30_000)
+      if (!there.stdout.toString().startsWith(sum)) {
+        say('installing acdevd in the guest')
+        await agent.write(`${Machine.DEVD}.new`, data)
+        await agent.write(Machine.UNIT, Buffer.from(UNIT))
+        await Machine.#check(agent, `chmod 755 ${Machine.DEVD}.new && mv ${Machine.DEVD}.new ${Machine.DEVD} && `
+          + 'systemctl daemon-reload && systemctl enable acdevd >/dev/null 2>&1 && systemctl restart acdevd')
       } else {
-        await Machine.#check(agent, `mkdir -p '${posix.dirname(to)}'`)
-        await agent.write(to, readFileSync(from))
-        const mode = statSync(from).mode & 0o111 ? '755' : '644'
-        await Machine.#check(agent, `chmod ${mode} '${to}'`)
+        await Machine.#check(agent, 'systemctl is-active -q acdevd || systemctl restart acdevd')
       }
     } finally {
       agent.close()
     }
-    return to
+    const devd = this.devd()
+    const deadline = Date.now() + seconds * 1000
+    for (;;) {
+      try {
+        return await devd.version()
+      } catch (error) {
+        if (Date.now() > deadline) throw new Error(`vm: acdevd does not answer over vsock: ${(error as Error).message}`)
+        await new Promise((done) => setTimeout(done, 1_000))
+      }
+    }
   }
 
   static async #check(agent: GuestAgent, command: string): Promise<void> {
@@ -307,3 +337,15 @@ export class Machine {
     return existsSync(latest) ? join(this.images, readlinkSync(latest)) : null
   }
 }
+
+const UNIT = `[Unit]
+Description=acdev device daemon (vsock)
+After=local-fs.target
+
+[Service]
+ExecStart=${Machine.DEVD} serve
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+`

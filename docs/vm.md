@@ -33,7 +33,7 @@ os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` �
 
 ```sh
 acdev vm fetch                                  # 下载并校验最新镜像
-acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 应答 (--wait 秒, 默认 300; 0 不等)
+acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 和 acdevd 应答 (--wait 秒, 默认 300; 0 不等)
 acdev vm start --headless --share ~/winman/target/release
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
@@ -51,8 +51,13 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 - guest agent 的套接字一次只接一个客户端: `GuestAgent.open` 先发 `guest-sync` 跳过前一个客户端留下的输出, 等不到就关掉连接, 不然后来的都连不上.
 - 串口里默认只有固件和 systemd-boot 的输出: 装好的系统是静默启动 (`quiet loglevel=3`, 没有 `console=ttyS0`). `console` 在客户机启动项命令行
   末尾加 `console=tty0 console=ttyS0,115200 loglevel=6` (写在覆盖盘里, 重复跑不叠加).
-- `run` 的输出在命令结束后一起打印 (`guest-exec`), 超时 600 s; 长时间运行的程序用 `setsid` 放后台, 输出写进文件再 `run cat` 去看.
-  02 的设备守护进程接上后, 推送、运行改走 vsock.
+- 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,
+  systemd 单元 `acdevd.service`, 开机自启), 等它在 vsock 上应答 (见 `docs/devd.md`). QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
+  `$ACDEV_VM_DIR` 的路径算出 (`Machine.cid()`, 3 起), 宿主要能读写 `/dev/vhost-vsock`. 宿主一侧的 acdevd 取 `ACDEV_DEVD`, 否则用检出里
+  `crates/devd/target/release/acdevd`, 没有就先 `cargo build --release` 编出来.
+- `run`、`push`、`kill` 走 vsock: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
+  `/var/log/acdevd/<进程组号>.log`; `kill PID` (`--force` 用 SIGKILL) 停掉整个进程组; 在宿主上按 Ctrl+C 断开时, 前台运行的程序被结束.
+  guest agent 只用来装 acdevd、`mount` 和 `console`.
 
 ## 把 winman 和测试客户端放进去跑
 
@@ -63,10 +68,13 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
 客户机里默认跑着 greetd 和 acdebin-system, 占着 DRM 和输入设备. 换成 winman 时先停掉它:
 
 ```sh
-acdev vm run 'systemctl stop greetd'
-acdev vm run 'setsid sh -c "/mnt/acdev/winman --card /dev/dri/card1 /mnt/acdev/winman-test-client > /var/log/winman.log 2>&1" < /dev/null > /dev/null 2>&1 &'
-acdev vm run 'cat /var/log/winman.log'
+acdev vm push target/release/winman /opt/acdev/winman
+acdev vm push target/release/winman-test-client /opt/acdev/winman-test-client
+acdev vm run -- 'systemctl stop greetd'
+pid=$(acdev vm run --detach -- '/opt/acdev/winman --card /dev/dri/card1 /opt/acdev/winman-test-client')
+acdev vm run -- "cat /var/log/acdevd/$pid.log"
 acdev vm screenshot winman.png
+acdev vm kill "$pid"
 ```
 
 guest agent 以 root 跑命令, 不在任何 logind 会话里, 对应 winman 调研 (总仓 `.scratch/winman/issues/04-session-start.md`) 的做法 A.
@@ -75,18 +83,20 @@ glibc 较新); 不放心就静态链接 (musl).
 
 ## 测试
 
-`test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); QEMU 命令行的组成;
-没有客户机时的子命令. 设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机
-(`start --headless` 等到就绪、`run` 的退出码、`push`、`screenshot`、`stop`), 约 20 s.
+`test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的
+宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列、错误); QEMU 命令行的组成 (含 vsock 设备); 没有客户机时的子命令.
+设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机 (`start --headless` 等到 acdevd
+应答、`run` 的输出与退出码、`push`、`--detach` 加 `kill` 和日志、`status`、`screenshot`、`stop`), 约 20 s. 守护进程自己的进程内测试在
+`crates/devd` (`cargo test`).
 
 ## 验证过的 (2026-11-17, Ubuntu 24.04 的 WSL2, QEMU 8.2.2, OVMF 4M)
 
 - `acdev vm start --headless --share` 用 KVM 约 20 s 就绪 (登录页截图 1280×800); `run`、`mount`、`push` (文件和目录)、`screenshot`、`stop` 都通.
 - winman (`--card /dev/dri/card1`, virtio_gpu) 和 `winman-test-client` 在客户机里跑起来, 认出 virtio 键盘和平板, 测试窗口画在屏幕中间
-  (当时经 `scripts/vm.sh` 的前身).
+  (当时经 `scripts/vm.sh` 的前身). 2026-11-17 又经 acdevd 验证: `push` 进 winman 和测试客户端, `run --detach` 跑起来 (日志里有 virtio_gpu
+  和输入设备, 截图有测试窗口), `kill` 后进程都退出.
 
 ## 还没有
 
 - 只有 x86_64 和 Linux 宿主. aarch64 客户机 (os 仓只写好、没构建过)、WHPX、Hypervisor.framework 在下一个里程碑.
-- vsock 上的设备守护进程 (02: 只用 std、和 acdebin-system 无关的独立程序, 以后并入 acdebin-system)、交互终端 (03)、日志 (04)、
-  构建推送运行一条龙 (05). 旧脚本的 `--kernel` / `--initrd` / `--append` (直接引导内核) 没有搬过来.
+- 交互终端 (03)、日志 (04)、构建推送运行一条龙 (05). 安装版的 acdev 还不带 acdevd (要 `ACDEV_DEVD` 或检出). 旧脚本的 `--kernel` / `--initrd` / `--append` (直接引导内核) 没有搬过来.

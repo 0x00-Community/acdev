@@ -317,8 +317,10 @@ export class Help {
         about: [
           'fetch downloads the newest Dopame OS x86_64 disk image. start boots it in the background under an overlay '
             + 'disk (the image stays as it is) and waits until the guest is ready; stop powers it off; status, wait. '
-            + 'screenshot FILE.png takes the guest screen. run COMMAND runs a command as root in the guest and '
-            + 'prints its output; push LOCAL [REMOTE] copies a file or directory in (default /opt/acdev/<name>); '
+            + 'screenshot FILE.png takes the guest screen. start also puts acdevd, the device daemon, in the guest; '
+            + 'over vsock, run COMMAND runs a command as root in the guest, streams its output and exits with its code '
+            + '(--detach: in the background, its output in a log; kill PID stops it); push LOCAL [REMOTE] copies a file '
+            + 'or directory in (default /opt/acdev/<name>); '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
@@ -332,6 +334,8 @@ export class Help {
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first' },
           { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },
           { flag: '--gl', about: 'start: virtio-vga-gl with an OpenGL window (virgl; not on the roadmap)' },
+          { flag: '--detach', about: 'run: in the background; prints its process group id' },
+          { flag: '--force', about: 'kill: SIGKILL instead of SIGTERM' },
         ],
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a',

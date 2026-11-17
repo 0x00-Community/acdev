@@ -34,3 +34,8 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 `cargo test` (在 `crates/devd`): 用一对 Unix 套接字代替 vsock, 在进程内测版本、推送 (内容与权限位)、前台运行 (分开的输出与退出码)、
 后台运行再停止 (日志)、宿主断开时结束程序.
+
+## 宿主一侧 (`npm/src/vm/devd.ts`)
+
+`Devd` 说上面的协议, 连接由 `Transport` 给: 实际用的 `RelayTransport` 起 `acdevd connect <cid> 5252`, 经它的标准输入输出读写.
+`acdev vm` 的 `run`、`push`、`kill` 和 `start` 末尾的就绪检查都经它; 装进客户机、找宿主二进制的做法见 `docs/vm.md`.
