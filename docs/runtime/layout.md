@@ -39,8 +39,9 @@
 入口 (`Entry::Broker`) 现在都从 `acde-runtime:/launcher.js` 起. 它只认 `app <id|目录> [--size WxH] [--scale N] [--seconds N]
 [--shot 文件] [--shot-after 毫秒]`: 目录取其 package.json 里第一个应用, id 在 `ACDE_PATH` 的各目录及其下一层找; 资源前缀按 `acde.assets`,
 没有 `/` 时 `/` 指包目录. 它向宿主窗口系统要一个占满宿主窗口的窗口, 拼好 `WebInit` (没有服务、最低权限等级、存储在
-`$ACDE_STORAGE` 或 `~/.local/share/acde/storage` 的 `app-<id>`), 经 `spawnWeb` 起页面; 页面经 rpc 来的调用里 `window.ready`、`window.setTitle`、`page.shown` 直接应答, 其余一律回
-`unsupported` (501). 它在启动方的 isolate 里先装好核心全局对象 (定时器、console 等, `installCore`). 窗口关闭、页面退出或 `--seconds` 到时退出, 退出码是页面的. `--shot` 在 `--shot-after` (默认 2000) 毫秒后存一张宿主窗口截图,
+`$ACDE_STORAGE` 或 `~/.local/share/acde/storage` 的 `app-<id>`), 经 `spawnWeb` 起页面; 页面经 rpc 来的调用里 `window.ready`、`window.setTitle`、`page.shown` 直接应答; `window.close` 和以自己窗口号调的
+`windows.close` 关掉窗口 (结束页面线程, 进程随之退出); 其余一律回 `unsupported` (501). 窗口系统发来的关窗请求
+(`windowcloserequest`, 如 xdg 的 close) 先问页面 `window.beforeclose` (最多等 3 秒, 页面答 `false` 就不关), 再同样关掉 (`js/launcher/src/calls.ts`). 它在启动方的 isolate 里先装好核心全局对象 (定时器、console 等, `installCore`). 宿主窗口关闭、页面退出或 `--seconds` 到时退出, 退出码是页面的. `--shot` 在 `--shot-after` (默认 2000) 毫秒后存一张宿主窗口截图,
 无头 (`ACDE_HEADLESS=1`) 也行; 首帧没画完时截到的是空屏 (WSL 的 Dozen 上调试版首帧要 5～6 秒, 验证时用 `--shot-after 15000`). 桌面、`desktops` / `sessions` / `applications` / `open`、调试通道 (`acdev dev` 的请求、DevTools) 都没有,
 所以 `acdev dev` 和 WPT 现在跑不了. 测试在 `js/launcher/test`.
 
