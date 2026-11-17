@@ -15,12 +15,13 @@ struct Stderr;
 
 impl log::Log for Stderr {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::max_level()
+        let ours = metadata.target().starts_with("acdev_viewer");
+        metadata.level() <= if ours { log::max_level() } else { log::LevelFilter::Warn }
     }
 
     fn log(&self, record: &log::Record<'_>) {
-        if self.enabled(record.metadata()) && record.target().starts_with("acdev_viewer") {
-            eprintln!("acdev-viewer: {}", record.args());
+        if self.enabled(record.metadata()) {
+            eprintln!("acdev-viewer: [{}] {}", record.target(), record.args());
         }
     }
 

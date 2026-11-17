@@ -39,10 +39,21 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 - 指针: `Mouse.SetAbsPosition` (按窗口到客户机的比例换算)、`Press` / `Release` (左 0、中 1、右 2、后退 5、前进 6), 滚轮是按下再松开
   3 (上) 或 4 (下).
 - 输入在一个单独的线程里发 (阻塞调用不卡窗口).
+- 客户机刚起来时鼠标还不是绝对坐标 (virtio 平板的驱动没载入), `SetAbsPosition` 回 `org.qemu.Display1.Error.Invalid: Mouse is not
+  absolute`; 驱动载入后就好. 指针移动的失败只记调试级, 其余输入的失败记警告.
 
 ## 日志
 
-诊断用 `log` 的宏, `main.rs` 里的小记录器写到标准错误 (`acdev-viewer: …`); `ACDEV_VIEWER_DEBUG=1` 时也写调试级 (比如没有键号的键).
+诊断用 `log` 的宏, `main.rs` 里的小记录器写到标准错误 (`acdev-viewer: [目标] …`): 自己的记录写信息级 (`ACDEV_VIEWER_DEBUG=1` 时也写
+调试级, 比如没有键号的键), 依赖库 (winit、softbuffer、zbus) 的写警告及以上, 窗口一侧出错时能看到原因.
+
+## 已知问题
+
+- `acdev vm view` 重开 (2026-11-18 acdev-test 在 WSLg 上): 第二个 viewer 马上退出, 日志是 `Io error: Connection reset by peer (os error
+  104)` 和 `Exit Failure: 1`; 关掉第一个窗口时也是这两行. `Exit Failure` 是 winit 事件循环的错误, `Io error` 不带我们的前缀, 所以断的是
+  窗口系统 (Wayland / X) 的连接, 不是 QEMU: 对照 QEMU 8.2.2 源码, 第二次 `add_client` 会取消没建完的上一个、在新连接上重新导出对象
+  (`ui/dbus.c` `dbus_display_add_client`), 点对点时 `RegisterListener` 的发送者为空, 不查重复注册 (`ui/dbus-console.c`), QMP `getfd`
+  同名时换掉旧的. 原因待查: 日志现在带上依赖库的警告; 对照试一次 `env -u WAYLAND_DISPLAY acdev vm view` (走 X11).
 
 ## 测试
 

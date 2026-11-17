@@ -143,8 +143,11 @@ pub fn connect(stream: UnixStream, frame: Arc<Mutex<Frame>>, events: EventLoopPr
     let (inputs, received) = mpsc::channel();
     thread::spawn(move || {
         for input in received {
-            if let Err(e) = forward(&keyboard, &mouse, input) {
-                log::warn!("input: {e}");
+            let pointer = matches!(input, Input::Move { .. });
+            match forward(&keyboard, &mouse, input) {
+                Err(e) if pointer => log::debug!("pointer: {e}"),
+                Err(e) => log::warn!("input: {e}"),
+                Ok(()) => {}
             }
         }
     });
