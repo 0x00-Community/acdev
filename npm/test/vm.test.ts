@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
-import { crateBinary } from '../src/vm/binary.ts'
+import { crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -316,6 +316,36 @@ describe('the QEMU command line', () => {
     const args = machine.args({}, true).join(' ')
     expect(args).toContain('-device pcie-root-port,id=rp1,bus=pcie.0,chassis=11,slot=11')
     expect(args).toContain('-device pcie-root-port,id=rp2,bus=pcie.0,chassis=12,slot=12')
+  })
+
+  test('acdevd: ACDEV_DEVD, then CARGO_TARGET_DIR, then logs/cargo-target/acdev-devd above, then the crate\'s target', () => {
+    const base = tmp()
+    const root = join(base, 'repo', 'npm')
+    const wanted = { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', shared: 'acdev-devd' }
+    const place = (dir: string) => {
+      mkdirSync(join(dir, 'release'), { recursive: true })
+      writeFileSync(join(dir, 'release', 'acdevd'), '')
+      return join(dir, 'release', 'acdevd')
+    }
+    const own = place(join(base, 'repo', 'crates', 'devd', 'target'))
+    expect(crateBinary(root, wanted, {})).toBe(own)
+    const shared = place(join(base, 'logs', 'cargo-target', 'acdev-devd'))
+    expect(crateBinary(root, wanted, {})).toBe(shared)
+    const configured = place(join(base, 'elsewhere'))
+    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere') })).toBe(configured)
+    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEV_DEVD: own })).toBe(own)
+  })
+
+  test('an acdevd of another version is refused before it goes into the guest', () => {
+    const dir = tmp()
+    const fake = (version: string) => {
+      const path = join(dir, `acdevd-${version}`)
+      writeFileSync(path, `#!/bin/sh\necho "acdevd ${version}"\n`, { mode: 0o755 })
+      return path
+    }
+    const want = crateVersion(Machine.ROOT, 'devd')!
+    expect(() => Devd.checkVersion(fake(want), Machine.ROOT)).not.toThrow()
+    expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`is acdevd 0.1.0, this acdev needs ${want}: rebuild it`)
   })
 
   test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {

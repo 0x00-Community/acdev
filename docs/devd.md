@@ -8,6 +8,10 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 - `acdevd serve [--port PORT]`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
   有密钥时 (见下面「传输与密钥」) 同时在 TCP `0.0.0.0:PORT` 上听; 两个都听不了才退出.
+- 宿主上找 acdevd 的顺序 (`npm/src/vm/binary.ts`): `ACDEV_DEVD`; `CARGO_TARGET_DIR` 下的 `release/acdevd`; 约定的共用产物目录
+  `logs/cargo-target/acdev-devd/release/acdevd` (从检出往上逐级找 `logs/`, 即总仓的 `logs/`; devd 是独立工作区, 不和根工作区共用产物目录);
+  `crates/devd/target/release/acdevd`; 都没有就 `cargo build --release`. 装进客户机之前先跑 `acdevd --version`, 和 `crates/devd/Cargo.toml`
+  的版本比, 对不上就报错 (哪个文件、什么版本、要什么版本、怎么重编), 不装旧的进去 (旧的会在第一帧报 `unknown request 'A'`).
 - `acdevd connect CID [PORT]`: 在宿主上把标准输入输出接到客户机 `CID` 的 acdevd. 宿主的 bun 和 Node.js 都开不了 vsock 套接字,
   所以 acdev 起这个子进程, 经它的标准输入输出说协议.
 - vsock 只用 libc 的 `socket` / `bind` / `listen` / `accept4` / `connect` (`AF_VSOCK` = 40, `sockaddr_vm`), 拿到的描述符包成

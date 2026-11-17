@@ -382,6 +382,7 @@ export class Machine {
 
   async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
     const binary = Devd.binary(Machine.ROOT, this.env)
+    Devd.checkVersion(binary, Machine.ROOT)
     const data = readFileSync(binary)
     const sum = createHash('sha256').update(data).digest('hex')
     const agent = await GuestAgent.open(this.qga)

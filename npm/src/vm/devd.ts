@@ -1,8 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { connect } from 'node:net'
 import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
-import { crateBinary } from './binary.ts'
+import { crateBinary, crateDir, crateVersion } from './binary.ts'
 
 export const PORT = 5252
 const MAX = 16 << 20
@@ -319,6 +319,17 @@ export class Devd {
   }
 
   static binary(root: string, env: NodeJS.ProcessEnv = process.env): string {
-    return crateBinary(root, { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD' }, env)
+    return crateBinary(root, { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', shared: 'acdev-devd' }, env)
+  }
+
+  static checkVersion(binary: string, root: string): void {
+    const want = crateVersion(root, 'devd')
+    if (want === null) return
+    const ran = spawnSync(binary, ['--version'], { encoding: 'utf8' })
+    const got = /^acdevd (\S+)/.exec(ran.stdout ?? '')?.[1] ?? `unknown (${(ran.stderr || ran.error?.message || 'no answer').trim()})`
+    if (got === want) return
+    const manifest = join(crateDir(root, 'devd'), 'Cargo.toml')
+    throw new Error(`vm: ${binary} is acdevd ${got}, this acdev needs ${want}: rebuild it with `
+      + `cargo build --release --manifest-path ${manifest} (CARGO_TARGET_DIR picks where it goes) or set ACDEV_DEVD to a current build`)
   }
 }
