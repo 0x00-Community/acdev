@@ -407,3 +407,27 @@ describe('failures name the test file, not acde', () => {
     expect(inside.stack).toContain('cli.js')
   })
 })
+
+describe('acdev test --vm needs no acde project on the host', () => {
+  test('a test file outside any project runs with --vm and is refused without it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'acde-vm-suites-'))
+    try {
+      mkdirSync(join(dir, 'e2e'))
+      writeFileSync(join(dir, 'e2e', '01-lock.e2e.ts'), '')
+      writeFileSync(join(dir, 'e2e', '02-files.e2e.ts'), '')
+      expect(() => TestRunner.suites(['e2e/01-lock.e2e.ts'], dir)).toThrow('no acde project (acde.config.jsonc) holds it')
+      expect(TestRunner.suites(['e2e/01-lock.e2e.ts'], dir, true)).toEqual([
+        { file: join(dir, 'e2e', '01-lock.e2e.ts'), project: join(dir, 'e2e') },
+      ])
+      expect(TestRunner.suites(['e2e'], dir, true).map((s) => [s.file, s.project])).toEqual([
+        [join(dir, 'e2e', '01-lock.e2e.ts'), join(dir, 'e2e')],
+        [join(dir, 'e2e', '02-files.e2e.ts'), join(dir, 'e2e')],
+      ])
+      writeFileSync(join(dir, 'acde.config.jsonc'), '{}')
+      expect(TestRunner.suites(['e2e/01-lock.e2e.ts'], dir, true)[0]!.project).toBe(dir)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+

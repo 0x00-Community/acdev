@@ -175,6 +175,8 @@
   从 logind 取 seat0 活动会话的用户和 HOME, 用 `chpasswd` 把密码设成 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`, 给锁屏页的用例),
   `faillock --user <用户> --reset`; 没有活动会话时报错. 一次只跑一个文件, 所有用例接同一个会话 (`Acde.attach({session: 'vm'})`),
   `home` 是那个用户的 HOME (`ACDEV_TEST_GUEST_HOME` 传给测试进程), acdev 不替用例清它; 用例开头自己清状态. 不能和 `--desktop`、`--headed` 同用.
+  测的是客户机里已经装好的东西, 宿主上不需要 acde 工程: 测试文件 (或目录) 不在任何 acde 工程里时, 工程按它自己所在的目录 (给的是目录时就是
+  那个目录) 算, 其余用默认值; 在工程里时照常用工程 (`TestRunner.suites` 的 `standalone`). 宿主模式仍要求工程.
   **汇总** (一行, acde#85, `TestRunner.summary`): `acdev test: N tests in M files: P passed, F failed[, S not run (skipped, todo, or not
   matched by -t)]`, 再按需接 `; failed: <文件>`、`; not counted: …`、`; <n> files skipped (no test matches -t)`、`; <n> files not run (--bail)`;
   M 是有报告的文件数; 一个文件都没有报告时开头是 `<n> files ran`. `acdev test:` 有失败时红, 否则绿. 测试数取自

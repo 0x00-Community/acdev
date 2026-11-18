@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acdev/launcher'
 import { Color, type Palette } from '../color.ts'
 import { E2E_FILE, SKIPPED } from '../paths.ts'
@@ -50,29 +50,28 @@ export class TestRunner {
   static readonly PATTERN = '**/*.e2e.{ts,tsx,js,mjs,mts}'
   static readonly UNCOUNTED = 'bun test left no report: the file did not load, or its run was killed'
 
-  static suites(targets: readonly string[], cwd: string): Suite[] {
-    const suites: Suite[] = []
-    for (const target of targets.length ? targets : ['.']) {
-      const path = resolve(cwd, target)
-      if (!existsSync(path)) throw new Error(`${target}: no such file or directory`)
-      if (statSync(path).isFile()) {
-        if (!E2E_FILE.test(path))
-          throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
-        const project = E2e.project(path)
-        if (!project) throw new Error(`${target}: no acde project (acde.config.jsonc) holds it`)
-        suites.push({ file: path, project })
-        continue
-      }
-      const project = E2e.project(path)
-      if (!project) throw new Error(`${target}: not an acde project (no acde.config.jsonc here or above)`)
-      const found = [...new Bun.Glob(TestRunner.PATTERN).scanSync({ cwd: path, onlyFiles: true, dot: false })]
-        .filter((file) => !file.split(/[\\/]/).some((part) => SKIPPED.has(part)))
-        .sort()
-        .map((file) => join(path, file))
-      for (const file of found) suites.push({ file, project: E2e.project(file) ?? project })
-    }
+  static suites(targets: readonly string[], cwd: string, standalone = false): Suite[] {
+    const suites = (targets.length ? targets : ['.']).flatMap((target) => TestRunner.#target(target, cwd, standalone))
     const seen = new Set<string>()
     return suites.filter((s) => !seen.has(s.file) && !!seen.add(s.file))
+  }
+
+  static #target(target: string, cwd: string, standalone: boolean): Suite[] {
+    const path = resolve(cwd, target)
+    if (!existsSync(path)) throw new Error(`${target}: no such file or directory`)
+    if (statSync(path).isFile()) {
+      if (!E2E_FILE.test(path)) throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
+      const project = E2e.project(path) ?? (standalone ? dirname(path) : null)
+      if (!project) throw new Error(`${target}: no acde project (acde.config.jsonc) holds it`)
+      return [{ file: path, project }]
+    }
+    const project = E2e.project(path) ?? (standalone ? path : null)
+    if (!project) throw new Error(`${target}: not an acde project (no acde.config.jsonc here or above)`)
+    return [...new Bun.Glob(TestRunner.PATTERN).scanSync({ cwd: path, onlyFiles: true, dot: false })]
+      .filter((file) => !file.split(/[\\/]/).some((part) => SKIPPED.has(part)))
+      .sort()
+      .map((file) => join(path, file))
+      .map((file) => ({ file, project: E2e.project(file) ?? project }))
   }
 
   static tally(report: string): Tally | null {
@@ -120,7 +119,7 @@ export class TestRunner {
     const display = options.headed ? Runtime.noDisplay() : null
     if (display) throw new Error(`${display}: run acdev test without --headed`)
     const cwd = options.cwd ?? process.cwd()
-    const suites = TestRunner.suites(options.targets, cwd)
+    const suites = TestRunner.suites(options.targets, cwd, options.vm === true)
     const where = (options.targets.length ? options.targets : ['.']).join(', ')
     if (!suites.length) {
       console.log(`acdev test: no e2e tests (${TestRunner.PATTERN}) in ${where} yet; nothing to run`)
