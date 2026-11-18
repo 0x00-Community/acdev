@@ -18,19 +18,31 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -eu {0}
+
 env:
+  RUSTUP_HOME: /opt/rust/rustup
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  GIT_TERMINAL_PROMPT: '0'
+  # results go to artifacts@.127:/srv/artifacts/acdev/test-<run>/ (rsync over ssh) and come back with nc + tar
+  TO: artifacts@192.168.10.127
+  PULL: 192.168.10.127 9127
   WPT_STATE: ${{ github.workspace }}/wpt-state
   LABEL: ci-${{ github.run_number }}
   ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdev
 
 jobs:
-  # the setup steps (anchored here, reused by the other jobs): runtime built, libacde beside it, WPT ready
+  # the setup steps (anchored here, reused by the other jobs; the toolchains are the runner's, scripts/runner-setup.sh): runtime built, libacde beside it, WPT ready
   gate:
     if: github.event.inputs.wpt == 'gate'
     runs-on: x86_64-debian
     timeout-minutes: 175
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - &checkout
+        uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
           persist-credentials: false
@@ -64,57 +76,16 @@ jobs:
             sleep 1
           done
           for pid in $left; do kill -KILL "$pid" 2>/dev/null || true; done
-      - &commit
-        name: acdev's commit
-        run: echo "acdev $(git -C acdev rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - &toolchain
-        name: this job's home, the runner's Rust (the job's TARGETS installed)
-        run: |
-          set -eu
-          export RUSTUP_HOME=/opt/rust/rustup
-          r=/opt/rust/cargo/bin
-          [ -x "$r/rustc" ] || { echo "::error::this runner has no Rust in /opt/rust (scripts/runner-rust.sh puts it there)"; exit 1; }
-          have=$("$r/rustup" target list --installed)
-          for t in $(echo "${TARGETS:-}" | tr ',' ' '); do
-            echo "$have" | grep -qx "$t" || { echo "::error::/opt/rust has no $t (scripts/runner-rust.sh)"; exit 1; }
-          done
-          h=$RUNNER_TEMP/home
-          mkdir -p "$h"
-          printf 'RUNNER_HOME=%s\nHOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' \
-            "$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
-          echo "$r" >> "$GITHUB_PATH"
-          "$r/rustc" -V
       - &libacde
         name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
-          REF: ''
-          GIT_TERMINAL_PROMPT: '0'
         run: |
-          set -eu
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
           rm -rf libacde
-          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
-          if [ -n "$REF" ] && [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
-            g -C libacde fetch --quiet --depth 1 origin "$REF"
-            git -C libacde checkout --quiet --detach "$REF"
-          fi
-          g -C libacde submodule update --init --depth 1
-          echo "libacde $(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - &libraries
-        name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve
-        run: |
-          p="clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev
-            libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
-            mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk python3 python3-venv git"
-          # the other job on this runner may hold dpkg's lock
-          s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
-          dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
-      - &bun
-        uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
+          git -c http.extraHeader="Authorization: basic ${auth}" -C libacde submodule update --init --depth 1
+          printf 'acdev %s\nlibacde %s\n' "$(git -C acdev rev-parse HEAD)" "$(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
       - &fetch
         name: download the crates Cargo.lock names (the only step with the registry token)
         env:
@@ -123,33 +94,34 @@ jobs:
       - &runtime
         name: build acdev runtime (release, offline, no token; build.rs bundles libacde/js with bun); link the acdev CLI
         run: |
-          set -eu
           (cd libacde/js && bun install --frozen-lockfile)
           (cd acdev && ACDEV_BUN="$(command -v bun)" cargo build --release --offline --locked -p acdev)
           (cd acdev/npm && bun install --frozen-lockfile && bun link)
           (cd libacde/scripts/wpt && bun install --frozen-lockfile)
+      - &ssh
+        name: the upload key for the artifacts host
+        env:
+          KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}
+        run: |
+          k=$RUNNER_TEMP/ssh
+          mkdir -p -m 700 "$k"
+          printf '%s\n' "$KEY" > "$k/key" && chmod 600 "$k/key"
+          echo '192.168.10.127 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEO/zlouRrnjVdb3bSH9SH0ueof9pfb+KIDTLr0l6xyT' > "$k/known_hosts"
+          echo "RSYNC_RSH=ssh -i $k/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts" >> "$GITHUB_ENV"
       - &wpt
         name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
-        env:
-          GIT_TERMINAL_PROMPT: '0'
         run: |
-          set -eu
           libacde/scripts/wpt/wpt.sh fetch
           libacde/scripts/wpt/wpt.sh prepare --workers ${{ github.event.inputs.workers }}
       - name: run the gate and check it against expectations/linux
-        shell: bash
         run: |
-          set -eu
           w=libacde/scripts/wpt/wpt.sh
           $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
           $w run --runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
           $w expectations check "$LABEL" --platform linux --max 100
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+      - name: the results to the artifacts host (acdev/test-<run>/wpt-gate)
         if: always()
-        with:
-          name: wpt-gate
-          path: ${{ env.WPT_STATE }}/results
-          retention-days: 14
+        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-gate/"'
 
   # full and baseline: four shards one after another (one job stops at Gitea's 3-hour limit)
   wpt:
@@ -162,36 +134,25 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          persist-credentials: false
+      - *checkout
       - *cleanup
-      - *commit
-      - *toolchain
       - *libacde
-      - *libraries
-      - *bun
       - *fetch
       - *runtime
+      - *ssh
       - *wpt
       - name: run shard ${{ matrix.shard }} of 4
-        shell: bash
         env:
           MODE: ${{ github.event.inputs.wpt }}
         run: |
-          set -eu
           w=libacde/scripts/wpt/wpt.sh
           args=(--runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
           if [ "$MODE" = full ]; then args+=(--skip-slow libacde/scripts/wpt/expectations/linux); fi
           $w run "${args[@]}"
           if [ "$MODE" = full ]; then $w expectations check "$LABEL" --platform linux --max 100; fi
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+      - name: the results to the artifacts host (acdev/test-<run>/wpt-shard-<n>)
         if: always()
-        with:
-          name: wpt-shard-${{ matrix.shard }}
-          path: ${{ env.WPT_STATE }}/results
-          retention-days: 14
+        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-shard-${{ matrix.shard }}/"'
 
   # baseline: the shards together, the passing tests twice more, expectations from the three runs
   expectations:
@@ -200,29 +161,23 @@ jobs:
     runs-on: x86_64-debian
     timeout-minutes: 175
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          persist-credentials: false
+      - *checkout
       - *cleanup
-      - *commit
-      - *toolchain
       - *libacde
-      - *libraries
-      - *bun
       - *fetch
       - *runtime
+      - *ssh
       - *wpt
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          pattern: wpt-shard-*
-          path: shards
+      - name: the shards' results from the artifacts host
+        run: |
+          mkdir -p shards
+          for n in 1 2 3 4; do
+            printf 'acdev/test-%s/wpt-shard-%s\n' "$GITHUB_RUN_NUMBER" $n | nc $PULL | tar -x -C shards --strip-components=2 2>/dev/null || true
+          done
       - name: merge the shards, run the gate twice, write expectations/linux
-        shell: bash
         env:
           WORKERS: ${{ github.event.inputs.workers }}
         run: |
-          set -eu
           w=libacde/scripts/wpt/wpt.sh
           mkdir -p "$WPT_STATE/results/$LABEL"
           cat shards/*/"$LABEL"/results.jsonl > "$WPT_STATE/results/$LABEL/results.jsonl"
@@ -233,14 +188,13 @@ jobs:
           $w run --runtime "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL-c" --tests "$WPT_STATE/gate.json"
           $w expectations update "$LABEL" "$LABEL-b" "$LABEL-c" --dir "$WPT_STATE/expectations/linux"
           $w report "$LABEL" | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+      - name: the expectations and reports to the artifacts host (acdev/test-<run>/wpt-expectations)
         if: always()
-        with:
-          name: wpt-expectations
-          path: |
-            ${{ env.WPT_STATE }}/expectations
-            ${{ env.WPT_STATE }}/results/*/report.md
-          retention-days: 14
+        working-directory: ${{ env.WPT_STATE }}
+        run: |
+          shopt -s nullglob
+          set -- expectation[s] results/*/report.md
+          [ $# = 0 ] || rsync -rtR --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/wpt-expectations/"
 
   # full and baseline: acde-demo's apps and its regression cells
   demo:
@@ -248,34 +202,26 @@ jobs:
     runs-on: x86_64-debian
     timeout-minutes: 120
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          persist-credentials: false
+      - *checkout
       - *cleanup
-      - *commit
-      - *toolchain
       - *libacde
-      - *libraries
-      - *bun
       - *fetch
       - *runtime
+      - *ssh
       - name: acde-demo beside acdev, its e2e
-        shell: bash
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
-          GIT_TERMINAL_PROMPT: '0'
           CI: '1'
         run: |
-          set -eu
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           git -c http.extraHeader="Authorization: basic ${auth}" clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/acde-demo.git" acde-demo
           echo "acde-demo $(git -C acde-demo rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
           unset TOKEN
           cd acde-demo && bun install --frozen-lockfile && bun scripts/apps.ts e2e
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
+      - name: the e2e results to the artifacts host (acdev/test-<run>/demo-e2e)
         if: always()
-        with:
-          name: demo-e2e
-          path: acde-demo/apps/*/.acde/test-results
-          retention-days: 14
+        run: |
+          shopt -s nullglob
+          cd acde-demo/apps 2>/dev/null || exit 0
+          set -- */.acde/test-results
+          [ $# = 0 ] || rsync -rtR --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/demo-e2e/"
