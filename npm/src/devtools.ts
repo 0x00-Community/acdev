@@ -9,6 +9,12 @@ export interface Endpoint {
   readonly token?: string
 }
 
+export interface GuestPort {
+  readonly port: number
+  readonly web: string | null
+  readonly app: string | null
+}
+
 export interface Target {
   readonly id: string
   readonly title: string
@@ -31,7 +37,7 @@ export interface Lookup {
 
 export interface DevtoolsOptions {
   readonly window?: string
-  readonly session?: number
+  readonly session?: number | 'vm'
   readonly cwd?: string
   readonly env?: Readonly<Record<string, string>>
   readonly say: (line: string) => void
@@ -54,6 +60,33 @@ export class Devtools {
     const { port, token } = (answer ?? {}) as { port?: unknown; token?: unknown }
     if (!Number.isInteger(port)) throw new Error('acdev runtime answered devtools without a port')
     return typeof token === 'string' && token ? { port: port as number, token } : { port: port as number }
+  }
+
+  static ports(answer: unknown): GuestPort[] {
+    const listed = (answer as { ports?: unknown } | null)?.ports
+    if (!Array.isArray(listed)) return [{ port: Devtools.endpoint(answer).port, web: null, app: null }]
+    const text = (value: unknown) => (typeof value === 'string' && value ? value : null)
+    const ports = listed
+      .map((item) => item as { port?: unknown; web?: unknown; app?: unknown } | null)
+      .filter((item) => Number.isInteger(item?.port))
+      .map((item) => ({ port: item!.port as number, web: text(item!.web), app: text(item!.app) }))
+    if (!ports.length) throw new Error('the session in the guest answered devtools without a port')
+    return ports
+  }
+
+  static portFor(ports: readonly GuestPort[], wanted: readonly string[]): GuestPort {
+    const found = ports.length === 1 ? ports[0] : ports.find((p) => wanted.some((w) => w === p.web || w === p.app))
+    if (found) return found
+    const listed = ports.map((p) => `  ${p.web ?? '?'}  ${p.app ?? 'desktop'}  port ${p.port}`).join('\n')
+    throw new Error(`no DevTools port for ${wanted[0] ?? 'the focused page'}; the guest serves:\n${listed}`)
+  }
+
+  static through(targets: readonly Target[], port: number): Target[] {
+    return targets.map((target) => {
+      const socket = new URL(target.webSocketDebuggerUrl)
+      socket.host = `127.0.0.1:${port}`
+      return { ...target, webSocketDebuggerUrl: socket.toString() }
+    })
   }
 
   static async targets(endpoint: Endpoint, fetcher: typeof fetch = fetch): Promise<Target[]> {
@@ -141,19 +174,38 @@ export class Devtools {
       say: options.say,
     })
     let wanted: string[]
-    let endpoint: Endpoint
+    let answer: unknown
     try {
-      endpoint = Devtools.endpoint(await acde.devtools())
+      answer = await acde.devtools()
       wanted = await Devtools.#wanted(acde, options.window ?? null)
     } finally {
       await acde.close()
     }
-    const target = Devtools.pick(await Devtools.targets(endpoint), wanted, options.window ?? null)
-    await Devtools.present(target, endpoint, {
+    const present: PresentOptions = {
       address: 'always',
       ...(options.lookup !== undefined && { lookup: options.lookup }),
       ...(options.launch !== undefined && { launch: options.launch }),
-    })
+    }
+    if (options.session === 'vm') return await Devtools.#guest(Devtools.portFor(Devtools.ports(answer), wanted), wanted, options, present)
+    const endpoint = Devtools.endpoint(answer)
+    const target = Devtools.pick(await Devtools.targets(endpoint), wanted, options.window ?? null)
+    await Devtools.present(target, endpoint, present)
+    return 0
+  }
+
+  static async #guest(chosen: GuestPort, wanted: readonly string[], options: DevtoolsOptions, present: PresentOptions): Promise<number> {
+    const { Forward } = await import('./vm/forward.ts')
+    const forward = await Forward.open(chosen.port)
+    try {
+      const endpoint = { port: forward.port }
+      const targets = Devtools.through(await Devtools.targets(endpoint), forward.port)
+      await Devtools.present(Devtools.pick(targets, wanted, options.window ?? null), endpoint, present)
+    } catch (error) {
+      forward.close()
+      throw error
+    }
+    options.say(`acdev: DevTools reaches port ${chosen.port} in the guest through 127.0.0.1:${forward.port}; Ctrl+C stops it`)
+    await forward.closed
     return 0
   }
 

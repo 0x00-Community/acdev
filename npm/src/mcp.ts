@@ -8,7 +8,7 @@ import { Approvals } from './approvals.ts'
 import { Doctor } from './doctor.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
-import { Sessions } from './sessions.ts'
+import { Sessions, type Pin } from './sessions.ts'
 import { Format } from './driver/format.ts'
 import { PageTools } from './mcppage.ts'
 import { Versions } from './versions.ts'
@@ -67,7 +67,7 @@ export interface Result {
 }
 
 export interface McpOptions {
-  readonly session?: number
+  readonly session?: Pin
   readonly cwd?: string
 }
 
@@ -76,7 +76,7 @@ export class Mcp {
 
   readonly server: McpServer
   readonly #cwd: string
-  #pinned: number | undefined
+  #pinned: Pin | undefined
   #attached: Acde | null = null
   #launched: Acde | null = null
 
@@ -704,7 +704,7 @@ export class Mcp {
 
   async #acde(): Promise<Acde> {
     const launched = this.#launched
-    if (launched && (this.#pinned === undefined || this.#pinned === launched.session.pid)) {
+    if (launched && Sessions.pins(this.#pinned, launched.session)) {
       if (!launched.closed) return launched
       this.#launched = null
       this.#pinned = undefined
@@ -712,9 +712,9 @@ export class Mcp {
       throw new Error(`the acdev dev started here (pid ${launched.session.pid}) stopped; last output:\n${last}`)
     }
     const attached = this.#attached
-    if (attached && !attached.closed && (this.#pinned === undefined || this.#pinned === attached.session.pid))
+    if (attached && !attached.closed && Sessions.pins(this.#pinned, attached.session))
       return attached
-    const stopped = attached?.closed ? attached.session.pid : undefined
+    const stopped = attached?.closed && !Sessions.isGuest(attached.session) ? attached.session.pid : undefined
     await attached?.close()
     this.#attached = null
     if (stopped !== undefined) await Mcp.#delisted(stopped)

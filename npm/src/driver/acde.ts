@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import type { Duplex } from 'node:stream'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -72,9 +73,28 @@ export class Acde {
   }
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
+    const timeout = options.timeout ?? Acde.TIMEOUT_MS
+    if (options.session === Sessions.VM) return new Acde(Sessions.guest(), await Acde.guest(), null, null, timeout)
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const session = await Sessions.find(options.cwd ?? process.cwd(), options.session, options.say, dir)
-    return new Acde(session, await Acde.#connect(session), null, null, options.timeout ?? Acde.TIMEOUT_MS)
+    return new Acde(session, await Acde.#connect(session), null, null, timeout)
+  }
+
+  static async guest(open?: () => Promise<Duplex>): Promise<DevClient> {
+    const tunnel = await (open ?? Acde.#managerSocket)()
+    const client = DevClient.over(tunnel)
+    client.send({ type: 'hello', role: 'dev' })
+    return client
+  }
+
+  static async #managerSocket(): Promise<Duplex> {
+    const { Machine } = await import('../vm/machine.ts')
+    try {
+      return await new Machine().devd().socket()
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error)
+      throw new Error(`--session vm: no session in the guest of acdev vm answers (${why}); acdev vm start, then log in`)
+    }
   }
 
   static runtime(dir: string, file = cliFile(), found: () => Record<'bun' | 'node', string | null> = runtimes): string {
@@ -676,7 +696,9 @@ export class Acde {
   }
 
   #connected(): void {
-    if (this.#client.ended) throw new Error(`acdev dev ${this.session.pid} is no longer connected`)
+    if (!this.#client.ended) return
+    const what = Sessions.isGuest(this.session) ? 'the session in the guest' : `acdev dev ${this.session.pid}`
+    throw new Error(`${what} is no longer connected`)
   }
 
   static #page<T>(op: string, answer: unknown): DevPage<T> {

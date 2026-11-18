@@ -102,3 +102,21 @@ describe('acdev devtools', () => {
       .toBe('devtools://devtools/bundled/devtools_app.html?ws=127.0.0.1%3A9300%2Fdevtools%2Fpage%2F7')
   })
 })
+
+describe('acdev devtools on the session in the guest', () => {
+  test('the host answers {port}; the guest lists a port per page, picked by web or app', () => {
+    expect(Devtools.ports({ port: 9229 })).toEqual([{ port: 9229, web: null, app: null }])
+    const ports = Devtools.ports({ ports: [{ web: 'desktop', app: null, port: 4001 }, { web: 'notes#1', app: 'notes', port: 4002 }] })
+    expect(Devtools.portFor(ports, ['notes']).port).toBe(4002)
+    expect(Devtools.portFor(ports, ['desktop', '0']).port).toBe(4001)
+    expect(() => Devtools.portFor(ports, ['mail'])).toThrow('no DevTools port for mail')
+    expect(() => Devtools.ports({ ports: [] })).toThrow('answered devtools without a port')
+  })
+
+  test('targets reached through a forward point their WebSocket at the local port', () => {
+    const socket = 'ws://127.0.0.1:4002/devtools/page/notes%231'
+    const target = { id: 'notes#1', title: 'Notes', type: 'page', url: 'http://acde.local/', webSocketDebuggerUrl: socket }
+    expect(Devtools.through([target], 51000)[0]!.webSocketDebuggerUrl).toBe('ws://127.0.0.1:51000/devtools/page/notes%231')
+  })
+})
+

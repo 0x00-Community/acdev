@@ -11,6 +11,8 @@ import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingF
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
+import { Forward } from '../src/vm/forward.ts'
+import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -692,3 +694,31 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(missingFeatures('flags\t: fpu sse4_2 avx xsave\n')).toEqual(['avx2', 'bmi1', 'bmi2', 'f16c', 'fma', 'abm', 'movbe'])
   })
 })
+
+describe('DevTools in the guest, host side', () => {
+  test('a forward hands every local connection to a tunnel to the guest port', async () => {
+    const echo = createServer((socket) => socket.on('data', (chunk) => socket.write((chunk as Buffer).toString().toUpperCase())))
+    await new Promise<void>((done) => echo.listen(0, '127.0.0.1', done))
+    const target = (echo.address() as { port: number }).port
+    const asked: number[] = []
+    const forward = await Forward.open(9222, async (port) => {
+      asked.push(port)
+      return connect(target, '127.0.0.1')
+    })
+    try {
+      const reply = await new Promise<string>((done) => {
+        const socket = connect(forward.port, '127.0.0.1', () => socket.write('cdp'))
+        socket.once('data', (chunk) => {
+          done(chunk.toString())
+          socket.destroy()
+        })
+      })
+      expect(reply).toBe('CDP')
+      expect(asked).toEqual([9222])
+    } finally {
+      forward.close()
+      echo.close()
+    }
+  })
+})
+

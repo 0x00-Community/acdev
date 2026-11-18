@@ -606,3 +606,41 @@ describe('session files while acdev dev rewrites them', () => {
     check((await Sessions.find('/a', undefined, undefined, pending)).pid).toBe(process.pid)
   })
 })
+
+describe('--session vm', () => {
+  test('the guest session says hello as acdev dev, then speaks the same lines', async () => {
+    const path = join(tmp(), 'dev.sock')
+    const heard: unknown[] = []
+    const { createServer, connect } = await import('node:net')
+    const manager = createServer((socket) => {
+      socket.setEncoding('utf8')
+      socket.on('data', (text: string) => {
+        for (const line of text.split('\n').filter(Boolean)) {
+          const message = JSON.parse(line) as { type: string; id?: number }
+          heard.push(message)
+          if (message.type === 'request') socket.write(`${JSON.stringify({ type: 'response', id: message.id, ok: true, result: { webs: [] } })}\n`)
+        }
+      })
+    })
+    await new Promise<void>((done) => manager.listen(path, done))
+    try {
+      const client = await Acde.guest(async () => connect(path))
+      check(await client.request('webs')).toEqual({ webs: [] })
+      client.close()
+      check(heard[0]).toEqual({ type: 'hello', role: 'dev' })
+      check((heard[1] as { op: string }).op).toBe('webs')
+    } finally {
+      manager.close()
+    }
+  })
+
+  test('a pin of vm picks the guest session and no local one', () => {
+    const local = { pid: 42, endpoint: '/run/x.sock', dirs: [], apps: [], desktop: null, started: 0 }
+    check(Sessions.pins('vm', Sessions.guest())).toBe(true)
+    check(Sessions.pins('vm', local)).toBe(false)
+    check(Sessions.pins(42, Sessions.guest())).toBe(false)
+    check(Sessions.pins(42, local)).toBe(true)
+    check(Sessions.pins(undefined, local)).toBe(true)
+  })
+})
+

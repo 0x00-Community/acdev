@@ -153,9 +153,10 @@ describe('mistakes', () => {
         + '(acdev test --help)'],
       [['test', '--video=sometimes'], 'acdev: test: --video sometimes: failed (the default: only for failing tests), '
         + 'on or off (acdev test --help)'],
-      [['webs', '--session', 'abc'], 'acdev: webs: --session abc: the process id of an acdev dev (acdev webs --help)'],
-      [['devtools', '--session', 'abc'], 'acdev: devtools: --session abc: the process id of an acdev dev '
-        + '(acdev devtools --help)'],
+      [['webs', '--session', 'abc'], 'acdev: webs: --session abc: the process id of an acdev dev, or vm for the session '
+        + 'in the guest of acdev vm (acdev webs --help)'],
+      [['devtools', '--session', 'abc'], 'acdev: devtools: --session abc: the process id of an acdev dev, or vm for the '
+        + 'session in the guest of acdev vm (acdev devtools --help)'],
       [['query', 'p', '--limit', 'x'], 'acdev: query: --limit x: how many elements to list at most, 1 to 3000 '
         + '(acdev query --help)'],
     ]
@@ -203,7 +204,7 @@ describe('mistakes', () => {
       expect(help.stdout).toContain('Examples:\n  $ acdev new my-app')
       expect(help.stdout).not.toContain('acdev build')
     }
-    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  The acdev dev to use')
+    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID|vm  The acdev dev to use')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1' })).stdout).toContain('\x1b[1;32mUsage:\x1b[22;39m')
     expect((await cli(['--help'], APP, { FORCE_COLOR: '1', NO_COLOR: '1' })).stdout).not.toContain('\x1b[')
     expect((await cli(['help', 'nope'], APP)).stderr.trim()).toBe(

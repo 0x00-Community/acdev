@@ -168,7 +168,7 @@ export interface WaitConsoleOptions {
 }
 
 export interface AttachOptions {
-  readonly session?: number
+  readonly session?: number | 'vm'
   readonly cwd?: string
   readonly env?: Readonly<Record<string, string>>
   readonly timeout?: number

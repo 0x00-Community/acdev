@@ -18,8 +18,9 @@ export interface HelpCommand {
 const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore', 'fill', 'fullscreen']
 
 const SESSION: HelpOption = {
-  flag: '--session PID',
-  about: 'The acdev dev to use (default: the one whose projects hold this directory)',
+  flag: '--session PID|vm',
+  about: 'The acdev dev to use (default: the one whose projects hold this directory); vm: the logged-in session in the '
+    + 'guest of acdev vm',
 }
 
 export class Help {

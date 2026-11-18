@@ -5,6 +5,12 @@
 都用 `DevClient` 直连会话的 `endpoint`. 挑会话 (`Sessions.pick`): `--session`; 否则 (不算测试会话) `dirs` 包含当前目录的 (取最深的); 否则当前目录不在任何工程里、只有一个会话时用它, 并在 stderr 说用的是哪个 (`say`, 命令行传入; driver 和 MCP 不传); 否则报错并列出.
 连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acdev dev <pid> is gone`.
 
+**客户机里的会话** (`--session vm`, 工单 19 / A2; 命令、MCP 的 `acdev mcp --session vm`、driver 的 `Acde.attach({session: 'vm'})`): 不读会话文件,
+经 `acdev vm` 那台客户机的 acdevd 开 `C` 隧道 (`Devd.socket()`, 内容为空: acdevd 找 logind 活动会话的管家调试套接字
+`/run/user/<uid>/acde/dev.sock`, 见 `docs/devd.md`), 在隧道上建 `DevClient` (`DevClient.over`, 收任何 `Duplex`), 先发
+`{type: 'hello', role: 'dev'}`, 之后和宿主同样一行一个 JSON. 会话记录是 `Sessions.guest()` (`endpoint` 为 `vm`, `pid` 0, `desktop` 为 `vm`);
+`Sessions.pins` 判断钉住的是不是它. `acdev stop --session vm` 报错 (会话随用户注销结束, `acdev vm stop` 停客户机).
+
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
   (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdev runtime 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
   所以 acdev 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
@@ -35,6 +41,10 @@
   time it runs` 退出 1, 下次 `acdev dev` 再问 (`… was denied "<能力>" in an earlier run: asking again`); 撤销必需能力后应用照常跑到下一次 reload,
   reload 时 acdev runtime 记同一行退出 1; 桌面里拒绝会留着 (跨会话), 应用不进列表 (`acde:apps` 发 `changed`), 撤销已批准的必需能力后应用同样出列表,
   开着的窗口留到下一次 reload (日志 `acdev dev: reload: <名字>: "<能力>" is denied by the user`, 窗口关掉); 撤销之后这一次运行里一直算被拒, 下次起运行时再问.
+- **客户机里的 DevTools** (`acdev devtools [web] --session vm`): 客户机的 `devtools` 回 `{ports: [{web, app, port}]}` (每个页面进程一个端口),
+  宿主的回 `{port}`, `Devtools.ports` 两种都认; `Devtools.portFor` 按 web 名或应用 id 挑 (只有一个时就用它). 挑中的端口经
+  `Forward` (`src/vm/forward.ts`) 转到宿主: 本机 `127.0.0.1` 上开一个随机端口, 每条连接开一条 `T` 隧道 (`Devd.tcp(port)`) 接过去;
+  `/json/list` 经它读, 目标的 `webSocketDebuggerUrl` 改成本机端口 (`Devtools.through`), 再照常打开. 打开后命令不退出, 一直转发到 Ctrl+C.
 - **`acdev devtools [web]`** (`src/devtools.ts` `Devtools`, acde#75; 规格 acdert#172): 和其他会话命令一样挑会话, 发开发通道请求
   `devtools` (`Acde.devtools()`, 回 `{port}`, 旧的 acdert 另带 `token`), 读 `http://127.0.0.1:<port>/json/list`, 按 id 挑目标 (给了 web: 参数本身、
   它解析出的 web 名或窗口号, web 按名字、应用 id、窗口号、窗口标题 (先原样, 再不分大小写) 找; id 都不中再按目标标题找 (不分大小写,

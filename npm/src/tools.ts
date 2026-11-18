@@ -9,7 +9,7 @@ import { DevClient } from './ipc.ts'
 import { Exit, Output } from './output.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
-import { Sessions } from './sessions.ts'
+import { Sessions, type Pin } from './sessions.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set([
@@ -242,7 +242,8 @@ export class Tools {
     }
   }
 
-  static async #stop(pid: number | undefined): Promise<number> {
+  static async #stop(pid: Pin | undefined): Promise<number> {
+    if (pid === Sessions.VM) throw new Error('stop: the session in the guest ends when its user logs out; acdev vm stop stops the guest')
     const session = await Sessions.find(process.cwd(), pid, (line) => console.error(line))
     const link = await DevClient.connect(session.endpoint).catch(() => null)
     if (!link) {
@@ -319,12 +320,13 @@ export class Tools {
     throw Output.option('query', 'limit', value, `how many elements to list at most, 1 to ${most}`)
   }
 
-  static pid(value: string, command: string): number
-  static pid(value: string | undefined, command: string): number | undefined
-  static pid(value: string | undefined, command: string): number | undefined {
+  static pid(value: string, command: string): Pin
+  static pid(value: string | undefined, command: string): Pin | undefined
+  static pid(value: string | undefined, command: string): Pin | undefined {
     if (value === undefined) return undefined
+    if (value === Sessions.VM) return Sessions.VM
     const pid = Number(value)
     if (Number.isInteger(pid) && pid > 0) return pid
-    throw Output.option(command, 'session', value, 'the process id of an acdev dev')
+    throw Output.option(command, 'session', value, 'the process id of an acdev dev, or vm for the session in the guest of acdev vm')
   }
 }

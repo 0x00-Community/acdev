@@ -1,13 +1,14 @@
 import { rmSync } from 'node:fs'
 import net from 'node:net'
 import { dirname } from 'node:path'
+import type { Duplex } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Sessions } from './sessions.ts'
 
 export type Message = Readonly<Record<string, unknown>>
 
 export class Lines {
-  static read(socket: net.Socket, line: (message: Message) => void, bad: (text: string) => void = () => undefined): void {
+  static read(socket: Duplex, line: (message: Message) => void, bad: (text: string) => void = () => undefined): void {
     socket.setEncoding('utf8')
     let parts: string[] = []
     socket.on('data', (chunk: string) => {
@@ -32,7 +33,7 @@ export class Lines {
     })
   }
 
-  static write(socket: net.Socket, message: Message): void {
+  static write(socket: Duplex, message: Message): void {
     if (!socket.destroyed && socket.writable) socket.write(`${JSON.stringify(message)}\n`)
   }
 }
@@ -43,7 +44,7 @@ export class DevClient {
   static readonly CLOSE_MS = 1_000
 
   readonly closed: Promise<void>
-  readonly #socket: net.Socket
+  readonly #socket: Duplex
   readonly #timeoutMs: number
   readonly #waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   #next = 1
@@ -52,7 +53,7 @@ export class DevClient {
   /** Events acdert sends on its own (`{ type: 'event', event, ... }`), only to the connection that said hello as acde dev. */
   onEvent: (message: Message) => void = () => undefined
 
-  private constructor(socket: net.Socket, timeoutMs: number) {
+  private constructor(socket: Duplex, timeoutMs: number) {
     this.#socket = socket
     this.#timeoutMs = timeoutMs
     this.closed = new Promise((resolve) => socket.once('close', () => resolve()))
@@ -85,6 +86,10 @@ export class DevClient {
         resolve(new DevClient(socket, timeoutMs))
       })
     })
+  }
+
+  static over(stream: Duplex, timeoutMs = DevClient.TIMEOUT_MS): DevClient {
+    return new DevClient(stream, timeoutMs)
   }
 
   static async reach(endpoint: string, alive: () => boolean, waiting?: () => void, waitMs = 10_000): Promise<DevClient | null> {
@@ -135,7 +140,7 @@ export class DevClient {
     const socket = this.#socket
     socket.end(() => socket.destroy())
     setTimeout(() => socket.destroy(), DevClient.CLOSE_MS).unref()
-    socket.unref()
+    if (socket instanceof net.Socket) socket.unref()
   }
 
   #response(message: Message): void {
