@@ -136,19 +136,19 @@ jobs:
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
           echo "targets=${left#,}" | tee -a "$GITHUB_OUTPUT"
 
-  # per target on the Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
-  # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK
+  # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
+  # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on the aarch64 runner of .210 (user)
   build:
     needs: plan
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { triple: aarch64-apple-darwin, cross: zigbuild }
-          - { triple: x86_64-apple-darwin, cross: zigbuild }
-          - { triple: x86_64-unknown-linux-gnu, cross: '' }
-          - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe }
-    runs-on: x86_64-debian
+          - { triple: aarch64-apple-darwin, cross: zigbuild, runner: aarch64-debian-210 }
+          - { triple: x86_64-apple-darwin, cross: zigbuild, runner: x86_64-debian }
+          - { triple: x86_64-unknown-linux-gnu, cross: '', runner: x86_64-debian }
+          - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, runner: x86_64-debian }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
     steps:
@@ -186,14 +186,18 @@ jobs:
         run: |
           set -eu
           cd "$RUNNER_TEMP"
-          f=cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz
+          case $(uname -m) in
+            x86_64) f=cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz fs=f09b180a517af0e4dd4bffc921bb88e5ab705452a9dd948c61e489b3020c68c2
+                    z=zig-x86_64-linux-0.17.1 zs=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a ;;
+            aarch64) f=cargo-zigbuild-aarch64-unknown-linux-gnu.tar.xz fs=70bb4c9cc71a6d16211b9079996e3cd588671053312adeff4d043499ed887601
+                     z=zig-aarch64-linux-0.17.1 zs=a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795 ;;
+          esac
           curl -sSfL -o "$f" "https://github.com/rust-cross/cargo-zigbuild/releases/download/v0.24.1/$f"
-          echo "f09b180a517af0e4dd4bffc921bb88e5ab705452a9dd948c61e489b3020c68c2  $f" | sha256sum -c -
+          echo "$fs  $f" | sha256sum -c -
           mkdir -p zb bin && tar -xJf "$f" -C zb && find zb -name cargo-zigbuild -type f -exec cp {} bin/ \;
-          z=zig-x86_64-linux-0.17.1.tar.xz
-          curl -sSfL -o "$z" "https://ziglang.org/download/0.17.1/$z"
-          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  $z" | sha256sum -c -
-          tar -xJf "$z" && ln -sf "$RUNNER_TEMP/zig-x86_64-linux-0.17.1/zig" bin/zig
+          curl -sSfL -o "$z.tar.xz" "https://ziglang.org/download/0.17.1/$z.tar.xz"
+          echo "$zs  $z.tar.xz" | sha256sum -c -
+          tar -xJf "$z.tar.xz" && ln -sf "$RUNNER_TEMP/$z/zig" bin/zig
           sdk=MacOSX15.5.sdk.tar.xz
           curl -sSfL -o "$sdk" "https://github.com/joseluisq/macosx-sdks/releases/download/15.5/$sdk"
           echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  $sdk" | sha256sum -c -
