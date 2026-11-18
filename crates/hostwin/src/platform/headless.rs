@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::sync::{Mutex, mpsc};
 
-use acdert::gpu::wgpu;
+use acde::gpu::wgpu;
 
 use super::{Cmd, FilesReply, FolderReply, Handler, HostEvent};
 use crate::{OpenRequest, SaveRequest};

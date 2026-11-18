@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acdert::gpu::{Backdrop, Effect, FilterEffect, Px, Scene, Shadow, wgpu};
-use acdert::model::{Inbox, Pacer};
-use acdert::render::{Bar, Decoration, Layer, Plane, RenderHandle};
-use acdert::vello::{Composer, Op, Overrides, Vello, vello};
+use acde::gpu::{Backdrop, Effect, FilterEffect, Px, Scene, Shadow, wgpu};
+use acde::model::{Inbox, Pacer};
+use acde::render::{Bar, Decoration, Layer, Plane, RenderHandle};
+use acde::vello::{Composer, Op, Overrides, Vello, vello};
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::Color;
 
@@ -49,7 +49,7 @@ pub(crate) struct Presenter {
     dirty: bool,
     bar: Bar,
     decoration: Option<Decoration>,
-    menu: Option<acdert::render::MenuList>,
+    menu: Option<acde::render::MenuList>,
     menu_closed: bool,
 }
 
@@ -237,7 +237,7 @@ impl Presenter {
         if let Some(compositor) = server().and_then(|s| s.compositor()).filter(|_| drawn) {
             compositor.dirty();
         }
-        log::debug!(target: "perf::raster", "surface ms={:.3}", acdert::log::since_ms(started));
+        log::debug!(target: "perf::raster", "surface ms={:.3}", acde::log::since_ms(started));
     }
 
     fn in_layers(mut plane: Plane, (width, height): (u32, u32)) -> Plane {
@@ -329,7 +329,7 @@ impl Presenter {
         let page = self.targets.get(&self.id).ok_or("the window has not drawn a frame yet")?;
         let (width, height) = page.size;
         let rgba = self.gpu.shared.read(&page.texture, [0, 0, width, height])?;
-        let png = acdert::render::encode_png(width, height, &rgba).ok_or("png encoding failed")?;
+        let png = acde::render::encode_png(width, height, &rgba).ok_or("png encoding failed")?;
         Ok(Shot { width, height, png })
     }
 
@@ -342,7 +342,7 @@ impl Presenter {
             | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::COPY_DST;
-        let texture = acdert::gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
+        let texture = acde::gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let page = Arc::new(Page { size, view: view.clone(), texture, straight: true.into() });
         self.targets.insert(window, page);
@@ -481,14 +481,14 @@ impl Presenter {
         if let Some(scratch) = self.scratch.get_mut(&window) {
             scratch.drawn = true;
         }
-        let ms = acdert::log::since_ms(started);
+        let ms = acde::log::since_ms(started);
         log::debug!(target: "perf::layers", "window={window} region={:?} layers={redrawn}/{} ms={ms:.3}", target.xywh(), parts.len());
         Ok(true)
     }
 
     fn region(plane: &Plane, parts: &[(&Layer, Part)], top: u32, full: Px) -> Option<Px> {
         let dy = top as f32;
-        let damaged = |r: &acdert::render::Rect| Px::covering([r.x as f32 - 1.0, r.y as f32 - 1.0 + dy, r.width as f32 + 2.0, r.height as f32 + 2.0]);
+        let damaged = |r: &acde::render::Rect| Px::covering([r.x as f32 - 1.0, r.y as f32 - 1.0 + dy, r.width as f32 + 2.0, r.height as f32 + 2.0]);
         let rects: Vec<Px> = match plane.damage_rects.iter().filter(|r| r.width > 0.0 && r.height > 0.0).map(damaged).collect::<Vec<_>>() {
             rects if rects.is_empty() && plane.damage.width > 0.0 && plane.damage.height > 0.0 => vec![damaged(&plane.damage)],
             rects => rects,
@@ -534,7 +534,7 @@ impl Presenter {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST;
-            let texture = acdert::gpu::texture(&self.gpu.shared.device, size, usage, "acde host layers");
+            let texture = acde::gpu::texture(&self.gpu.shared.device, size, usage, "acde host layers");
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.scratch.insert(window, Scratch { size, view, drawn: false });
         }

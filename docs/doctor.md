@@ -6,8 +6,8 @@
 东西, 给 `acdev doctor` 用 (acdev 看 `--help` 里有没有 `acdev runtime doctor` (或旧的 `acdert doctor`) 判断支不支持, 不按版本号). 每项 `ok` /
 `warn` / `error`, 可带一条 `fix`:
 
-- `gpu`: 和宿主窗口同一条路打开设备 (`acdert::gpu::Gpu::open`: 真 GPU 排在前面, 只有 CPU 适配器 (lavapipe) 时也用它; 一个都没有时的原因和提示就是 `no_adapter` 那句), 再用
-  `acdert::vello::Offscreen` 画一张 16x16 的纯色图、回读中心像素和画的颜色比 (每通道差 ≤ 2). 所以着色器编译 (Metal / DXC / Vulkan)、提交、
+- `gpu`: 和宿主窗口同一条路打开设备 (`acde::gpu::Gpu::open`: 真 GPU 排在前面, 只有 CPU 适配器 (lavapipe) 时也用它; 一个都没有时的原因和提示就是 `no_adapter` 那句), 再用
+  `acde::vello::Offscreen` 画一张 16x16 的纯色图、回读中心像素和画的颜色比 (每通道差 ≤ 2). 所以着色器编译 (Metal / DXC / Vulkan)、提交、
   回读都走过一遍. 在 `acde-doctor` 线程上做, 30 s 没结果算错误 (驱动挂住时不卡死), 回读是 doctor 自己要的像素, 不在 GPU 硬约束的禁止之列.
   打开的是 CPU 适配器时是警告 (页面在 CPU 上画, 整屏动画只有几帧); WSL 上 (`/proc/sys/kernel/osrelease` 含 `microsoft`) fix 指向
   `WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1`: wgpu 默认藏起不是一致性实现的 Vulkan 驱动, WSL 的 Dozen 就是, 于是只剩 lavapipe.

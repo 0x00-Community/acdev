@@ -10,14 +10,14 @@ pub(crate) type ResizeReply = std::sync::mpsc::SyncSender<Result<(), String>>;
 pub(crate) enum Cmd {
     Title(String),
     ImeArea([f64; 4]),
-    Inject(acdert::model::Injected),
+    Inject(acde::model::Injected),
     StartDrag { window: u32, data: std::collections::HashMap<String, String> },
     Drop { window: u32, at: Option<[f64; 2]>, paths: Vec<PathBuf> },
     ChooseFolder { title: String, reply: FolderReply },
     OpenFiles { request: OpenRequest, reply: FilesReply },
     SaveFile { request: SaveRequest, reply: FolderReply },
     Approve { title: String, message: String, reply: ApproveReply },
-    HostState(Option<acdert::model::WindowState>),
+    HostState(Option<acde::model::WindowState>),
     HostSize([f64; 2]),
     Resize { size: [f64; 2], reply: ResizeReply },
     Exit(i32),
@@ -42,7 +42,7 @@ pub(crate) enum HostEvent {
     ImePreedit(String),
     ImeCommit(String),
     Dropped(Vec<PathBuf>),
-    State(acdert::model::WindowState),
+    State(acde::model::WindowState),
     Output { size: (u32, u32), scale: f64, work: [f64; 4] },
     Refresh(Option<f64>),
     Redraw,
@@ -78,7 +78,7 @@ pub fn headless() -> bool {
 pub(crate) trait Host {
     fn set_title(&self, title: &str);
     fn set_ime_area(&self, area: [f64; 4]);
-    fn surface(&self, instance: &acdert::gpu::wgpu::Instance) -> Result<Option<acdert::gpu::wgpu::Surface<'static>>, String>;
+    fn surface(&self, instance: &acde::gpu::wgpu::Instance) -> Result<Option<acde::gpu::wgpu::Surface<'static>>, String>;
     fn choose_folder(&self, title: &str, reply: FolderReply);
     fn open_files(&self, request: OpenRequest, reply: FilesReply);
     fn save_file(&self, request: SaveRequest, reply: FolderReply);
@@ -89,7 +89,7 @@ pub(crate) trait Host {
         false
     }
 
-    fn set_state(&self, _: Option<acdert::model::WindowState>) {}
+    fn set_state(&self, _: Option<acde::model::WindowState>) {}
 
     fn set_size(&self, _: [f64; 2]) -> Option<(u32, u32)> {
         None
@@ -137,6 +137,6 @@ pub(crate) fn dismiss_approval() {
     crate::system::approve::dismiss();
 }
 
-pub(crate) fn click_settings() -> acdert::model::ClickSettings {
-    if headless() { acdert::model::ClickSettings::default() } else { native::click_settings() }
+pub(crate) fn click_settings() -> acde::model::ClickSettings {
+    if headless() { acde::model::ClickSettings::default() } else { native::click_settings() }
 }

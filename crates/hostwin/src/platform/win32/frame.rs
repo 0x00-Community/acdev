@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::ptr::null_mut;
 
-use acdert::model::WindowState;
+use acde::model::WindowState;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient};
 use windows_sys::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};

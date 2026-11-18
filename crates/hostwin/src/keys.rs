@@ -172,7 +172,7 @@ pub(crate) fn us_text(evdev: u32, shift: bool) -> Option<String> {
 }
 
 pub(crate) fn combo_bit(evdev: u32) -> u8 {
-    use acdert::model::Combo;
+    use acde::model::Combo;
     match evdev {
         29 | 97 => Combo::CTRL,
         42 | 54 => Combo::SHIFT,
@@ -186,7 +186,7 @@ pub(crate) fn is_modifier(evdev: u32) -> bool {
     matches!(evdev, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
 }
 
-pub(crate) use acdert::model::BTN_LEFT as BUTTON_LEFT;
+pub(crate) use acde::model::BTN_LEFT as BUTTON_LEFT;
 pub(crate) const BUTTON_RIGHT: u32 = 0x111;
 pub(crate) const BUTTON_MIDDLE: u32 = 0x112;
 pub(crate) const BUTTON_BACK: u32 = 0x113;

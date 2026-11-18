@@ -34,18 +34,18 @@ fn outer() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless()
 }
 
-fn hosted(args: &[String], platform: acdert::Shared) -> i32 {
+fn hosted(args: &[String], platform: acde::Shared) -> i32 {
     let args = args.to_vec();
-    acde_hostwin::run(move || acdert::start(acdert::Entry::Broker, &args, platform))
+    acde_hostwin::run(move || acde::start(acde::Entry::Broker, &args, platform))
 }
 
 fn main() {
-    acdert::log::init();
+    acde::log::init();
     let args: Vec<String> = std::env::args().collect();
-    let platform: acdert::Shared = std::sync::Arc::new(platform::Host);
+    let platform: acde::Shared = std::sync::Arc::new(platform::Host);
     let code = match args.get(1).map(String::as_str) {
         Some("--version" | "-V") => {
-            println!("{}", acdert::version("acdev"));
+            println!("{}", acde::version("acdev"));
             0
         }
         Some("--help" | "-h") | None => {
@@ -53,7 +53,7 @@ fn main() {
             0
         }
         Some("doctor") => doctor::run(&args[2..]),
-        _ => acdert::common(&args, &platform).unwrap_or_else(|| hosted(&args[1..], platform)),
+        _ => acde::common(&args, &platform).unwrap_or_else(|| hosted(&args[1..], platform)),
     };
-    acdert::exit(code);
+    acde::exit(code);
 }

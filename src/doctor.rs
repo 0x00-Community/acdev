@@ -1,10 +1,10 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use acdert::gpu::kurbo::{Affine, Rect};
-use acdert::gpu::peniko::{Color, Fill};
-use acdert::gpu::{Gpu, PaintRef, PaintScene, Scene, wgpu};
-use acdert::vello::Offscreen;
+use acde::gpu::kurbo::{Affine, Rect};
+use acde::gpu::peniko::{Color, Fill};
+use acde::gpu::{Gpu, PaintRef, PaintScene, Scene, wgpu};
+use acde::vello::Offscreen;
 
 pub const USAGE: &str = "usage: acdev doctor [--json]";
 const GPU_WAIT: Duration = Duration::from_secs(30);
@@ -68,14 +68,14 @@ pub fn run(args: &[String]) -> i32 {
             checks.iter().map(|c| serde_json::json!({"id": c.id, "title": c.title, "status": c.status.name(), "summary": c.summary, "fix": c.fix})).collect();
         let report = serde_json::json!({
             "acdev": version,
-            "level": acdert::API_LEVEL,
+            "level": acde::API_LEVEL,
             "platform": std::env::consts::OS,
             "exe": exe,
             "checks": list,
         });
         println!("{report}");
     } else {
-        println!("acdev {version} (contract level {}): {exe}", acdert::API_LEVEL);
+        println!("acdev {version} (contract level {}): {exe}", acde::API_LEVEL);
         for check in &checks {
             println!("{:<6} {}: {}", check.status.name(), check.title, check.summary);
             if let Some(fix) = &check.fix {

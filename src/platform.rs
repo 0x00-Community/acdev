@@ -1,6 +1,6 @@
-use acdert::model::{Event, OpenRequest, SaveRequest, Waker};
-use acdert::render::{RenderHandle, SurfaceCommand};
-use acdert::{Platform, Window, v8};
+use acde::model::{Event, OpenRequest, SaveRequest, Waker};
+use acde::render::{RenderHandle, SurfaceCommand};
+use acde::{Platform, Window, v8};
 
 pub struct Host;
 

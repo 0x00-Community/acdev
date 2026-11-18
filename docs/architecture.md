@@ -12,10 +12,10 @@ acdev 分三个仓库 (测试期间的架构, 用户定 2026-11-13): acdert (通
 ## 仓库结构
 
 - 仓库根的包 `acdev runtime` (`src/`): 可执行文件. `main.rs` 分命令 (`doctor` 自己做, `run` / `desktops` / `sessions` / `applications` / `open` 交给
-  `acdert::common`, 其余在 `acde_hostwin::run` 里起 Broker); `platform.rs` 的 `Host` 是 acdert `Platform` 的宿主窗口实现
+  `acde::common`, 其余在 `acde_hostwin::run` 里起 Broker); `platform.rs` 的 `Host` 是 acdert `Platform` 的宿主窗口实现
   (surface 认领给 hostwin、`native` 上加 hostnative 的导出、Windows 的内容类型、文件选择器); `hostnative.rs` 是 `native.Shell` 等宿主窗口
   的 JS 绑定 (用 acdert lib 根上平铺导出的绑定工具); `chooser.rs` 先用 `acdev dev` 预设的答案, Linux 上不是无头时走 portal
-  (`acdert::Portal`), 否则用宿主窗口的原生对话框; `doctor.rs` 是 `acdev runtime doctor [--json]`.
+  (`acde::Portal`), 否则用宿主窗口的原生对话框; `doctor.rs` 是 `acdev runtime doctor [--json]`.
 - `crates/hostwin`: 宿主窗口和合成 (见 `docs/hostwin.md`).
 - 合成器: 现在直接用 acdert 的 acde-gpu (wgpu: Vulkan / OpenGL / Metal / DX12); acdert 抽出合成器接口后, wgpu (vello) 实现搬到本仓库,
   另加 acgpu 实现 (feature `acgpu`).

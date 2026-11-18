@@ -291,7 +291,7 @@ fn extracted_icon(location: &str, index: i32) -> Option<Vec<u8>> {
     }
     let bgra = unsafe { draw(icon, ICON_SIZE as i32) };
     unsafe { DestroyIcon(icon) };
-    acdert::render::encode_png(ICON_SIZE, ICON_SIZE, &straight_rgba(&bgra?))
+    acde::render::encode_png(ICON_SIZE, ICON_SIZE, &straight_rgba(&bgra?))
 }
 
 unsafe fn draw(icon: HICON, size: i32) -> Option<Vec<u8>> {

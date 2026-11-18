@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use acdert::gpu::wgpu;
+use acde::gpu::wgpu;
 
 use crate::app::server;
 use crate::platform::Cmd;
@@ -16,13 +16,13 @@ static FAILED: AtomicBool = AtomicBool::new(false);
 pub(crate) struct Gpu {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
-    pub shared: Arc<acdert::gpu::Gpu>,
+    pub shared: Arc<acde::gpu::Gpu>,
 }
 
 impl Gpu {
     pub fn open() -> Result<Self, String> {
-        let (instance, adapter, shared) = acdert::gpu::Gpu::open("acde host")?;
-        _ = shared.set_compositor(std::sync::Arc::new(acdert::vello::VelloCompositor));
+        let (instance, adapter, shared) = acde::gpu::Gpu::open("acde host")?;
+        _ = shared.set_compositor(std::sync::Arc::new(acde::vello::VelloCompositor));
         log::info!("web layer uses {} ({:?}, {:?})", shared.info.name, shared.info.device_type, shared.info.backend);
         shared.on_lost(|message| fail(&format!("the GPU device was lost ({message})"), LOST_EXIT));
         Ok(Self { instance, adapter, shared })
@@ -54,7 +54,7 @@ fn fail(why: &str, code: i32) {
 }
 
 fn exit(code: i32) -> ! {
-    acdert::log::flush();
+    acde::log::flush();
     std::process::exit(code)
 }
 
@@ -77,7 +77,7 @@ mod tests {
         if std::env::var_os(CHILD).is_none() {
             return false;
         }
-        acdert::log::init();
+        acde::log::init();
         true
     }
 

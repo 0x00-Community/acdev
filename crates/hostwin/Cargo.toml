@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acdert = { path = "../../../libacde" }
+libacde = { path = "../../../libacde" }
 serde_json = "1"
 log = "0"
 pollster = "0"

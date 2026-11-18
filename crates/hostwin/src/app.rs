@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use acdert::model::{Combo, Event, Inbox, Injected, Mode, Rect, ScreenEdge, WindowState};
-use acdert::render::FrameButton;
+use acde::model::{Combo, Event, Inbox, Injected, Mode, Rect, ScreenEdge, WindowState};
+use acde::render::FrameButton;
 
 use crate::keys;
 use crate::output::compose::{self, Compositor};
@@ -106,7 +106,7 @@ impl Server {
         }
     }
 
-    pub fn set_theme(&self, theme: acdert::render::FrameTheme) {
+    pub fn set_theme(&self, theme: acde::render::FrameTheme) {
         let links: Vec<_> = {
             let mut state = self.state();
             state.theme = theme;
@@ -208,8 +208,8 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
             return 1;
         }
     };
-    acdert::gpu::Gpu::publish(Some(gpu.shared.clone()));
-    if let Err(e) = std::thread::Builder::new().name("acde-warm".into()).spawn(acdert::render::gpu::warm) {
+    acde::gpu::Gpu::publish(Some(gpu.shared.clone()));
+    if let Err(e) = std::thread::Builder::new().name("acde-warm".into()).spawn(acde::render::gpu::warm) {
         log::warn!("offscreen warm-up thread: {e}");
     }
     let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
@@ -659,7 +659,7 @@ impl App {
 
     fn left_press(&mut self, server: &Server, entry: u32) -> bool {
         let (x, y) = self.pointer;
-        let press = server.state().press(entry, [x, y], acdert::log::now_ms(), platform::click_settings());
+        let press = server.state().press(entry, [x, y], acde::log::now_ms(), platform::click_settings());
         match press {
             Press::Plain => false,
             Press::Drag(edges, rect) => {

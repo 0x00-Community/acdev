@@ -20,7 +20,7 @@ pub fn folder(title: &str) -> Result<Option<String>, String> {
         return Ok(answer.map(text));
     }
     if portal() {
-        return acdert::Portal.choose_folder(title);
+        return acde::Portal.choose_folder(title);
     }
     acde_hostwin::choose_folder(title).map(|picked| picked.map(text))
 }
@@ -37,7 +37,7 @@ pub fn open(request: OpenRequest) -> Result<Option<Vec<String>>, String> {
         return Ok(answer.map(texts));
     }
     if portal() {
-        return acdert::Portal.open_files(request);
+        return acde::Portal.open_files(request);
     }
     acde_hostwin::open_files(request).map(|picked| picked.map(texts))
 }
@@ -48,7 +48,7 @@ pub fn save(request: SaveRequest) -> Result<Option<String>, String> {
         return Ok(answer.map(text));
     }
     if portal() {
-        return acdert::Portal.save_file(request);
+        return acde::Portal.save_file(request);
     }
     acde_hostwin::save_file(request).map(|picked| picked.map(text))
 }

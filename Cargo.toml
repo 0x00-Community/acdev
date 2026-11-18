@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-# crates/*: the host window. The runtime library acdert is libacde, checked out beside this repository (../libacde):
+# crates/*: the host window. The runtime library is libacde (library name acde), checked out beside this repository (../libacde):
 # a path dependency outside the workspace, so a workspace of its own
 members = ["crates/*"]
 # npm/: the acde CLI (bun), not built as a member
@@ -18,7 +18,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acdert = { path = "../libacde" }
+libacde = { path = "../libacde" }
 acde-hostwin = { path = "crates/hostwin" }
 # doctor.rs: draws a test frame on the GPU
 log = "0"
