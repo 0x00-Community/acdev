@@ -172,7 +172,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   start,
   async stop(machine, rest) {
     count('stop', rest, 0, 0, 'no arguments')
-    say(STOPPED[await machine.stop()])
+    say(STOPPED[await machine.stop(say)])
     return 0
   },
   status,

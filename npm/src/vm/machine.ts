@@ -34,6 +34,7 @@ export interface StopWays {
   readonly acpi: () => Promise<boolean>
   readonly exited: (seconds: number) => Promise<boolean>
   readonly kill: () => void
+  readonly diagnose?: () => Promise<void>
 }
 
 export type Link = { readonly kind: 'vsock' } | { readonly kind: 'unix'; readonly path: string } | { readonly kind: 'tcp'; readonly port: number }
@@ -389,10 +390,40 @@ export class Machine {
   static readonly ACPI_SECONDS = 10
   static readonly POWEROFF = ['systemctl', 'poweroff', '--check-inhibitors=no']
 
-  async stop(): Promise<Stopped> {
+  static readonly STOP_DIAGNOSTICS = [
+    'systemctl list-jobs --no-pager',
+    'journalctl -b -n 80 --no-pager -o short-monotonic',
+  ]
+
+  async stop(say: (line: string) => void = () => undefined): Promise<Stopped> {
     const pid = this.pid()
     if (pid === null) return 'not running'
-    return await Machine.shutdown(this.#stopWays(pid))
+    return await Machine.shutdown({ ...this.#stopWays(pid), diagnose: () => this.#stopDiagnostics(say) })
+  }
+
+  async #stopDiagnostics(say: (line: string) => void): Promise<void> {
+    let agent: GuestAgent
+    try {
+      agent = await GuestAgent.open(this.qga, 5_000)
+    } catch (error) {
+      say(`the guest is still up after systemctl poweroff, and the guest agent did not answer (${(error as Error).message}): no diagnostics`)
+      return
+    }
+    const parts: string[] = []
+    try {
+      for (const command of Machine.STOP_DIAGNOSTICS) {
+        const ran = await agent.exec(command, 15_000).catch((error: Error) => ({ code: -1, stdout: Buffer.alloc(0), stderr: Buffer.from(error.message) }))
+        parts.push(`$ ${command}  (exit ${ran.code})\n${ran.stdout.toString()}${ran.stderr.toString()}`)
+      }
+    } finally {
+      agent.close()
+    }
+    const text = parts.join('\n')
+    mkdirSync(this.logs, { recursive: true })
+    const file = join(this.logs, `stop-${new Date().toISOString().replace(/[:.]/g, '-')}.log`)
+    writeFileSync(file, text)
+    process.stderr.write(`${text}${text.endsWith('\n') ? '' : '\n'}`)
+    say(`the guest did not power off within ${Machine.ORDERLY_SECONDS} s of systemctl poweroff; what it was waiting on: ${file}`)
   }
 
   static async shutdown(ways: StopWays): Promise<Stopped> {
@@ -404,6 +435,7 @@ export class Machine {
     for (const [how, ask, seconds] of steps) {
       if (!(await ask().catch(() => false))) continue
       if (await ways.exited(seconds)) return how
+      if (how === 'devd') await ways.diagnose?.().catch(() => undefined)
     }
     ways.kill()
     return 'killed'

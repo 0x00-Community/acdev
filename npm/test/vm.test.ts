@@ -777,6 +777,22 @@ describe('acdev vm stop', () => {
     }
   }
 
+  test('when acdevd poweroff runs out its time, diagnostics are taken before the next way', async () => {
+    const { tried, ways: given } = ways({ devd: true, agent: true }, 'agent')
+    const diagnose = async () => void tried.push('diagnose')
+    expect(await Machine.shutdown({ ...given, diagnose })).toBe('agent')
+    const orderly = `wait ${Machine.ORDERLY_SECONDS}`
+    expect(tried).toEqual(['devd', orderly, 'diagnose', 'agent', orderly])
+    const quick = ways({ devd: true }, 'devd')
+    expect(await Machine.shutdown({ ...quick.ways, diagnose: async () => void quick.tried.push('diagnose') })).toBe('devd')
+    expect(quick.tried).not.toContain('diagnose')
+    const failing = ways({ devd: true, agent: true }, 'agent')
+    const broken = async () => {
+      throw new Error('no agent')
+    }
+    expect(await Machine.shutdown({ ...failing.ways, diagnose: broken })).toBe('agent')
+  })
+
   test('acdevd powers the guest off first and the others are not tried', async () => {
     const { tried, ways: given } = ways({ devd: true }, 'devd')
     expect(await Machine.shutdown(given)).toBe('devd')
