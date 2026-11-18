@@ -1,7 +1,8 @@
 name: test
 
 # Started by hand while the suite settles (see docs/dev/testing.md); it is meant to run on every push to main later.
-# The steps on acdert/web (the web job, the build of acde-host, acde-demo's ACDE_APP) fail until web/ is replaced.
+# acdert/web is gone (the page files are bundled from acdert/js into the runtime by build.rs, which needs bun): the web job and
+# acde-demo's ACDE_APP went with it (2026-11-18); WPT runs without --app (scripts/wpt/run.ts).
 on:
   workflow_dispatch:
     inputs:
@@ -25,25 +26,6 @@ env:
   ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdev
 
 jobs:
-  web:
-    runs-on: x86_64-debian-234
-    timeout-minutes: 30
-    steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
-      - name: install
-        run: bun install --frozen-lockfile --cwd acdert/web
-      - name: typecheck
-        working-directory: acdert/web
-        run: bun run typecheck
-      - name: unit tests (acde-api, acde-dom, acde-host)
-        working-directory: acdert/web
-        run: bun run test
-
   gate:
     if: github.event.inputs.wpt == 'gate'
     runs-on: x86_64-debian-234
@@ -186,7 +168,7 @@ jobs:
           CI: '1'
         run: |
           bun install --frozen-lockfile
-          ACDE_APP="$GITHUB_WORKSPACE/acdev/acdert/web/packages/acde-host/dist" bun scripts/apps.ts e2e
+          bun scripts/apps.ts e2e
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: always()
         with:

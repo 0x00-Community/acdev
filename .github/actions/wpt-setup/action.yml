@@ -1,5 +1,5 @@
 name: wpt-setup
-description: acdev checked out at acdev/ with acdert/vendor/blitz, acdev runtime built (release), acdert/web built, the acdev CLI linked, the WPT checkout and the runner apps
+description: acdev checked out at acdev/ with acdert/vendor/blitz, acdev runtime built (release; build.rs bundles acdert/js with bun), the acdev CLI linked, the WPT checkout and the runner apps
 inputs:
   token:
     description: a token that reads AC's repositories and its cargo registry
@@ -62,12 +62,12 @@ runs:
       env:
         CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ inputs.token }}
       run: cd acdev && cargo update --quiet && cargo fetch --locked
-    - name: build acdev runtime (release, offline, no token) and acdert/web; link the acdev CLI
+    - name: build acdev runtime (release, offline, no token; build.rs bundles acdert/js with bun); link the acdev CLI
       shell: bash
       run: |
         set -eu
-        (cd acdev && cargo build --release --offline --locked -p acdev)
-        (cd acdev/acdert/web && bun install --frozen-lockfile && bun run build)
+        (cd acdev/acdert/js && bun install --frozen-lockfile)
+        (cd acdev && ACDEV_BUN="$(command -v bun)" cargo build --release --offline --locked -p acdev)
         (cd acdev/npm && bun install --frozen-lockfile && bun link)
         (cd acdev/acdert/scripts/wpt && bun install --frozen-lockfile)
     - name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
