@@ -131,8 +131,7 @@ mod tests {
     const KEY: &[u8] = b"s3cret";
 
     fn scratch(name: &str) -> PathBuf {
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("acdevd-tunnel-{name}-{}-{stamp}", std::process::id()));
+        let dir = crate::serve::scratch_path(&format!("tunnel-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::canonicalize(dir).unwrap()
     }

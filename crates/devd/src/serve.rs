@@ -282,6 +282,14 @@ pub fn log_dir() -> &'static Path {
 }
 
 #[cfg(test)]
+pub fn scratch_path(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let count = NEXT.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!("acdevd-{name}-{}-{count}-{stamp}", std::process::id()))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -291,13 +299,9 @@ mod tests {
 
     fn serve_with(key: Option<&[u8]>) -> (UnixStream, thread::JoinHandle<io::Result<()>>, PathBuf) {
         let (host, guest) = UnixStream::pair().unwrap();
-        let logs = std::env::temp_dir().join(format!("acdevd-test-{}-{}", std::process::id(), rand()));
+        let logs = scratch_path("test");
         let settings = Settings { logs: logs.clone(), key: key.map(<[u8]>::to_vec), sockets: tunnel::Sockets::defaults() };
         (host, thread::spawn(move || handle(guest, &settings)), logs)
-    }
-
-    fn rand() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     }
 
     fn argv(flags: u8, words: &[&str]) -> Vec<u8> {
@@ -365,7 +369,7 @@ mod tests {
 
     #[test]
     fn push_writes_files_with_their_mode() {
-        let dir = std::env::temp_dir().join(format!("acdevd-push-{}", rand()));
+        let dir = scratch_path("push");
         let (mut host, server, _) = serve();
         for (name, mode, text) in [("a/run.sh", 0o755u32, "echo hi\n"), ("b.txt", 0o644, "plain")] {
             let mut body = mode.to_le_bytes().to_vec();
@@ -405,7 +409,7 @@ mod tests {
 
     #[test]
     fn pull_sends_a_file_or_a_tree_with_modes() {
-        let dir = std::env::temp_dir().join(format!("acdevd-pull-{}", rand()));
+        let dir = scratch_path("pull");
         fs::create_dir_all(dir.join("sub")).unwrap();
         fs::write(dir.join("sub/run.sh"), "echo hi\n").unwrap();
         fs::set_permissions(dir.join("sub/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
