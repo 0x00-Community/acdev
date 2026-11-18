@@ -7,6 +7,7 @@ import { which } from '../launcher.mjs'
 import { GuestAgent, monitor } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
 import { crateBinary, crateVersion } from '../src/vm/binary.ts'
+import { accelArgs, bundledFirmware, findQemu, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -293,19 +294,19 @@ describe('acdev vm dev', () => {
 describe('the QEMU command line', () => {
   test('KVM, virtio display, keyboard and tablet, the serial log, the share', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
-    const args = machine.args({ display: 'none', share: '/srv/out' }, true).join(' ')
+    const args = machine.args({ display: 'none', share: '/srv/out' }, 'kvm').join(' ')
     for (const part of ['-accel kvm', '-device virtio-vga', '-device virtio-keyboard-pci', '-device virtio-tablet-pci',
       '-display none', `path=${machine.serial}`, `vhost-vsock-pci,guest-cid=${machine.cid()}`, 'local,path=/srv/out,mount_tag=acdev', 'file=/c.fd']) {
       expect(args).toContain(part)
     }
-    expect(machine.args({}, false).join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
-    expect(machine.args({ gl: true }, true).join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display gtk,gl=on')
+    expect(machine.args({}, 'tcg').join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
+    expect(machine.args({ gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display gtk,gl=on')
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
   })
 
   test('--viewer gives QEMU a peer-to-peer D-Bus display; the viewer binary comes from ACDEV_VIEWER', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
-    expect(machine.args({ display: 'viewer' }, true).join(' ')).toContain('-display dbus,p2p=yes')
+    expect(machine.args({ display: 'viewer' }, 'kvm').join(' ')).toContain('-display dbus,p2p=yes')
     const wanted = { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }
     expect(crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: CLI })).toBe(CLI)
     expect(() => crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: '/no/such/viewer' })).toThrow('ACDEV_VIEWER=/no/such/viewer: no such file')
@@ -313,18 +314,18 @@ describe('the QEMU command line', () => {
 
   test('--outputs N gives the display device N heads; one is the default', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
-    const one = machine.args({}, true).join(' ')
+    const one = machine.args({}, 'kvm').join(' ')
     expect(one).toContain('-device virtio-vga,id=gpu0 ')
     expect(one).not.toContain('max_outputs')
-    expect(machine.args({ outputs: 2 }, true).join(' ')).toContain('-device virtio-vga,id=gpu0,max_outputs=2 ')
-    expect(machine.args({ outputs: 3, gl: true }, true).join(' ')).toContain('-device virtio-vga-gl,id=gpu0,max_outputs=3 ')
-    expect(machine.args({ display: 'none' }, true).join(' ')).toContain('-display none')
-    expect(machine.args({ display: 'none', outputs: 2 }, true).join(' ')).toContain('-display dbus,p2p=yes')
+    expect(machine.args({ outputs: 2 }, 'kvm').join(' ')).toContain('-device virtio-vga,id=gpu0,max_outputs=2 ')
+    expect(machine.args({ outputs: 3, gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0,max_outputs=3 ')
+    expect(machine.args({ display: 'none' }, 'kvm').join(' ')).toContain('-display none')
+    expect(machine.args({ display: 'none', outputs: 2 }, 'kvm').join(' ')).toContain('-display dbus,p2p=yes')
   })
 
   test('two PCIe root ports, rp1 and rp2, take hot-plugged devices', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
-    const args = machine.args({}, true).join(' ')
+    const args = machine.args({}, 'kvm').join(' ')
     expect(args).toContain('-device pcie-root-port,id=rp1,bus=pcie.0,chassis=11,slot=11')
     expect(args).toContain('-device pcie-root-port,id=rp2,bus=pcie.0,chassis=12,slot=12')
   })
@@ -380,10 +381,10 @@ describe('the QEMU command line', () => {
 
   test('a forwarded link replaces vsock with a hostfwd to acdevd\'s port', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
-    const unix = machine.args({}, true, { kind: 'unix', path: '/r/devd.sock' }).join(' ')
+    const unix = machine.args({}, 'kvm', { kind: 'unix', path: '/r/devd.sock' }).join(' ')
     expect(unix).toContain('user,model=virtio-net-pci,hostfwd=unix:/r/devd.sock-:5252')
     expect(unix).not.toContain('vhost-vsock')
-    expect(machine.args({}, true, { kind: 'tcp', port: 4321 }).join(' ')).toContain(',hostfwd=tcp:127.0.0.1:4321-:5252')
+    expect(machine.args({}, 'kvm', { kind: 'tcp', port: 4321 }).join(' ')).toContain(',hostfwd=tcp:127.0.0.1:4321-:5252')
     expect(new Machine({ ACDEV_VM_TRANSPORT: 'unix' }).linkKind()).toBe('unix')
     expect(['linux', 'darwin', 'win32', 'freebsd'].map((p) => defaultLink(p as NodeJS.Platform))).toEqual(['vsock', 'tcp', 'tcp', 'tcp'])
     expect(() => new Machine({ ACDEV_VM_TRANSPORT: 'usb' }).linkKind()).toThrow('vsock, unix, tcp')
@@ -495,4 +496,58 @@ describe('a real guest (ACDEV_VM_TEST_IMAGE, QEMU and KVM)', () => {
       expect(stopped.stderr).toMatch(/powered off|killed qemu|not running/)
     }
   }, 600_000)
+})
+
+describe('hosts other than Linux (only the parts that run here)', () => {
+  const windows = { platform: 'win32', arch: 'x64' } as const
+  const mac = { platform: 'darwin', arch: 'x64' } as const
+
+  test('the accelerator: KVM when /dev/kvm opens, WHPX on Windows, HVF on macOS, else TCG; WHPX takes -cpu max', () => {
+    expect(preferredAccel({ platform: 'linux', arch: 'x64' }, true)).toBe('kvm')
+    expect(preferredAccel({ platform: 'linux', arch: 'x64' }, false)).toBe('tcg')
+    expect(preferredAccel(windows, false)).toBe('whpx')
+    expect(preferredAccel(mac, false)).toBe('hvf')
+    expect(accelArgs('whpx')).toEqual(['-accel', 'whpx', '-cpu', 'max'])
+    expect(accelArgs('hvf')).toEqual(['-accel', 'hvf', '-cpu', 'host'])
+    expect(accelArgs('tcg')).toEqual(['-accel', 'tcg,thread=multi', '-cpu', 'max'])
+  })
+
+  test('QEMU on Windows: ACDEV_QEMU_DIR, PATH, the registry, Program Files, MSYS2, in that order', () => {
+    const env = { PATH: 'C:\\tools;C:\\bin', ProgramFiles: 'D:\\Programs' }
+    expect(qemuDirs({ host: windows, env, registry: () => 'E:\\qemu' }))
+      .toEqual(['C:\\tools', 'C:\\bin', 'E:\\qemu', 'D:\\Programs\\qemu', 'C:\\msys64\\ucrt64\\bin', 'C:\\msys64\\mingw64\\bin'])
+    const there = new Set(['D:\\Programs\\qemu\\qemu-system-x86_64.exe', 'D:\\Programs\\qemu\\qemu-img.exe'])
+    const qemu = findQemu({ host: windows, env, registry: () => null, exists: (path) => there.has(path) }, 'x86_64')
+    expect(qemu).toEqual({ system: 'D:\\Programs\\qemu\\qemu-system-x86_64.exe', img: 'D:\\Programs\\qemu\\qemu-img.exe' })
+    expect(bundledFirmware(windows, qemu, 'x86_64'))
+      .toEqual(['D:\\Programs\\qemu\\share\\edk2-x86_64-code.fd', 'D:\\Programs\\qemu\\share\\edk2-i386-vars.fd'])
+    const given = qemuDirs({ host: windows, env: { ...env, ACDEV_QEMU_DIR: 'F:\\q' }, registry: () => null })
+    expect(given[0]).toBe('F:\\q')
+    expect(() => findQemu({ host: windows, env, registry: () => null, exists: () => false }, 'x86_64')).toThrow('qemu.weilnetz.de')
+  })
+
+  test('QEMU on macOS: PATH, then Homebrew on Apple silicon and Intel, then MacPorts; its share/qemu firmware', () => {
+    expect(qemuDirs({ host: mac, env: { PATH: '/usr/bin' } })).toEqual(['/usr/bin', '/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin'])
+    expect(bundledFirmware(mac, { system: '/usr/local/bin/qemu-system-x86_64', img: '/usr/local/bin/qemu-img' }, 'x86_64'))
+      .toEqual(['/usr/local/share/qemu/edk2-x86_64-code.fd', '/usr/local/share/qemu/edk2-i386-vars.fd'])
+  })
+
+  test('on Windows QMP and the guest agent listen on 127.0.0.1 ports; --share and the viewer are refused', async () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, windows)
+    const endpoints = { qmp: { host: '127.0.0.1', port: 4001 }, qga: { host: '127.0.0.1', port: 4002 } }
+    const args = machine.args({}, 'whpx', { kind: 'tcp', port: 4003 }, endpoints).join(' ')
+    expect(args).toContain('-accel whpx -cpu max')
+    expect(args).toContain('-qmp tcp:127.0.0.1:4001,server=on,wait=off')
+    expect(args).toContain('-chardev socket,host=127.0.0.1,port=4002,server=on,wait=off,id=qga0')
+    expect(args).toContain('hostfwd=tcp:127.0.0.1:4003-:5252')
+    expect(machine.linkKind()).toBe('tcp')
+    await expect(machine.start({ share: 'C:\\src' }, () => undefined)).rejects.toThrow('use acdev vm push')
+    await expect(machine.start({ display: 'viewer' }, () => undefined)).rejects.toThrow('Linux only for now')
+  })
+
+  test('the guest CPU must have the x86-64-v3 features', () => {
+    const flags = 'flags\t\t: fpu sse4_2 avx avx2 bmi1 bmi2 f16c fma abm movbe xsave\n'
+    expect(missingFeatures(flags)).toEqual([])
+    expect(missingFeatures('flags\t: fpu sse4_2 avx xsave\n')).toEqual(['avx2', 'bmi1', 'bmi2', 'f16c', 'fma', 'abm', 'movbe'])
+  })
 })

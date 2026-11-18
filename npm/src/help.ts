@@ -313,7 +313,7 @@ export class Help {
         name: 'vm',
         group: 'Emulator',
         args: '<subcommand> [args]',
-        summary: 'Run a Dopame OS guest under QEMU (Linux, KVM)',
+        summary: 'Run a Dopame OS guest under QEMU (KVM, WHPX or HVF)',
         about: [
           'fetch downloads the newest Dopame OS x86_64 disk image. start boots it in the background under an overlay '
             + 'disk (the image stays as it is) and waits until the guest is ready; stop powers it off; status, wait. '
@@ -331,7 +331,7 @@ export class Help {
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
             + 'port from the next boot.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
-            + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and OVMF; without /dev/kvm it emulates.',
+            + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and UEFI firmware (ACDEV_QEMU_DIR); without KVM, WHPX or HVF it emulates.',
         ],
         options: [
           { flag: '--headless', about: 'start: no window (screenshots still work)' },

@@ -9,6 +9,7 @@
 | `ACDEV_SDK` | The SDK directory `acdev new` and `acdev sdk update` point `@dopame/acde-api` at; default the one that comes with acdev |
 | `ACDEV_VM_DIR` | Where `acdev vm` keeps the guest: images, the overlay disk, sockets, logs; default `~/.local/share/acde/vm` |
 | `ACDEV_VM_TRANSPORT` | How `acdev vm start` reaches acdevd in the guest: `vsock` (default on Linux), `tcp` (a forwarded port on 127.0.0.1, default on macOS and Windows) or `unix` (a forwarded Unix socket in the VM directory; only when set, and it needs a QEMU with `hostfwd=unix` support (merged upstream in October 2025; the first release with it is probably 10.2, not verified), libslirp 4.7.0 or newer, no Windows host, and no `-` in the socket path unless QEMU also has the June 2026 fix that splits the rule at the last dash; QEMU 8.2.2 says `Bad protocol name`) |
+| `ACDEV_QEMU_DIR` | The directory with `qemu-system-x86_64` and `qemu-img` for `acdev vm` (searched before `PATH`; on Windows the registry and `%ProgramFiles%\qemu` come after `PATH`, on macOS Homebrew and MacPorts) |
 | `ACDEV_VIEWER` | The `acdev-viewer` binary that `acdev vm start --viewer` and `acdev vm view` run (default: built from the checkout's `crates/viewer`) |
 | `ACDEV_RUNTIME` | The acdev runtime binary `acdev dev` and `acdev test` run: a path, or a name on PATH. Unset: the acdev runtime the installer put next to acdev, then `acdev runtime` (or an older `acdert`) on PATH |
 | `ACDEV_BUNDLER=vite` | Bundle with Vite on Bun too |

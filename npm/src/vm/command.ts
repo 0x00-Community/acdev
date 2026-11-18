@@ -62,6 +62,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   if (options.display === 'viewer') say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {
+    await machine.checkCpu()
     say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over ${machine.describeLink()}`)
     return 0
   }

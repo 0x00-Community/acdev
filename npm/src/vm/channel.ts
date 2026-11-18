@@ -1,4 +1,5 @@
 import { connect, type Socket } from 'node:net'
+import type { Endpoint } from './host.ts'
 
 type Reply = { return?: unknown; error?: { class?: string; desc?: string }; event?: string }
 
@@ -17,9 +18,9 @@ export class Channel {
     socket.on('close', () => this.#fail(new Error('the socket closed')))
   }
 
-  static open(path: string): Promise<Channel> {
+  static open(endpoint: Endpoint): Promise<Channel> {
     return new Promise((resolve, reject) => {
-      const socket = connect(path)
+      const socket = typeof endpoint === 'string' ? connect(endpoint) : connect(endpoint)
       socket.once('connect', () => resolve(new Channel(socket)))
       socket.once('error', reject)
     })
@@ -91,7 +92,7 @@ export class Channel {
   }
 }
 
-export async function monitor(path: string, command: string, args?: unknown, timeoutMs = 120_000): Promise<unknown> {
+export async function monitor(path: Endpoint, command: string, args?: unknown, timeoutMs = 120_000): Promise<unknown> {
   const channel = await Channel.open(path)
   try {
     await channel.line(10_000)
@@ -118,7 +119,7 @@ export class GuestAgent {
     this.#channel = channel
   }
 
-  static async open(path: string, timeoutMs = 10_000): Promise<GuestAgent> {
+  static async open(path: Endpoint, timeoutMs = 10_000): Promise<GuestAgent> {
     const channel = await Channel.open(path)
     const id = Math.floor(Math.random() * 2 ** 31)
     channel.send('guest-sync', { id })
@@ -136,7 +137,7 @@ export class GuestAgent {
     }
   }
 
-  static async ping(path: string, seconds: number): Promise<boolean> {
+  static async ping(path: Endpoint, seconds: number): Promise<boolean> {
     const deadline = Date.now() + seconds * 1000
     for (;;) {
       try {

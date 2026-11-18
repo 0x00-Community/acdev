@@ -8,9 +8,10 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
-import { which } from 'acdev/launcher'
-import { Runtime } from '../runtime.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
+import {
+  accelArgs, bundledFirmware, findQemu, HOST, missingFeatures, preferredAccel, spawnDetached, type Accel, type Endpoint, type Host, type Qemu,
+} from './host.ts'
 import { crateBinary } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
@@ -44,6 +45,8 @@ export class Machine {
   ]
   readonly dir: string
   readonly env: NodeJS.ProcessEnv
+  readonly host: Host
+  static readonly GUEST = 'x86_64'
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..', '..'))
   static readonly DEVD = '/usr/local/bin/acdevd'
   static readonly HOTPLUG = ['rp1', 'rp2'] as const
@@ -51,9 +54,11 @@ export class Machine {
   static readonly MAX_OUTPUTS = 16
   static readonly UNIT = '/etc/systemd/system/acdevd.service'
 
-  constructor(env: NodeJS.ProcessEnv = process.env) {
+  constructor(env: NodeJS.ProcessEnv = process.env, host: Host = HOST) {
     this.env = env
-    const data = env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share')
+    this.host = host
+    const local = host.platform === 'win32' ? env['LOCALAPPDATA'] : undefined
+    const data = env['XDG_DATA_HOME'] || local || join(homedir(), '.local', 'share')
     this.dir = resolve(env['ACDEV_VM_DIR'] || join(data, 'acdev', 'vm'))
   }
 
@@ -73,12 +78,35 @@ export class Machine {
     return join(this.logs, 'serial.log')
   }
 
-  get qmp(): string {
-    return join(this.run, 'qmp.sock')
+  get qmp(): Endpoint {
+    return this.#endpoints().qmp
   }
 
-  get qga(): string {
-    return join(this.run, 'qga.sock')
+  get qga(): Endpoint {
+    return this.#endpoints().qga
+  }
+
+  #endpoints(): { qmp: Endpoint; qga: Endpoint } {
+    const file = join(this.run, 'endpoints.json')
+    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')) as { qmp: Endpoint; qga: Endpoint }
+    return { qmp: join(this.run, 'qmp.sock'), qga: join(this.run, 'qga.sock') }
+  }
+
+  async #newEndpoints(): Promise<{ qmp: Endpoint; qga: Endpoint }> {
+    if (this.host.platform !== 'win32') return { qmp: join(this.run, 'qmp.sock'), qga: join(this.run, 'qga.sock') }
+    return { qmp: { host: '127.0.0.1', port: await Machine.#freePort() }, qga: { host: '127.0.0.1', port: await Machine.#freePort() } }
+  }
+
+  static #chardev(endpoint: Endpoint): string {
+    return typeof endpoint === 'string' ? `path=${endpoint}` : `host=${endpoint.host},port=${endpoint.port}`
+  }
+
+  static #qmpAddress(endpoint: Endpoint): string {
+    return typeof endpoint === 'string' ? `unix:${endpoint}` : `tcp:${endpoint.host}:${endpoint.port}`
+  }
+
+  qemu(): Qemu {
+    return findQemu({ host: this.host, env: this.env }, Machine.GUEST)
   }
 
   get key(): string {
@@ -95,7 +123,7 @@ export class Machine {
       if (!(LINKS as readonly string[]).includes(given)) throw new Error(`vm: ACDEV_VM_TRANSPORT=${given}: ${LINKS.join(', ')}`)
       return given as Link['kind']
     }
-    return defaultLink(process.platform)
+    return defaultLink(this.host.platform)
   }
 
   async newLink(): Promise<Link> {
@@ -150,9 +178,10 @@ export class Machine {
     const file = join(this.images, name)
     if (existsSync(file)) say(`${name} is already here`)
     else await this.#download(`${dist}/${name}`, file, say)
+    writeFileSync(join(this.images, 'latest'), `${name}\n`)
     const latest = join(this.images, 'latest.qcow2')
     rmSync(latest, { force: true })
-    symlinkSync(name, latest)
+    if (this.host.platform !== 'win32') symlinkSync(name, latest)
     return file
   }
 
@@ -188,9 +217,12 @@ export class Machine {
     const code = this.env['OVMF_CODE']
     const vars = this.env['OVMF_VARS']
     if (code && vars) return [code, vars]
-    const found = Machine.FIRMWARE.find(([c, v]) => existsSync(c) && existsSync(v))
-    if (!found) throw new Error('vm: no UEFI firmware: install OVMF (ovmf / edk2-ovmf) or set OVMF_CODE and OVMF_VARS')
-    return found
+    const system = this.host.platform === 'linux' ? Machine.FIRMWARE : []
+    const found = system.find(([c, v]) => existsSync(c) && existsSync(v))
+    if (found) return found
+    const bundled = bundledFirmware(this.host, this.qemu(), Machine.GUEST)
+    if (bundled.every((file) => existsSync(file))) return bundled
+    throw new Error(`vm: no UEFI firmware: install OVMF (ovmf / edk2-ovmf), or QEMU's own ${bundled.join(' and ')}, or set OVMF_CODE and OVMF_VARS`)
   }
 
   static directory(path: string): string {
@@ -215,6 +247,7 @@ export class Machine {
   }
 
   static kvm(): boolean {
+    if (process.platform !== 'linux') return false
     try {
       openSync('/dev/kvm', 'r+')
       return true
@@ -223,30 +256,29 @@ export class Machine {
     }
   }
 
-  overlay(image: string, fresh: boolean): boolean {
+  overlay(image: string, fresh: boolean, img = 'qemu-img'): boolean {
     const disk = join(this.dir, 'disk.qcow2')
     const base = join(this.dir, 'disk.base')
     const same = existsSync(disk) && existsSync(base) && readFileSync(base, 'utf8').trim() === image
     if (same && !fresh) return false
     rmSync(disk, { force: true })
     rmSync(join(this.dir, 'vars.fd'), { force: true })
-    const made = spawnSync('qemu-img', ['create', '-q', '-f', 'qcow2', '-b', image, '-F', 'qcow2', disk], { encoding: 'utf8' })
+    const made = spawnSync(img, ['create', '-q', '-f', 'qcow2', '-b', image, '-F', 'qcow2', disk], { encoding: 'utf8' })
     if (made.status !== 0) throw new Error(`vm: qemu-img create: ${made.stderr.trim()}`)
     writeFileSync(base, `${image}\n`)
     return true
   }
 
-  args(options: StartOptions, kvm: boolean, link: Link = { kind: 'vsock' }): string[] {
+  args(options: StartOptions, accel: Accel, link: Link = { kind: 'vsock' }, endpoints = this.#endpoints()): string[] {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
-    const accel = kvm ? ['-accel', 'kvm', '-cpu', 'host'] : ['-accel', 'tcg,thread=multi', '-cpu', 'max']
     const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
     const gpu = ['-device', `${options.gl ? 'virtio-vga-gl' : 'virtio-vga'},id=${Machine.GPU}${heads}`]
     const shown = ['-display', Machine.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
-      '-name', 'acdev', '-machine', 'q35', ...accel,
+      '-name', 'acdev', '-machine', 'q35', ...accelArgs(accel),
       '-smp', this.env['ACDEV_VM_CPUS'] || '4', '-m', this.env['ACDEV_VM_MEMORY'] || '8G',
       '-drive', `if=pflash,format=raw,readonly=on,file=${code}`,
       '-drive', `if=pflash,format=raw,file=${join(this.dir, 'vars.fd')}`,
@@ -255,9 +287,9 @@ export class Machine {
       '-device', 'virtio-keyboard-pci', '-device', 'virtio-tablet-pci',
       '-nic', `user,model=virtio-net-pci${Machine.#forward(link)}`,
       '-fw_cfg', `name=opt/acdev/key,file=${this.key}`,
-      '-chardev', `socket,path=${this.qga},server=on,wait=off,id=qga0`,
+      '-chardev', `socket,${Machine.#chardev(endpoints.qga)},server=on,wait=off,id=qga0`,
       '-device', 'virtio-serial', '-device', 'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0',
-      '-qmp', `unix:${this.qmp},server=on,wait=off`,
+      '-qmp', `${Machine.#qmpAddress(endpoints.qmp)},server=on,wait=off`,
       ...(link.kind === 'vsock' ? ['-device', `vhost-vsock-pci,guest-cid=${this.cid()}`] : []),
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
       '-pidfile', join(this.run, 'qemu.pid'),
@@ -278,45 +310,66 @@ export class Machine {
     return link.kind === 'tcp' ? `,hostfwd=tcp:127.0.0.1:${link.port}-:${PORT}` : ''
   }
 
-  async #freshRun(): Promise<Link> {
+  async #freshRun(): Promise<{ link: Link; endpoints: { qmp: Endpoint; qga: Endpoint } }> {
     for (const name of ['qga.sock', 'qmp.sock', 'qemu.pid', 'devd.sock', 'key']) rmSync(join(this.run, name), { force: true })
     const link = await this.newLink()
+    const endpoints = await this.#newEndpoints()
     writeFileSync(this.linkFile, `${JSON.stringify(link)}\n`)
+    writeFileSync(join(this.run, 'endpoints.json'), `${JSON.stringify(endpoints)}\n`)
     writeFileSync(this.key, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 })
-    return link
+    return { link, endpoints }
+  }
+
+  #refuse(options: StartOptions): void {
+    if (options.gl && options.display && options.display !== 'window') throw new Error('vm: --gl needs a window')
+    if (this.host.platform === 'win32' && options.share) throw new Error('vm: --share needs 9p, which QEMU on Windows does not have; use acdev vm push')
+    const viewer = options.display === 'viewer' || (options.display === 'none' && (options.outputs ?? 1) > 1)
+    if (this.host.platform !== 'linux' && viewer) throw new Error('vm: acdev-viewer (--viewer, or --headless with --outputs) is Linux only for now')
   }
 
   async start(options: StartOptions, say: (line: string) => void): Promise<number> {
     const already = this.pid()
     if (already !== null) throw new Error(`vm: a guest is already running from ${this.dir} (pid ${already})`)
-    if (options.gl && options.display && options.display !== 'window') throw new Error('vm: --gl needs a window')
-    for (const tool of ['qemu-system-x86_64', 'qemu-img']) {
-      if (!which(tool, this.env)) throw new Error(`vm: ${tool} is not on PATH (install qemu-system-x86 and qemu-utils)`)
-    }
-    const image = realpathSync(options.image ?? join(this.images, 'latest.qcow2'))
+    this.#refuse(options)
+    const qemu = this.qemu()
+    const image = realpathSync(options.image ?? this.image() ?? join(this.images, 'latest.qcow2'))
     mkdirSync(this.run, { recursive: true })
     mkdirSync(this.logs, { recursive: true })
-    if (this.overlay(image, options.fresh ?? false)) say(`new overlay disk on ${image}`)
+    if (this.overlay(image, options.fresh ?? false, qemu.img)) say(`new overlay disk on ${image}`)
     const vars = join(this.dir, 'vars.fd')
     if (!existsSync(vars)) copyFileSync(this.firmware()[1], vars)
-    const kvm = Machine.kvm()
-    if (!kvm) say('cannot open /dev/kvm: emulating (TCG), much slower')
-    const args = this.args(options, kvm, await this.#freshRun())
-    writeFileSync(join(this.logs, 'qemu.cmd'), `${['qemu-system-x86_64', ...args].join(' ')}\n`)
-    writeFileSync(this.serial, '')
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
     writeFileSync(join(this.run, 'display'), `${options.display ?? 'window'}\n`)
     writeFileSync(join(this.run, 'outputs'), `${options.outputs ?? 1}\n`)
-    const log = openSync(join(this.logs, 'qemu.log'), 'w')
-    const child = Runtime.spawn(['setsid', 'qemu-system-x86_64', ...args], { stdio: ['ignore', log, log] })
-    child.process.unref()
+    const preferred = preferredAccel(this.host, Machine.kvm())
+    if (preferred === 'tcg') say('no hardware acceleration (/dev/kvm does not open): emulating (TCG), much slower')
+    const tried = await this.#boot(qemu, options, preferred)
+    if (tried.pid !== null) return tried.pid
+    if (preferred === 'tcg' || !new RegExp(preferred, 'i').test(tried.log)) throw new Error(`vm: qemu did not start: ${tried.log}`)
+    say(`${preferred.toUpperCase()} did not start (${Machine.#firstLine(tried.log, preferred)}): emulating (TCG), much slower`)
+    const fallback = await this.#boot(qemu, options, 'tcg')
+    if (fallback.pid !== null) return fallback.pid
+    throw new Error(`vm: qemu did not start: ${fallback.log}`)
+  }
+
+  static #firstLine(log: string, word: string): string {
+    return log.split(/\r?\n/).find((line) => new RegExp(word, 'i').test(line))?.trim() ?? log.trim()
+  }
+
+  async #boot(qemu: Qemu, options: StartOptions, accel: Accel): Promise<{ pid: number | null; log: string }> {
+    const { link, endpoints } = await this.#freshRun()
+    const args = this.args(options, accel, link, endpoints)
+    writeFileSync(join(this.logs, 'qemu.cmd'), `${[qemu.system, ...args].join(' ')}\n`)
+    writeFileSync(this.serial, '')
+    const logFile = join(this.logs, 'qemu.log')
+    const child = spawnDetached([qemu.system, ...args], openSync(logFile, 'w'), this.env)
     for (let i = 0; i < 100; i++) {
       const pid = this.pid()
-      if (pid !== null) return pid
-      if (child.process.exitCode !== null) break
+      if (pid !== null) return { pid, log: '' }
+      if (child.exited()) break
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    throw new Error(`vm: qemu did not start: ${readFileSync(join(this.logs, 'qemu.log'), 'utf8').trim()}`)
+    return { pid: null, log: readFileSync(logFile, 'utf8').trim() }
   }
 
   async stop(seconds = 60): Promise<'off' | 'killed' | 'not running'> {
@@ -331,6 +384,12 @@ export class Machine {
     return 'killed'
   }
 
+  #unixQmp(): string {
+    const qmp = this.qmp
+    if (typeof qmp !== 'string') throw new Error('vm: acdev-viewer needs QMP on a Unix socket')
+    return qmp
+  }
+
   #viewer(): string {
     return crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
   }
@@ -341,7 +400,7 @@ export class Machine {
     const viewer = this.#viewer()
     let failed = ''
     for (let attempt = 0; attempt < 20; attempt++) {
-      const ran = spawnSync(viewer, ['--qmp', this.qmp, '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
+      const ran = spawnSync(viewer, ['--qmp', this.#unixQmp(), '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
       if (ran.status === 0) return
       failed = (ran.stderr || ran.error?.message || `exit ${ran.status}`).trim()
       await new Promise((done) => setTimeout(done, 500))
@@ -358,9 +417,7 @@ export class Machine {
     const viewer = this.#viewer()
     const log = openSync(join(this.logs, 'viewer.log'), 'a')
     const title = `acdev: ${basename(this.dir)}`
-    const child = Runtime.spawn(['setsid', viewer, '--qmp', this.qmp, '--title', title], { stdio: ['ignore', log, log], env: this.env })
-    child.process.unref()
-    return child.pid
+    return spawnDetached([viewer, '--qmp', this.#unixQmp(), '--title', title], log, this.env).pid
   }
 
   async ready(seconds: number): Promise<boolean> {
@@ -417,6 +474,15 @@ export class Machine {
     const binary = Devd.binary(Machine.ROOT, this.env)
     Devd.checkVersion(binary, Machine.ROOT)
     return binary
+  }
+
+  async checkCpu(): Promise<void> {
+    const cpuinfo = await this.exec('cat /proc/cpuinfo', 60_000)
+    const missing = missingFeatures(cpuinfo.stdout.toString())
+    if (missing.length > 0) {
+      throw new Error(`vm: the guest CPU lacks ${missing.join(', ')}, which the guest kernel (x86-64-v3) needs; `
+        + 'see docs/vm.md "CPU features" (WHPX: QEMU 8.2 cannot set CPUID leaf 7, so these come from the host CPU)')
+    }
   }
 
   async installDevd(say: (line: string) => void, seconds = 30): Promise<string> {
@@ -476,6 +542,8 @@ export class Machine {
   }
 
   image(): string | null {
+    const named = join(this.images, 'latest')
+    if (existsSync(named)) return join(this.images, readFileSync(named, 'utf8').trim())
     const latest = join(this.images, 'latest.qcow2')
     return existsSync(latest) ? join(this.images, readlinkSync(latest)) : null
   }

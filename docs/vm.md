@@ -11,15 +11,54 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 
 ## 要什么
 
-- `qemu-system-x86_64`、`qemu-img` (Debian / Ubuntu: `qemu-system-x86 qemu-utils`; Arch: `qemu-full` 或 `qemu-base`)、UEFI 固件 OVMF
-  (`ovmf` / `edk2-ovmf`; 找不到时设 `OVMF_CODE`、`OVMF_VARS`)、`setsid` (util-linux).
-- `/dev/kvm` 可读写. 打不开时退回 TCG 软件模拟, 能跑但慢得多, `start` 和 `status` 会说.
-- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdev-viewer`, 取 `ACDEV_VIEWER`, 否则检出里 `crates/viewer` 编出的);
-  没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
+- `qemu-system-x86_64`、`qemu-img` 和 UEFI 固件. 找 QEMU 的顺序 (`src/vm/host.ts` `qemuDirs`): `ACDEV_QEMU_DIR`、`PATH`, 再按平台:
+  - Linux: 只看 `PATH` (Debian / Ubuntu: `qemu-system-x86 qemu-utils`; Arch: `qemu-full` 或 `qemu-base`); 固件 OVMF (`ovmf` / `edk2-ovmf`),
+    没有时用 QEMU 自带的 `share/qemu/edk2-x86_64-code.fd`;
+  - Windows: 注册表 `HKLM\SOFTWARE\QEMU` 的 `Install_Dir` (QEMU 官方安装包 `qemu.nsi` 写的)、`%ProgramFiles%\qemu` (安装包的默认目录,
+    `InstallDir $PROGRAMFILES64\qemu`)、MSYS2 的 `C:\msys64\ucrt64\bin`、`mingw64\bin`; 固件用安装目录下的 `share\edk2-x86_64-code.fd` 和
+    `share\edk2-i386-vars.fd` (安装包把 `share` 整个拷进去; 文件名照 QEMU 源码 `pc-bios/`, 安装后的实际位置〔未核实〕). 安装: 官网列的
+    Stefan Weil 的安装包 https://qemu.weilnetz.de/w64/ , 或 `winget install -e --id SoftwareFreedomConservancy.QEMU` (同一个安装包);
+  - macOS: Homebrew (`/opt/homebrew/bin` Apple 芯片、`/usr/local/bin` Intel)、MacPorts (`/opt/local/bin`), 固件同 Linux 的 `share/qemu`.
+  `OVMF_CODE`、`OVMF_VARS` 两个都设了就用它们.
+- 硬件加速 (`src/vm/host.ts` `preferredAccel`): Linux 上 `/dev/kvm` 能读写就 KVM (`-cpu host`), 打不开就 TCG 软件模拟; Windows 上 WHPX
+  (`-accel whpx -cpu max`), macOS 上 HVF (`-accel hvf -cpu host`). WHPX / HVF 起不来 (QEMU 马上退出, 输出里提到它) 时说一句原因,
+  退回 TCG 重起一次; 慢得多. `start` 和 `status` 会说.
+- QEMU 进程用分离的子进程起 (Node 的 `detached`: POSIX 上是新会话, Windows 上不挂在当前控制台), 不随 `acdev` 退出, 不再要 `setsid`.
+- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdev-viewer`, 取 `ACDEV_VIEWER`, 否则检出里 `crates/viewer` 编出的,
+  目前只有 Linux); 没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
+
+## Windows (WHPX)
+
+工作项 02 (三平台模拟器里程碑, 规范在总仓 `.scratch/acdev-m2/spec.md`). 依据总仓 `.scratch/roadmap/research/05-emulator.md` 第二节.
+
+- 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
+  x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
+- 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」); QMP 和 guest agent 也改用 `127.0.0.1` 上的空闲端口
+  (`run/endpoints.json`), 因为 Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 QEMU 的 Unix 套接字. 这两个端口本机别的进程也
+  能连 (QMP 能关机、截屏), Windows 上暂且接受.
+- 没有 9p: `--share` 直接报错, 用 `acdev vm push`. 没有 acdev-viewer: `--viewer`、`--headless --outputs N` 报错.
+- `fetch` 不建 `latest.qcow2` 符号链接 (Windows 上要管理员或开发者模式), 最新镜像的名字写在 `images/latest` (所有平台都写).
+
+### CPU 特性
+
+客户机内核按 x86-64-v3 编 (ackernel `_processor_opt` 默认 `v3`: AVX2、BMI2 等). `start` 在客户机就绪后读 `/proc/cpuinfo`, 缺
+`avx avx2 bmi1 bmi2 f16c fma abm movbe xsave` 中任何一个就报错. WHPX 的情况 (读 QEMU 8.2.2 `target/i386/whpx/whpx-all.c`):
+- QEMU 的 `host` CPU 型号只在 KVM、HVF 下注册, WHPX 用不了 `-cpu host`, 所以用 `-cpu max`;
+- WHPX 只把 CPUID 的少数几个叶子 (1、0x80000001 和 VMware 的两个) 交给 QEMU 按它的 CPU 型号回答, 其余 (含 AVX2、BMI 所在的叶子 7)
+  由 Hyper-V 按宿主 CPU 回答 (那里的注释: "WHPX doesn't support setting CPUID values in the hypervisor once the partition has been setup").
+  所以 AVX2 等取决于宿主 CPU 和 Hyper-V; `-cpu max` 保证叶子 1 里的 AVX、FMA、F16C、MOVBE、XSAVE 报上去. 实际够不够〔未核实〕, 要在
+  Windows 上跑一次看 `start` 的检查.
+- 内核在特性不够时可能根本起不来 (还没到能读 `/proc/cpuinfo`), 那时 `start` 只会等到超时; 看 `logs/serial.log` (先 `acdev vm console`).
+
+### 过渡: WSL2 里用 KVM
+
+Windows 11 上 WSL2 默认开嵌套虚拟化 (`.wslconfig` 的 `nestedVirtualization`, 默认 `true`, 只在 Windows 11: 微软
+https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux 发行版里装 Linux 版的 acdev 和 QEMU, 就是 Linux 路径
+(KVM、vsock、9p 都有); 窗口经 WSLg 显示. 本机 2026-11-17 起就是这样跑的. 只是要装 WSL, Windows 10 上没有嵌套虚拟化.
 
 ## 目录与镜像
 
-一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acdev/vm`, 即 `~/.local/share/acdev/vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
+一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acdev/vm`, 即 `~/.local/share/acdev/vm`; Windows 上没设 `XDG_DATA_HOME` 时是 `%LOCALAPPDATA%\acdev\vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
 `disk.qcow2` (以基础镜像为底的覆盖盘) 和 `disk.base`、`vars.fd` (UEFI 变量)、`run/` (`qemu.pid`、`qmp.sock`、`qga.sock`、`share`)、
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 winman-lead 共用, 起之前先 `acdev vm status`).
