@@ -39,8 +39,8 @@ describe('release.yml', () => {
     expect(Object.keys(workflow.on)).toEqual(['push', 'workflow_dispatch'])
     expect(workflow.on.push).toEqual({ tags: ['v*'] })
     const inputs = workflow.on.workflow_dispatch.inputs
-    expect(Object.keys(inputs)).toEqual(['publish', 'commit', 'acdert_commit', 'version', 'skip_targets'])
-    for (const name of ['commit', 'acdert_commit', 'version', 'skip_targets']) {
+    expect(Object.keys(inputs)).toEqual(['publish', 'commit', 'version', 'skip_targets'])
+    for (const name of ['commit', 'version', 'skip_targets']) {
       expect(inputs[name]).toEqual({ description: expect.any(String), required: false, default: '', type: 'string' })
     }
     expect(inputs['publish']).toEqual({
@@ -62,14 +62,14 @@ describe('release.yml', () => {
     expect(workflow.concurrency).toEqual({ group: 'acdev-release', 'cancel-in-progress': false })
   })
 
-  test('the jobs run plan, build, host, pkgs, guard, upload, npm, tag, latest, with their needs', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'host', 'pkgs', 'guard', 'upload', 'npm', 'tag', 'latest'])
+  test('the jobs run plan, build, tools, pkgs, guard, upload, npm, tag, latest, with their needs', () => {
+    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'tools', 'pkgs', 'guard', 'upload', 'npm', 'tag', 'latest'])
     expect(needs('npm')).toEqual(['plan', 'guard'])
     expect(jobs['npm']!.if).toBe("needs.plan.outputs.publish == 'true'")
     expect(needs('plan')).toEqual([])
     expect(needs('build')).toEqual(['plan'])
-    expect(needs('host')).toEqual(['plan'])
-    expect(needs('pkgs')).toEqual(['plan', 'build', 'host'])
+    expect(needs('tools')).toEqual(['plan'])
+    expect(needs('pkgs')).toEqual(['plan', 'build', 'tools'])
     expect(needs('guard')).toEqual(['plan', 'pkgs'])
     expect(needs('upload')).toEqual(['plan', 'guard'])
     expect(needs('tag')).toEqual(['plan', 'guard', 'upload'])
@@ -127,7 +127,6 @@ describe('release.yml', () => {
       sha: '${{ steps.version.outputs.sha }}',
       version: '${{ steps.version.outputs.version }}',
       tag: '${{ steps.version.outputs.tag }}',
-      acdert_sha: '${{ steps.acdert.outputs.sha }}',
       targets: '${{ steps.targets.outputs.targets }}',
     })
   })
@@ -152,7 +151,7 @@ describe('release.yml', () => {
     const planCheckout = checkoutOf('plan')
     expect(planCheckout?.with?.['fetch-depth']).toBe(0)
     expect(planCheckout?.with?.['ref']).toBeUndefined()
-    for (const job of ['build', 'pkgs', 'guard', 'tag']) {
+    for (const job of ['build', 'tools', 'pkgs', 'guard', 'tag']) {
       expect(checkoutOf(job)?.with?.['ref']).toBe(jobs['tag']!.env?.['SHA'])
     }
   })
@@ -189,31 +188,36 @@ describe('release.yml', () => {
     }
   })
 
-  test('one version: set into Cargo.toml, npm/package.json and the SDK of the acdert commit built with', () => {
-    const plan = runs('plan')
-    expect(plan).toContain('git -C "$lib" merge-base --is-ancestor "$sha" origin/main || { echo "::error::acdert $sha is not on its main"')
+  test('one version: set into Cargo.toml, npm/package.json and the SDK in npm/acde-api', () => {
+    expect(TEXT).not.toMatch(/AC\/acdert\.git|acdert_commit|acdert_sha|acdert\/web/)
     expect(jobs['pkgs']!.env?.['SDK_VERSION']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
-    const set = indexIn(pkgs, 'sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev acdert')
-    expect(set).toBeLessThan(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build'))
-    expect(indexIn(pkgs, 'bun run --cwd acdert/web/packages/acde-api build')).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
-    expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api/dist" --sdk "$SDK_VERSION"')
+    const set = indexIn(pkgs, 'sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev')
+    expect(set).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
+    expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/acdev/npm/acde-api" --sdk "$SDK_VERSION"')
     expect(pkgs).not.toMatch(/\bnpm (?:publish|install|view)\b/)
-    expect(TEXT).not.toMatch(/acdert-version|acdert-host|acdert-x86|pkgs\.dopame\.ai\/acdert/)
+    expect(TEXT).not.toMatch(/acdert-version|acdert-host|acdert-x86|pkgs\.dopame\.ai\/acdert|acde-host/)
   })
 
-  test('the builds and the host files come from this run, built from the planned commits', () => {
+  test('the builds, the guest daemons and the host tools come from this run, built from the planned commit', () => {
     const build = runs('build')
-    expect(build).toContain('checkout --detach "$ACDERT_SHA"')
-    expect(build).toContain('-C acdert submodule update --init --depth 1')
+    expect(build).toContain('-C acdev submodule update --init --depth 1')
     const triple = ['$', '{{ matrix.triple }}'].join('')
     expect(build).toContain(`cargo build --profile dist -p acdev --target ${triple}`)
     expect(build).toContain(`"out/acdev-runtime-${triple}.tar.xz"`)
     expect(build).toContain(`"out/acdev-runtime-${triple}.tar.gz"`)
-    expect(runs('host')).toContain('tar -C stage -czf "out/acde-host-$VERSION.tar.gz" app LICENSE')
+    const tools = jobs['tools'] as Job & { strategy: { matrix: { include: Record<string, string>[] } } }
+    expect(tools.strategy.matrix.include.map((tool) => [tool['name'], tool['triple']])).toEqual([
+      ['acdevd-x86_64', 'x86_64-unknown-linux-musl'], ['acdevd-aarch64', 'aarch64-unknown-linux-musl'],
+      ['acdev-relay', 'x86_64-pc-windows-msvc'], ['acdev-viewer', 'x86_64-unknown-linux-gnu'],
+    ])
+    expect(runs('tools')).toContain('cargo build --release --target')
     const pkgs = runs('pkgs')
     expect(pkgs).toContain('--runtime "$GITHUB_WORKSPACE/in/runtime"')
     expect(pkgs).toContain('cp "in/runtime-$t/$f" in/runtime/')
+    expect(pkgs).toContain('pack "acdev-guest-$v.tar.gz" in/tool-acdevd-x86_64/acdevd-x86_64 in/tool-acdevd-aarch64/acdevd-aarch64')
+    expect(jobs['pkgs']!.steps.filter((item) => item.uses?.includes('/gitea-download-artifact@')).map((item) => item.with?.['pattern']))
+      .toEqual(['runtime-*', 'tool-*'])
   })
 
   test('the lockfile fetches every package from the default registry, not a mirror', () => {
@@ -228,15 +232,17 @@ describe('release.yml', () => {
 
   test('Linux jobs run on debian12, inside node:22-bookworm (the builds run on each target\'s own runner)', () => {
     for (const [id, job] of Object.entries(jobs)) {
-      if (id === 'build') continue
+      if (id === 'build' || id === 'tools') continue
       expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe('debian12')
       expect((job as Job & { container?: string }).container).toBe('node:22-bookworm')
     }
   })
 
-  test('the version directory holds the CLI, the SDK, the host files and the builds; listed, uploaded and invalidated', () => {
+  test('the version directory holds the CLI, the SDK, the builds, the guest daemons and the host tools; listed, uploaded and invalidated', () => {
     const upload = runs('upload')
-    for (const file of ['acdev-$v.tar.gz', 'acde-api-$v.tar.gz', 'acde-host-$v.tar.gz', 'acdev-runtime-$t.tar.gz', 'acdev-runtime-$t.tar.xz']) {
+    const files = ['acdev-$v.tar.gz', 'acde-api-$v.tar.gz', 'acdev-guest-$v.tar.gz', 'acdev-runtime-$t.tar.gz', 'acdev-runtime-$t.tar.xz',
+      'acdev-tools-$t.tar.gz', 'acdev-tools-$t.tar.xz']
+    for (const file of files) {
       expect(upload).toContain(`echo "$v/${file}"`)
       expect(indexIn(upload, `publish_once "out/$v/${file}"`)).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
     }

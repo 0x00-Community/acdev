@@ -32,9 +32,14 @@ for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: un
 const archives = [`acdev-${version}.tar.gz`]
 const windows = (target: string) => target.endsWith('-windows-msvc')
 const runtimes = targets.map((target) => `acdev-runtime-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
-const host = `acde-host-${version}.tar.gz`
+const guest = `acdev-guest-${version}.tar.gz`
+const TOOLS: Readonly<Record<string, { file: string; programs: string[] }>> = {
+  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', programs: ['acdev-relay.exe'] },
+  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', programs: ['acdev-viewer'] },
+}
+const tools = targets.flatMap((target) => (TOOLS[target] ? [TOOLS[target]] : []))
 const sdk = `acde-api-${version}.tar.gz`
-const checked = [...archives, ...runtimes, host, sdk]
+const checked = [...archives, ...runtimes, guest, ...tools.map((tool) => tool.file), sdk]
 const allowed = new Set([
   'latest',
   'latest.json',
@@ -84,21 +89,18 @@ if (problems.length === 0) {
   if (listed.size !== checked.length) {
     problems.push(`SHA256SUMS lists ${listed.size} files, expected ${checked.length}`)
   }
-  for (const [index, runtime] of runtimes.entries()) {
-    const member = windows(targets[index]!) ? 'acdev.exe' : 'acdev runtime'
-    const listing = systemTar([runtime.endsWith('.xz') ? '-tvJf' : '-tvzf', join(dir, version, runtime)])
+  const programs = (archive: string, wanted: string[]) => {
+    const listing = systemTar([archive.endsWith('.xz') ? '-tvJf' : '-tvzf', join(dir, version, archive)])
     const rows = listing.status === 0 ? listing.stdout.split('\n').filter(Boolean) : []
-    if (rows.length !== 1 || rows[0]![0] !== '-' || !rows[0]!.endsWith(` ${member}`)) {
-      problems.push(`${runtime}: not exactly the one file ${member}`)
+    const plain = rows.every((row) => row[0] === '-')
+    const names = rows.map((row) => row.split(/\s+/).at(-1)).sort()
+    if (!plain || JSON.stringify(names) !== JSON.stringify([...wanted].sort())) {
+      problems.push(`${archive}: not exactly the files ${wanted.join(', ')}`)
     }
   }
-  const hostNames = systemTar(['-tzf', join(dir, version, host)])
-  const hostList = hostNames.status === 0 ? hostNames.stdout.split('\n').filter(Boolean) : []
-  if (!hostList.includes('app/dist/broker.js')) problems.push(`${host}: no app/dist/broker.js`)
-  for (const name of hostList) {
-    if (name.startsWith('/') || name.split('/').includes('..')) problems.push(`${host}: unsafe entry ${name}`)
-    if (/\.(map|ts|tsx)$/.test(name)) problems.push(`${host}: source-like file ${name}`)
-  }
+  for (const [index, runtime] of runtimes.entries()) programs(runtime, [windows(targets[index]!) ? 'acdev.exe' : 'acdev'])
+  programs(guest, ['acdevd-x86_64', 'acdevd-aarch64'])
+  for (const tool of tools) programs(tool.file, tool.programs)
   const sdkNames = systemTar(['-tzf', join(dir, version, sdk)])
   const sdkList = sdkNames.status === 0 ? sdkNames.stdout.split('\n').filter(Boolean) : []
   if (!sdkList.includes('package/package.json')) problems.push(`${sdk}: no package/package.json`)
@@ -146,5 +148,6 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the CLI archive, the acdev runtime builds, the host files, the SDK, SHA256SUMS, latest, latest.json, '
+console.log('release guard: the CLI archive, the acdev runtime builds, the guest daemons, the host tools, the SDK, SHA256SUMS, '
+  + 'latest, latest.json, '
   + 'the installers and install.md are listed')

@@ -244,12 +244,16 @@ main() {
       sort -u | tr '\n' ' ')
     die "acdev $version has no acdev runtime for this platform ($triple); it is built for: ${supported% }"
   fi
-  host=acde-host-$version.tar.gz
   say "getting acdev runtime $version for $triple"
   download "$ACDEV_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDEV_DIST/$version/$binary"
   got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
-  download "$ACDEV_DIST/$version/$host" "$tmp/$host" "$host" || die "could not download $ACDEV_DIST/$version/$host"
-  got "$tmp/SHA256SUMS" "$host" "$tmp/$host"
+  extras=
+  for extra in "acdev-guest-$version.tar.gz" "acdev-tools-$triple.tar.xz" "acde-host-$version.tar.gz"; do
+    [ -n "$(listed "$tmp/SHA256SUMS" "$extra")" ] || continue
+    download "$ACDEV_DIST/$version/$extra" "$tmp/$extra" "$extra" || die "could not download $ACDEV_DIST/$version/$extra"
+    got "$tmp/SHA256SUMS" "$extra" "$tmp/$extra"
+    extras="$extras $extra"
+  done
 
   root=${ACDEV_INSTALL:-$HOME/.acdev}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
@@ -267,9 +271,25 @@ main() {
   [ -f "$stage/runtime/acdev" ] && [ ! -h "$stage/runtime/acdev" ] || die "$binary does not hold the runtime acdev"
   mkdir -p "$unpacked/libexec" && mv "$stage/runtime/acdev" "$unpacked/libexec/acdev" && chmod 755 "$unpacked/libexec/acdev" ||
     die "could not place acdev runtime"
-  mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
-  [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
-  mv "$stage/host/app" "$unpacked/libexec/app" || die "could not place the host files (app/)"
+  for extra in $extras; do
+    rm -rf "$stage/extra" && mkdir "$stage/extra" || die "cannot unpack $extra"
+    case $extra in
+      *.tar.xz) tar -xJf "$tmp/$extra" -C "$stage/extra" ;;
+      *) tar -xzf "$tmp/$extra" -C "$stage/extra" ;;
+    esac || die "could not unpack $extra"
+    case $extra in
+      acde-host-*)
+        [ -f "$stage/extra/app/dist/broker.js" ] || die "$extra does not hold app/dist/broker.js"
+        mv "$stage/extra/app" "$unpacked/libexec/app" || die "could not place the host files (app/)"
+        ;;
+      *)
+        for program in "$stage/extra"/*; do
+          [ -f "$program" ] && [ ! -h "$program" ] || die "$extra holds something other than programs"
+          mv "$program" "$unpacked/libexec/" && chmod 755 "$unpacked/libexec/${program##*/}" || die "could not place ${program##*/}"
+        done
+        ;;
+    esac
+  done
   if [ -e "$root/versions/$version" ]; then
     mv "$root/versions/$version" "$stage/old"
   fi

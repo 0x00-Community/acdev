@@ -235,14 +235,18 @@ function Install-Acde {
             throw ("acdev: acdev $Version has no acdev runtime for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
-        $bundle = "acde-host-$Version.tar.gz"
         Write-Host "acdev: getting acdev runtime $Version for $triple"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
-        $bundleFile = Join-Path -Path $work -ChildPath $bundle
         Save-Remote "$dist/$Version/$binary" $binaryFile -Shown
         Confirm-Download $sums $binary $binaryFile
-        Save-Remote "$dist/$Version/$bundle" $bundleFile -Shown
-        Confirm-Download $sums $bundle $bundleFile
+        $extras = @()
+        foreach ($extra in "acdev-guest-$Version.tar.gz", "acdev-tools-$triple.tar.gz", "acde-host-$Version.tar.gz") {
+            if (-not (Get-Listed $sums $extra)) { continue }
+            $extraFile = Join-Path -Path $work -ChildPath $extra
+            Save-Remote "$dist/$Version/$extra" $extraFile -Shown
+            Confirm-Download $sums $extra $extraFile
+            $extras += $extra
+        }
 
         Write-Host "acdev: unpacking"
         $unpacked = Join-Path -Path $work -ChildPath 'x'
@@ -264,18 +268,28 @@ function Install-Acde {
         }
         New-Item -ItemType Directory -Force -Path (Join-Path -Path $staged -ChildPath 'libexec') | Out-Null
         Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'libexec\acdev.exe')
-        $bundleDir = Join-Path -Path $work -ChildPath 'host'
-        New-Item -ItemType Directory -Path $bundleDir | Out-Null
-        & $tar -xzf $bundleFile -C $bundleDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "acdev: could not unpack $bundle (tar exit $LASTEXITCODE)"
+        foreach ($extra in $extras) {
+            $extraDir = Join-Path -Path $work -ChildPath "extra-$extra"
+            New-Item -ItemType Directory -Path $extraDir | Out-Null
+            & $tar -xzf (Join-Path -Path $work -ChildPath $extra) -C $extraDir
+            if ($LASTEXITCODE -ne 0) {
+                throw "acdev: could not unpack $extra (tar exit $LASTEXITCODE)"
+            }
+            if ($extra -like 'acde-host-*') {
+                $broker = Join-Path -Path $extraDir -ChildPath 'app\dist\broker.js'
+                if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) {
+                    throw "acdev: $extra does not hold app/dist/broker.js"
+                }
+                Move-Item -LiteralPath (Join-Path -Path $extraDir -ChildPath 'app') -Destination (Join-Path -Path $staged -ChildPath 'libexec\app')
+                continue
+            }
+            foreach ($program in Get-ChildItem -LiteralPath $extraDir -Force) {
+                if ($program.PSIsContainer) {
+                    throw "acdev: $extra holds something other than programs ($($program.Name))"
+                }
+                Move-Item -LiteralPath $program.FullName -Destination (Join-Path -Path $staged -ChildPath "libexec\$($program.Name)")
+            }
         }
-        $broker = Join-Path -Path $bundleDir -ChildPath 'app\dist\broker.js'
-        if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) {
-            throw "acdev: $bundle does not hold app/dist/broker.js"
-        }
-        $app = Join-Path -Path $staged -ChildPath 'libexec\app'
-        Move-Item -LiteralPath (Join-Path -Path $bundleDir -ChildPath 'app') -Destination $app
 
         $versions = Join-Path -Path $install -ChildPath 'versions'
         $target = Join-Path -Path $versions -ChildPath $Version
