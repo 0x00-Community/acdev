@@ -22,6 +22,7 @@ export interface RunnerOptions {
   readonly workers?: number
   readonly retries?: number
   readonly video?: VideoMode
+  readonly vm?: boolean
 }
 
 interface Suite {
@@ -127,16 +128,25 @@ export class TestRunner {
       return 0
     }
     const bun = process.execPath
+    const guestHome = options.vm ? await TestRunner.#guest(options) : null
     const scratch = mkdtempSync(join(tmpdir(), 'acde-test-run-'))
     try {
-      return await TestRunner.#suites(suites, options, cwd, bun, scratch)
+      return await TestRunner.#suites(suites, options, cwd, bun, scratch, guestHome)
     } finally {
       rmSync(scratch, { recursive: true, force: true })
     }
   }
 
+  static async #guest(options: RunnerOptions): Promise<string> {
+    if (options.desktop !== undefined || options.headed) throw new Error('acdev test --vm: the guest shows its own desktop; leave out --desktop and --headed')
+    const [{ Machine }, { guestPassword, prepareGuest }] = await Promise.all([import('../vm/machine.ts'), import('../vm/guest.ts')])
+    const guest = await prepareGuest(new Machine().devd(), guestPassword())
+    console.log(`acdev test: in the guest as ${guest.user} (home ${guest.home}); its password is set for the lock page checks`)
+    return guest.home
+  }
+
   static async #suites(
-    suites: readonly Suite[], options: RunnerOptions, cwd: string, bun: string, scratch: string,
+    suites: readonly Suite[], options: RunnerOptions, cwd: string, bun: string, scratch: string, guestHome: string | null,
   ): Promise<number> {
     const tsconfigs = new Map<string, string>()
     const tsconfig = (project: string) => {
@@ -150,7 +160,7 @@ export class TestRunner {
     }
     const results = (suite: Suite) => join(suite.project, '.acde', 'test-results')
     for (const dir of new Set(suites.map(results))) rmSync(dir, { recursive: true, force: true })
-    const wanted = options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers())
+    const wanted = guestHome !== null ? 1 : (options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers()))
     const workers = Math.max(1, Math.min(suites.length, wanted))
     const parallel = workers > 1
     if (parallel) console.log(`acdev test: ${suites.length} files, ${workers} at a time`)
@@ -176,6 +186,7 @@ export class TestRunner {
         retries: options.retries ?? 0,
         video: options.video ?? 'off',
         out: slot === 0 ? E2e.BUILD : `${E2e.BUILD}-${slot + 1}`,
+        guestHome,
       }
       const report = join(scratch, `report-${index}.xml`)
       const argv = [
@@ -185,7 +196,8 @@ export class TestRunner {
         ...(options.bail ? ['--bail'] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
-      const header = `acdev test: ${shown}${settings.headless ? '' : ' (headed)'}`
+      const where = guestHome !== null ? ' (in the guest)' : settings.headless ? '' : ' (headed)'
+      const header = `acdev test: ${shown}${where}`
       if (!parallel) console.log(header)
       const marks = join(scratch, `marks-${index}.txt`)
       const env = cliEnv(bun, {

@@ -157,6 +157,10 @@
   `<results>/<文件>/<测试>/` 留 `error.txt`、`output.log`、`screen.png`、`snapshot.txt`、`console.txt`、`network.txt`、`trace.txt` (截图比对的
   `-actual` / `-expected` / `-diff` 也在这). `--trace` 每个测试都留 `trace.html`; `-u` / `--update-screenshots` 重写基线. `TestRunner` 每个文件一个
   `bun test` 子进程, 设置走 `ACDE_TEST_*` (`settings.ts`); 默认 headless、每个测试 60 s, 先清 `.acde/test-results`.
+  **`--vm`** (工单 19): 用例跑在 `acdev vm` 客户机里登录着的会话里, 不起 `acdev dev`. 开跑前经 acdevd 以 root 跑一段脚本 (`src/vm/guest.ts`):
+  从 logind 取 seat0 活动会话的用户和 HOME, 用 `chpasswd` 把密码设成 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`, 给锁屏页的用例),
+  `faillock --user <用户> --reset`; 没有活动会话时报错. 一次只跑一个文件, 所有用例接同一个会话 (`Acde.attach({session: 'vm'})`),
+  `home` 是那个用户的 HOME (`ACDEV_TEST_GUEST_HOME` 传给测试进程), acdev 不替用例清它; 用例开头自己清状态. 不能和 `--desktop`、`--headed` 同用.
   **汇总** (一行, acde#85, `TestRunner.summary`): `acdev test: N tests in M files: P passed, F failed[, S not run (skipped, todo, or not
   matched by -t)]`, 再按需接 `; failed: <文件>`、`; not counted: …`、`; <n> files skipped (no test matches -t)`、`; <n> files not run (--bail)`;
   M 是有报告的文件数; 一个文件都没有报告时开头是 `<n> files ran`. `acdev test:` 有失败时红, 否则绿. 测试数取自

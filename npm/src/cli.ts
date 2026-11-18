@@ -66,7 +66,7 @@ class Cli {
     test: {
       args: [0, Infinity],
       flags: ['desktop', 'test-name-pattern', 'timeout', 'workers', 'retries', 'video'],
-      switches: ['headed', 'bail', 'trace', 'update-screenshots', 'video'],
+      switches: ['headed', 'bail', 'trace', 'update-screenshots', 'video', 'vm'],
     },
   }
   static readonly SHORT: Readonly<Record<string, string>> = {
@@ -183,6 +183,7 @@ class Cli {
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
         ...(flags.has('headed') && { headed: true }),
+        ...(flags.has('vm') && { vm: true }),
         ...(flags.has('bail') && { bail: true }),
         ...(flags.has('trace') && { trace: true }),
         ...(flags.has('update-screenshots') && { update: true }),

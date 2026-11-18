@@ -102,17 +102,7 @@ export class E2eRun {
     }
     let acde: Acde | null = null
     try {
-      const one = settings.dirs.length === 1 && settings.desktop === null
-      acde = await Acde.launch({
-        dirs: settings.dirs,
-        env: E2eRun.env(home),
-        headless: settings.headless,
-        ...(settings.desktop !== null && { desktop: settings.desktop }),
-        ...(one && { out: settings.out }),
-        cwd: settings.dirs[0]!,
-        startTimeout: E2eRun.startTimeout(timeout),
-        force: true,
-      })
+      acde = await E2eRun.#session(settings, home, timeout)
       acde.trace.screenshots = settings.trace
       if (settings.video !== 'off') video = Video.start(acde)
       const first = acde.session.apps[0]
@@ -120,7 +110,7 @@ export class E2eRun {
       if ((setup.size || setup.localStorage) && !app) {
         throw new Error('size and localStorage set up the app window; this run has a desktop or no app')
       }
-      const fixtures = { acde, app, home: join(home, 'home'), settings }
+      const fixtures = { acde, app, home: settings.guestHome ?? join(home, 'home'), settings }
       const how = 'its timeout: --timeout, or the one given to test()'
       const late = () => new TestTimeout(`the test did not finish within ${timeout} ms (${how})`)
       E2eRun.softFailures = []
@@ -154,6 +144,21 @@ export class E2eRun {
       await video?.stop()
       rmSync(home, { recursive: true, force: true })
     }
+  }
+
+  static async #session(settings: E2eSettings, home: string, timeout: number): Promise<Acde> {
+    if (settings.guestHome !== null) return await Acde.attach({ session: 'vm' })
+    const one = settings.dirs.length === 1 && settings.desktop === null
+    return await Acde.launch({
+      dirs: settings.dirs,
+      env: E2eRun.env(home),
+      headless: settings.headless,
+      ...(settings.desktop !== null && { desktop: settings.desktop }),
+      ...(one && { out: settings.out }),
+      cwd: settings.dirs[0]!,
+      startTimeout: E2eRun.startTimeout(timeout),
+      force: true,
+    })
   }
 
   static async #video(video: Video, dir: string): Promise<string> {

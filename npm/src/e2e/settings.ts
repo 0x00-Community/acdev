@@ -15,6 +15,7 @@ export interface E2eSettings {
   readonly retries: number
   readonly video: VideoMode
   readonly out: string
+  readonly guestHome: string | null
 }
 
 export type VideoMode = 'off' | 'on' | 'failed'
@@ -33,6 +34,7 @@ export class E2e {
   static readonly RETRIES = 'ACDEV_TEST_RETRIES'
   static readonly VIDEO = 'ACDEV_TEST_VIDEO'
   static readonly OUT = 'ACDEV_TEST_OUT'
+  static readonly GUEST_HOME = 'ACDEV_TEST_GUEST_HOME'
   static readonly BUILD = join('.acde', 'test')
   static readonly TIMEOUT_MS = 60_000
   static readonly SIZE = '1280x800'
@@ -50,6 +52,7 @@ export class E2e {
       [E2e.OUT]: settings.out,
       ...(settings.desktop !== null && { [E2e.DESKTOP]: settings.desktop }),
       ...(settings.file !== null && { [E2e.FILE]: settings.file }),
+      ...(settings.guestHome !== null && { [E2e.GUEST_HOME]: settings.guestHome }),
     }
   }
 
@@ -71,6 +74,7 @@ export class E2e {
       retries: Number.isInteger(retries) && retries > 0 ? retries : 0,
       video: video === 'on' || video === 'failed' ? video : 'off',
       out: env[E2e.OUT] || E2e.BUILD,
+      guestHome: env[E2e.GUEST_HOME] || null,
     }
   }
 

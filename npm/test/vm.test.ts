@@ -12,6 +12,7 @@ import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
 import { Forward } from '../src/vm/forward.ts'
+import { guestPassword, prepareGuest } from '../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
@@ -695,7 +696,35 @@ describe('hosts other than Linux (only the parts that run here)', () => {
   })
 })
 
-describe('DevTools in the guest, host side', () => {
+describe('acdev test --vm and DevTools in the guest, host side', () => {
+  test('the session user gets the test password and a fresh faillock; its name and HOME come back', async () => {
+    const ran: string[][] = []
+    const devd = {
+      run: async (argv: readonly string[], handlers: { stdout?: (chunk: Buffer) => void } = {}) => {
+        ran.push([...argv])
+        handlers.stdout?.(Buffer.from('dopame\n/home/dopame\n'))
+        return 0
+      },
+    }
+    expect(await prepareGuest(devd, 'pw')).toEqual({ user: 'dopame', home: '/home/dopame' })
+    expect(ran[0]!.slice(0, 2)).toEqual(['/bin/sh', '-c'])
+    expect(ran[0]!.slice(3)).toEqual(['sh', 'pw'])
+    expect(ran[0]![2]).toContain('chpasswd')
+    expect(ran[0]![2]).toContain('faillock --user "$user" --reset')
+    expect(guestPassword({})).toBe('dopame-dev')
+    expect(guestPassword({ ACDEV_VM_PASSWORD: 'other' })).toBe('other')
+  })
+
+  test('a guest that has no active session fails with what it said', async () => {
+    const devd = {
+      run: async (_argv: readonly string[], handlers: { stderr?: (chunk: Buffer) => void } = {}) => {
+        handlers.stderr?.(Buffer.from('no session is active on seat0: log in in the guest first\n'))
+        return 3
+      },
+    }
+    await expect(prepareGuest(devd, 'pw')).rejects.toThrow('no session is active on seat0')
+  })
+
   test('a forward hands every local connection to a tunnel to the guest port', async () => {
     const echo = createServer((socket) => socket.on('data', (chunk) => socket.write((chunk as Buffer).toString().toUpperCase())))
     await new Promise<void>((done) => echo.listen(0, '127.0.0.1', done))

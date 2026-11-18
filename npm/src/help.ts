@@ -161,6 +161,12 @@ export class Help {
           { flag: '-t PATTERN', about: 'Only the tests whose names match' },
           { flag: '--headed', about: 'Show the windows (default: headless)' },
           { flag: '--desktop ID|DIR', about: 'Run the app in that desktop' },
+          {
+            flag: '--vm',
+            about: 'Run in the logged-in session in the guest of acdev vm: one file at a time, every test in the same '
+              + 'session; home is that user\'s HOME; the user\'s password is set to ACDEV_VM_PASSWORD (default '
+              + 'dopame-dev) and faillock reset first',
+          },
           { flag: '--timeout MS', about: 'Milliseconds per test (default: 60000)' },
           { flag: '--bail', about: 'Stop at the first failure' },
           { flag: '--workers N', about: 'Files at once (default: half the cores, at most 4; 1 headed or with --bail)' },
