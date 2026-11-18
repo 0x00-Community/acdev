@@ -184,7 +184,7 @@ jobs:
           echo "c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360  $RUNNER_TEMP/$f" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          printf 'XWIN_INCLUDE_ATL=true\nXWIN_CACHE_DIR=%s\n' "$HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
+          printf 'XWIN_INCLUDE_ATL=true\nXWIN_CACHE_DIR=%s\n' "$RUNNER_HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
       - name: cargo-zigbuild, zig and the macOS SDK
         if: matrix.cross == 'zigbuild'
         run: |
@@ -207,19 +207,10 @@ jobs:
           echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  $sdk" | sha256sum -c -
           mkdir -p sdk && tar -xJf "$sdk" -C sdk
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          printf 'SDKROOT=%s\nMACOSX_DEPLOYMENT_TARGET=11.0\n' "$RUNNER_TEMP/sdk/MacOSX15.5.sdk" >> "$GITHUB_ENV"
+          printf 'SDKROOT=%s\nMACOSX_DEPLOYMENT_TARGET=11.0\nZIG_GLOBAL_CACHE_DIR=%s\n' "$RUNNER_TEMP/sdk/MacOSX15.5.sdk" "$RUNNER_HOME/.cache/zig" >> "$GITHUB_ENV"
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          key: dist-${{ matrix.triple }}
-          workspaces: |
-            acdev -> target
-            acdev/crates/tool -> target
-          cache-directories: |
-            ~/.cache/cargo-xwin-atl
-            ~/.cache/zig
       - name: bun for libacde's build.rs, the release version (not committed), rustc flags
         run: |
           set -eu
@@ -275,10 +266,6 @@ jobs:
       - uses: ./acdev/.github/actions/toolchain
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
-      - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          key: guest
-          workspaces: acdev/crates/devd -> target
       - name: acdevd-x86_64 and acdevd-aarch64
         working-directory: acdev/crates/devd
         run: |

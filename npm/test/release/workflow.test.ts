@@ -267,8 +267,18 @@ describe('release.yml', () => {
       expect(step.uses, job).toBe('./acdev/.github/actions/toolchain')
       expect(step.with?.['targets'], job).toBe(targets)
     }
-    expect(WPT.indexOf('./acdev/.github/actions/toolchain')).toBeLessThan(WPT.indexOf('/rust-cache@'))
+    expect(WPT.indexOf('./acdev/.github/actions/toolchain')).toBeLessThan(WPT.indexOf('cargo fetch --locked'))
     expect(WPT).toContain('[ ! -d "${p%%/hostexecutor/*}" ]')
+  })
+
+  test('no rust-cache (per-job paths never match a saved cache); xwin, zig and cargo keep to the runner\'s own home', () => {
+    const WPT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'actions', 'wpt-setup', 'action.yml'), 'utf8')
+    expect(TEXT + WPT).not.toContain('rust-cache@')
+    const toolchain = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'actions', 'toolchain', 'action.yml'), 'utf8')
+    expect(toolchain).toContain('"$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME"')
+    expect(runs('build')).toContain('"$RUNNER_HOME/.cache/cargo-xwin-atl"')
+    expect(runs('build')).toContain('ZIG_GLOBAL_CACHE_DIR=%s')
+    expect(runs('build')).toContain('"$RUNNER_HOME/.cache/zig"')
   })
 
   test('apt waits for the lock the other job on the runner may hold', () => {

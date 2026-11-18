@@ -59,10 +59,6 @@ runs:
         # the other job on this runner may hold dpkg's lock
         s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
         dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
-    - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      with:
-        key: wpt
-        workspaces: acdev -> target
     - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
         bun-version: 1.4.4

@@ -1,5 +1,5 @@
 name: toolchain
-description: a home of this job's own (HOME, CARGO_HOME; the runner runs two jobs at once in one user's home) and the runner's read-only Rust in /opt/rust
+description: a HOME of this job's own (the runner runs two jobs at once in one user's home), the runner's lasting CARGO_HOME (RUNNER_HOME is the runner's own home), and its read-only Rust in /opt/rust
 inputs:
   targets:
     description: comma-separated targets the job builds for, checked to be installed in /opt/rust
@@ -22,6 +22,7 @@ runs:
         done
         h=$RUNNER_TEMP/home
         mkdir -p "$h"
-        printf 'HOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' "$h" "$h/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
+        printf 'RUNNER_HOME=%s\nHOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' \
+          "$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
         echo "$r" >> "$GITHUB_PATH"
         "$r/rustc" -V

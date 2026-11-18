@@ -18,9 +18,10 @@
 - 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` libacde/js,
   设 `ACDEV_BUN`: libacde 的 build.rs 在宿主 Linux 上用 bun 把 libacde/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; acdevtool 在同一格里接着编 (共用交叉工具), acdevd 在 `guest` 里和矩阵同时编, `pkgs` 只等两边;
   `pkgs` 用一次下载取 `build-*` 和 `guest` 产物 (`pattern: '{build-*,guest}'`); 分离的调试信息放在 `build-<triple>` 产物的 `symbols/` 子目录里一起留存 30 天, `pkgs` 只拷要发的归档, 不会把它发出去; npm 包和命令行归档仍只在 `pkgs` 打一次.
-  缓存: `build` 和 `guest` 都用 rust-cache (registry 和 target, `build` 两个工作区: 根和 `crates/tool`), 另把 cargo-xwin 下载的 MSVC CRT 和 SDK
-  (`~/.cache/cargo-xwin-atl`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
-  rust-cache 会清掉本工作区包的产物, 依赖的构建脚本输出一般留着, 要看试编的第二次是否还在下载〕. 不用 sccache (它会关掉增量编译, runner 上也没装).
+  缓存: 不用 rust-cache (2026-11-18 去掉: 宿主模式下每个作业的工作目录 `~/.cache/act/<随机>/` 都不同, rust-cache 交给缓存服务的是绝对路径,
+  缓存的版本按路径算, 永远对不上, 每次 "No cache found" 却还存 1.1G; RUSTFLAGS 的 `--remap-path-prefix` 也带着这个路径, 就算恢复了 cargo 也全部重编).
+  跨运行留下的是执行机自己家目录里的: cargo 的下载 (`~/.cargo`), cargo-xwin 的 MSVC CRT 和 SDK (`~/.cache/cargo-xwin-atl`), zig 的缓存
+  (`~/.cache/zig`); target 每次从头编. 不用 sccache (它会关掉增量编译, runner 上也没装).
 - 改后的耗时: 待试编后补.
 - TLS 的加密底层是 ring, 不是 aws-lc (用户定, 2026-11-18): aws-lc-sys 在 Windows x86_64 上要 NASM (或 `AWS_LC_SYS_PREBUILT_NASM=1`),
   每个平台都多编一个大 C 库. ring 也要 C 编译器 (交叉作业的 clang、`zig cc`), Windows 的汇编是它预生成好的, 不要 NASM. 所以交叉作业的 apt
@@ -153,7 +154,7 @@ permission denied`; Windows 的作业收尾时也有同样的报错. 判断是�
 cargo-xwin 的缓存目录 (默认 `~/.cache/cargo-xwin`) 不随这个开关区分, 下载过的 CRT 和 SDK 有就直接用. ci-debian 执行机是宿主模式,
 `~` 是 cicd 用户真实的家目录, 各作业共用: 当时单独的 tools 作业里 relay 用 cargo-xwin 时不带 ATL, 先在 243 上填了这个目录, run 2545 的
 Windows 构建落到 243 后就沿用了不含 ATL 的缓存, 链接时报 `lld-link: error: could not open 'atls.lib'`. 所以 build 作业另设
-`XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl` (rust-cache 的 `cache-directories` 跟着改), (现在 acdevtool 也在 build 里编, 同用这个目录).
+`XWIN_CACHE_DIR=$RUNNER_HOME/.cache/cargo-xwin-atl` (执行机自己的家目录, 见下一节), (现在 acdevtool 也在 build 里编, 同用这个目录).
 
 ## 执行机同时跑两个作业: Rust 只读, 家目录按作业分 (2026-11-18)
 
@@ -164,10 +165,11 @@ Windows 两格, Windows 那格的 rust-cache 收尾时清理共用的 `~/.cargo`
 - Rust 不再由作业装: 执行机的 ci-debian 里由 root 跑 `scripts/runner-rust.sh`, 把 rustup 的 stable 装进 `/opt/rust` (归 root, 作业只能读;
   目标: 两种架构的 linux-gnu 和 linux-musl、x86_64-pc-windows-msvc、两个 apple-darwin; 组件 clippy、rustfmt). 不用 Debian 的 rustc: trixie
   的 1.85 太旧 (`as_chunks` 要 1.88, 依赖只写主版本号, 跟最新), 也没有 msvc 和 darwin 的标准库. 升级: 执行机空闲时再跑一次这个脚本.
-- `.github/actions/toolchain` 是用 Rust 的作业 checkout 之后的第一步 (`build`、`guest`、wpt-setup): 查 `/opt/rust` 有作业要的目标, 把
-  `HOME` 和 `CARGO_HOME` 设到这个作业自己的 `$RUNNER_TEMP/home` (作业结束随工作目录删掉), `RUSTUP_HOME=/opt/rust/rustup`, 把
-  `/opt/rust/cargo/bin` 放进 `PATH`. 于是 bun (`setup-bun` 装在 `~/.bun`)、rust-cache、cargo-xwin 的 `~/.cache/cargo-xwin-atl`、zig 的
-  `~/.cache/zig` 都是每个作业一份, 跨运行的复用只靠 rust-cache 存在 .127 act-cache 的那份 (`cache-directories` 带上这两个目录).
+- `.github/actions/toolchain` 是用 Rust 的作业 checkout 之后的第一步 (`build`、`guest`、wpt-setup): 查 `/opt/rust` 有作业要的目标,
+  `RUNNER_HOME` 记下执行机自己的家目录, `HOME` 设到这个作业自己的 `$RUNNER_TEMP/home` (作业结束随工作目录删掉; bun 装在 `~/.bun` 等
+  都是每个作业一份), `CARGO_HOME` 是 `$RUNNER_HOME/.cargo` (共用, 跨运行留着; cargo 下载时自己加锁, 没有 rust-cache 去清它, 两个作业同时用没事),
+  `RUSTUP_HOME=/opt/rust/rustup`, 把 `/opt/rust/cargo/bin` 放进 `PATH`. cargo-xwin 的 `XWIN_CACHE_DIR` 和 `ZIG_GLOBAL_CACHE_DIR` 也在
+  `$RUNNER_HOME/.cache` 下, 长期留着: 两个 Windows 格不会同时落在一台机器上 (release 有 concurrency), zig 的缓存本身支持并发.
 - apt 带 `-o DPkg::Lock::Timeout=600` (另一个作业可能正拿着 dpkg 的锁), 要的包都装了就不调 apt.
 - wpt-setup 的第一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
   runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
