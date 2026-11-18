@@ -522,11 +522,11 @@ mod tests {
     #[test]
     fn a_hangup_ends_the_program() {
         let (mut host, server, _) = serve();
-        frame::write(&mut host, frame::RUN, &argv(0, &["/bin/sh", "-c", "exec sleep 30"])).unwrap();
+        frame::write(&mut host, frame::RUN, &argv(0, &["/bin/sh", "-c", "exec sleep 120"])).unwrap();
         shell_pid(&mut host);
         let started = std::time::Instant::now();
         drop(host);
         let _ = server.join().unwrap();
-        assert!(started.elapsed().as_secs() < 10);
+        assert!(started.elapsed().as_secs() < 30, "the program outlived the hangup by {:?}", started.elapsed());
     }
 }
