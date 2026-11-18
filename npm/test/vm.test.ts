@@ -88,7 +88,11 @@ describe('the guest agent and QMP over their sockets', () => {
 
 class Scripted implements Transport {
   readonly sent: Frame[] = []
-  constructor(readonly answer: (sent: Frame[]) => Frame[]) {}
+  readonly answer: (sent: Frame[]) => Frame[]
+
+  constructor(answer: (sent: Frame[]) => Frame[]) {
+    this.answer = answer
+  }
 
   open() {
     const decoder = new Frames()

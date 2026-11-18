@@ -42,7 +42,10 @@ class FakeAcdert {
   readonly sockets: net.Socket[] = []
   answer: (request: Message, socket: net.Socket) => void = () => undefined
 
-  constructor(readonly endpoint: string) {
+  readonly endpoint: string
+
+  constructor(endpoint: string) {
+    this.endpoint = endpoint
     this.server = net.createServer((socket) => {
       this.sockets.push(socket)
       Lines.read(socket, (message) => {

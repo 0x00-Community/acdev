@@ -26,7 +26,10 @@ export class LineFilter {
   #rest = ''
   readonly #pattern: RegExp | null
 
-  constructor(pattern: string | undefined, readonly write: (text: string) => void) {
+  readonly write: (text: string) => void
+
+  constructor(pattern: string | undefined, write: (text: string) => void) {
+    this.write = write
     this.#pattern = pattern === undefined ? null : new RegExp(pattern, 'i')
   }
 

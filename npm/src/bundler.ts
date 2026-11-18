@@ -49,7 +49,15 @@ export class PublicError extends Error {
 export class ServiceImports {
   readonly #found = new Set<string>()
 
-  constructor(readonly name: string, readonly dir: string, readonly out: string) {}
+  readonly name: string
+  readonly dir: string
+  readonly out: string
+
+  constructor(name: string, dir: string, out: string) {
+    this.name = name
+    this.dir = dir
+    this.out = out
+  }
 
   static readonly FILTER = /^acde:/
 

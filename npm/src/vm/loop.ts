@@ -85,7 +85,14 @@ export class DevLoop {
   #pid: number | null = null
   readonly dir: string
 
-  constructor(readonly devd: Devd, readonly options: LoopOptions, readonly say: (line: string) => void) {
+  readonly devd: Devd
+  readonly options: LoopOptions
+  readonly say: (line: string) => void
+
+  constructor(devd: Devd, options: LoopOptions, say: (line: string) => void) {
+    this.devd = devd
+    this.options = options
+    this.say = say
     this.dir = resolve(options.dir)
   }
 

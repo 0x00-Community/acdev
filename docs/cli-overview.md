@@ -7,7 +7,7 @@ acdev 的开发者 CLI, 是 [acdev](http://gitea.dopamine/AC/acdev) 仓库的 `n
 (跨平台调试) 和 acdebin-system (Dopame OS 的会话); acdev 建工程、构建、装包, `acdev dev` 拉起 acdebin-dbg. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以仓库根 `AGENTS.md` 的第一原则和 `docs/runtime/`、`docs/web/` 为准, 这里只写工具.
 
-- 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
+- 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上: 这是装好的 acdev (`dist/cli.js`) 的要求. 从检出直接跑源码 (`node bin/acdev.mjs`, PATH 上没有 bun 时 launcher 用 Node 跑 `src/cli.ts`) 要 Node.js ≥ 22.18, 它起默认擦除类型 (https://nodejs.org/en/blog/release/v22.18.0 「Type stripping is enabled by default」); 更早的 22.x 要 `--experimental-strip-types`. 只擦除类型时不支持要转译的写法 (构造函数参数属性、`enum`、`namespace`), 所以 `tsconfig.json` 开了 `erasableSyntaxOnly`, 这类写法类型检查就报错 (2026-11-18 acdev-test 在 Windows 上用 Node 22 直跑时撞上过). 测试 `bun test`, 类型检查 `bun run typecheck`.
 - 启动快 (gitea acde#94): `src/cli.ts` 只静态导入轻模块 (`test/launcher.test.ts` 核对清单), 其余在用到的命令里 `await import()`;
   `-v` 探 acdev runtime 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
   发布包的 cli.js 开 splitting (`chunk-<hash>.js`), 懒导入的模块才真的晚加载. `bun run startup [acdev 路径] [--max-version-ms N] [--max-help-ms N]`

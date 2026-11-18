@@ -12,7 +12,17 @@ export class InlineStyles {
 
   readonly #copied = new Map<string, string>()
 
-  constructor(readonly entry: string, readonly out: string, readonly base: string, readonly dir: string) {}
+  readonly entry: string
+  readonly out: string
+  readonly base: string
+  readonly dir: string
+
+  constructor(entry: string, out: string, base: string, dir: string) {
+    this.entry = entry
+    this.out = out
+    this.base = base
+    this.dir = dir
+  }
 
   static bundle(entry: string, page: string, out: string, base: string, dir: string): void {
     const text = readFileSync(page, 'utf8')

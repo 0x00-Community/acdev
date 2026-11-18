@@ -81,7 +81,11 @@ export interface Transport {
 export type Address = { readonly path: string } | { readonly host: string; readonly port: number }
 
 export class SocketTransport implements Transport {
-  constructor(readonly address: Address) {}
+  readonly address: Address
+
+  constructor(address: Address) {
+    this.address = address
+  }
 
   open(): Connection {
     const socket = connect(this.address)
@@ -109,7 +113,15 @@ export class SocketTransport implements Transport {
 }
 
 export class RelayTransport implements Transport {
-  constructor(readonly binary: string, readonly cid: number, readonly port = PORT) {}
+  readonly binary: string
+  readonly cid: number
+  readonly port: number
+
+  constructor(binary: string, cid: number, port = PORT) {
+    this.binary = binary
+    this.cid = cid
+    this.port = port
+  }
 
   open() {
     const child: ChildProcess = spawn(this.binary, ['connect', String(this.cid), String(this.port)], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -155,7 +167,13 @@ async function first(frames: AsyncIterable<Frame>): Promise<Frame | undefined> {
 }
 
 export class Devd {
-  constructor(readonly transport: Transport, readonly key: Buffer | null = null) {}
+  readonly transport: Transport
+  readonly key: Buffer | null
+
+  constructor(transport: Transport, key: Buffer | null = null) {
+    this.transport = transport
+    this.key = key
+  }
 
   #open(): Connection {
     const conn = this.transport.open()
