@@ -33,9 +33,18 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
   x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
-- 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」); QMP 和 guest agent 也改用 `127.0.0.1` 上的空闲端口
-  (`run/endpoints.json`), 因为 Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 QEMU 的 Unix 套接字. 这两个端口本机别的进程也
-  能连 (QMP 能关机、截屏), Windows 上暂且接受.
+- 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」).
+- QMP 和 guest agent 和别的平台一样是 `run/` 下的 Unix 套接字 (`%LOCALAPPDATA%\acdev\vm\run\qmp.sock`、`qga.sock`): QEMU 8.2 在
+  Windows 上支持 AF_UNIX (`util/qemu-sockets.c` 的 `unix_listen_saddr` 不排除 `_WIN32`, `include/sysemu/os-win32.h` 引入 `afunix.h`);
+  Windows 从 10 1803 起支持 AF_UNIX (微软 https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/ ), 而 WHPX 本来就要 2004.
+  Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 AF_UNIX (Node 文档 net「IPC support」), 所以每次连接起一个 `acdev-relay`
+  (`crates/relay`, 只用 std 加 `uds_windows`), 它把标准输入输出接到这个套接字上, 做法同 `acdevd connect`; 找它用 `ACDEV_RELAY`, 否则
+  检出里 `crates/relay` 编出的. 它出错时 (连不上) 把标准错误的那行当错误交给调用方, acdev 不退出. Linux、macOS 照旧直接连.
+  - 不用 TCP: QMP 能关机、截屏、注入按键, guest agent 能以 root 在客户机里跑任何命令, 开在本机端口上等于给本机所有进程客户机的 root;
+    不用 QEMU 的命名管道 (`-chardev pipe`): 8.2.2 的 `chardev/char-pipe.c` 只开一个实例, 初始化时阻塞到第一个客户端连上
+    (`GetOverlappedResult(…, TRUE)`), 断开后不再接新连接; 不用 TLS 预共享密钥: Bun 1.4.4 的 `tls.connect` 不支持 `pskCallback`
+    (2026-11-18 acdev-test 实测, TLS 1.2、1.3 都失败).
+  - 别的用户连不上靠的是 `%LOCALAPPDATA%` 的访问控制 (默认只有本人、SYSTEM 和管理员), 套接字文件继承它〔未核实〕.
 - acdevd 要的是客户机 (Linux x86_64) 的程序, Windows、macOS 上既跑不了也编不出它: 不是 Linux 的宿主必须设 `ACDEV_DEVD` 指向一个在 Linux
   上编好的 acdevd (`crates/devd` 里 `cargo build --release`, 或 `--target x86_64-unknown-linux-musl`), 否则 `start` 一开始就报错. 宿主上
   跑不了 `acdevd --version`, 所以版本改在装进客户机后核对: 客户机里的 acdevd 回答的版本和 `crates/devd/Cargo.toml` 不同就报错 (所有平台).

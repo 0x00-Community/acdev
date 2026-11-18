@@ -16,8 +16,6 @@ export interface Qemu {
   readonly img: string
 }
 
-export type Endpoint = string | { readonly host: string; readonly port: number }
-
 export const X86_64_V3 = ['avx', 'avx2', 'bmi1', 'bmi2', 'f16c', 'fma', 'abm', 'movbe', 'xsave'] as const
 
 export function preferredAccel(host: Host, kvmOpens: boolean): Accel {

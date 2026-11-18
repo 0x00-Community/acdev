@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSyn
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { which } from '../launcher.mjs'
-import { GuestAgent, monitor } from '../src/vm/channel.ts'
+import { GuestAgent, monitor, relayed } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
 import { crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, findQemu, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
@@ -532,18 +532,39 @@ describe('hosts other than Linux (only the parts that run here)', () => {
       .toEqual(['/usr/local/share/qemu/edk2-x86_64-code.fd', '/usr/local/share/qemu/edk2-i386-vars.fd'])
   })
 
-  test('on Windows QMP and the guest agent listen on 127.0.0.1 ports; --share and the viewer are refused', async () => {
-    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, windows)
-    const endpoints = { qmp: { host: '127.0.0.1', port: 4001 }, qga: { host: '127.0.0.1', port: 4002 } }
-    const args = machine.args({}, 'whpx', { kind: 'tcp', port: 4003 }, endpoints).join(' ')
+  test('on Windows QMP and the guest agent are Unix sockets in run/ too; --share and the viewer are refused', async () => {
+    const dir = tmp()
+    const machine = new Machine({ ACDEV_VM_DIR: dir, OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, windows)
+    const args = machine.args({}, 'whpx', { kind: 'tcp', port: 4003 }).join(' ')
     expect(args).toContain('-accel whpx -cpu max')
-    expect(args).toContain('-qmp tcp:127.0.0.1:4001,server=on,wait=off')
-    expect(args).toContain('-chardev socket,host=127.0.0.1,port=4002,server=on,wait=off,id=qga0')
+    expect(args).toContain(`-qmp unix:${join(dir, 'run', 'qmp.sock')},server=on,wait=off`)
+    expect(args).toContain(`-chardev socket,path=${join(dir, 'run', 'qga.sock')},server=on,wait=off,id=qga0`)
     expect(args).toContain('hostfwd=tcp:127.0.0.1:4003-:5252')
     expect(machine.linkKind()).toBe('tcp')
     await expect(machine.start({ share: 'C:\\src' }, () => undefined)).rejects.toThrow('use acdev vm push')
     await expect(machine.start({ display: 'viewer' }, () => undefined)).rejects.toThrow('Linux only for now')
     expect(() => machine.devdBinary()).toThrow('set ACDEV_DEVD to an acdevd built for the guest (Linux x86_64)')
+  })
+
+  test('acdev-relay: ACDEV_RELAY, then CARGO_TARGET_DIR, then the crate\'s target; its failure ends the stream, not acdev', async () => {
+    const base = tmp()
+    const root = join(base, 'repo', 'npm')
+    const wanted = { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }
+    const place = (dir: string) => {
+      mkdirSync(join(dir, 'release'), { recursive: true })
+      writeFileSync(join(dir, 'release', 'acdev-relay'), '')
+      return join(dir, 'release', 'acdev-relay')
+    }
+    const own = place(join(base, 'repo', 'crates', 'relay', 'target'))
+    expect(crateBinary(root, wanted, {})).toBe(own)
+    const configured = place(join(base, 'elsewhere'))
+    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere') })).toBe(configured)
+    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEV_RELAY: own })).toBe(own)
+    const failing = join(base, 'failing-relay')
+    writeFileSync(failing, '#!/bin/sh\necho "acdev-relay: $1: connection refused" >&2\nexit 1\n', { mode: 0o755 })
+    const stream = relayed('/no/such.sock', { ACDEV_RELAY: failing })
+    const error = await new Promise<Error>((done) => stream.once('error', done))
+    expect(error.message).toBe('acdev-relay: /no/such.sock: connection refused')
   })
 
   test('the guest CPU must have the x86-64-v3 features', () => {

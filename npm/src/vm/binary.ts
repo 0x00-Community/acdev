@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+
+export const CHECKOUT = realpathSync(join(import.meta.dirname, '..', '..'))
 
 export interface CrateBinary {
   readonly crate: string

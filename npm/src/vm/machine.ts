@@ -10,9 +10,9 @@ import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
-  accelArgs, bundledFirmware, findQemu, HOST, missingFeatures, preferredAccel, spawnDetached, type Accel, type Endpoint, type Host, type Qemu,
+  accelArgs, bundledFirmware, findQemu, HOST, missingFeatures, preferredAccel, spawnDetached, type Accel, type Host, type Qemu,
 } from './host.ts'
-import { crateBinary, crateVersion } from './binary.ts'
+import { CHECKOUT, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
 export interface StartOptions {
@@ -47,7 +47,7 @@ export class Machine {
   readonly env: NodeJS.ProcessEnv
   readonly host: Host
   static readonly GUEST = 'x86_64'
-  static readonly ROOT = realpathSync(join(import.meta.dirname, '..', '..'))
+  static readonly ROOT = CHECKOUT
   static readonly DEVD = '/usr/local/bin/acdevd'
   static readonly HOTPLUG = ['rp1', 'rp2'] as const
   static readonly GPU = 'gpu0'
@@ -78,31 +78,12 @@ export class Machine {
     return join(this.logs, 'serial.log')
   }
 
-  get qmp(): Endpoint {
-    return this.#endpoints().qmp
+  get qmp(): string {
+    return join(this.run, 'qmp.sock')
   }
 
-  get qga(): Endpoint {
-    return this.#endpoints().qga
-  }
-
-  #endpoints(): { qmp: Endpoint; qga: Endpoint } {
-    const file = join(this.run, 'endpoints.json')
-    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')) as { qmp: Endpoint; qga: Endpoint }
-    return { qmp: join(this.run, 'qmp.sock'), qga: join(this.run, 'qga.sock') }
-  }
-
-  async #newEndpoints(): Promise<{ qmp: Endpoint; qga: Endpoint }> {
-    if (this.host.platform !== 'win32') return { qmp: join(this.run, 'qmp.sock'), qga: join(this.run, 'qga.sock') }
-    return { qmp: { host: '127.0.0.1', port: await Machine.#freePort() }, qga: { host: '127.0.0.1', port: await Machine.#freePort() } }
-  }
-
-  static #chardev(endpoint: Endpoint): string {
-    return typeof endpoint === 'string' ? `path=${endpoint}` : `host=${endpoint.host},port=${endpoint.port}`
-  }
-
-  static #qmpAddress(endpoint: Endpoint): string {
-    return typeof endpoint === 'string' ? `unix:${endpoint}` : `tcp:${endpoint.host}:${endpoint.port}`
+  get qga(): string {
+    return join(this.run, 'qga.sock')
   }
 
   qemu(): Qemu {
@@ -269,7 +250,7 @@ export class Machine {
     return true
   }
 
-  args(options: StartOptions, accel: Accel, link: Link = { kind: 'vsock' }, endpoints = this.#endpoints()): string[] {
+  args(options: StartOptions, accel: Accel, link: Link = { kind: 'vsock' }): string[] {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
     const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
@@ -287,9 +268,9 @@ export class Machine {
       '-device', 'virtio-keyboard-pci', '-device', 'virtio-tablet-pci',
       '-nic', `user,model=virtio-net-pci${Machine.#forward(link)}`,
       '-fw_cfg', `name=opt/acdev/key,file=${this.key}`,
-      '-chardev', `socket,${Machine.#chardev(endpoints.qga)},server=on,wait=off,id=qga0`,
+      '-chardev', `socket,path=${this.qga},server=on,wait=off,id=qga0`,
       '-device', 'virtio-serial', '-device', 'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0',
-      '-qmp', `${Machine.#qmpAddress(endpoints.qmp)},server=on,wait=off`,
+      '-qmp', `unix:${this.qmp},server=on,wait=off`,
       ...(link.kind === 'vsock' ? ['-device', `vhost-vsock-pci,guest-cid=${this.cid()}`] : []),
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
       '-pidfile', join(this.run, 'qemu.pid'),
@@ -310,14 +291,12 @@ export class Machine {
     return link.kind === 'tcp' ? `,hostfwd=tcp:127.0.0.1:${link.port}-:${PORT}` : ''
   }
 
-  async #freshRun(): Promise<{ link: Link; endpoints: { qmp: Endpoint; qga: Endpoint } }> {
+  async #freshRun(): Promise<Link> {
     for (const name of ['qga.sock', 'qmp.sock', 'qemu.pid', 'devd.sock', 'key']) rmSync(join(this.run, name), { force: true })
     const link = await this.newLink()
-    const endpoints = await this.#newEndpoints()
     writeFileSync(this.linkFile, `${JSON.stringify(link)}\n`)
-    writeFileSync(join(this.run, 'endpoints.json'), `${JSON.stringify(endpoints)}\n`)
     writeFileSync(this.key, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 })
-    return { link, endpoints }
+    return link
   }
 
   #refuse(options: StartOptions): void {
@@ -357,8 +336,7 @@ export class Machine {
   }
 
   async #boot(qemu: Qemu, options: StartOptions, accel: Accel): Promise<{ pid: number | null; log: string }> {
-    const { link, endpoints } = await this.#freshRun()
-    const args = this.args(options, accel, link, endpoints)
+    const args = this.args(options, accel, await this.#freshRun())
     writeFileSync(join(this.logs, 'qemu.cmd'), `${[qemu.system, ...args].join(' ')}\n`)
     writeFileSync(this.serial, '')
     const logFile = join(this.logs, 'qemu.log')
@@ -384,12 +362,6 @@ export class Machine {
     return 'killed'
   }
 
-  #unixQmp(): string {
-    const qmp = this.qmp
-    if (typeof qmp !== 'string') throw new Error('vm: acdev-viewer needs QMP on a Unix socket')
-    return qmp
-  }
-
   #viewer(): string {
     return crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
   }
@@ -400,7 +372,7 @@ export class Machine {
     const viewer = this.#viewer()
     let failed = ''
     for (let attempt = 0; attempt < 20; attempt++) {
-      const ran = spawnSync(viewer, ['--qmp', this.#unixQmp(), '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
+      const ran = spawnSync(viewer, ['--qmp', this.qmp, '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
       if (ran.status === 0) return
       failed = (ran.stderr || ran.error?.message || `exit ${ran.status}`).trim()
       await new Promise((done) => setTimeout(done, 500))
@@ -417,7 +389,7 @@ export class Machine {
     const viewer = this.#viewer()
     const log = openSync(join(this.logs, 'viewer.log'), 'a')
     const title = `acdev: ${basename(this.dir)}`
-    return spawnDetached([viewer, '--qmp', this.#unixQmp(), '--title', title], log, this.env).pid
+    return spawnDetached([viewer, '--qmp', this.qmp, '--title', title], log, this.env).pid
   }
 
   async ready(seconds: number): Promise<boolean> {

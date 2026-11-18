@@ -1,16 +1,49 @@
-import { connect, type Socket } from 'node:net'
-import type { Endpoint } from './host.ts'
+import { spawn } from 'node:child_process'
+import { connect } from 'node:net'
+import { Duplex } from 'node:stream'
+import { CHECKOUT, crateBinary } from './binary.ts'
 
 type Reply = { return?: unknown; error?: { class?: string; desc?: string }; event?: string }
 
+export function relayed(path: string, env: NodeJS.ProcessEnv = process.env): Duplex {
+  const binary = crateBinary(CHECKOUT, { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }, env)
+  const child = spawn(binary, [path], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  let failed = ''
+  const stream = new Duplex({
+    read() {},
+    write(chunk: Buffer, _encoding, done) {
+      child.stdin.write(chunk, done)
+    },
+    final(done) {
+      child.stdin.end()
+      done()
+    },
+    destroy(error, done) {
+      child.kill()
+      done(error)
+    },
+  })
+  child.stdout.on('data', (chunk: Buffer) => stream.push(chunk))
+  child.stdout.on('end', () => stream.push(null))
+  child.stderr.on('data', (chunk: Buffer) => {
+    failed += chunk.toString()
+  })
+  child.stdin.on('error', () => {})
+  child.on('error', (error) => stream.destroy(error))
+  child.on('exit', (code) => {
+    if (code !== 0) stream.destroy(new Error(failed.trim() || `acdev-relay exited with ${code}`))
+  })
+  return stream
+}
+
 export class Channel {
-  readonly #socket: Socket
+  readonly #socket: Duplex
   #buffer = ''
   readonly #lines: string[] = []
   #waiting: ((line: string) => void) | null = null
   #failed: Error | null = null
 
-  private constructor(socket: Socket) {
+  private constructor(socket: Duplex) {
     this.#socket = socket
     socket.setEncoding('utf8')
     socket.on('data', (chunk: string) => this.#take(chunk))
@@ -18,9 +51,10 @@ export class Channel {
     socket.on('close', () => this.#fail(new Error('the socket closed')))
   }
 
-  static open(endpoint: Endpoint): Promise<Channel> {
+  static open(path: string): Promise<Channel> {
+    if (process.platform === 'win32') return Promise.resolve(new Channel(relayed(path)))
     return new Promise((resolve, reject) => {
-      const socket = typeof endpoint === 'string' ? connect(endpoint) : connect(endpoint)
+      const socket = connect(path)
       socket.once('connect', () => resolve(new Channel(socket)))
       socket.once('error', reject)
     })
@@ -92,7 +126,7 @@ export class Channel {
   }
 }
 
-export async function monitor(path: Endpoint, command: string, args?: unknown, timeoutMs = 120_000): Promise<unknown> {
+export async function monitor(path: string, command: string, args?: unknown, timeoutMs = 120_000): Promise<unknown> {
   const channel = await Channel.open(path)
   try {
     await channel.line(10_000)
@@ -119,7 +153,7 @@ export class GuestAgent {
     this.#channel = channel
   }
 
-  static async open(path: Endpoint, timeoutMs = 10_000): Promise<GuestAgent> {
+  static async open(path: string, timeoutMs = 10_000): Promise<GuestAgent> {
     const channel = await Channel.open(path)
     const id = Math.floor(Math.random() * 2 ** 31)
     channel.send('guest-sync', { id })
@@ -137,7 +171,7 @@ export class GuestAgent {
     }
   }
 
-  static async ping(path: Endpoint, seconds: number): Promise<boolean> {
+  static async ping(path: string, seconds: number): Promise<boolean> {
     const deadline = Date.now() + seconds * 1000
     for (;;) {
       try {
