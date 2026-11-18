@@ -209,3 +209,5 @@
   tsconfig 给 `bun test --tsconfig-override` (`tsconfig.ts`): `extends` 工程最近的 tsconfig.json, `paths` 是它自己的 (顺着 `extends` 链取最近定义的
   `paths` 和 `baseUrl`, 换成绝对路径; 链上可以是相对路径、数组、包) 加上这两个模块, 指向跑测试的这个 acdev (`packageRoot()`, 打包后也对),
   所以 CLI 和 driver 总是同一个版本. 编辑器里的类型还得工程自己装.
+
+**客户机会话里页面没了** (2026-11-20): 不带 ref 的 snapshot、webs、query、console、network、permissions 由管家交给当时的前台进程; 这个进程恰好在请求途中退出 (比如测试刚杀了它) 时回 `the page went away`. driver 对这几种只读请求在客户机会话里再问一次, 这时管家会换一个进程回答; act、eval 这类有副作用的不重试.

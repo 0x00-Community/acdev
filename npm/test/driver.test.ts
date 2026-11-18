@@ -91,6 +91,13 @@ describe('Locator.match', () => {
 })
 
 describe('Locator composition and input helpers', () => {
+  test('a look whose guest page went away is asked again; an act is not', () => {
+    const gone = new Error('the page went away')
+    check(Acde.lookAgain('snapshot', gone)).toBe(true)
+    check(Acde.lookAgain('act', gone)).toBe(false)
+    check(Acde.lookAgain('snapshot', new Error('no web x'))).toBe(false)
+  })
+
   test('a drop in another window of the guest goes to the screen point of the target', () => {
     const rect = [200, 100, 800, 600] as const
     const shown = { z: 1, focus: false, hidden: false, pid: 50 }
