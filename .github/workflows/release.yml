@@ -157,20 +157,24 @@ jobs:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
+      - uses: ./acdev/.github/actions/toolchain
+        with:
+          targets: ${{ matrix.triple }}
       - uses: ./acdev/.github/actions/libacde
         with:
           token: ${{ secrets.ACKERNEL_TOKEN }}
           ref: ${{ needs.plan.outputs.libacde }}
       - name: system libraries (Linux) or clang and LLVM (cross)
         run: |
-          s=$(command -v sudo || true); $s apt-get update
           if [ -z "${{ matrix.cross }}" ]; then
-            $s apt-get install -y --no-install-recommends clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev \
-              libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev \
-              libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
+            p="clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev
+              libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils"
           else
-            $s apt-get install -y --no-install-recommends clang lld llvm python3 xz-utils
+            p="clang lld llvm python3 xz-utils"
           fi
+          # the other job on this runner may hold dpkg's lock
+          s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
+          dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
       - name: cargo-xwin (the MSVC CRT and SDK with ATL)
         if: matrix.cross == 'xwin'
         run: |
@@ -204,9 +208,6 @@ jobs:
           mkdir -p sdk && tar -xJf "$sdk" -C sdk
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           printf 'SDKROOT=%s\nMACOSX_DEPLOYMENT_TARGET=11.0\n' "$RUNNER_TEMP/sdk/MacOSX15.5.sdk" >> "$GITHUB_ENV"
-      - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
-        with:
-          targets: ${{ matrix.triple }}
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
@@ -216,7 +217,9 @@ jobs:
           workspaces: |
             acdev -> target
             acdev/crates/tool -> target
-          cache-directories: ~/.cache/cargo-xwin-atl
+          cache-directories: |
+            ~/.cache/cargo-xwin-atl
+            ~/.cache/zig
       - name: bun for libacde's build.rs, the release version (not committed), rustc flags
         run: |
           set -eu
@@ -269,7 +272,7 @@ jobs:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
+      - uses: ./acdev/.github/actions/toolchain
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -324,7 +327,7 @@ jobs:
         working-directory: acdev/npm
         run: |
           set -eu
-          dpkg -s jq > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq xz-utils; }
+          dpkg -s jq > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq xz-utils; }
           mkdir -p "$GITHUB_WORKSPACE/shipped" && cp "$GITHUB_WORKSPACE"/in/*/*.tar.* "$GITHUB_WORKSPACE/shipped/"
           bun install --frozen-lockfile
           sh ../scripts/set-version.sh "$V" ..
@@ -361,7 +364,7 @@ jobs:
       - name: the release is exactly the allow-list and the shipped content is clean
         working-directory: acdev/npm
         run: |
-          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xz-utils; }
+          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends xz-utils; }
           bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "${{ needs.plan.outputs.version }}" \
             --targets "${{ needs.plan.outputs.targets }}"
       - name: a preview stops here
@@ -385,7 +388,7 @@ jobs:
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq awscli; }
+          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq awscli; }
           creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
             --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
           for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
@@ -436,7 +439,7 @@ jobs:
       - name: the packages
         run: |
           set -eu
-          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xz-utils; }
+          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends xz-utils; }
           rel="$GITHUB_WORKSPACE/out/$V"
           deps=
           for t in $(echo "${{ needs.plan.outputs.targets }}" | tr , ' '); do
@@ -520,7 +523,7 @@ jobs:
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq awscli; }
+          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq awscli; }
           creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
             --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
           for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done

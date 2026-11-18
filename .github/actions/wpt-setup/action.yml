@@ -16,36 +16,49 @@ runs:
     - name: end what an earlier test job left running (a cancelled job's wptserve group and runtime sessions outlive it)
       shell: bash
       run: |
-        for pid in $(pgrep -f '/hostexecutor/libacde/scripts/wpt/serve\.py' || true); do
-          pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
-          [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
-        done
+        # only processes whose job directory is gone: the other job on this runner may be running its own
+        gone() {
+          for p in "$(readlink "/proc/$1/cwd" 2>/dev/null)" $(tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null); do
+            case $p in */.cache/act/*/hostexecutor/*) [ ! -d "${p%%/hostexecutor/*}" ]; return ;; esac
+          done
+          return 1
+        }
+        serve='/hostexecutor/libacde/scripts/wpt/serve\.py'
         ours='/hostexecutor/acdev/target/release/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
-        pkill -TERM -f "$ours" || true
+        ports=$(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
+        left=""
+        for pid in $(pgrep -f "$ours|$serve" || true) $ports; do gone "$pid" && left="$left $pid"; done
+        [ -n "$left" ] || exit 0
+        for pid in $left; do
+          if grep -qa 'scripts/wpt/serve\.py' "/proc/$pid/cmdline" 2>/dev/null; then
+            pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
+            [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
+          else
+            kill -TERM "$pid" 2>/dev/null || true
+          fi
+        done
         for i in $(seq 1 30); do
-          pgrep -f "$ours|/hostexecutor/libacde/scripts/wpt/serve\.py" > /dev/null || break
+          alive=""; for pid in $left; do kill -0 "$pid" 2>/dev/null && alive=1; done
+          [ -n "$alive" ] || break
           sleep 1
         done
-        pkill -KILL -f "$ours|/hostexecutor/libacde/scripts/wpt/serve\.py" || true
-        for pid in $(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
-          kill -KILL "$pid" 2>/dev/null || true
-        done
+        for pid in $left; do kill -KILL "$pid" 2>/dev/null || true; done
     - name: acdev's commit
       shell: bash
       run: echo "acdev $(git -C acdev rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+    - uses: ./acdev/.github/actions/toolchain
     - uses: ./acdev/.github/actions/libacde
       with:
         token: ${{ inputs.token }}
     - name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve
       shell: bash
       run: |
-        s=$(command -v sudo || true); $s apt-get update
-        $s apt-get install -y --no-install-recommends clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev \
-          libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev \
-          libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils \
-          mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk \
-          python3 python3-venv git
-    - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
+        p="clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev
+          libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
+          mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk python3 python3-venv git"
+        # the other job on this runner may hold dpkg's lock
+        s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
+        dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
     - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       with:
         key: wpt

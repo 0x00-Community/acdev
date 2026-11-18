@@ -154,3 +154,21 @@ cargo-xwin 的缓存目录 (默认 `~/.cache/cargo-xwin`) 不随这个开关区�
 `~` 是 cicd 用户真实的家目录, 各作业共用: 当时单独的 tools 作业里 relay 用 cargo-xwin 时不带 ATL, 先在 243 上填了这个目录, run 2545 的
 Windows 构建落到 243 后就沿用了不含 ATL 的缓存, 链接时报 `lld-link: error: could not open 'atls.lib'`. 所以 build 作业另设
 `XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl` (rust-cache 的 `cache-directories` 跟着改), (现在 acdevtool 也在 build 里编, 同用这个目录).
+
+## 执行机同时跑两个作业: Rust 只读, 家目录按作业分 (2026-11-18)
+
+执行机的 capacity 翻成 2 (用户定, 2026-11-18) 后, 宿主模式下同一个 runner 上的两个作业共用 cicd 的家目录. run 2562 里 243 同时跑 Linux 和
+Windows 两格, Windows 那格的 rust-cache 收尾时清理共用的 `~/.cargo`, Linux 那格编完 acdev 再调 cargo 时 `~/.cargo/bin/cargo` 已不在 (退出码 127).
+所以:
+
+- Rust 不再由作业装: 执行机的 ci-debian 里由 root 跑 `scripts/runner-rust.sh`, 把 rustup 的 stable 装进 `/opt/rust` (归 root, 作业只能读;
+  目标: 两种架构的 linux-gnu 和 linux-musl、x86_64-pc-windows-msvc、两个 apple-darwin; 组件 clippy、rustfmt). 不用 Debian 的 rustc: trixie
+  的 1.85 太旧 (`as_chunks` 要 1.88, 依赖只写主版本号, 跟最新), 也没有 msvc 和 darwin 的标准库. 升级: 执行机空闲时再跑一次这个脚本.
+- `.github/actions/toolchain` 是用 Rust 的作业 checkout 之后的第一步 (`build`、`guest`、wpt-setup): 查 `/opt/rust` 有作业要的目标, 把
+  `HOME` 和 `CARGO_HOME` 设到这个作业自己的 `$RUNNER_TEMP/home` (作业结束随工作目录删掉), `RUSTUP_HOME=/opt/rust/rustup`, 把
+  `/opt/rust/cargo/bin` 放进 `PATH`. 于是 bun (`setup-bun` 装在 `~/.bun`)、rust-cache、cargo-xwin 的 `~/.cache/cargo-xwin-atl`、zig 的
+  `~/.cache/zig` 都是每个作业一份, 跨运行的复用只靠 rust-cache 存在 .127 act-cache 的那份 (`cache-directories` 带上这两个目录).
+- apt 带 `-o DPkg::Lock::Timeout=600` (另一个作业可能正拿着 dpkg 的锁), 要的包都装了就不调 apt.
+- wpt-setup 的第一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
+  runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
+  test 运行同时跑时才会).

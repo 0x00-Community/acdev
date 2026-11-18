@@ -255,6 +255,28 @@ describe('release.yml', () => {
     }
   })
 
+  test('Rust jobs take the runner\'s read-only /opt/rust and a home of their own, first thing after the checkout', () => {
+    const ACTIONS = join(import.meta.dir, '..', '..', '..', '.github', 'actions')
+    const WPT = readFileSync(join(ACTIONS, 'wpt-setup', 'action.yml'), 'utf8')
+    expect(TEXT + WPT).not.toContain('rust-toolchain@')
+    const toolchain = readFileSync(join(ACTIONS, 'toolchain', 'action.yml'), 'utf8')
+    expect(toolchain).toContain('RUSTUP_HOME=/opt/rust/rustup')
+    expect(toolchain).toContain('h=$RUNNER_TEMP/home')
+    for (const [job, targets] of [['build', '${{ matrix.triple }}'], ['guest', 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl']] as const) {
+      const step = jobs[job]!.steps[1]!
+      expect(step.uses, job).toBe('./acdev/.github/actions/toolchain')
+      expect(step.with?.['targets'], job).toBe(targets)
+    }
+    expect(WPT.indexOf('./acdev/.github/actions/toolchain')).toBeLessThan(WPT.indexOf('/rust-cache@'))
+    expect(WPT).toContain('[ ! -d "${p%%/hostexecutor/*}" ]')
+  })
+
+  test('apt waits for the lock the other job on the runner may hold', () => {
+    const calls = TEXT.match(/apt-get [^;|&]*?(update|install)/g) ?? []
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) expect(call).toMatch(/DPkg::Lock::Timeout=600|apt-get \$a /)
+  })
+
   test('every remote action is pinned to a full commit SHA with its version noted', () => {
     const all = Object.keys(jobs).flatMap((job) => uses(job)).filter((action) => !action.startsWith('./'))
     expect(all.length).toBeGreaterThan(0)
