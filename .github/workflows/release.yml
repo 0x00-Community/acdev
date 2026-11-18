@@ -386,7 +386,7 @@ jobs:
           ssh="ssh -i $k/upload -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts"
           rsync -rt --chmod=D755,F644 -e "$ssh" in/ "artifacts@192.168.10.127:$GITHUB_RUN_NUMBER/"
           echo "$GITHUB_RUN_NUMBER" > "$k/latest"
-          rsync -t -e "$ssh" "$k/latest" artifacts@192.168.10.127:latest
+          rsync -t -e "$ssh" "$k/latest" artifacts@192.168.10.127:
           echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
 
   upload:
