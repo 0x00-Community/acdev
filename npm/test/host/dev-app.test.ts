@@ -269,4 +269,24 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     expect((await driver!.act(back.ref, 'click')).ok).toBe(true)
     expect(await settle('document.title', 'Hello Backend')).toBe('Hello Backend')
   })
+
+  test('SIGTERM to acdev dev ends the runtime cleanly: the backend is stopped, and acdev dev exits 0', async () => {
+    const backend = await backendPid()
+    await driver?.close()
+    driver = null
+    dev!.kill('SIGTERM')
+    await Promise.race([dev!.exited, Bun.sleep(15_000)])
+    expect(dev!.exitCode).toBe(0)
+    const gone = () => {
+      try {
+        process.kill(backend, 0)
+        return false
+      } catch {
+        return true
+      }
+    }
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline && !gone()) await Bun.sleep(100)
+    expect(gone()).toBe(true)
+  })
 })
