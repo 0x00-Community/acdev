@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
@@ -94,11 +94,47 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
   })
 
   const page = (code: string) => driver!.evaluate('hello-backend', code)
-  const settle = async (code: string, wanted: unknown) => {
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline && JSON.stringify(await page(code)) !== JSON.stringify(wanted)) await Bun.sleep(200)
+  const settle = async (code: string, wanted: unknown, ms = 10_000) => {
+    const deadline = Date.now() + ms
+    while (Date.now() < deadline && JSON.stringify(await page(code).catch(() => null)) !== JSON.stringify(wanted)) await Bun.sleep(200)
     return page(code)
   }
+  const status = "document.querySelector('#status').textContent"
+  const backendPid = () => page("fetch('/api/hello').then((r) => r.json()).then((a) => a.pid)") as Promise<number>
+  const devLog = async (wanted: string) => {
+    const read = () => Bun.file(join(home, 'dev.err.log')).text()
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline && !(await read()).includes(wanted)) await Bun.sleep(300)
+    return read()
+  }
+
+  test('the page reaches the app backend that the launcher started', async () => {
+    expect(await settle(status, 'backend says hi', 30_000)).toBe('backend says hi')
+    expect(await backendPid()).toBeGreaterThan(0)
+  })
+
+  test('a change to the backend reloads the app and starts the backend again', async () => {
+    const before = await backendPid()
+    const server = join(project, 'server.ts')
+    writeFileSync(server, readFileSync(server, 'utf8').replace("hello: 'hi'", "hello: 'again'"))
+    expect(await settle(status, 'backend says again', START_MS)).toBe('backend says again')
+    expect(await backendPid()).not.toBe(before)
+  }, START_MS + 10_000)
+
+  test('a backend crash shows in the acdev dev log and the backend comes back', async () => {
+    const before = await backendPid()
+    await page("fetch('/api/crash').then(() => 'answered', () => 'failed')")
+    const log = await devLog('[hello-backend#backend] stopped (exit 3); starting it again')
+    expect(log).toContain('hello-backend crashes on purpose')
+    expect(log).toContain('[hello-backend#backend] stopped (exit 3); starting it again')
+    const deadline = Date.now() + 20_000
+    let after = before
+    while (Date.now() < deadline && after === before) {
+      await Bun.sleep(300)
+      after = await backendPid().catch(() => before)
+    }
+    expect(after).not.toBe(before)
+  }, 60_000)
 
   test('snapshot sees the page, query finds the button, act clicks it', async () => {
     const snapshot = await driver!.snapshot()

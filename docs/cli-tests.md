@@ -30,4 +30,6 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 `acdev dev <目录> --app hello-backend --headless --force`, 再用 `acdev webs`、`acdev eval`、`acdev console` 检查. 只在
 `ACDEV_HOST_E2E=1` 且 `ACDEV_RUNTIME` 指向真的运行时 (比如 `target/debug/acdev`, 要和并排的 libacde 同一版本) 时跑, 否则跳过;
 `bun run test:host` 设好前一个. 运行时目录、数据、配置和缓存都放进临时目录. 先在 Linux 宿主上跑; Windows、macOS 由用户安排人测.
-后续工作项 (DevTools、其余请求类型、后端随应用起停) 在这里加用例.
+应用后端 (工作项 13) 的用例: 页面拿到 `backend says hi`; 改 `server.ts` 后重新构建、重载, 后端换了进程 (pid 变了) 且答新内容;
+页面请求 `/api/crash` 让后端以 3 退出, `acdev dev` 的 stderr 里有后端自己的输出和 `[hello-backend#backend] stopped (exit 3); starting it again`,
+之后后端以新进程回来. 这几条放在 `route` 用例之前 (那条会把 `/api/hello` 换成假回应).
