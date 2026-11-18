@@ -213,8 +213,9 @@ fn run(body: &[u8], reader: UnixStream, writer: UnixStream, settings: &Settings)
 
 fn start_detached(mut command: Command, mut writer: UnixStream, settings: &Settings) -> io::Result<()> {
     fs::create_dir_all(&settings.logs)?;
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let log = settings.logs.join(format!(".starting-{nanos}.log"));
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let count = NEXT.fetch_add(1, Ordering::SeqCst);
+    let log = settings.logs.join(format!(".starting-{}-{count}.log", std::process::id()));
     let file = File::create(&log)?;
     let child: Child = command.stdout(file.try_clone()?).stderr(file).spawn()?;
     let pid = child.id();
