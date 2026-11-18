@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
@@ -239,5 +240,32 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     } finally {
       await client.close()
     }
+  })
+
+  test('acde:fs gives the declared documents place as a folder of the session, not the real Documents', async () => {
+    const code = `(async () => {
+      const { fs } = await import('acde:fs')
+      const roots = await fs.roots()
+      const documents = roots.find((root) => root.place === 'documents')
+      await fs.writeFile(documents.id, 'acdev-host-test.txt', 'hello places')
+      const text = (await fs.readText(documents.id, 'acdev-host-test.txt')).text
+      return { path: documents.path ?? '', text, private: roots.some((root) => root.source === 'private') }
+    })()`
+    const answer = (await page(code)) as { path: string; text: string; private: boolean }
+    expect(answer.text).toBe('hello places')
+    expect(answer.private).toBe(true)
+    expect(answer.path).toContain('acdev-places-')
+    expect(answer.path.startsWith(join(homedir(), 'Documents'))).toBe(false)
+    expect(existsSync(join(answer.path, 'acdev-host-test.txt'))).toBe(true)
+  })
+
+  test('act on a link to another page of the app answers, and the other page loads', async () => {
+    const link = (await driver!.query({ selector: '#other' })).nodes[0]!
+    const clicked = await driver!.act(link.ref, 'click')
+    expect(clicked.ok).toBe(true)
+    expect(await settle('document.title', 'Other Page')).toBe('Other Page')
+    const back = (await driver!.query({ selector: '#back' })).nodes[0]!
+    expect((await driver!.act(back.ref, 'click')).ok).toBe(true)
+    expect(await settle('document.title', 'Hello Backend')).toBe('Hello Backend')
   })
 })

@@ -138,6 +138,11 @@ export class Help {
           { flag: '--desktop ID|DIR', about: 'Run the projects in that desktop' },
           { flag: '--out DIR', about: 'Where to build (default: .acde; one project only)' },
           { flag: '--force', about: 'Start even when another acdev dev runs the same project' },
+          {
+            flag: '--keep',
+            about: 'Keep the folders that stand in for Documents, Downloads and the other shared places after the session '
+              + '(by default they are removed)',
+          },
         ],
         examples: ['acdev dev', 'acdev dev --headless', 'acdev dev ./app ./desk'],
       },

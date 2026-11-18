@@ -1,4 +1,5 @@
-import { readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, delimiter, join, resolve } from 'node:path'
 import type { PackageManifest } from './manifest/index.ts'
 import type { StdioOptions } from 'node:child_process'
@@ -31,6 +32,7 @@ export interface DevOptions {
   readonly headless?: boolean
   readonly verbose?: boolean
   readonly force?: boolean
+  readonly keep?: boolean
   readonly test?: boolean
   readonly acdert: string
 }
@@ -91,6 +93,7 @@ export class DevSession {
   readonly #headless: boolean
   readonly #verbose: boolean
   readonly #force: boolean
+  readonly #keep: boolean
   readonly #test: boolean
   readonly #endpoint = DevClient.endpoint()
   #link: DevClient | null = null
@@ -122,6 +125,7 @@ export class DevSession {
     this.#headless = options.headless === true
     this.#verbose = options.verbose === true
     this.#force = options.force === true
+    this.#keep = options.keep === true
     this.#test = options.test === true
   }
 
@@ -275,7 +279,9 @@ export class DevSession {
     const watchers: Watching[] = []
     const signals: [NodeJS.Signals, () => void][] = []
     const runtime: Running = { child: null, running: false, stopping: false }
+    let places: string | null = null
     try {
+      places = DevSession.places()
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']]
         .filter(Boolean)
         .join(delimiter)
@@ -288,6 +294,7 @@ export class DevSession {
         ACDE_PATH: paths,
         ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node',
         ...(this.#headless && { ACDE_HEADLESS: '1' }),
+        ...DevSession.placesEnv(places),
       }
       delete env[Sessions.TEST_ENV]
       let interrupted = 0
@@ -363,7 +370,23 @@ export class DevSession {
       this.#link?.close()
       this.#link = null
       if (process.platform !== 'win32') rmSync(this.#endpoint, { force: true })
+      if (places && this.#keep) console.log(`acdev: kept the shared places of this session in ${places}`)
+      else if (places) rmSync(places, { recursive: true, force: true })
     }
+  }
+
+  static readonly PLACES = { desktop: 'DESKTOP', documents: 'DOCUMENTS', downloads: 'DOWNLOAD', music: 'MUSIC', pictures: 'PICTURES', videos: 'VIDEOS' }
+
+  static places(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'acdev-places-'))
+    for (const name of Object.keys(DevSession.PLACES)) mkdirSync(join(dir, name))
+    return dir
+  }
+
+  static placesEnv(dir: string): Record<string, string> {
+    const env: Record<string, string> = { ACDE_DEV_PLACES: dir }
+    for (const [name, key] of Object.entries(DevSession.PLACES)) env[`XDG_${key}_DIR`] = join(dir, name)
+    return env
   }
 
   #spawn(target: Target, env: NodeJS.ProcessEnv, runtime: Running): Child {

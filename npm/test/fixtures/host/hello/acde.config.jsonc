@@ -4,5 +4,5 @@
   "label": "Hello Backend",
   "icon": "app",
   "entry": "index.html",
-  "capabilities": {}
+  "capabilities": { "fs": { "roots": ["documents"] } }
 }
