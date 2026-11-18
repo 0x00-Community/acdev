@@ -6,7 +6,7 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 和 acdebin-system 无关的独立小程序, 经 vsock 与 acdev 通信, 以后并入 acdebin-system). 作用类似安卓的 adbd. `crates/devd` 是独立的 Cargo
 工作区 (根工作区把它 `exclude` 掉): 不依赖任何库, 编一下不到一秒, 客户机和宿主用同一个二进制.
 
-- `acdevd serve [--port PORT]`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
+- `acdevd serve [--port PORT] [--allow-socket PATTERN]...`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
   有密钥时 (见下面「传输与密钥」) 同时在 TCP `0.0.0.0:PORT` 上听; 两个都听不了才退出.
 - 宿主上找 acdevd 的顺序 (`npm/src/vm/binary.ts`): `ACDEV_DEVD`; 安装目录的 `libexec/acdevd-<x86_64|aarch64>` (按客户机架构, 发版的
   `acdev-guest` 包, 见 `docs/release-distribution.md`); `CARGO_TARGET_DIR` 下的 `release/acdevd`; 约定的共用产物目录
@@ -72,6 +72,8 @@ macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-em
 | `R` 运行 | 一个标志字节 (`1`: 后台运行), 再接以 NUL 分隔的程序和参数 | `I` 进程号; 前台运行时之后是 `1` 标准输出、`2` 标准错误的片段, 最后 `Q` 退出码 (`i32`, 被信号结束时是 128 加信号号); 后台运行时是 `O` 日志文件路径 |
 | `S` 终端 | `u16` 行数、`u16` 列数, 再接以 NUL 分隔的 `TERM` 值、程序和参数 (没有程序时是 root 的登录 shell); 之后宿主送 `D` 输入、`W` 改大小 (`u16` 行数、`u16` 列数) | `I` 进程号; 之后是 `1` 终端输出, 最后 `Q` 退出码 |
 | `K` 停止 | `u32` 进程号, 可再接一个字节 `9` 表示强制结束 | `O` |
+| `C` 套接字隧道 | 客户机里 Unix 套接字的绝对路径; 空表示活动会话的管家调试套接字 | `O`, 之后两边原样转发字节, 直到任一方关闭 |
+| `T` 端口隧道 | `u16` 端口号 (客户机 `127.0.0.1` 上的 TCP 端口, 给 DevTools 用) | `O`, 之后同上 |
 
 任何一步出错, 守护进程回 `X` 加原因, 然后关闭连接.
 
@@ -84,13 +86,24 @@ macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-em
 - 终端开在新的伪终端上: 程序是新会话的首进程, 伪终端是它的控制终端, 环境里有 `TERM` 和 root 的 `HOME`. 程序退出后再等 0.5 s 收完输出,
   给它的进程组发 SIGHUP, 回退出码并关闭连接; 宿主先断开时给进程组发 SIGHUP.
 - `K` 给整个进程组发 SIGTERM (或 SIGKILL); 进程组不存在时回错误.
+- 隧道 (`C`、`T`, `src/tunnel.rs`; 客户机调试通道 A1): 只在密钥验证过的连接上可用, 守护进程没有密钥或第一帧不是 `A` 时回
+  `a tunnel needs a key`. 回 `O` 之后连接上不再有帧, 守护进程两边各一个线程拷贝字节, 任一方读到结束或出错就把两边都关掉.
+  - `C` 的路径先解析符号链接, 再和放行规则比: 规则是绝对路径, `*` 只匹配一段 (不跨 `/`); 默认只有管家的调试套接字
+    `/run/user/*/acde/dev.sock`, `serve` 的 `--allow-socket` (可重复) 给了就取代默认. 路径为空时找活动会话的管家套接字: 先问 logind
+    (`loginctl show-seat seat0` 的 `ActiveSession`, 再取它的 `User`), 用 `/run/user/<uid>/acde/dev.sock`; 问不到时 `/run/user/*/acde/dev.sock`
+    只有一个就用它, 没有或有好几个就回错误. 这个套接字只在开发客户机里有 (有 fw_cfg 密钥才算), 和隧道要密钥是同一个条件.
+  - `T` 连客户机的 `127.0.0.1:<端口>`, 关掉 Nagle.
 
 ## 测试
 
 `cargo test` (在 `crates/devd`): 用一对 Unix 套接字代替 vsock 和 TCP, 在进程内测密钥 (对的放行、错的和缺的拒绝、没有密钥时可有可无)、版本、拉取 (单个文件、目录树与权限位、不存在时报错)、推送 (内容与权限位)、前台运行 (分开的输出与退出码)、
-后台运行再停止 (日志)、宿主断开时结束程序, 以及终端的大小、输入、改大小、退出码和断开.
+后台运行再停止 (日志)、宿主断开时结束程序, 以及终端的大小、输入、改大小、退出码和断开; 隧道: 套接字和端口两种的双向转发与关闭、
+不在放行规则里的路径被拒、没有密钥被拒、`*` 不跨段.
 
 ## 宿主一侧 (`npm/src/vm/devd.ts`)
 
 `Devd` 说上面的协议, 连接由 `Transport` 给: 实际用的 `RelayTransport` 起 `acdevd connect <cid> 5252`, 经它的标准输入输出读写.
 `acdev vm` 的 `run`、`shell`、`push`、`kill` 和 `start` 末尾的就绪检查都经它; 装进客户机、找宿主二进制的做法见 `docs/vm.md`.
+`socket(path?)`、`tcp(port)` 开隧道, 等到 `O` 后返回 `Tunnel` (一个 Node `Duplex`, 写进去的原样送到客户机, 读出来的是客户机那头的字节,
+含和 `O` 同一块到达的部分; 销毁时关连接), 给以后的会话登记和 `acdev devtools` 用. 为此 `Connection` 除了 `frames` 还有 `bytes()`:
+帧按需一帧一帧解, 不预先解后面的字节, `bytes()` 先交出解码器里剩下的再接着读.

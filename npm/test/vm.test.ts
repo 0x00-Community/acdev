@@ -109,6 +109,7 @@ class Scripted implements Transport {
         await Promise.resolve()
         yield* replies
       })(),
+      bytes: async function* () {},
       close: () => undefined,
     }
   }
@@ -212,6 +213,44 @@ describe('the acdevd protocol, host side', () => {
     const transport = new Scripted((sent) => (sent.length < 2 ? [] : [frame(Kind.OK, Buffer.from('0.3.0'))]))
     expect(await new Devd(transport, Buffer.from('k3y')).version()).toBe('0.3.0')
     expect(transport.sent.map((f) => [f.kind, f.body.toString()])).toEqual([[Kind.AUTH, 'k3y'], [Kind.VERSION, '']])
+  })
+
+  test('a tunnel answers OK, then carries raw bytes both ways, including bytes sent along with the OK', async () => {
+    const path = join(tmp(), 'tunnel.sock')
+    const asked: string[] = []
+    const server = createServer((socket) => {
+      const decoder = new Frames()
+      socket.on('data', (chunk) => {
+        if (asked.length >= 2) return void socket.write((chunk as Buffer).toString().toUpperCase())
+        for (const got of decoder.push(chunk as Buffer)) {
+          asked.push(`${got.kind} ${got.body.toString()}`)
+          if (got.kind === Kind.SOCKET) socket.write(Buffer.concat([encode(Kind.OK), Buffer.from('hello ')]))
+        }
+      })
+    })
+    await new Promise<void>((done) => server.listen(path, done))
+    try {
+      const tunnel = await new Devd(new SocketTransport({ path }), Buffer.from('k')).socket('/run/user/1000/acde/dev.sock')
+      let seen = ''
+      const heard = new Promise<void>((done) => tunnel.on('data', (chunk: Buffer) => {
+        seen += chunk.toString()
+        if (seen === 'hello PING') done()
+      }))
+      tunnel.write('ping')
+      await heard
+      tunnel.destroy()
+      expect(asked).toEqual([`${Kind.AUTH} k`, `${Kind.SOCKET} /run/user/1000/acde/dev.sock`])
+    } finally {
+      server.close()
+    }
+  })
+
+  test('a refused tunnel rejects with what acdevd said', async () => {
+    const port = Buffer.alloc(2)
+    port.writeUInt16LE(9222, 0)
+    const refused = new Scripted(() => [frame(Kind.ERROR, Buffer.from('a tunnel needs a key'))])
+    await expect(new Devd(refused).tcp(9222)).rejects.toThrow('acdevd: a tunnel needs a key')
+    expect(refused.sent).toEqual([frame(Kind.TCP, port)])
   })
 
   test('a socket transport speaks the frames over a Unix socket', async () => {

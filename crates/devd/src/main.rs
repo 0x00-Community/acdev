@@ -2,9 +2,10 @@ mod frame;
 mod key;
 mod serve;
 mod shell;
+mod tunnel;
 mod vsock;
 
-use std::io::{self, Read, Write};
+use std::io;
 use std::net::TcpListener;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
@@ -13,7 +14,9 @@ use std::sync::Arc;
 use std::thread;
 
 const PORT: u32 = 5252;
-const USAGE: &str = "usage: acdevd serve [--port PORT]   (in the guest: answer acdev over vsock, and TCP when it has a key)
+const USAGE: &str = "usage: acdevd serve [--port PORT] [--allow-socket PATTERN]...
+                                     (in the guest: answer acdev over vsock, and TCP when it has a key;
+                                      PATTERN: a Unix socket the C tunnel may reach, * within one path part)
        acdevd connect CID [PORT]     (on the host: relay stdin and stdout to the guest's acdevd)
        acdevd --version";
 
@@ -21,13 +24,30 @@ fn port(text: Option<&String>) -> Result<u32, String> {
     text.map_or(Ok(PORT), |t| t.parse().map_err(|_| format!("acdevd: {t} is not a port")))
 }
 
+struct Options {
+    port: u32,
+    sockets: tunnel::Sockets,
+}
+
+fn options(args: &[String]) -> Result<Options, String> {
+    let mut port_text = None;
+    let mut patterns = Vec::new();
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let value = rest.next().ok_or_else(|| USAGE.to_owned())?;
+        match flag.as_str() {
+            "--port" => port_text = Some(value),
+            "--allow-socket" if value.starts_with('/') => patterns.push(value.clone()),
+            _ => return Err(USAGE.into()),
+        }
+    }
+    let sockets = if patterns.is_empty() { tunnel::Sockets::defaults() } else { tunnel::Sockets::new(patterns) };
+    Ok(Options { port: port(port_text)?, sockets })
+}
+
 fn serve(args: &[String]) -> Result<(), String> {
-    let port = match args {
-        [] => PORT,
-        [flag, value] if flag == "--port" => port(Some(value))?,
-        _ => return Err(USAGE.into()),
-    };
-    let settings = Arc::new(serve::Settings { logs: serve::log_dir().to_path_buf(), key: key::load(key::FW_CFG) });
+    let Options { port, sockets } = options(args)?;
+    let settings = Arc::new(serve::Settings { logs: serve::log_dir().to_path_buf(), key: key::load(key::FW_CFG), sockets });
     let mut loops = Vec::new();
     match vsock::Listener::bind(port) {
         Ok(listener) => loops.push(answer(format!("vsock port {port}"), move || listener.accept(), settings.clone())),
@@ -79,15 +99,6 @@ fn answer(name: String, accept: impl Fn() -> io::Result<UnixStream> + Send + 'st
     })
 }
 
-fn copy(mut from: impl Read, mut to: impl Write) {
-    let mut buffer = [0u8; 64 * 1024];
-    while let Ok(read) = from.read(&mut buffer) {
-        if read == 0 || to.write_all(&buffer[..read]).and_then(|()| to.flush()).is_err() {
-            break;
-        }
-    }
-}
-
 fn connect(args: &[String]) -> Result<(), String> {
     let (cid, port) = match args {
         [cid] => (cid, PORT),
@@ -98,10 +109,10 @@ fn connect(args: &[String]) -> Result<(), String> {
     let stream = vsock::connect_to(cid, port).map_err(|e| format!("acdevd: vsock {cid}:{port}: {e}"))?;
     let back = stream.try_clone().map_err(|e| e.to_string())?;
     let up = thread::spawn(move || {
-        copy(io::stdin(), &stream);
+        tunnel::copy(io::stdin(), &stream);
         let _ = stream.shutdown(std::net::Shutdown::Write);
     });
-    copy(back, io::stdout());
+    tunnel::copy(back, io::stdout());
     drop(up);
     Ok(())
 }

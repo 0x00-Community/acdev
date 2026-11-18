@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::frame::{self, Frame};
-use crate::{key, shell};
+use crate::{key, shell, tunnel};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -25,6 +25,12 @@ const SIGKILL: i32 = 9;
 pub struct Settings {
     pub logs: PathBuf,
     pub key: Option<Vec<u8>>,
+    pub sockets: tunnel::Sockets,
+}
+
+struct Request {
+    first: Frame,
+    keyed: bool,
 }
 
 pub fn handle(stream: UnixStream, settings: &Settings) -> io::Result<()> {
@@ -32,7 +38,7 @@ pub fn handle(stream: UnixStream, settings: &Settings) -> io::Result<()> {
     let mut writer = stream;
     let done = match frame::read(&mut reader)? {
         Some(first) => match authorized(first, &mut reader, settings.key.as_deref()) {
-            Ok(Some(first)) => answer(first, reader, &mut writer, settings),
+            Ok(Some(request)) => answer(request, reader, &mut writer, settings),
             Ok(None) => return Ok(()),
             Err(denied) => Err(denied),
         },
@@ -44,21 +50,28 @@ pub fn handle(stream: UnixStream, settings: &Settings) -> io::Result<()> {
     done
 }
 
-fn authorized(first: Frame, reader: &mut UnixStream, key: Option<&[u8]>) -> io::Result<Option<Frame>> {
+fn authorized(first: Frame, reader: &mut UnixStream, key: Option<&[u8]>) -> io::Result<Option<Request>> {
     if first.kind != frame::AUTH {
         return match key {
             Some(_) => Err(io::Error::new(io::ErrorKind::PermissionDenied, "this acdevd wants the key first")),
-            None => Ok(Some(first)),
+            None => Ok(Some(Request { first, keyed: false })),
         };
     }
-    if key.is_some_and(|key| !key::matches(&first.body, key)) {
+    let Some(key) = key else { return Ok(frame::read(reader)?.map(|first| Request { first, keyed: false })) };
+    if !key::matches(&first.body, key) {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "wrong key"));
     }
-    frame::read(reader)
+    Ok(frame::read(reader)?.map(|first| Request { first, keyed: true }))
 }
 
-fn answer(first: Frame, mut reader: UnixStream, writer: &mut UnixStream, settings: &Settings) -> io::Result<()> {
+fn answer(request: Request, mut reader: UnixStream, writer: &mut UnixStream, settings: &Settings) -> io::Result<()> {
+    let Request { first, keyed } = request;
+    if matches!(first.kind, frame::SOCKET | frame::TCP) && !keyed {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "a tunnel needs a key: this acdevd has none, or the key frame was missing"));
+    }
     match first.kind {
+        frame::SOCKET => tunnel::socket(&first.body, &settings.sockets, reader, writer.try_clone()?),
+        frame::TCP => tunnel::tcp(&first.body, reader, writer.try_clone()?),
         frame::VERSION => frame::write(writer, frame::OK, VERSION.as_bytes()),
         frame::PUSH => push(first, &mut reader, writer),
         frame::PULL => pull(&first.body, writer),
@@ -263,7 +276,7 @@ mod tests {
     fn serve_with(key: Option<&[u8]>) -> (UnixStream, thread::JoinHandle<io::Result<()>>, PathBuf) {
         let (host, guest) = UnixStream::pair().unwrap();
         let logs = std::env::temp_dir().join(format!("acdevd-test-{}-{}", std::process::id(), rand()));
-        let settings = Settings { logs: logs.clone(), key: key.map(<[u8]>::to_vec) };
+        let settings = Settings { logs: logs.clone(), key: key.map(<[u8]>::to_vec), sockets: tunnel::Sockets::defaults() };
         (host, thread::spawn(move || handle(guest, &settings)), logs)
     }
 

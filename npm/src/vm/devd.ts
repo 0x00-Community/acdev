@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { connect } from 'node:net'
+import { Duplex } from 'node:stream'
 import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
 import { crateBinary, crateDir, crateVersion } from './binary.ts'
 import type { Guest } from './host.ts'
@@ -11,7 +12,7 @@ const CHUNK = 1 << 20
 
 export const Kind = {
   AUTH: 'A', VERSION: 'V', PUSH: 'P', PULL: 'G', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
-  OK: 'O', ERROR: 'X', PID: 'I', STDOUT: '1', STDERR: '2', EXIT: 'Q',
+  SOCKET: 'C', TCP: 'T', OK: 'O', ERROR: 'X', PID: 'I', STDOUT: '1', STDERR: '2', EXIT: 'Q',
 } as const
 
 export interface Frame {
@@ -27,19 +28,58 @@ export function encode(kind: string, body: Buffer = Buffer.alloc(0)): Buffer {
 }
 
 export class Frames {
-  #buffer = Buffer.alloc(0)
+  #buffer: Buffer = Buffer.alloc(0)
 
   push(chunk: Buffer): Frame[] {
-    this.#buffer = Buffer.concat([this.#buffer, chunk])
+    this.append(chunk)
     const out: Frame[] = []
-    while (this.#buffer.length >= 4) {
-      const len = this.#buffer.readUInt32LE(0)
-      if (len === 0 || len > MAX) throw new Error(`acdevd sent a frame of ${len} bytes`)
-      if (this.#buffer.length < 4 + len) break
-      out.push({ kind: String.fromCharCode(this.#buffer[4]!), body: this.#buffer.subarray(5, 4 + len) })
-      this.#buffer = this.#buffer.subarray(4 + len)
-    }
+    for (let frame = this.take(); frame; frame = this.take()) out.push(frame)
     return out
+  }
+
+  append(chunk: Buffer): void {
+    this.#buffer = this.#buffer.length ? Buffer.concat([this.#buffer, chunk]) : chunk
+  }
+
+  take(): Frame | null {
+    if (this.#buffer.length < 4) return null
+    const len = this.#buffer.readUInt32LE(0)
+    if (len === 0 || len > MAX) throw new Error(`acdevd sent a frame of ${len} bytes`)
+    if (this.#buffer.length < 4 + len) return null
+    const frame = { kind: String.fromCharCode(this.#buffer[4]!), body: this.#buffer.subarray(5, 4 + len) }
+    this.#buffer = this.#buffer.subarray(4 + len)
+    return frame
+  }
+
+  rest(): Buffer {
+    const rest = this.#buffer
+    this.#buffer = Buffer.alloc(0)
+    return rest
+  }
+
+  static over(chunks: AsyncIterable<Buffer>, ended: () => Error | null): Pick<Connection, 'frames' | 'bytes'> {
+    const decoder = new Frames()
+    const source = chunks[Symbol.asyncIterator]()
+    const next = async (): Promise<Buffer | null> => {
+      const read = await source.next()
+      const failed = ended()
+      if (failed) throw failed
+      return read.done ? null : read.value
+    }
+    const frames = (async function* () {
+      for (;;) {
+        for (let frame = decoder.take(); frame; frame = decoder.take()) yield frame
+        const chunk = await next()
+        if (!chunk) return
+        decoder.append(chunk)
+      }
+    })()
+    const bytes = async function* () {
+      const rest = decoder.rest()
+      if (rest.length) yield rest
+      for (let chunk = await next(); chunk; chunk = await next()) yield chunk
+    }
+    return { frames, bytes }
   }
 }
 
@@ -72,6 +112,7 @@ export interface Connection {
   write(data: Buffer): void
   end(): void
   readonly frames: AsyncIterable<Frame>
+  bytes(): AsyncIterable<Buffer>
   close(): void
 }
 
@@ -95,19 +136,17 @@ export class SocketTransport implements Transport {
     socket.on('error', (error) => {
       failed ??= error
     })
-    const decoder = new Frames()
-    const frames = (async function* () {
+    const chunks = (async function* () {
       try {
-        for await (const chunk of socket) yield* decoder.push(chunk as Buffer)
+        for await (const chunk of socket) yield chunk as Buffer
       } catch (error) {
         throw failed ?? error
       }
-      if (failed) throw failed
     })()
     return {
       write: (data: Buffer) => void socket.write(data),
       end: () => void socket.end(),
-      frames,
+      ...Frames.over(chunks, () => failed),
       close: () => void socket.destroy(),
     }
   }
@@ -131,16 +170,19 @@ export class RelayTransport implements Transport {
     child.stderr!.on('data', (chunk: Buffer) => {
       failed += chunk.toString()
     })
-    const decoder = new Frames()
     const stdout = child.stdout!
-    const frames = (async function* () {
-      for await (const chunk of stdout) yield* decoder.push(chunk as Buffer)
-      if (failed.trim()) throw new Error(failed.trim())
+    const chunks = (async function* () {
+      for await (const chunk of stdout) yield chunk as Buffer
     })()
+    let finished = false
+    const ended = () => (finished && failed.trim() ? new Error(failed.trim()) : null)
+    stdout.on('end', () => {
+      finished = true
+    })
     return {
       write: (data: Buffer) => void child.stdin!.write(data),
       end: () => void child.stdin!.end(),
-      frames,
+      ...Frames.over(chunks, ended),
       close: () => void child.kill(),
     }
   }
@@ -162,6 +204,51 @@ function size(rows: number, cols: number): Buffer {
   return body
 }
 
+export class Tunnel extends Duplex {
+  readonly #conn: Connection
+  #resume: (() => void) | null = null
+
+  constructor(conn: Connection) {
+    super()
+    this.#conn = conn
+    void this.#pump()
+  }
+
+  async #pump(): Promise<void> {
+    try {
+      for await (const chunk of this.#conn.bytes()) {
+        if (!this.push(chunk)) await new Promise<void>((resume) => {
+          this.#resume = resume
+        })
+      }
+      this.push(null)
+    } catch (error) {
+      this.destroy(error as Error)
+    }
+  }
+
+  override _read(): void {
+    const resume = this.#resume
+    this.#resume = null
+    resume?.()
+  }
+
+  override _write(chunk: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void): void {
+    this.#conn.write(chunk)
+    done()
+  }
+
+  override _final(done: (error?: Error | null) => void): void {
+    this.#conn.end()
+    done()
+  }
+
+  override _destroy(error: Error | null, done: (error?: Error | null) => void): void {
+    this.#conn.close()
+    done(error)
+  }
+}
+
 async function first(frames: AsyncIterable<Frame>): Promise<Frame | undefined> {
   for await (const frame of frames) return frame
   return undefined
@@ -180,6 +267,29 @@ export class Devd {
     const conn = this.transport.open()
     if (this.key) conn.write(encode(Kind.AUTH, this.key))
     return conn
+  }
+
+  async socket(path = ''): Promise<Tunnel> {
+    return await this.#tunnel(encode(Kind.SOCKET, Buffer.from(path)), path ? `the socket ${path}` : 'the session manager socket')
+  }
+
+  async tcp(port: number): Promise<Tunnel> {
+    const body = Buffer.alloc(2)
+    body.writeUInt16LE(port, 0)
+    return await this.#tunnel(encode(Kind.TCP, body), `port ${port}`)
+  }
+
+  async #tunnel(request: Buffer, what: string): Promise<Tunnel> {
+    const conn = this.#open()
+    try {
+      conn.write(request)
+      const reply = await first(conn.frames)
+      if (reply?.kind !== Kind.OK) fail(reply, `a tunnel to ${what}`)
+    } catch (error) {
+      conn.close()
+      throw error
+    }
+    return new Tunnel(conn)
   }
 
   async version(): Promise<string> {
