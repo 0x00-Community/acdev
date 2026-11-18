@@ -15,9 +15,10 @@
 ## 构建耗时与并行 (cicd.yaml)
 
 - 改前 (2026-11-18 之前, 运行 2258): 总共 30 分 41 秒; `build` 四个目标各 9～14 分钟 (并行), `host` 1 分多, `pkgs` 2 分.
-- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` libacde/js,
-  设 `ACDEV_BUN`: libacde 的 build.rs 在宿主 Linux 上用 bun 把 libacde/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; acdevtool 在同一格里接着编 (共用交叉工具), acdevd 在 `guest` 里和矩阵同时编, `pkgs` 只等两边;
-  `pkgs` 用一次下载取 `build-*` 和 `guest` 产物 (`pattern: '{build-*,guest}'`); 分离的调试信息放在 `build-<triple>` 产物的 `symbols/` 子目录里一起留存 30 天, `pkgs` 只拷要发的归档, 不会把它发出去; npm 包和命令行归档仍只在 `pkgs` 打一次.
+- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前 `bun install` libacde/js 并设 `ACDEV_BUN`:
+  libacde 的 build.rs 在宿主 Linux 上用 bun 把 libacde/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; acdevtool 在同一格里接着编 (共用交叉工具),
+  acdevd 在 `guest` 里和矩阵同时编, `pkgs` 只等两边. 各格把自己的产物直接传到 .127 (见「产物机 .127」), `pkgs` 用 nc + tar 取回;
+  分离的调试信息在 `build-<triple>/symbols/`, `pkgs` 只拷要发的归档, 不会把它发出去; npm 包和命令行归档仍只打一次.
   缓存: 不用 rust-cache (2026-11-18 去掉: 宿主模式下每个作业的工作目录 `~/.cache/act/<随机>/` 都不同, rust-cache 交给缓存服务的是绝对路径,
   缓存的版本按路径算, 永远对不上, 每次 "No cache found" 却还存 1.1G; RUSTFLAGS 的 `--remap-path-prefix` 也带着这个路径, 就算恢复了 cargo 也全部重编).
   跨运行留下的是执行机自己家目录里的: cargo 的下载 (`~/.cargo`), cargo-xwin 的 MSVC CRT 和 SDK (`~/.cache/cargo-xwin-atl`), zig 的缓存
@@ -81,23 +82,21 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
 - **发布** (`.github/workflows/cicd.yaml`, 手动运行 `workflow_dispatch`, 或推送标签 `v*`): 协作者的工作流为基础, 合入以下要求. 版本由 `plan` 定 (见上文开头: 推的标签、输入 `version`、或已发布的最高版本加一), 不以提交里的 `package.json` 为准; 手动发布时标签 `v<版本>` 是注释标签, 由工作流打在该提交上; 推送标签 `v<版本>` 本身就是正式发布 (`plan` 把它当 `publish`, 提交取标签指向的那个, 版本取标签名). 命令行、四个平台的 acdev runtime、页面资源和 SDK 一起发 (见「运行时」); Dopame 桌面不随 acdev 发布.
-  发版: 在 Gitea 上手动跑 release (勾 publish, 填 `commit=<sha>`, 可填 `version`、`skip_targets`), 或在 main 的提交上推标签 `v<版本>`. `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
-  所有作业都直接跑在执行机上, 不用容器 (2026-11-18 起: ci-debian 执行机没有 Docker; 执行机自带的 node 20、npm 9 够 `node -p` 和 npm 那几步用, CLI 的冒烟测试走 bun; 缺的工具如 awscli 用 sudo apt 装, 装了就跳过), 不用 Ubuntu 的环境; `runs-on` 一律 `x86_64-debian` (`build` 的 Apple silicon 那一格除外, 在 `aarch64-debian`: aarch64 的 ci-debian 执行机共有的标签, 现在只有 .210) (三台 ci-debian 执行机 .110、.234、.243 共有的标签, 谁空谁接; 2026-11-18 起, 之前的 `debian12` 已不存在), GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13);
+  发版: 在 Gitea 上手动跑 cicd (勾 publish, 填 `commit=<sha>`, 可填 `version`、`skip_targets`), 或在 main 的提交上推标签 `v<版本>`. `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
+  所有作业都直接跑在执行机上, 不用容器 (2026-11-18 起: ci-debian 执行机没有 Docker; 执行机自带的 node 20、npm 9 够 `node -p` 和 npm 那几步用, CLI 的冒烟测试走 bun; 工具链都由 `scripts/runner-setup.sh` 预装, 作业什么都不装, 见「执行机的工具链」), 不用 Ubuntu 的环境; `runs-on` 一律 `x86_64-debian` (`build` 的 Apple silicon 那一格除外, 在 `aarch64-debian`: aarch64 的 ci-debian 执行机共有的标签, 现在只有 .210) (三台 ci-debian 执行机 .110、.234、.243 共有的标签, 谁空谁接; 2026-11-18 起, 之前的 `debian12` 已不存在), GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13);
   作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续, 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA. `skip_targets` 定下要编的平台, 跳过的平台的 `build` 那一格在作业级 `if` 上跳过.
-  `build` (每个平台一格: Linux 原生, Windows 用 cargo-xwin, macOS 用 cargo-zigbuild 和 MacOSX15.5 SDK; 都在 x86_64-debian 执行机上, 只有 `aarch64-apple-darwin` 在 `aarch64-debian` 执行机上 (现在只有 .210; 以后加的 aarch64 ci-debian 执行机自动纳入; 用户定, 2026-11-18), 那里 cargo-zigbuild 取 aarch64 gnu 版、zig 取 aarch64-linux 版, 按 `uname -m` 选) 拉 libacde 和它的 `vendor/blitz`, `cargo build --profile dist -p acdev` (ac 源用 `ACKERNEL_TOKEN`), 再在 `crates/tool` 里用同一套交叉工具 `cargo build --release` 编 `acdevtool`, 打成各只有一个文件的 `acdevrt-<triple>` 和 `acdevtools-<triple>` (固定时间和属主), 分离的调试信息放在同一个产物的 `symbols/` 里 (产物留 30 天, 不发布). `guest` 和 `build` 并行, 在 `crates/devd` 里编两个架构的 acdevd (静态 musl, `crates/devd/.cargo/config.toml` 的 rust-lld) 打成 `acdev-guest-<版本>.tar.gz`. `pkgs` 下 `build-*` 和 `guest` 产物, 只取其中的归档 (不要调试信息), 用 libacde 的 `acde-api` 作 SDK 跑 `dist.ts --runtime` 把它们放进版本目录, 写 `latest.json`, 解开 CLI 归档检查 `bin/acdev` 能起. `guard` 用仓库根的 `scripts/release-guard.ts` 核对产物恰好是允许清单 (每个平台的 `acdevrt` 和 `acdevtools` 都在、各只有那一个程序) 并重新做泄漏检查.
-  上传顺序: `upload` 先 `sha256sum -c`, 再按 `SHA256SUMS` 列的文件逐个 `aws s3 cp` (名字只许 `[A-Za-z0-9._-]`; 没有 sync、递归或通配), 最后是 `SHA256SUMS`, 逐一回读校验; 已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. `tag` (唯一有写权限的作业, 只有 `contents: write`) 在上传通过后打注释标签 `v<版本>` 并推送. `latest` 最后更新 `install.sh`、`install.ps1`、`install.md` (`text/markdown`)、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront 的这些路径和 `/acdev/<版本>/*`. 凭据: Gitea 仓库密钥 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` 经 `aws sts assume-role` 换角色 `dopame-acde-release` 的临时凭据 (先 mask, 从不打印, 不用 `set -x`); 角色只能读写 `dopame-pkgs/acdev/*` 和失效这个分发 (2026-11-18 从 `acde/*` 改过来). `concurrency: acdev-release` 让发版排队且不取消进行中的运行.
-  在内网 Gitea 上跑 (`http://gitea.dopamine/AC/acdev/actions` → `release` → Run workflow; Gitea 读 `.github/workflows`; 没有 GitHub 镜像, 工作流只照 Gitea 写): 是否发布只在 `plan` 里由 shell 判断一次 (`PUBLISH_INPUT` 是 `github.event.inputs.publish`
+  `build` (每个平台一格: Linux 原生, Windows 用 cargo-xwin, macOS 用 cargo-zigbuild 和 MacOSX15.5 SDK; 都在 x86_64-debian 执行机上, 只有 `aarch64-apple-darwin` 在 `aarch64-debian` 执行机上 (现在只有 .210; 以后加的 aarch64 ci-debian 执行机自动纳入; 用户定, 2026-11-18), 那里 cargo-zigbuild 取 aarch64 gnu 版、zig 取 aarch64-linux 版, 按 `uname -m` 选) 拉 libacde 和它的 `vendor/blitz`, `cargo build --profile dist -p acdev` (ac 源用 `ACKERNEL_TOKEN`), 再在 `crates/tool` 里用同一套交叉工具 `cargo build --release` 编 `acdevtool`, 打成各只有一个文件的 `acdevrt-<triple>` 和 `acdevtools-<triple>` (固定时间和属主), 分离的调试信息放在同一个产物的 `symbols/` 里 (都传到 .127 的 `<run 号>/build-<triple>/`, 不发布). `guest` 和 `build` 并行, 在 `crates/devd` 里编两个架构的 acdevd (静态 musl, `crates/devd/.cargo/config.toml` 的 rust-lld) 打成 `acdev-guest-<版本>.tar.gz` (传到 `<run 号>/guest/`). `pkgs` 用 nc + tar 从 .127 取回这次要发的 `build-*` 和 `guest`, 只取其中的归档 (不要调试信息), 用 libacde 的 `acde-api` 作 SDK 跑 `dist.ts --runtime` 把它们放进版本目录, 写 `latest.json`, 解开 CLI 归档检查 `bin/acdev` 能起, 把整个发布目录传到 `<run 号>/acdev-release/` (加 `run.json`), 再用仓库根的 `scripts/release-guard.ts` 核对产物恰好是允许清单 (每个平台的 `acdevrt` 和 `acdevtools` 都在、各只有那一个程序) 并重新做泄漏检查, 过了才把 .127 上的 `latest` 指到这次运行; 预演到这里为止.
+  正式发布是一个作业 `publish` (只有它有 `contents: write`): 从 .127 取回 `acdev-release`, 先 `sha256sum -c`, 再按 `SHA256SUMS` 列的文件逐个 `aws s3 cp` (名字只许 `[A-Za-z0-9._-]`; 没有 sync、递归或通配), 最后是 `SHA256SUMS`, 逐一回读校验; 已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. 上传通过后打注释标签 `v<版本>` 并推送, 再换一次凭据 (上传可能用掉大半小时), 更新 `install.sh`、`install.ps1`、`install.md` (`text/markdown`)、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront 的这些路径和 `/acdev/<版本>/*`, 最后发 npm (见下). 凭据: Gitea 仓库密钥 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` 经 `aws sts assume-role` 换角色 `dopame-acde-release` 的临时凭据 (先 mask, 从不打印, 不用 `set -x`); 角色只能读写 `dopame-pkgs/acdev/*` 和失效这个分发 (2026-11-18 从 `acde/*` 改过来). `concurrency: acdev-release` 让发版排队且不取消进行中的运行.
+  在内网 Gitea 上跑 (`http://gitea.dopamine/AC/acdev/actions` → `cicd.yaml` → Run workflow; Gitea 读 `.github/workflows`; 没有 GitHub 镜像, 工作流只照 Gitea 写): 是否发布只在 `plan` 里由 shell 判断一次 (`PUBLISH_INPUT` 是 `github.event.inputs.publish`
   的原样, 等于文字 `true` 才发布, 输出 `publish`), 之后的作业和步骤看 `needs.plan.outputs.publish == 'true'`; 不写 `inputs.publish`, 也不在表达式里
   比较 (这台 Gitea 勾了 publish 时 `inputs.publish` 仍是 false, `github.event.inputs.publish` 是布尔值, GitHub 上是字符串). 标签用 git 查、
-  `git push` 推, 不用 `gh`. 产物用内网 `mirror` 组织里的 `gitea-upload-artifact` (`http://gitea.dopamine/mirror/gitea-upload-artifact`, 来自 `christopherhx/gitea-upload-artifact`, `8818363`: 官方 v7.0.2 加 `isGhes()` 返回 false) 和
-  `gitea-download-artifact` (同在 `mirror`, 来自 `christopherhx/gitea-download-artifact`, `3f0bddc`: 官方 v8.0.1 加同一处改动, 外加 README 和不在运行路径上的 `scripts/replace-isghes.js`;
-  2026-11-11 用 GitHub compare 对过), 官方 v4 起把 github.com 以外的服务器当 GHES 拒绝; 换 SHA 前对着官方版本重看. 在 Gitea 上仍不通的:
-  `upload` / `latest` 换角色 `dopame-acde-release` 的凭据: repo secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` 是 IAM 用户
+  `git push` 推, 不用 `gh`. 不用 Gitea 自己的产物 (upload / download-artifact), 作业间的文件都经 .127.
+  `publish` 换角色 `dopame-acde-release` 的凭据: repo secrets `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` 是 IAM 用户
   `gitea-acde-release` 的 key, 它只能 assume 这个角色, 用 `aws sts assume-role` (GitHub 的 OIDC 那条路 2026-11-18 去掉了). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
   Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, 不往 GitHub 推 (用户定 2026-11-14: GitHub 不再更新).
-  `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、每个平台编 acdev 和 acdevtool、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、一个作业里同一个远程 action 只用一次、角色 ARN、桶、前缀和区域).
+  `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、每个平台编 acdev 和 acdevtool、作业不装工具、产物经 .127、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN、桶、前缀和区域).
 - **npm** (SDK `@dopame/acde-api` 是 `private`, 不发 npm: 工程按 `file:` 或 pkgs 上 `acde-api-<版本>.tar.gz` 的地址引用它; 主会话 2026-11-18 定)
-  (作业 `npm`, 只在正式发布时, 在 `guard` 之后和 `upload` 并行; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
+  (`publish` 的最后一步, 只在正式发布时; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
   每个要发的平台一个 `@dopame/acde-<os>-<cpu>` (`linux-x64`、`darwin-arm64`、`darwin-x64`、`win32-x64`; 内容按安装后的布局: 命令行归档、
   `libexec/acdev[.exe]`、`libexec/acdevd-*` 和该平台的 `acdevtools` 程序; 运行时包解进 `libexec/`, 以前误解进 `bin/`), 和
   `@dopame/acdev` (一行 JS 的 `acde.mjs`, 按 `process.platform` / `process.arch` 载入对应平台包的 `lib/acdev/launcher.mjs`; 各平台包是它的 `optionalDependencies`, 平台包带 `os` / `cpu`).
@@ -139,48 +138,43 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `libexec/acdev[.exe]` (旧装法是 `bin/acdert[.exe]`; `runtimeBeside` (旧名 `acdertBeside` 留一版), 同一版本目录), 最后 PATH; 检出跑的 acdev 只认 `ACDEV_RUNTIME` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 libacde 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
-## 执行机上同一个远程 action 一个作业只用一次 (2026-11-18)
+## 执行机的工具链 (2026-11-18)
 
-ci-debian 执行机是 act_runner 0.6.1 的宿主模式 (不在容器里). run 2542 里, macOS aarch64 的构建编译、打包、上传 runtime 都成功了,
-同一作业第二次用 `gitea-upload-artifact` (上传调试信息) 时失败: `open /home/cicd/.cache/act/<作业>/act/actions/<hash>/.git/objects/pack/pack-*.idx:
-permission denied`; Windows 的作业收尾时也有同样的报错. 判断是宿主模式把远程 action 的 git 仓库拷进作业缓存, git 的 pack 和 idx 文件本来就是只读的,
-同一个 action 在一个作业里第二次准备时要覆盖它们, 就失败了. 没查到 act_runner 对此的说明或更正的版本 (只查到别处相同的现象: 拷贝或覆盖只读的 pack
-文件失败), 所以在工作流里绕开, 不动执行机: build 把两个归档和调试信息放进一个产物、只上传一次; `pkgs` 用一个 `pattern` 下载全部产物.
-以后加步骤时, 同一个作业里同一个远程 action (`uses: http://...`) 只出现一次. 没有本地 action (`.github/actions`, 用户定 2026-11-18: 只用标准的 `.github/workflows`):
-要复用的步骤在同一个文件里用 YAML 锚点 (`- &名字` 定义一次, 别的作业 `- *名字`), Gitea 认锚点.
+ci-debian 执行机是 act_runner 0.6.1 的宿主模式 (不在容器里), capacity 2 (用户定, 2026-11-18): 同一台上的两个作业共用 cicd 的家目录.
+所以作业不装任何东西 (run 2562 里一格的 rust-cache 收尾清掉共用的 `~/.cargo`, 另一格的 cargo 就没了, 退出码 127), 工具链由 root 在 ci-debian 里跑
+`scripts/runner-setup.sh` 预装, 归 root, 作业只能读; 升级: 执行机空闲时再跑一次.
 
-## Windows 构建的 xwin 缓存按是否含 ATL 分开 (2026-11-18)
+- Debian 包: 构建要的库 (Linux 目标)、clang / lld / llvm (交叉)、测试要的 Mesa 软件 Vulkan、字体、python3-venv, 还有 jq、awscli、rsync、openssh-client. 执行机自带 node 20、npm 9、nc.
+- Rust: rustup 的 stable 在 `/opt/rust` (`RUSTUP_HOME=/opt/rust/rustup`, 两个工作流的全局 env 设它); 目标: 两种架构的 linux-gnu 和 linux-musl、
+  x86_64-pc-windows-msvc、两个 apple-darwin; 组件 clippy、rustfmt. 不用 Debian 的 rustc: 1.85 太旧 (`as_chunks` 要 1.88, 依赖只写主版本号, 跟最新),
+  也没有 msvc 和 darwin 的标准库.
+- `/opt/cross`: bun 1.4.4、cargo-xwin 0.23.1 (只在 x86_64)、cargo-zigbuild 0.24.1、zig 0.17.1、`MacOSX15.5.sdk` (下载都校验 SHA-256, 整个目录换新).
+- 命令都链进 `/usr/local/bin` (cargo、rustc、rustup…、bun、bunx、zig、cargo-xwin、cargo-zigbuild).
+- 跨运行留在执行机家目录的: cargo 的下载 (`~/.cargo`, cargo 下载时自己加锁), `~/.cache/cargo-xwin-atl`, `~/.cache/zig`.
 
-`mach-dxcompiler-rs` 0.1.4 的静态 DXC 要链 MSVC 的 ATL (`atls.lib`). build 作业给 cargo-xwin 设了 `XWIN_INCLUDE_ATL=true`, 但
-cargo-xwin 的缓存目录 (默认 `~/.cache/cargo-xwin`) 不随这个开关区分, 下载过的 CRT 和 SDK 有就直接用. ci-debian 执行机是宿主模式,
-`~` 是 cicd 用户真实的家目录, 各作业共用: 当时单独的 tools 作业里 relay 用 cargo-xwin 时不带 ATL, 先在 243 上填了这个目录, run 2545 的
-Windows 构建落到 243 后就沿用了不含 ATL 的缓存, 链接时报 `lld-link: error: could not open 'atls.lib'`. 所以 build 作业另设
-`XWIN_CACHE_DIR=$RUNNER_HOME/.cache/cargo-xwin-atl` (执行机自己的家目录, 见下一节), (现在 acdevtool 也在 build 里编, 同用这个目录).
+`mach-dxcompiler-rs` 0.1.4 的静态 DXC 要链 MSVC 的 ATL (`atls.lib`): Windows 那格设 `XWIN_INCLUDE_ATL=true` 和
+`XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl`. cargo-xwin 的缓存目录不随 ATL 开关区分, 共用默认目录时, 不带 ATL 先填的缓存会让后来的链接报
+`lld-link: error: could not open 'atls.lib'` (run 2545).
 
-## 执行机同时跑两个作业: Rust 只读, 家目录按作业分 (2026-11-18)
+宿主模式把远程 action 的 git 仓库拷进作业缓存, 同一作业第二次准备同一个 action 时覆盖只读的 pack 文件失败 (run 2542, `pack-*.idx: permission denied`):
+同一个作业里同一个远程 action (`uses: http://...`) 只出现一次 (现在只剩 checkout). 没有本地 action (`.github/actions`, 用户定 2026-11-18):
+要复用的步骤在同一个文件里用 YAML 锚点 (`- &名字` 定义一次, 别的作业 `- *名字`), Gitea 认锚点. 步骤的 shell 是 `bash --noprofile --norc -eu {0}`
+(工作流的 `defaults`; 不带 pipefail: plan 里取版本的管道允许空).
 
-执行机的 capacity 翻成 2 (用户定, 2026-11-18) 后, 宿主模式下同一个 runner 上的两个作业共用 cicd 的家目录. run 2562 里 243 同时跑 Linux 和
-Windows 两格, Windows 那格的 rust-cache 收尾时清理共用的 `~/.cargo`, Linux 那格编完 acdev 再调 cargo 时 `~/.cargo/bin/cargo` 已不在 (退出码 127).
-所以:
-
-- Rust 不再由作业装: 执行机的 ci-debian 里由 root 跑 `scripts/runner-rust.sh`, 把 rustup 的 stable 装进 `/opt/rust` (归 root, 作业只能读;
-  目标: 两种架构的 linux-gnu 和 linux-musl、x86_64-pc-windows-msvc、两个 apple-darwin; 组件 clippy、rustfmt). 不用 Debian 的 rustc: trixie
-  的 1.85 太旧 (`as_chunks` 要 1.88, 依赖只写主版本号, 跟最新), 也没有 msvc 和 darwin 的标准库. 升级: 执行机空闲时再跑一次这个脚本.
-- 锚点 `&toolchain` 那一步 (`cicd.yaml` 的 `build`、`guest`, `test.yml` 的每个作业各一份, 作业的 `TARGETS` 给要的目标) 是用 Rust 的作业 checkout 之后的第一步: 查 `/opt/rust` 有作业要的目标,
-  `RUNNER_HOME` 记下执行机自己的家目录, `HOME` 设到这个作业自己的 `$RUNNER_TEMP/home` (作业结束随工作目录删掉; bun 装在 `~/.bun` 等
-  都是每个作业一份), `CARGO_HOME` 是 `$RUNNER_HOME/.cargo` (共用, 跨运行留着; cargo 下载时自己加锁, 没有 rust-cache 去清它, 两个作业同时用没事),
-  `RUSTUP_HOME=/opt/rust/rustup`, 把 `/opt/rust/cargo/bin` 放进 `PATH`. cargo-xwin 的 `XWIN_CACHE_DIR` 和 `ZIG_GLOBAL_CACHE_DIR` 也在
-  `$RUNNER_HOME/.cache` 下, 长期留着: 两个 Windows 格不会同时落在一台机器上 (release 有 concurrency), zig 的缓存本身支持并发.
-- apt 带 `-o DPkg::Lock::Timeout=600` (另一个作业可能正拿着 dpkg 的锁), 要的包都装了就不调 apt.
-- `test.yml` 的 `&cleanup` 那一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
-  runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
-  test 运行同时跑时才会).
+`test.yml` 的 `&cleanup` 那一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
+runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
+test 运行同时跑时才会).
 
 ## 产物机 .127 (2026-11-18)
 
 产物只放 .127, runner 上长期只留工具链 (用户定, 2026-11-18). .127 不是 CI 机: 没有 cicd 用户、没有工具链, 只有用户 `artifacts`
-(`/etc/nixos/artifacts.nix`, 家目录 `/srv/artifacts`), 每个仓库一个目录 (`ackernel`、`acinstaller`、`acdev`), 各仓库的 CI 用自己的密钥经 ssh 写,
-密钥在 .127 上限成 `rrsync -wo /srv/artifacts/<仓库>` (只能写, 不能读和列). release 的 `artifacts` 作业 (在 `pkgs` 之后, 预演和正式发布都跑)
-把这次运行的 `build-*` (含 `symbols/`)、`guest` 和 `acdev-release` 原样传到 `/srv/artifacts/acdev/<run 号>/`, 加 `run.json`
-(`version`、`commit`、`publish`、`run`), 再把 run 号写进 `/srv/artifacts/acdev/latest`. 密钥是 secret `ARTIFACTS_UPLOAD_KEY`. 对外发布照旧是
-`upload` 传 S3; Gitea 自己的产物 (下载 `build-*` 等, 留 30 / 1 天) 也在 .127 上 (Gitea 的数据目录).
+(`/etc/nixos/artifacts.nix`, 家目录 `/srv/artifacts`), 每个仓库一个目录 (`ackernel`、`acinstaller`、`acdev`).
+
+- 写: 各仓库的 CI 用自己的密钥经 ssh 写 (acdev 的是 secret `ARTIFACTS_UPLOAD_KEY`), 密钥在 .127 上限成 `rrsync -wo /srv/artifacts/<仓库>`
+  (只能写, 不能读、列、删). 锚点 `&ssh` 那一步把密钥和 .127 的主机密钥写进 `$RUNNER_TEMP/ssh`, 设 `RSYNC_RSH`; 之后 `rsync -rt … "$TO:<路径>/"`.
+  rrsync 3.5.0 不能覆盖目标位置上同名的已有文件, 所以一律传到目录 (`host:dir/`), 不写 `host:dir/file`; rsync 只建目标的最后一级, 所以带 `--mkpath` (rrsync 放行它; run 2583 没带, `<run 号>/build-*/` 建不出来).
+- 读: 不用 http / ftp (用户定), .127 的 `artifacts-tar@` (端口 9127, socket 激活, 沙箱) 读一行相对路径, 回 `tar -C /srv/artifacts -cf - <路径>`:
+  `printf 'acdev/<路径>\n' | nc $PULL | tar -x`. 没有认证, 拒绝 `..` 和绝对路径, 不存在的路径回空 (tar 报错, 工作流里吞掉再查目录). 千兆上约 110 MB/s.
+- 布局: release 的 `acdev/<run 号>/` 下 `build-<triple>/` (含 `symbols/`)、`guest/`、`acdev-release/` (发布目录) 和 `run.json`
+  (`version`、`commit`、`publish`、`run`), `acdev/latest` 是最近一次过了 guard 的 run 号; test 的 `acdev/test-<run 号>/` 下 `wpt-gate/`、
+  `wpt-shard-<n>/`、`wpt-expectations/`、`demo-e2e/` (baseline 的 `expectations` 作业从这里取回各 shard 的结果). 对外发布照旧是 `publish` 传 S3.

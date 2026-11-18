@@ -48,39 +48,26 @@ describe('cicd.yaml', () => {
     expect(inputs['publish']).toEqual({ description: expect.any(String), required: false, default: false, type: 'boolean' })
   })
 
-  test('read-only by default; only the tag job writes, and only contents', () => {
+  test('read-only by default; only the publish job writes, and only contents', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     const writers = Object.entries(jobs).filter(([, job]) => job.permissions)
-    expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([['tag', { contents: 'write' }]])
+    expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([['publish', { contents: 'write' }]])
   })
 
   test('concurrent releases queue and are never cancelled midway', () => {
     expect(workflow.concurrency).toEqual({ group: 'acdev-release', 'cancel-in-progress': false })
   })
 
-  test('the jobs and their needs', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'guard', 'artifacts', 'upload', 'npm', 'tag', 'latest'])
+  test('the jobs and their needs; publish needs publish=true and pkgs to succeed', () => {
+    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'publish'])
     expect(needs('plan')).toEqual([])
     expect(needs('build')).toEqual(['plan'])
     expect(needs('guest')).toEqual(['plan'])
     expect(needs('pkgs')).toEqual(['plan', 'build', 'guest'])
-    expect(needs('guard')).toEqual(['plan', 'pkgs'])
-    expect(needs('artifacts')).toEqual(['plan', 'pkgs'])
-    expect(needs('upload')).toEqual(['plan', 'guard'])
-    expect(needs('npm')).toEqual(['plan', 'guard'])
-    expect(needs('tag')).toEqual(['plan', 'guard', 'upload'])
-    expect(needs('latest')).toEqual(['plan', 'guard', 'tag'])
-  })
-
-  test('upload, tag and latest need publish=true and the job before them to succeed; npm needs publish=true', () => {
-    const gates: Record<string, string> = { upload: 'guard', tag: 'upload', latest: 'tag' }
-    for (const [job, dependency] of Object.entries(gates)) {
-      expect(jobs[job]!.if).toBe(`needs.plan.outputs.publish == 'true' && needs.${dependency}.result == 'success'`)
-    }
-    expect(jobs['npm']!.if).toBe("needs.plan.outputs.publish == 'true'")
+    expect(needs('publish')).toEqual(['plan', 'pkgs'])
+    expect(jobs['publish']!.if).toBe("needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'")
     expect(TEXT).not.toMatch(/\$\{\{\s*!?inputs\./)
     expect(runs('plan')).toContain('if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi')
-    expect(jobs['guard']!.if).toBeUndefined()
   })
 
   test('a skipped target skips its build leg; pkgs goes on unless a build failed', () => {
@@ -89,21 +76,22 @@ describe('cicd.yaml', () => {
     expect(jobs['pkgs']!.if).toContain("needs.guest.result == 'success'")
   })
 
-  test('the versioned files are uploaded before the tag, and latest.json is updated after the tag', () => {
-    const upload = runs('upload')
-    expect(indexIn(upload, 'publish_once "$f"')).toBeLessThan(indexIn(upload, 'publish_once SHA256SUMS'))
-    expect(upload).toContain('readback')
-    expect(upload).toContain('does not read back as uploaded')
-    expect(upload).not.toMatch(/latest\.json|install\.sh/)
-    expect(runs('tag')).toContain('git push origin "refs/tags/$TAG"')
-    const latest = runs('latest')
-    const order = ['put install.sh', 'put install.ps1', 'put install.md', 'put latest ', 'put latest.json', 'create-invalidation']
-    const at = order.map((needle) => indexIn(latest, needle))
+  test('S3 gets the versioned files, then the tag is pushed, then the pointers and the CDN, then npm', () => {
+    const run = runs('publish')
+    const order = ['publish_once "$f"', 'publish_once SHA256SUMS', 'git push origin "refs/tags/$TAG"', 'put install.sh', 'put install.ps1',
+      'put install.md', 'put latest ', 'put latest.json', 'create-invalidation', 'npm publish']
+    const at = order.map((needle) => indexIn(run, needle))
     expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(run).toContain('does not read back as uploaded')
+    const names = jobs['publish']!.steps.map((item) => item.name ?? '')
+    expect(names.filter((name) => name === CREDENTIALS)).toHaveLength(2)
+    expect(names.indexOf(CREDENTIALS)).toBeLessThan(names.indexOf('upload every file SHA256SUMS lists, then SHA256SUMS, each read back'))
+    expect(names.lastIndexOf(CREDENTIALS)).toBe(names.indexOf('the pointers, latest.json last, then the CDN') - 1)
   })
 
-  test('a preview (publish=false) says so and stops after the guard', () => {
-    expect(step('guard', 'a preview stops here')?.if).toBe("needs.plan.outputs.publish != 'true'")
+  test('a preview (publish=false) says so after the guard', () => {
+    const pkgs = runs('pkgs')
+    expect(indexIn(pkgs, 'release-guard.ts')).toBeLessThan(indexIn(pkgs, 'preview only'))
   })
 
   test('a publish needs a commit on origin/main; a publish by hand runs only on main; the version', () => {
@@ -120,30 +108,24 @@ describe('cicd.yaml', () => {
     expect(plan).toContain("git tag --list 'v*'")
     expect(plan).toContain('$3 + 1')
     expect(plan).toContain('already exists and points at $tagged, not at $sha')
-    expect(jobs['plan']!.outputs).toEqual({
-      publish: '${{ steps.version.outputs.publish }}',
-      sha: '${{ steps.version.outputs.sha }}',
-      libacde: '${{ steps.libacde.outputs.sha }}',
-      version: '${{ steps.version.outputs.version }}',
-      tag: '${{ steps.version.outputs.tag }}',
-      targets: '${{ steps.targets.outputs.targets }}',
-    })
+    const outputs = ['publish', 'sha', 'libacde', 'version', 'tag', 'targets']
+    expect(jobs['plan']!.outputs).toEqual(Object.fromEntries(outputs.map((name) => [name, `\${{ steps.version.outputs.${name} }}`])))
   })
 
-  test('the plan checkout fetches history; every later checkout is the resolved commit and only tag keeps a token', () => {
+  test('the plan checkout fetches history; every later checkout is the resolved commit and only publish keeps a token', () => {
     expect(checkoutOf('plan')?.with?.['fetch-depth']).toBe(0)
-    for (const job of ['build', 'guest', 'pkgs', 'guard', 'tag']) {
+    for (const job of ['build', 'guest', 'pkgs', 'publish']) {
       expect(checkoutOf(job)?.with?.['ref']).toBe('${{ needs.plan.outputs.sha }}')
     }
     for (const [id, job] of Object.entries(jobs)) {
       for (const item of job.steps) {
-        if (/(^|\/)checkout@/.test(item.uses ?? '')) expect(item.with?.['persist-credentials']).toBe(id === 'tag')
+        if (/(^|\/)checkout@/.test(item.uses ?? '')) expect(item.with?.['persist-credentials']).toBe(id === 'publish')
       }
     }
   })
 
-  test('the tag job creates an annotated tag on the resolved commit, never moves or forces one', () => {
-    const run = runs('tag')
+  test('the tag is annotated, on the resolved commit, never moved or forced', () => {
+    const run = runs('publish')
     expect(run).toContain('test "$(git rev-parse HEAD)" = "$SHA"')
     expect(run).toContain('tag -a "$TAG" -m "acdev $TAG" "$SHA"')
     expect(run).toContain('a rerun continues')
@@ -152,45 +134,43 @@ describe('cicd.yaml', () => {
   })
 
   test('one version: set into Cargo.toml, npm/package.json and the SDK before building and packing', () => {
-    expect(runs('build')).toContain('sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev')
+    expect(indexIn(runs('build'), 'sh scripts/set-version.sh "$V" .')).toBeLessThan(indexIn(runs('build'), '--profile dist'))
+    expect(jobs['build']!.env?.['V']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
     expect(indexIn(pkgs, 'set-version.sh "$V" ..')).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
-    expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$V"')
+    expect(pkgs).toContain('--api "$w/libacde/acde-api" --sdk "$V"')
   })
 
   test('each target builds acdev and acdevtool and packs acdevrt-<triple> and acdevtools-<triple>; the guest job acdevd', () => {
-    expect(jobs['build']!.strategy!.matrix.include.map((leg) => leg['triple'])).toEqual([
-      'aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc',
+    expect(jobs['build']!.strategy!.matrix.include.map((leg) => [leg['triple'], leg['cargo'], leg['runner']])).toEqual([
+      ['aarch64-apple-darwin', 'zigbuild', 'aarch64-debian'], ['x86_64-apple-darwin', 'zigbuild', 'x86_64-debian'],
+      ['x86_64-unknown-linux-gnu', 'build', 'x86_64-debian'], ['x86_64-pc-windows-msvc', 'xwin build', 'x86_64-debian'],
     ])
     const build = runs('build')
-    expect(build).toContain('xwin) cargo xwin build "$@" ;; zigbuild) cargo zigbuild "$@" ;; *) cargo build "$@" ;;')
-    expect(build).toContain('build --locked --profile dist -p acdev --target ${{ matrix.triple }}')
-    expect(build).toContain('(cd crates/tool && build --locked --release --target ${{ matrix.triple }})')
-    expect(build).toContain('pack acdevrt "acdev/target/$t/dist/acdev$x" "acdev$x"')
-    expect(build).toContain('pack acdevtools "acdev/crates/tool/target/$t/release/acdevtool$x" "acdevtool$x"')
-    expect(jobs['build']!.steps.some((item) => item.name?.startsWith('libacde beside acdev'))).toBe(true)
-    expect(jobs['pkgs']!.steps.some((item) => item.name?.startsWith('libacde beside acdev'))).toBe(true)
+    expect(build).toContain('cargo ${{ matrix.cargo }} --locked --profile dist -p acdev --target $T')
+    expect(build).toContain('(cd crates/tool && cargo ${{ matrix.cargo }} --locked --release --target $T)')
+    expect(build).toContain('pack acdevrt "acdev/target/$T/dist/acdev$x" "acdev$x"')
+    expect(build).toContain('pack acdevtools "acdev/crates/tool/target/$T/release/acdevtool$x" "acdevtool$x"')
+    expect(build).toContain('SDKROOT=/opt/cross/MacOSX15.5.sdk')
+    expect(build).toContain('XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl')
+    expect(indexIn(build, 'bun install --frozen-lockfile --cwd ../libacde/js')).toBeLessThan(indexIn(build, '--profile dist'))
+    for (const job of ['build', 'pkgs']) expect(jobs[job]!.steps.some((item) => item.name?.startsWith('libacde beside acdev')), job).toBe(true)
     const guest = runs('guest')
     expect(guest).toContain('cargo build --locked --release --target $a-unknown-linux-musl')
     expect(guest).toContain('acdev-guest-${{ needs.plan.outputs.version }}.tar.gz')
-    const download = jobs['pkgs']!.steps.find((item) => item.uses?.includes('/gitea-download-artifact@'))
-    expect(download?.with).toEqual({ path: 'in', pattern: '{build-*,guest}' })
-    expect(runs('pkgs')).toContain('cp "$GITHUB_WORKSPACE"/in/*/*.tar.* "$GITHUB_WORKSPACE/shipped/"')
-    expect(runs('pkgs')).toContain('--runtime "$GITHUB_WORKSPACE/shipped"')
+    expect(runs('pkgs')).toContain('cp "$w"/in/*/*.tar.* "$w/shipped/"')
+    expect(runs('pkgs')).toContain('--runtime "$w/shipped"')
   })
 
-  test('build has bun 1.4.4 and libacde/js installed before cargo: build.rs bundles libacde/js', () => {
-    const items = jobs['build']!.steps
-    const bun = items.findIndex((item) => item.uses?.includes('/setup-bun@'))
-    const cargo = items.findIndex((item) => (item.run ?? '').includes('--profile dist'))
-    expect(bun).toBeGreaterThanOrEqual(0)
-    expect(bun).toBeLessThan(cargo)
-    expect(items[bun]!.with?.['bun-version']).toBe('1.4.4')
-    expect(runs('build')).toContain('bun install --frozen-lockfile --cwd libacde/js')
+  test('the toolchains are the runner\'s (scripts/runner-setup.sh): no job installs or sets up anything', () => {
+    expect(existsSync(join(GITHUB, '..', 'scripts', 'runner-setup.sh'))).toBe(true)
+    expect(TEXT + TEST).not.toMatch(/apt-get|setup-bun|rust-toolchain@|rust-cache@|rustup |curl [^\n]*(zig|xwin|zigbuild|sdk)/i)
+    for (const text of [TEXT, TEST]) expect((Bun.YAML.parse(text) as { env: Record<string, string> }).env['RUSTUP_HOME']).toBe('/opt/rust/rustup')
+    expect(TEXT + TEST).not.toContain('RUNNER_TEMP/home')
   })
 
   test('npm publishes the platform packages and @dopame/acdev, not the private SDK', () => {
-    const npm = runs('npm')
+    const npm = step('publish', 'npm (platforms, then @dopame/acdev)')!.run!
     expect(npm).toContain('for dir in npm/acdev-*-* npm/acdev; do')
     expect(npm).toContain('"$rel/acdevrt-$t".tar.* "$rel/acdevtools-$t".tar.*')
     expect(npm).not.toMatch(/acdev-api|acde-api-\*/)
@@ -205,112 +185,78 @@ describe('cicd.yaml', () => {
       expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe(id === 'build' ? '${{ matrix.runner }}' : 'x86_64-debian')
       expect((job as Job & { container?: string }).container).toBeUndefined()
     }
-    expect(jobs['build']!.strategy!.matrix.include.map((leg) => [leg['triple'], leg['runner']])).toEqual([
-      ['aarch64-apple-darwin', 'aarch64-debian'], ['x86_64-apple-darwin', 'x86_64-debian'],
-      ['x86_64-unknown-linux-gnu', 'x86_64-debian'], ['x86_64-pc-windows-msvc', 'x86_64-debian'],
-    ])
-    expect(runs('build')).toContain('aarch64) f=cargo-zigbuild-aarch64-unknown-linux-gnu.tar.xz')
   })
 
-  test('the guard checks the exact allow-list before upload; upload and latest check the checksums before S3', () => {
-    expect(runs('guard')).toContain('bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
-    expect(runs('guard')).toContain('--targets "${{ needs.plan.outputs.targets }}"')
-    for (const job of ['upload', 'latest']) expect(runs(job)).toContain('sha256sum -c SHA256SUMS')
-    const steps = jobs['upload']!.steps.map((item) => item.name ?? '')
-    expect(steps.indexOf(CREDENTIALS)).toBeLessThan(steps.indexOf('upload every file SHA256SUMS lists, then SHA256SUMS, each read back'))
-    expect(runs('upload')).toContain('*[!A-Za-z0-9._-]*) echo "::error::bad file name $f"')
-    expect(runs('latest')).toContain('"/$PREFIX/$V/*"')
+  test('the guard checks the exact allow-list; publish checks the checksums before S3', () => {
+    const pkgs = runs('pkgs')
+    expect(pkgs).toContain('bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$V" --targets "$TARGETS"')
+    expect(indexIn(pkgs, 'release-guard.ts')).toBeLessThan(indexIn(pkgs, 'run/latest "$TO:"'))
+    const publish = runs('publish')
+    expect(indexIn(publish, 'sha256sum -c SHA256SUMS')).toBeLessThan(indexIn(publish, 'publish_once "$f"'))
+    expect(publish).toContain('*[!A-Za-z0-9._-]*) echo "::error::bad file name $f"')
+    expect(publish).toContain('"/$PREFIX/$V/*"')
   })
 
-  test('upload is file by file, with no sync, recursion or globs', () => {
-    for (const job of ['upload', 'latest']) {
-      const run = runs(job)
-      expect(run).not.toMatch(/\bsync\b|--recursive|\bcp -r\b/)
-      expect(run).not.toMatch(/s3 cp [^\n]*\*/)
-    }
+  test('S3 is written file by file, with no sync, recursion or globs', () => {
+    const run = runs('publish')
+    expect(run).not.toMatch(/\bs3 sync\b|--recursive|\bcp -r\b/)
+    expect(run).not.toMatch(/s3 cp [^\n]*\*/)
   })
 
   test('a published version is identical or refused, never overwritten, and a rerun can continue', () => {
-    const upload = runs('upload')
-    expect(upload).toContain('aws s3api head-object')
-    expect(upload).toContain('cmp -s "$RUNNER_TEMP/published" "$1"')
-    expect(upload).toContain('already published, identical')
-    expect(upload).toContain('a version is never overwritten')
+    const run = runs('publish')
+    expect(run).toContain('aws s3api head-object')
+    expect(run).toContain('cmp -s "$RUNNER_TEMP/published" "$1"')
+    expect(run).toContain('already published, identical')
+    expect(run).toContain('a version is never overwritten')
   })
 
   test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
     const secrets = [...TEXT.matchAll(/\bsecrets\.(\w+)/g)].map((match) => match[1])
     expect([...new Set(secrets)].sort()).toEqual(['ACKERNEL_TOKEN', 'ARTIFACTS_UPLOAD_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'NPM_TOKEN'])
-    for (const job of ['upload', 'latest']) {
-      const item = step(job, CREDENTIALS)
-      expect(item?.env).toEqual({ KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}', KEY_SECRET: '${{ secrets.AWS_SECRET_ACCESS_KEY }}' })
-      expect(indexIn(item!.run!, '::add-mask::')).toBeLessThan(indexIn(item!.run!, '>> "$GITHUB_ENV"'))
-      expect(item!.run).toContain('aws sts assume-role --role-arn "$ROLE"')
-    }
-    expect(TEXT).not.toMatch(/set -x|bash -x|sh -x|aws-actions\//)
-    const printed = TEXT.split('\n').filter((line) => /echo|printf/.test(line) && !/add-mask|\| jq |>> "\$GITHUB_ENV"/.test(line))
-    expect(printed.filter((line) => /\$(token|secret|session|creds|KEY_ID|KEY_SECRET)\b/.test(line))).toEqual([])
-  })
-
-  test('no job prepares the same remote action twice (act_runner fails the second)', () => {
-    for (const job of Object.keys(jobs)) {
-      const remote = uses(job).filter((action) => !action.startsWith('./'))
-      expect(new Set(remote).size, job).toBe(remote.length)
-    }
+    const item = step('publish', CREDENTIALS)
+    expect(item?.env).toEqual({ KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}', KEY_SECRET: '${{ secrets.AWS_SECRET_ACCESS_KEY }}' })
+    expect(indexIn(item!.run!, '::add-mask::')).toBeLessThan(indexIn(item!.run!, '>> "$GITHUB_ENV"'))
+    expect(item!.run).toContain('aws sts assume-role --role-arn "$ROLE"')
+    expect(TEXT + TEST).not.toMatch(/set -x|bash -x|sh -x|aws-actions\//)
+    const printed = TEXT.split('\n').filter((line) => /echo|printf/.test(line) && !/add-mask|\| jq |>> "\$GITHUB_ENV"|> "\$k\/key"/.test(line))
+    expect(printed.filter((line) => /\$(token|secret|session|creds|KEY_ID|KEY_SECRET|KEY)\b/.test(line))).toEqual([])
   })
 
   test('no .github/actions: the workflows say every step, the shared ones anchored once per file', () => {
     expect(existsSync(join(GITHUB, 'actions'))).toBe(false)
     expect(TEXT + TEST).not.toContain('.github/actions')
-    for (const anchor of ['&toolchain', '&libacde']) expect(TEXT.split(anchor).length - 1, anchor).toBe(1)
-    for (const anchor of ['&cleanup', '&toolchain', '&libacde', '&libraries', '&bun', '&fetch', '&runtime', '&wpt']) {
+    for (const anchor of ['&checkout', '&libacde', '&ssh', '&aws']) expect(TEXT.split(anchor).length - 1, anchor).toBe(1)
+    for (const anchor of ['&checkout', '&cleanup', '&libacde', '&fetch', '&runtime', '&ssh', '&wpt']) {
       expect(TEST.split(anchor).length - 1, anchor).toBe(1)
     }
-  })
-
-  test('Rust jobs take the runner\'s read-only /opt/rust and a home of their own, first thing after the checkout', () => {
-    expect(TEXT + TEST).not.toContain('rust-toolchain@')
-    for (const [job, targets] of [['build', '${{ matrix.triple }}'], ['guest', 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl']] as const) {
-      const step = jobs[job]!.steps[1]!
-      expect(step.name, job).toStartWith("this job's home, the runner's Rust")
-      expect(step.run, job).toContain('RUSTUP_HOME=/opt/rust/rustup')
-      expect(step.run, job).toContain('h=$RUNNER_TEMP/home')
-      expect(jobs[job]!.env?.['TARGETS'], job).toBe(targets)
-    }
-    expect(TEST.indexOf('*toolchain')).toBeLessThan(TEST.lastIndexOf('*fetch'))
     expect(TEST).toContain('[ ! -d "${p%%/hostexecutor/*}" ]')
   })
 
-  test('no rust-cache (per-job paths never match a saved cache); xwin, zig and cargo keep to the runner\'s own home', () => {
-    expect(TEXT + TEST).not.toContain('rust-cache@')
-    expect(runs('build')).toContain('"$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME"')
-    expect(runs('build')).toContain('"$RUNNER_HOME/.cache/cargo-xwin-atl"')
-    expect(runs('build')).toContain('ZIG_GLOBAL_CACHE_DIR=%s')
-    expect(runs('build')).toContain('"$RUNNER_HOME/.cache/zig"')
-  })
-
-  test('every run keeps its builds, guest and release on the artifacts host, with a key that only writes there', () => {
-    const job = jobs['artifacts']!
-    expect(job.needs).toEqual(['plan', 'pkgs'])
-    const download = job.steps.find((item) => item.uses?.includes('/gitea-download-artifact@'))
-    expect(download?.with).toEqual({ path: 'in', pattern: '{build-*,guest,acdev-release}' })
-    const run = runs('artifacts')
-    expect(run).toContain('rsync -rt --chmod=D755,F644 -e "$ssh" in/ "artifacts@192.168.10.127:$GITHUB_RUN_NUMBER/"')
-    expect(run).toContain("192.168.10.127 ssh-ed25519 ")
-    expect(TEXT).toContain('KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}')
-  })
-
-  test('apt waits for the lock the other job on the runner may hold', () => {
-    const calls = TEXT.match(/apt-get [^;|&]*?(update|install)/g) ?? []
-    expect(calls.length).toBeGreaterThan(0)
-    for (const call of calls) expect(call).toMatch(/DPkg::Lock::Timeout=600|apt-get \$a /)
+  test('every job\'s output goes to the artifacts host: rsync over ssh with a write-only key, read back with nc + tar', () => {
+    expect(workflow.env['TO']).toBe('artifacts@192.168.10.127')
+    expect(workflow.env['PULL']).toBe('192.168.10.127 9127')
+    expect(TEXT + TEST).not.toMatch(/gitea-(upload|download)-artifact/)
+    for (const text of [TEXT, TEST]) {
+      expect(text).toContain('KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}')
+      expect(text).toContain('192.168.10.127 ssh-ed25519 ')
+    }
+    expect(runs('build')).toContain('out/ "$TO:$GITHUB_RUN_NUMBER/build-$T/"')
+    expect(runs('guest')).toContain('"$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"')
+    expect(runs('pkgs')).toContain('out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"')
+    expect(runs('pkgs')).toContain('nc $PULL | tar -x')
+    expect(runs('publish')).toContain("printf 'acdev/%s/acdev-release\\n' \"$GITHUB_RUN_NUMBER\" | nc $PULL | tar -x")
+    for (const line of (TEXT + TEST).split('\n').filter((line) => /^\s*(\[[^\n]*\|\| )?rsync /.test(line) && line.includes('$TO:') && !line.includes('"$TO:"'))) {
+      expect(line).toContain('--mkpath')
+    }
+    expect(TEXT + TEST).not.toMatch(/rsync[^\n]*--delete|\$TO:[^\n"]*\/[A-Za-z.]+"$/m)
   })
 
   test('every remote action is pinned to a full commit SHA with its version noted', () => {
     const all = Object.keys(jobs).flatMap((job) => uses(job)).filter((action) => !action.startsWith('./'))
     expect(all.length).toBeGreaterThan(0)
     for (const action of all) expect(action).toMatch(/^http:\/\/gitea\.dopamine\/mirror\/[\w.-]+@[0-9a-f]{40}$/)
-    expect(TEXT.match(/@[0-9a-f]{40} # v\d+/g)?.length).toBe(all.length)
+    expect(TEXT.match(/@[0-9a-f]{40}(?! # v\d+)/g)).toBeNull()
   })
 
   test('the release role, bucket, prefix, region, distribution and PKGS are each stated once', () => {
@@ -323,6 +269,12 @@ describe('cicd.yaml', () => {
       CLOUDFRONT_DISTRIBUTION: 'E3ET3L14ALFOXX',
       AWS_RETRY_MODE: 'standard',
       AWS_MAX_ATTEMPTS: '10',
+      RUSTUP_HOME: '/opt/rust/rustup',
+      CARGO_INCREMENTAL: '0',
+      CARGO_TERM_COLOR: 'always',
+      GIT_TERMINAL_PROMPT: '0',
+      TO: 'artifacts@192.168.10.127',
+      PULL: '192.168.10.127 9127',
     })
     expect(Pkgs.BASE).toBe(workflow.env['PKGS']!)
     expect(Pkgs.ACDEV).toBe(`${workflow.env['PKGS']}/${workflow.env['PREFIX']}`)

@@ -1,7 +1,8 @@
-name: release
+name: cicd
 
 # By hand on Gitea: build, check and preview. Publish: tick publish and give commit=<sha>, or push a tag v<x.y.z>.
-# What ships, where and in which order: docs/release-distribution.md.
+# What ships, where and in which order: docs/release-distribution.md. The runners' toolchains: scripts/runner-setup.sh.
+# Every job's output goes to the artifacts host (.127): written with rsync over ssh, read with nc + tar.
 on:
   push:
     tags: ['v*']
@@ -35,6 +36,10 @@ concurrency:
   group: acdev-release
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -eu {0}
+
 env:
   PKGS: https://pkgs.dopame.ai
   AWS_REGION: ap-southeast-1
@@ -45,6 +50,13 @@ env:
   # the runners' uplink is slow: run 2558 timed out reading S3's answer to a large part (the CLI's default is 60 s)
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: '10'
+  RUSTUP_HOME: /opt/rust/rustup
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  GIT_TERMINAL_PROMPT: '0'
+  # artifacts@.127:/srv/artifacts/acdev/<run number>/ (write) and its nc + tar reader (one path per connection)
+  TO: artifacts@192.168.10.127
+  PULL: 192.168.10.127 9127
 
 jobs:
   plan:
@@ -52,38 +64,39 @@ jobs:
     outputs:
       publish: ${{ steps.version.outputs.publish }}
       sha: ${{ steps.version.outputs.sha }}
-      libacde: ${{ steps.libacde.outputs.sha }}
+      libacde: ${{ steps.version.outputs.libacde }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      targets: ${{ steps.targets.outputs.targets }}
+      targets: ${{ steps.version.outputs.targets }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
           fetch-depth: 0
           persist-credentials: false
-      - name: the commit is a full SHA on origin/main, and the version
+      - name: the commit (a full SHA on origin/main), the version, libacde's main and the targets
         id: version
         working-directory: acdev
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
           VERSION_INPUT: ${{ github.event.inputs.version }}
+          SKIP: ${{ github.event.inputs.skip_targets }}
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
         run: |
-          set -eu
           # Gitea gives inputs.publish as false even when ticked; in the environment it is the text true
           if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
           PUSHED_TAG=
           case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
             push:refs/tags/v*) PUBLISH=true; COMMIT=$GITHUB_SHA; PUSHED_TAG=${GITHUB_REF#refs/tags/} ;;
           esac
-          if [ -z "$COMMIT" ]; then
+          if [ -z "${COMMIT:-}" ]; then
             [ "$PUBLISH" = true ] && { echo "::error::a publish needs a commit: run it with -f commit=<sha>"; exit 1; }
             sha=$GITHUB_SHA
           else
             sha=$(git rev-parse --verify --quiet "$COMMIT^{commit}") || { echo "::error::$COMMIT is not a commit in this repository"; exit 1; }
           fi
-          if [ "$PUBLISH" = true ] || [ -n "$COMMIT" ]; then
+          if [ "$PUBLISH" = true ] || [ -n "${COMMIT:-}" ]; then
             git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is neither origin/main nor one of its ancestors"; exit 1; }
           fi
           if [ "$PUBLISH" = true ] && [ -z "$PUSHED_TAG" ] && [ "$GITHUB_REF" != refs/heads/main ]; then
@@ -109,32 +122,18 @@ jobs:
             echo "::error::v$v already exists and points at $tagged, not at $sha"
             exit 1
           fi
-          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\n' "$PUBLISH" "$sha" "$v" "$v" | tee -a "$GITHUB_OUTPUT"
-      - name: libacde's main, the one commit every job builds
-        id: libacde
-        env:
-          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
-          GIT_TERMINAL_PROMPT: '0'
-        run: |
-          set -eu
+          # libacde's main, the one commit every job builds
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          sha=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
-          [ -n "$sha" ] || { echo "::error::no main in AC/libacde"; exit 1; }
-          echo "sha=$sha" | tee -a "$GITHUB_OUTPUT"
-      - name: the targets to build
-        id: targets
-        env:
-          SKIP: ${{ github.event.inputs.skip_targets }}
-        run: |
-          set -eu
+          lib=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
+          [ -n "$lib" ] || { echo "::error::no main in AC/libacde"; exit 1; }
           all="x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc"
-          left=
           for s in $(echo "${SKIP:-}" | tr , ' '); do
             case " $all " in *" $s "*) ;; *) echo "::error::unknown target to skip: $s (one of $all)"; exit 1 ;; esac
           done
+          left=
           for t in $all; do case ",${SKIP:-}," in *",$t,"*) ;; *) left="$left,$t" ;; esac; done
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
-          echo "targets=${left#,}" | tee -a "$GITHUB_OUTPUT"
+          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" | tee -a "$GITHUB_OUTPUT"
 
   # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
   # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on any aarch64-debian runner (user)
@@ -144,180 +143,106 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { triple: aarch64-apple-darwin, cross: zigbuild, runner: aarch64-debian }
-          - { triple: x86_64-apple-darwin, cross: zigbuild, runner: x86_64-debian }
-          - { triple: x86_64-unknown-linux-gnu, cross: '', runner: x86_64-debian }
-          - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, runner: x86_64-debian }
+          - { triple: aarch64-apple-darwin, cargo: zigbuild, runner: aarch64-debian }
+          - { triple: x86_64-apple-darwin, cargo: zigbuild, runner: x86_64-debian }
+          - { triple: x86_64-unknown-linux-gnu, cargo: build, runner: x86_64-debian }
+          - { triple: x86_64-pc-windows-msvc, cargo: xwin build, runner: x86_64-debian }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    env:
-      TARGETS: ${{ matrix.triple }}
     if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
+    env:
+      T: ${{ matrix.triple }}
+      V: ${{ needs.plan.outputs.version }}
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - &checkout
+        uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      # Rust: the runner's read-only /opt/rust (scripts/runner-rust.sh). HOME is this job's own (two jobs share a runner's
-      # user); RUNNER_HOME is the runner's, where cargo's downloads and the MSVC and zig caches last.
-      - &toolchain
-        name: this job's home, the runner's Rust (the job's TARGETS installed)
-        run: |
-          set -eu
-          export RUSTUP_HOME=/opt/rust/rustup
-          r=/opt/rust/cargo/bin
-          [ -x "$r/rustc" ] || { echo "::error::this runner has no Rust in /opt/rust (scripts/runner-rust.sh puts it there)"; exit 1; }
-          have=$("$r/rustup" target list --installed)
-          for t in $(echo "${TARGETS:-}" | tr ',' ' '); do
-            echo "$have" | grep -qx "$t" || { echo "::error::/opt/rust has no $t (scripts/runner-rust.sh)"; exit 1; }
-          done
-          h=$RUNNER_TEMP/home
-          mkdir -p "$h"
-          printf 'RUNNER_HOME=%s\nHOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' \
-            "$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
-          echo "$r" >> "$GITHUB_PATH"
-          "$r/rustc" -V
       - &libacde
         name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
           REF: ${{ needs.plan.outputs.libacde }}
-          GIT_TERMINAL_PROMPT: '0'
         run: |
-          set -eu
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
           rm -rf libacde
           g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
-          if [ -n "$REF" ] && [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
+          if [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
             g -C libacde fetch --quiet --depth 1 origin "$REF"
             git -C libacde checkout --quiet --detach "$REF"
           fi
           g -C libacde submodule update --init --depth 1
-          echo "libacde $(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: system libraries (Linux) or clang and LLVM (cross)
+          echo "libacde $REF" | tee -a "$GITHUB_STEP_SUMMARY"
+      - &ssh
+        name: the upload key for the artifacts host
+        env:
+          KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}
         run: |
-          if [ -z "${{ matrix.cross }}" ]; then
-            p="clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev
-              libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils"
-          else
-            p="clang lld llvm python3 xz-utils"
-          fi
-          # the other job on this runner may hold dpkg's lock
-          s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
-          dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
-      - name: cargo-xwin (the MSVC CRT and SDK with ATL)
-        if: matrix.cross == 'xwin'
-        run: |
-          set -eu
-          f=cargo-xwin-v0.23.1.x86_64-unknown-linux-musl.tar.gz
-          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/rust-cross/cargo-xwin/releases/download/v0.23.1/$f"
-          echo "c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360  $RUNNER_TEMP/$f" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          printf 'XWIN_INCLUDE_ATL=true\nXWIN_CACHE_DIR=%s\n' "$RUNNER_HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
-      - name: cargo-zigbuild, zig and the macOS SDK
-        if: matrix.cross == 'zigbuild'
-        run: |
-          set -eu
-          cd "$RUNNER_TEMP"
-          case $(uname -m) in
-            x86_64) f=cargo-zigbuild-x86_64-unknown-linux-musl.tar.xz fs=f09b180a517af0e4dd4bffc921bb88e5ab705452a9dd948c61e489b3020c68c2
-                    z=zig-x86_64-linux-0.17.1 zs=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a ;;
-            aarch64) f=cargo-zigbuild-aarch64-unknown-linux-gnu.tar.xz fs=70bb4c9cc71a6d16211b9079996e3cd588671053312adeff4d043499ed887601
-                     z=zig-aarch64-linux-0.17.1 zs=a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795 ;;
-          esac
-          curl -sSfL -o "$f" "https://github.com/rust-cross/cargo-zigbuild/releases/download/v0.24.1/$f"
-          echo "$fs  $f" | sha256sum -c -
-          mkdir -p zb bin && tar -xJf "$f" -C zb && find zb -name cargo-zigbuild -type f -exec cp {} bin/ \;
-          curl -sSfL -o "$z.tar.xz" "https://ziglang.org/download/0.17.1/$z.tar.xz"
-          echo "$zs  $z.tar.xz" | sha256sum -c -
-          tar -xJf "$z.tar.xz" && ln -sf "$RUNNER_TEMP/$z/zig" bin/zig
-          sdk=MacOSX15.5.sdk.tar.xz
-          curl -sSfL -o "$sdk" "https://github.com/joseluisq/macosx-sdks/releases/download/15.5/$sdk"
-          echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  $sdk" | sha256sum -c -
-          mkdir -p sdk && tar -xJf "$sdk" -C sdk
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          printf 'SDKROOT=%s\nMACOSX_DEPLOYMENT_TARGET=11.0\nZIG_GLOBAL_CACHE_DIR=%s\n' "$RUNNER_TEMP/sdk/MacOSX15.5.sdk" "$RUNNER_HOME/.cache/zig" >> "$GITHUB_ENV"
-      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
-      - name: bun for libacde's build.rs, the release version (not committed), rustc flags
-        run: |
-          set -eu
-          bun install --frozen-lockfile --cwd libacde/js
-          sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev
-          flags="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)=/rustc"
-          flags="$flags --remap-path-prefix=$GITHUB_WORKSPACE/acdev=/src --remap-path-prefix=$GITHUB_WORKSPACE/libacde=/libacde"
-          case "${{ matrix.triple }}" in *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB% $flags" ;; esac
-          printf 'ACDEV_BUN=%s\nRUSTFLAGS=%s\n' "$(command -v bun)" "$flags" >> "$GITHUB_ENV"
+          k=$RUNNER_TEMP/ssh
+          mkdir -p -m 700 "$k"
+          printf '%s\n' "$KEY" > "$k/key" && chmod 600 "$k/key"
+          echo '192.168.10.127 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEO/zlouRrnjVdb3bSH9SH0ueof9pfb+KIDTLr0l6xyT' > "$k/known_hosts"
+          echo "RSYNC_RSH=ssh -i $k/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts" >> "$GITHUB_ENV"
       - name: acdev (dist profile, split debug information) and acdevtool
         working-directory: acdev
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
         run: |
-          set -eu
-          build() { case "${{ matrix.cross }}" in xwin) cargo xwin build "$@" ;; zigbuild) cargo zigbuild "$@" ;; *) cargo build "$@" ;; esac; }
-          build --locked --profile dist -p acdev --target ${{ matrix.triple }}
-          (cd crates/tool && build --locked --release --target ${{ matrix.triple }})
-      - name: the archives (one program each, fixed times and owner) and the split debug information
+          bun install --frozen-lockfile --cwd ../libacde/js
+          sh scripts/set-version.sh "$V" .
+          export ACDEV_BUN=$(command -v bun)
+          RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$(rustc --print sysroot)=/rustc"
+          export RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=$PWD=/src --remap-path-prefix=$(cd ../libacde && pwd)=/libacde"
+          case $T in
+            *-windows-msvc)
+              RUSTFLAGS="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB% $RUSTFLAGS"
+              export XWIN_INCLUDE_ATL=true XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl ;;
+            *-apple-darwin) export SDKROOT=/opt/cross/MacOSX15.5.sdk MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+          esac
+          cargo ${{ matrix.cargo }} --locked --profile dist -p acdev --target $T
+          (cd crates/tool && cargo ${{ matrix.cargo }} --locked --release --target $T)
+      - name: the archives (one program each, fixed times and owner) and the split debug information, to the artifacts host
         run: |
-          set -eu
-          t=${{ matrix.triple }} x=${{ matrix.exe }}
+          case $T in *-windows-*) x=.exe ;; *) x= ;; esac
           mkdir -p out/symbols
           pack() {
             rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3" && TZ=UTC touch -t 200001010000.00 "one/$3"
             tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" > one.tar
-            if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$t.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$t.tar.xz"; fi
+            if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$T.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz"; fi
           }
-          pack acdevrt "acdev/target/$t/dist/acdev$x" "acdev$x"
-          pack acdevtools "acdev/crates/tool/target/$t/release/acdevtool$x" "acdevtool$x"
-          for part in acdev.pdb acdev.dwp acdev.dSYM; do [ -e "acdev/target/$t/dist/$part" ] && cp -RL "acdev/target/$t/dist/$part" out/symbols/; done
+          pack acdevrt "acdev/target/$T/dist/acdev$x" "acdev$x"
+          pack acdevtools "acdev/crates/tool/target/$T/release/acdevtool$x" "acdevtool$x"
+          for part in acdev.pdb acdev.dwp acdev.dSYM; do [ ! -e "acdev/target/$T/dist/$part" ] || cp -RL "acdev/target/$T/dist/$part" out/symbols/; done
           [ -n "$(ls -A out/symbols)" ] || { echo "::error::no split debug information was produced"; exit 1; }
           ls -la out out/symbols
-      # one upload per job: act_runner fails a remote action prepared twice in one job (docs/release-distribution.md)
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        with:
-          name: build-${{ matrix.triple }}
-          path: out
-          retention-days: 30
-          if-no-files-found: error
+          rsync -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/build-$T/"
 
   # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
   guest:
     needs: plan
     runs-on: x86_64-debian
     timeout-minutes: 30
-    env:
-      TARGETS: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - *toolchain
-      - name: acdevd-x86_64 and acdevd-aarch64
+      - *checkout
+      - *ssh
+      - name: acdevd-x86_64 and acdevd-aarch64, to the artifacts host
         working-directory: acdev/crates/devd
         run: |
-          set -eu
-          rm -rf "$GITHUB_WORKSPACE/stage" && mkdir -p "$GITHUB_WORKSPACE/stage" "$GITHUB_WORKSPACE/out"
+          s=$GITHUB_WORKSPACE/stage o=$GITHUB_WORKSPACE/out
+          rm -rf "$s" "$o" && mkdir -p "$s" "$o"
           for a in x86_64 aarch64; do
             cargo build --locked --release --target $a-unknown-linux-musl
-            cp "target/$a-unknown-linux-musl/release/acdevd" "$GITHUB_WORKSPACE/stage/acdevd-$a"
+            cp "target/$a-unknown-linux-musl/release/acdevd" "$s/acdevd-$a"
           done
-          cd "$GITHUB_WORKSPACE/stage"
-          chmod 755 * && TZ=UTC touch -t 200001010000.00 *
-          tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64 | gzip -9 -n \
-            > "$GITHUB_WORKSPACE/out/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        with:
-          name: guest
-          path: out
-          retention-days: 1
-          if-no-files-found: error
+          (cd "$s" && chmod 755 * && TZ=UTC touch -t 200001010000.00 * &&
+            tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64) | gzip -9 -n \
+            > "$o/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
+          rsync -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
 
+  # the release (out/: <version>/, latest, latest.json, install.*) from the builds, guarded, kept as <run>/acdev-release
   pkgs:
     needs: [plan, build, guest]
     if: ${{ !cancelled() && needs.guest.result == 'success' && needs.build.result != 'failure' }}
@@ -325,117 +250,78 @@ jobs:
     env:
       V: ${{ needs.plan.outputs.version }}
       SHA: ${{ needs.plan.outputs.sha }}
+      TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          path: in
-          pattern: '{build-*,guest}'
-      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
+      - *checkout
       - *libacde
+      - *ssh
       - name: dist (the CLI archive, the SDK from libacde/acde-api, the built archives beside them) and latest.json
         working-directory: acdev/npm
         run: |
-          set -eu
-          dpkg -s jq > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq xz-utils; }
-          mkdir -p "$GITHUB_WORKSPACE/shipped" && cp "$GITHUB_WORKSPACE"/in/*/*.tar.* "$GITHUB_WORKSPACE/shipped/"
+          w=$GITHUB_WORKSPACE
+          rm -rf "$w/in" "$w/shipped" && mkdir -p "$w/in" "$w/shipped"
+          for d in guest $(echo "$TARGETS" | tr , '\n' | sed 's/^/build-/'); do
+            printf 'acdev/%s/%s\n' "$GITHUB_RUN_NUMBER" "$d" | nc $PULL | tar -x -C "$w/in" --strip-components=2 2>/dev/null || true
+            [ -d "$w/in/$d" ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/$d"; exit 1; }
+          done
+          cp "$w"/in/*/*.tar.* "$w/shipped/"
           bun install --frozen-lockfile
           sh ../scripts/set-version.sh "$V" ..
-          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$V" --version "$V" \
-            --out "$GITHUB_WORKSPACE/out" --runtime "$GITHUB_WORKSPACE/shipped"
-          cd "$GITHUB_WORKSPACE/out"
+          bun scripts/dist.ts --api "$w/libacde/acde-api" --sdk "$V" --version "$V" --out "$w/out" --runtime "$w/shipped"
+          cd "$w/out"
           jq -n --arg version "$V" --arg commit "$SHA" --argjson files "$(ls "$V" | jq -R . | jq -sc .)" \
             '{version: $version, tag: "v\($version)", commit: $commit, sdk: $version, base: "https://pkgs.dopame.ai/acdev/\($version)/", files: $files}' \
             | tee latest.json
           mkdir smoke && tar -xzf "$V/acdev-$V.tar.gz" -C smoke
           "smoke/acdev-$V/bin/acdev" --help 2>&1 | grep -q 'Usage: acdev <command>' || { echo "::error::bin/acdev does not start the CLI"; exit 1; }
           rm -rf smoke
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        with:
-          name: acdev-release
-          path: out
-          if-no-files-found: error
-          retention-days: 1
+      - name: to the artifacts host (acdev-release, run.json)
+        env:
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: |
+          rsync -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
+          mkdir -p run && printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > run/run.json
+          rsync -t --mkpath --chmod=F644 run/run.json "$TO:$GITHUB_RUN_NUMBER/"
+          echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
+      - name: the release is exactly the allow-list and the shipped content is clean
+        working-directory: acdev/npm
+        run: bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$V" --targets "$TARGETS"
+      - name: latest on the artifacts host
+        run: |
+          echo "$GITHUB_RUN_NUMBER" > run/latest
+          rsync -t --chmod=F644 run/latest "$TO:"
+          [ "${{ needs.plan.outputs.publish }}" = true ] || echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
 
-  guard:
+  # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
+  publish:
     needs: [plan, pkgs]
+    if: needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'
     runs-on: x86_64-debian
+    permissions:
+      contents: write
+    env:
+      V: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      SHA: ${{ needs.plan.outputs.sha }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          name: acdev-release
-          path: out
-      - name: the release is exactly the allow-list and the shipped content is clean
-        working-directory: acdev/npm
+          persist-credentials: true
+      - name: the release from the artifacts host
         run: |
-          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends xz-utils; }
-          bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "${{ needs.plan.outputs.version }}" \
-            --targets "${{ needs.plan.outputs.targets }}"
-      - name: a preview stops here
-        if: needs.plan.outputs.publish != 'true'
-        run: echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
-
-  artifacts:
-    # every run's builds (with their split debug information), the guest and the release, kept on the artifacts host (.127)
-    needs: [plan, pkgs]
-    if: ${{ !cancelled() && needs.pkgs.result == 'success' }}
-    runs-on: x86_64-debian
-    steps:
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          path: in
-          pattern: '{build-*,guest,acdev-release}'
-      - name: to artifacts@192.168.10.127:/srv/artifacts/acdev/<run number>/, then latest
-        env:
-          KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}
-          V: ${{ needs.plan.outputs.version }}
-          SHA: ${{ needs.plan.outputs.sha }}
-          PUBLISH: ${{ needs.plan.outputs.publish }}
-        run: |
-          set -eu
-          dpkg -s rsync openssh-client > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends rsync openssh-client; }
-          printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > in/run.json
-          k=$(mktemp -d)
-          trap 'rm -rf "$k"' EXIT
-          printf '%s\n' "$KEY" > "$k/upload"
-          chmod 600 "$k/upload"
-          echo '192.168.10.127 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEO/zlouRrnjVdb3bSH9SH0ueof9pfb+KIDTLr0l6xyT' > "$k/known_hosts"
-          ssh="ssh -i $k/upload -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts"
-          rsync -rt --chmod=D755,F644 -e "$ssh" in/ "artifacts@192.168.10.127:$GITHUB_RUN_NUMBER/"
-          echo "$GITHUB_RUN_NUMBER" > "$k/latest"
-          rsync -t -e "$ssh" "$k/latest" artifacts@192.168.10.127:
-          echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
-
-  upload:
-    needs: [plan, guard]
-    if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
-    runs-on: x86_64-debian
-    env:
-      V: ${{ needs.plan.outputs.version }}
-    steps:
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          name: acdev-release
-          path: out
-      - name: credentials for the role
+          rm -rf out && mkdir out
+          printf 'acdev/%s/acdev-release\n' "$GITHUB_RUN_NUMBER" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
+          [ -f out/latest ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/acdev-release"; exit 1; }
+          [ "$(cat out/latest)" = "$V" ] || { echo "::error::the release is $(cat out/latest), not $V"; exit 1; }
+          (cd "out/$V" && sha256sum -c SHA256SUMS)
+      - &aws
+        name: credentials for the role
         env:
           KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          set -eu
-          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq awscli; }
           creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
             --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
           for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
@@ -443,50 +329,60 @@ jobs:
       - name: upload every file SHA256SUMS lists, then SHA256SUMS, each read back
         working-directory: out/${{ needs.plan.outputs.version }}
         run: |
-          set -eu
-          [ "$(cat ../latest)" = "$V" ] || { echo "::error::the release is $(cat ../latest), not $V"; exit 1; }
-          sha256sum -c SHA256SUMS
           # a published version is identical or refused, never overwritten; a rerun skips the identical files
           publish_once() {
             case $1 in *.tar.gz) type=application/gzip ;; *.tar.xz) type=application/x-xz ;; *) type='text/plain; charset=utf-8' ;; esac
             key="$PREFIX/$V/$1"
-            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> head.err; then
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> "$RUNNER_TEMP/head.err"; then
               aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/published" --only-show-errors
               cmp -s "$RUNNER_TEMP/published" "$1" || { echo "::error::$1 is already published with different content: a version is never overwritten"; exit 1; }
               echo "already published, identical: $1"
-            elif grep -qE 'Not Found|NotFound|404' head.err; then
+            elif grep -qE 'Not Found|NotFound|404' "$RUNNER_TEMP/head.err"; then
               aws s3 cp "$1" "s3://$BUCKET/$key" --cli-read-timeout 600 --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
             else
-              echo "::error::cannot check $1: $(cat head.err)"; exit 1
+              echo "::error::cannot check $1: $(cat "$RUNNER_TEMP/head.err")"; exit 1
             fi
             aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/readback" --only-show-errors
             cmp -s "$RUNNER_TEMP/readback" "$1" || { echo "::error::$1 does not read back as uploaded"; exit 1; }
           }
-          rm -f head.err
           for f in $(awk '{ sub(/^\*/, "", $2); print $2 }' SHA256SUMS); do
             case $f in *[!A-Za-z0-9._-]*) echo "::error::bad file name $f"; exit 1 ;; esac
             publish_once "$f"
           done
-          rm -f head.err
           publish_once SHA256SUMS
-
-  npm:
-    # @dopame/acdev (starts its platform package) and @dopame/acdev-<os>-<cpu> (laid out as an install); the SDK is not on npm
-    needs: [plan, guard]
-    if: needs.plan.outputs.publish == 'true'
-    runs-on: x86_64-debian
-    env:
-      V: ${{ needs.plan.outputs.version }}
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-    steps:
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          name: acdev-release
-          path: out
-      - name: the packages
+      - name: the annotated tag points at the commit, or already does
+        working-directory: acdev
         run: |
-          set -eu
-          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends xz-utils; }
+          test "$(git rev-parse HEAD)" = "$SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
+            peeled=${peeled:-$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)}
+            [ "$peeled" = "$SHA" ] || { echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version"; exit 1; }
+            echo "$TAG already points at $SHA: a rerun continues"
+          else
+            git -c user.name=gitea-actions -c user.email=gitea-actions@gitea.dopamine tag -a "$TAG" -m "acdev $TAG" "$SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+      # the upload can take most of an hour on the runners' uplink: fresh credentials for the pointers
+      - *aws
+      - name: the pointers, latest.json last, then the CDN
+        working-directory: out
+        run: |
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$1" --only-show-errors --content-type "$2" --cache-control 'public, max-age=0, must-revalidate'; }
+          put install.sh 'text/plain; charset=utf-8'
+          put install.ps1 'text/plain; charset=utf-8'
+          put install.md 'text/markdown; charset=utf-8'
+          put latest 'text/plain; charset=utf-8'
+          put latest.json application/json
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" --query Invalidation.Id --output text \
+            --paths /$PREFIX/latest /$PREFIX/latest.json /$PREFIX/install.sh /$PREFIX/install.ps1 /$PREFIX/install.md "/$PREFIX/$V/*"
+          printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"
+      # @dopame/acdev (starts its platform package) and @dopame/acdev-<os>-<cpu> (laid out as an install); the SDK is not on npm
+      - name: npm (platforms, then @dopame/acdev)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          [ -n "${NPM_TOKEN:-}" ] || { echo "::warning::no NPM_TOKEN secret: nothing published to npm"; exit 0; }
           rel="$GITHUB_WORKSPACE/out/$V"
           deps=
           for t in $(echo "${{ needs.plan.outputs.targets }}" | tr , ' '); do
@@ -511,10 +407,6 @@ jobs:
           node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
             "$V" "$deps" > npm/acdev/package.json
           du -sh npm/*
-      - name: publish (platforms, then @dopame/acdev)
-        run: |
-          set -eu
-          [ -n "$NPM_TOKEN" ] || { echo "::warning::no NPM_TOKEN secret: nothing published to npm"; exit 0; }
           printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"
           export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
           for dir in npm/acdev-*-* npm/acdev; do
@@ -522,71 +414,3 @@ jobs:
             if npm view "$name@$V" version > /dev/null 2>&1; then echo "$name@$V is already on npm"; continue; fi
             (cd "$dir" && npm publish --access public) && echo "published $name@$V"
           done
-
-  tag:
-    needs: [plan, guard, upload]
-    if: needs.plan.outputs.publish == 'true' && needs.upload.result == 'success'
-    runs-on: x86_64-debian
-    permissions:
-      contents: write
-    env:
-      TAG: ${{ needs.plan.outputs.tag }}
-      SHA: ${{ needs.plan.outputs.sha }}
-    steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: true
-      - name: the annotated tag points at the commit, or already does
-        working-directory: acdev
-        run: |
-          set -eu
-          test "$(git rev-parse HEAD)" = "$SHA"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
-            peeled=${peeled:-$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)}
-            [ "$peeled" = "$SHA" ] || { echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version"; exit 1; }
-            echo "$TAG already points at $SHA: a rerun continues"
-          else
-            git -c user.name=gitea-actions -c user.email=gitea-actions@gitea.dopamine tag -a "$TAG" -m "acdev $TAG" "$SHA"
-            git push origin "refs/tags/$TAG"
-          fi
-
-  latest:
-    needs: [plan, guard, tag]
-    if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
-    runs-on: x86_64-debian
-    env:
-      V: ${{ needs.plan.outputs.version }}
-    steps:
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          name: acdev-release
-          path: out
-      - name: credentials for the role
-        env:
-          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: |
-          set -eu
-          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends jq awscli; }
-          creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
-            --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
-          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
-          printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
-      - name: the pointers, latest.json last, then the CDN
-        working-directory: out
-        run: |
-          set -eu
-          [ "$(cat latest)" = "$V" ] || { echo "::error::the release is $(cat latest), not $V"; exit 1; }
-          (cd "$V" && sha256sum -c SHA256SUMS)
-          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$1" --only-show-errors --content-type "$2" --cache-control 'public, max-age=0, must-revalidate'; }
-          put install.sh 'text/plain; charset=utf-8'
-          put install.ps1 'text/plain; charset=utf-8'
-          put install.md 'text/markdown; charset=utf-8'
-          put latest 'text/plain; charset=utf-8'
-          put latest.json application/json
-          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" --query Invalidation.Id --output text \
-            --paths /$PREFIX/latest /$PREFIX/latest.json /$PREFIX/install.sh /$PREFIX/install.ps1 /$PREFIX/install.md "/$PREFIX/$V/*"
-          printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"
