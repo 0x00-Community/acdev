@@ -92,11 +92,8 @@ export class AppPackage {
 
   static check(dir: string, manifest: PackageManifest): Findings {
     const resolveUrl = (url: string) => AppPackage.asset(dir, manifest, url) !== null
-    const findings = Manifest.check(manifest, (d) => AppPackage.#isDir(join(dir, d)), resolveUrl)
-    for (const desktop of manifest.desktops ?? []) {
-      if (!AppPackage.#isFile(join(dir, desktop.entry)))
-        findings.errors.push(`desktop ${JSON.stringify(desktop.id)}: no entry ${desktop.entry}`)
-    }
+    const isFile = (path: string) => AppPackage.#isFile(join(dir, path))
+    const findings = Manifest.check(manifest, (d) => AppPackage.#isDir(join(dir, d)), resolveUrl, isFile)
     for (const service of manifest.services ?? []) {
       if (!AppPackage.#isFile(join(dir, service.module)))
         findings.errors.push(`service ${JSON.stringify(service.name)}: no module ${service.module}`)

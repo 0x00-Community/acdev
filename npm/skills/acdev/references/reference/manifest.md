@@ -44,6 +44,7 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 | --- | --- |
 | `id` / `name` / `description` | |
 | `entry` | The desktop page: the path of an HTML file in the package (`desktop/index.html`), not a URL |
+| `lock` | Optional. The lock screen page, written like `entry` (`desktop/lock.html`). The session shows it while the screen is locked; it gets only `acde:lock` (`user()`, `unlock(password)`) |
 | `services` | The services it uses: a name, or `{name, modules}` where `modules` lists the shell modules the service may get from `ctx.import()` (see [Service API](service.md)) |
 | `heapMb` | Defaults to 1024, minimum 32 |
 
