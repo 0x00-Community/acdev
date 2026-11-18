@@ -29,7 +29,7 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 `test/host/` 经命令行驱动真实的 acdev 运行时: 把 `test/fixtures/host/hello` (带 `server.ts` 后端的示例应用) 拷到临时目录, 起
 `acdev dev <目录> --app hello-backend --headless --force`, 再用 `acdev webs`、`acdev eval`、`acdev console` 检查. 只在
 `ACDEV_HOST_E2E=1` 且 `ACDEV_RUNTIME` 指向真的运行时 (比如 `target/debug/acdev`, 要和并排的 libacde 同一版本) 时跑, 否则跳过;
-`bun run test:host` 设好前一个. 运行时目录、数据、配置和缓存都放进临时目录; 设 `ACDEV_HOST_KEEP=1` 时测完不删它, 打印路径, 里面的 `dev.out.log`、`dev.err.log` 是 `acdev dev` 的输出, 查失败用. 每个用例默认最多 60 秒. 先在 Linux 宿主上跑; Windows、macOS 由用户安排人测.
+`bun run test:host` 设好前一个. 数据、配置和缓存放进临时目录, 运行时目录 (`XDG_RUNTIME_DIR`) 在 unix 上是 `/tmp/acdev-run-*` (`helpers.ts` 的 `runtimeDir`: macOS 的临时目录很长, 放在它下面时后端的 socket 路径超过 `sun_path` 的 104 字节, 后端起不来); 设 `ACDEV_HOST_KEEP=1` 时测完不删它, 打印路径, 里面的 `dev.out.log`、`dev.err.log` 是 `acdev dev` 的输出, 查失败用. 每个用例默认最多 60 秒. 在 Linux、macOS 宿主上跑; Windows 由用户安排人测.
 应用后端 (工作项 13) 的用例: 页面拿到 `backend says hi`; 改 `server.ts` 后重新构建、重载, 后端换了进程 (pid 变了) 且答新内容;
 页面请求 `/api/crash` 让后端以 3 退出, `acdev dev` 的 stderr 里有后端自己的输出和 `[hello-backend#backend] stopped (exit 3); starting it again`,
 之后后端以新进程回来. 这几条放在 `route` 用例之前 (那条会把 `/api/hello` 换成假回应).

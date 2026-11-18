@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { cpSync, mkdirSync } from 'node:fs'
+import { cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { Acde } from '../../src/driver/index.ts'
-import { cleanup, skipping, tmp } from '../helpers.ts'
+import { cleanup, runtimeDir, skipping, tmp } from '../helpers.ts'
 
 const CLI = join(import.meta.dir, '../../src/cli.ts')
 const DESK = join(import.meta.dir, '../fixtures/host/lockdesk')
@@ -24,13 +24,12 @@ describe.skipIf(skip)('acdev dev --lock opens the lock page alone, with the stan
     const home = tmp()
     project = join(home, 'lockdesk')
     cpSync(DESK, project, { recursive: true })
-    const runtimeDir = join(home, 'run')
-    mkdirSync(runtimeDir, { mode: 0o700 })
+    const run = runtimeDir()
     env = {
       ...process.env as Record<string, string>,
       ACDEV_RUNTIME: RUNTIME,
       ACDEV_BROWSER: 'none',
-      XDG_RUNTIME_DIR: runtimeDir,
+      XDG_RUNTIME_DIR: run,
       XDG_DATA_HOME: join(home, 'data'),
       XDG_CONFIG_HOME: join(home, 'config'),
       XDG_CACHE_HOME: join(home, 'cache'),
