@@ -10,6 +10,8 @@
 `/run/user/<uid>/acde/dev.sock`, 见 `docs/devd.md`), 在隧道上建 `DevClient` (`DevClient.over`, 收任何 `Duplex`), 先发
 `{type: 'hello', role: 'dev'}`, 之后和宿主同样一行一个 JSON. 会话记录是 `Sessions.guest()` (`endpoint` 为 `vm`, `pid` 0, `desktop` 为 `vm`);
 `Sessions.pins` 判断钉住的是不是它. `acdev stop --session vm` 报错 (会话随用户注销结束, `acdev vm stop` 停客户机).
+`screen` 在客户机会话里不带 `path` (宿主路径在客户机里写不了), 管家回 `{png: <base64>, width, height}`, acdev 解码后写到宿主路径
+(`Acde.screen`, 命令行和 MCP 同经它); 宿主会话照旧让运行时写文件.
 和宿主不同的回答: 客户机的 `input` 回 `{done, textSkipped}` (窗口管理器注入, 见 acdes `docs/manager.md`), 不是 act 回答; `Acde.inputResult` 两种都认,
 `textSkipped` 大于 0 时算失败并说明原因 (命令行、MCP、driver 同一处). 客户机里注入的文字在网页里只留 ASCII, 所以 driver 的
 `keyboard.type` / `insertText` 在客户机会话里遇到非 ASCII 文字时改走页面: 找那个页面窗口里有焦点的元素 (`query ':focus'`), 用 `act type`

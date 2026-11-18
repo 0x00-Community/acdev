@@ -642,6 +642,37 @@ describe('--session vm', () => {
     check(Acde.inputResult({ ok: true, text: 'typed' })).toEqual({ ok: true, text: 'typed' })
   })
 
+  test('screen in the guest asks without a path and writes the png it gets back on the host', async () => {
+    const dir = tmp()
+    const path = join(dir, 'manager.sock')
+    const asked: Record<string, unknown>[] = []
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    const { createServer, connect } = await import('node:net')
+    const manager = createServer((socket) => {
+      socket.setEncoding('utf8')
+      socket.on('data', (text: string) => {
+        for (const line of text.split('\n').filter(Boolean)) {
+          const message = JSON.parse(line) as Record<string, unknown>
+          if (message['type'] !== 'request') continue
+          asked.push(message)
+          const result = { png: png.toString('base64'), width: 1280, height: 800 }
+          socket.write(`${JSON.stringify({ type: 'response', id: message['id'], ok: true, result })}\n`)
+        }
+      })
+    })
+    await new Promise<void>((done) => manager.listen(path, done))
+    try {
+      const acde = await Acde.attachGuest(async () => connect(path))
+      const shot = await acde.screen({ path: join(dir, 's1.png') })
+      await acde.close()
+      check([shot.width, shot.height, shot.path]).toEqual([1280, 800, join(dir, 's1.png')])
+      check(readFileSync(join(dir, 's1.png'))).toEqual(png)
+      check(asked.map((m) => [m['op'], 'path' in m])).toEqual([['screen', false]])
+    } finally {
+      manager.close()
+    }
+  })
+
   test('a pin of vm picks the guest session and no local one', () => {
     const local = { pid: 42, endpoint: '/run/x.sock', dirs: [], apps: [], desktop: null, started: 0 }
     check(Sessions.pins('vm', Sessions.guest())).toBe(true)

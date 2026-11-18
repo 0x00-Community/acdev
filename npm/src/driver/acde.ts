@@ -74,10 +74,14 @@ export class Acde {
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
     const timeout = options.timeout ?? Acde.TIMEOUT_MS
-    if (options.session === Sessions.VM) return new Acde(Sessions.guest(), await Acde.guest(), null, null, timeout)
+    if (options.session === Sessions.VM) return await Acde.attachGuest(undefined, timeout)
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const session = await Sessions.find(options.cwd ?? process.cwd(), options.session, options.say, dir)
     return new Acde(session, await Acde.#connect(session), null, null, timeout)
+  }
+
+  static async attachGuest(open?: () => Promise<Duplex>, timeout = Acde.TIMEOUT_MS): Promise<Acde> {
+    return new Acde(Sessions.guest(), await Acde.guest(open), null, null, timeout)
   }
 
   static async guest(open?: () => Promise<Duplex>): Promise<DevClient> {
@@ -312,6 +316,7 @@ export class Acde {
   }
 
   async screen(options: { readonly path?: string } = {}): Promise<Shot> {
+    if (this.guest) return await this.#guestScreen(options.path)
     const scratch = options.path === undefined ? mkdtempSync(join(tmpdir(), 'acde-screen-')) : null
     const path = options.path === undefined ? join(scratch!, 'screen.png') : resolve(options.path)
     try {
@@ -325,6 +330,15 @@ export class Acde {
     } finally {
       if (scratch !== null) rmSync(scratch, { recursive: true, force: true })
     }
+  }
+
+  async #guestScreen(given: string | undefined): Promise<Shot> {
+    const answer = (await this.#request('screen')) as { png?: unknown; width?: unknown; height?: unknown } | null
+    if (typeof answer?.png !== 'string') throw new Error('the session in the guest answered screen without a png')
+    const png = Buffer.from(answer.png, 'base64')
+    const path = given === undefined ? null : resolve(given)
+    if (path !== null) writeFileSync(path, png)
+    return { png, width: Number(answer.width) || 0, height: Number(answer.height) || 0, path }
   }
 
   async emulate(options: Emulation): Promise<Emulated> {
