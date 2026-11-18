@@ -22,13 +22,9 @@
   (`~/.cache/cargo-xwin-atl`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
   rust-cache 会清掉本工作区包的产物, 依赖的构建脚本输出一般留着, 要看试编的第二次是否还在下载〕. 不用 sccache (它会关掉增量编译, runner 上也没装).
 - 改后的耗时: 待试编后补.
-- aws-lc-sys (rustls 经 aws-lc-rs 带进来的 C 代码) 在交叉编译时要的东西 (aws-lc-rs 文档「Requirements」 https://aws.github.io/aws-lc-rs/requirements/index.html ,
-  Windows 的 https://aws.github.io/aws-lc-rs/requirements/windows.html 、Apple 的 https://aws.github.io/aws-lc-rs/requirements/apple.html ): 非 FIPS 构建只要 C 编译器, 不要 CMake、
-  Go、bindgen; Windows x86_64 还要 NASM (`x86_64-pc-windows-msvc`: "The default build needs a C/C++ compiler and NASM"; 没有 NASM 时可用
-  `AWS_LC_SYS_PREBUILT_NASM=1` 的预编译对象), 所以 `build` 的交叉作业 apt 装 `nasm`; cargo-xwin 用的是 GNU 驱动模式的 clang, 文档说这样
-  "takes GNU-style flags, even when targeting the MSVC ABI", 能不能过〔未核实〕. macOS (zigbuild) 只要 C 编译器, cargo-zigbuild 给 `zig cc`,
-  能不能编 aws-lc 的汇编〔未核实〕. 本机 2026-11-18 用宿主 gcc 交叉检查时这两处都在 aws-lc-sys 的构建脚本上失败 (缺 `lib.exe`、gcc 不认
-  `-mmacosx-version-min`), 那不是流水线的工具链, 以试编为准.
+- TLS 的加密底层是 ring, 不是 aws-lc (用户定, 2026-11-18): aws-lc-sys 在 Windows x86_64 上要 NASM (或 `AWS_LC_SYS_PREBUILT_NASM=1`),
+  每个平台都多编一个大 C 库. ring 也要 C 编译器 (交叉作业的 clang、`zig cc`), Windows 的汇编是它预生成好的, 不要 NASM. 所以交叉作业的 apt
+  只装 `clang lld llvm python3 xz-utils`; 以前的 `nasm` 随 aws-lc 去掉, `perl`、`make` 是编 vendored OpenSSL 时留下的, 依赖里早已没有 OpenSSL.
 
 ## 分发 (仓库根 `scripts/install.sh`, `scripts/install.ps1`, `npm/scripts/dist.ts`)
 

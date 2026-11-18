@@ -158,7 +158,7 @@ jobs:
         with:
           token: ${{ secrets.ACKERNEL_TOKEN }}
           ref: ${{ needs.plan.outputs.libacde }}
-      - name: system libraries (Linux) or clang, LLVM and NASM (cross)
+      - name: system libraries (Linux) or clang and LLVM (cross)
         run: |
           s=$(command -v sudo || true); $s apt-get update
           if [ -z "${{ matrix.cross }}" ]; then
@@ -166,7 +166,7 @@ jobs:
               libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev \
               libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
           else
-            $s apt-get install -y --no-install-recommends clang lld llvm python3 perl make xz-utils nasm
+            $s apt-get install -y --no-install-recommends clang lld llvm python3 xz-utils
           fi
       - name: cargo-xwin (the MSVC CRT and SDK with ATL)
         if: matrix.cross == 'xwin'

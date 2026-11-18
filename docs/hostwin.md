@@ -124,7 +124,7 @@
   `docs/graphics/render-gpu.md`「GPU 与性能」: 优先 GPU, 没有时回退 CPU 类型的设备 lavapipe, 排最后, 慢): 能在有 Metal 的 macOS 机器 (含 GitHub 的
   macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑; 没有 GPU 的 Linux CI 装了 lavapipe (Mesa 的 Vulkan 驱动包) 也能跑, 只是慢. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal)、macOS (`NSOpenPanel` / `NSSavePanel`) 和 Windows (Common Item Dialog, `platform/win32/dialog.rs`) 有; 应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
-  WebGPU 只在 Linux (WebGL 到处都有, 见「WebGL」). TLS 用 rustls (加密底层 aws-lc-rs, 三个平台一样, 用户 2026-11-18 定, 总仓 `.scratch/system/issues/14-openssl.md`),
+  WebGPU 只在 Linux (WebGL 到处都有, 见「WebGL」). TLS 用 rustls (加密底层 ring, 三个平台一样; 2026-11-18 先定 aws-lc-rs (总仓 `.scratch/system/issues/14-openssl.md`), 同日为省掉 Windows 的 NASM 和 aws-lc 的 C 构建改成 ring, 用户定; ring 没有后量子混合密钥交换),
   证书校验交给 rustls-platform-verifier (runtime `http.rs` 的 `tls()`): Linux 读系统证书库 (发行版的 ca-certificates), macOS 用
   Security.framework, Windows 用系统的证书链校验 (`CertGetCertificateChain`, 会按需下载缺的根证书, 认组策略下发的证书). 不用内置的
   Mozilla 根证书列表. 二进制不再链接系统的 libssl.
