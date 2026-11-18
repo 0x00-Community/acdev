@@ -22,7 +22,7 @@
   (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
 - `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acdev 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
-  `Sdk.dir()`): 检出跑的是 acdev 自己 `file:` 依赖的 `npm/acde-api` (acdev 检出里), 全局装的是安装目录的 `current/lib/acde-api`; 设了
+  `Sdk.dir()`): 检出跑的是 acdev 自己 `file:` 依赖的 SDK (并排检出的 `libacde/acde-api`), 全局装的是安装目录的 `current/lib/acde-api`; 设了
   `ACDEV_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
   开发 acdev 的人 `bun link` / `npm link` 把 `bin/acdev.mjs` 放上 PATH.
   版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读

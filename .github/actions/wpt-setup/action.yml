@@ -1,5 +1,5 @@
 name: wpt-setup
-description: acdev checked out at acdev/ with acdert/vendor/blitz, acdev runtime built (release; build.rs bundles acdert/js with bun), the acdev CLI linked, the WPT checkout and the runner apps
+description: acdev checked out at acdev/, libacde beside it with vendor/blitz, acdev runtime built (release; build.rs bundles libacde/js with bun), the acdev CLI linked, the WPT checkout and the runner apps
 inputs:
   token:
     description: a token that reads AC's repositories and its cargo registry
@@ -16,30 +16,26 @@ runs:
     - name: end what an earlier test job left running (a cancelled job's wptserve group and runtime sessions outlive it)
       shell: bash
       run: |
-        for pid in $(pgrep -f '/hostexecutor/acdev/acdert/scripts/wpt/serve\.py' || true); do
+        for pid in $(pgrep -f '/hostexecutor/libacde/scripts/wpt/serve\.py' || true); do
           pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
           [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
         done
         ours='/hostexecutor/acdev/target/release/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
         pkill -TERM -f "$ours" || true
         for i in $(seq 1 30); do
-          pgrep -f "$ours|/hostexecutor/acdev/acdert/scripts/wpt/serve\.py" > /dev/null || break
+          pgrep -f "$ours|/hostexecutor/libacde/scripts/wpt/serve\.py" > /dev/null || break
           sleep 1
         done
-        pkill -KILL -f "$ours|/hostexecutor/acdev/acdert/scripts/wpt/serve\.py" || true
+        pkill -KILL -f "$ours|/hostexecutor/libacde/scripts/wpt/serve\.py" || true
         for pid in $(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
           kill -KILL "$pid" 2>/dev/null || true
         done
-    - name: acdert/vendor/blitz
+    - name: acdev's commit
       shell: bash
-      env:
-        TOKEN: ${{ inputs.token }}
-        GIT_TERMINAL_PROMPT: '0'
-      run: |
-        set -eu
-        auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-        git -c http.extraHeader="Authorization: basic ${auth}" -C acdev submodule update --init --depth 1
-        echo "acdev $(git -C acdev rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      run: echo "acdev $(git -C acdev rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+    - uses: ./acdev/.github/actions/libacde
+      with:
+        token: ${{ inputs.token }}
     - name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve
       shell: bash
       run: |
@@ -62,14 +58,14 @@ runs:
       env:
         CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ inputs.token }}
       run: cd acdev && cargo update --quiet && cargo fetch --locked
-    - name: build acdev runtime (release, offline, no token; build.rs bundles acdert/js with bun); link the acdev CLI
+    - name: build acdev runtime (release, offline, no token; build.rs bundles libacde/js with bun); link the acdev CLI
       shell: bash
       run: |
         set -eu
-        (cd acdev/acdert/js && bun install --frozen-lockfile)
+        (cd libacde/js && bun install --frozen-lockfile)
         (cd acdev && ACDEV_BUN="$(command -v bun)" cargo build --release --offline --locked -p acdev)
         (cd acdev/npm && bun install --frozen-lockfile && bun link)
-        (cd acdev/acdert/scripts/wpt && bun install --frozen-lockfile)
+        (cd libacde/scripts/wpt && bun install --frozen-lockfile)
     - name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
       if: inputs.wpt == 'true'
       shell: bash
@@ -77,5 +73,5 @@ runs:
         GIT_TERMINAL_PROMPT: '0'
       run: |
         set -eu
-        acdev/acdert/scripts/wpt/wpt.sh fetch
-        acdev/acdert/scripts/wpt/wpt.sh prepare --workers ${{ inputs.workers }}
+        libacde/scripts/wpt/wpt.sh fetch
+        libacde/scripts/wpt/wpt.sh prepare --workers ${{ inputs.workers }}

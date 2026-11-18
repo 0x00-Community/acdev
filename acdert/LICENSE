@@ -1,9 +1,0 @@
-Copyright (c) 2026 Dopame. All rights reserved.
-
-This software is proprietary and confidential. No part of it may be
-copied, modified, distributed or used without prior written permission
-from Dopame.
-
-Third-party code keeps its own license: the sources under vendor/ (see
-the license files in each directory) and crates/acde-napi, which is
-derived from Deno's ext/napi (MIT, crates/acde-napi/LICENSE-MIT).

@@ -3,10 +3,11 @@ name: release
 # Run by hand on Gitea (AC/acdev → Actions → release → Run workflow): build, check and preview.
 # Publish: the same with publish ticked and commit=<sha>, or push a tag v<x.y.z>. The version counts up by itself: one patch
 # past the highest of pkgs' latest.json, npm (@dopame/acdev, @dopame/acde-api) and the v* tags (a pushed tag gives its own);
-# scripts/set-version.sh writes it into Cargo.toml and package.json in each job, uncommitted. One release, one version: the
-# acdev runtime builds, the guest daemons and host tools, the SDK, the acdev CLI (npm/) and the installers, all in
-# pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS, and on npm (job npm, secret NPM_TOKEN). The runtime library is acdert/ of
-# this checkout (its acdert/vendor/blitz submodule and the cargo registry ac need ACKERNEL_TOKEN); the page files are inside the
+# scripts/set-version.sh writes it into acdev's and libacde's Cargo.toml and package.json in each job, uncommitted. One release,
+# one version: the acdev runtime builds, the guest daemons and host tools, the SDK, the acdev CLI (npm/) and the installers, all in
+# pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS, and on npm (job npm, secret NPM_TOKEN). The runtime library and the SDK are
+# libacde, checked out beside acdev at the commit plan read from its main (it, its vendor/blitz submodule and the cargo registry ac
+# need ACKERNEL_TOKEN); the page files are inside the
 # acdev runtime binary. The small programs (acdevd for the guests, acdev-relay for Windows, acdev-viewer for Linux) build in the
 # job tools, beside the build matrix and without waiting for it.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
@@ -67,6 +68,7 @@ jobs:
     outputs:
       publish: ${{ steps.version.outputs.publish }}
       sha: ${{ steps.version.outputs.sha }}
+      libacde: ${{ steps.libacde.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       targets: ${{ steps.targets.outputs.targets }}
@@ -137,6 +139,18 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
           echo "commit $sha, acdev $v, publish=$PUBLISH"
+      - name: libacde's main, the one commit every job builds
+        id: libacde
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -eu
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          sha=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
+          [ -n "$sha" ] || { echo "::error::no main in AC/libacde"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "libacde $sha"
       - name: the targets to build
         id: targets
         env:
@@ -195,14 +209,11 @@ jobs:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - name: 'acdert/vendor/blitz (Gitea AC/blitz, a relative submodule URL: the same token)'
+      - uses: ./acdev/.github/actions/libacde
         if: env.BUILD == 'true'
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
-        run: |
-          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          git -c http.extraHeader="Authorization: basic ${auth}" -C acdev submodule update --init --depth 1
+        with:
+          token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          ref: ${{ needs.plan.outputs.libacde }}
       - name: system libraries (Linux), clang and LLVM's linker and archiver (cross), NASM for aws-lc-sys on Windows
         if: env.BUILD == 'true'
         run: |
@@ -254,12 +265,12 @@ jobs:
         if: env.BUILD == 'true'
         with:
           bun-version: 1.4.4
-      - name: "bun for acdert's build.rs (it bundles acdert/js into the binary on this Linux host, for every target)"
+      - name: "bun for libacde's build.rs (it bundles libacde/js into the binary on this Linux host, for every target)"
         if: env.BUILD == 'true'
         shell: bash
         run: |
           set -eu
-          bun install --frozen-lockfile --cwd acdev/acdert/js
+          bun install --frozen-lockfile --cwd libacde/js
           echo "ACDEV_BUN=$(command -v bun)" >> "$GITHUB_ENV"
       - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: env.BUILD == 'true'
@@ -281,6 +292,7 @@ jobs:
             *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%" ;;
           esac
           flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$GITHUB_WORKSPACE/acdev=/src"
+          flags="$flags --remap-path-prefix=$GITHUB_WORKSPACE/libacde=/libacde"
           echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
       - name: "acdev runtime (dist profile: release build, split debug information)"
         if: env.BUILD == 'true'
@@ -466,15 +478,19 @@ jobs:
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
+      - uses: ./acdev/.github/actions/libacde
+        with:
+          token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          ref: ${{ needs.plan.outputs.libacde }}
       - name: install
         run: bun install --frozen-lockfile --cwd acdev/npm
-      - name: the release version into Cargo.toml, package.json and the SDK's package.json (not committed)
+      - name: the release version into acdev's and libacde's Cargo.toml, package.json and the SDK's package.json (not committed)
         run: sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev
-      - name: dist (the SDK is npm/acde-api, type declarations only)
+      - name: dist (the SDK is libacde/acde-api, type declarations only)
         working-directory: acdev/npm
         run: |
           v=${TAG#v}
-          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdev/npm/acde-api" --sdk "$SDK_VERSION" \
+          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$SDK_VERSION" \
             --version "$v" --out "$GITHUB_WORKSPACE/out" --runtime "$GITHUB_WORKSPACE/in/runtime"
       - name: latest.json
         run: |

@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
-    "@dopame/acde-api": "file:./acde-api",
+    "@dopame/acde-api": "file:../../libacde/acde-api",
     "@modelcontextprotocol/server": "2.4.0",
     "string-width": "^8.3.0",
     "zod": "^4.6.7"

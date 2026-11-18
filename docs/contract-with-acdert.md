@@ -2,9 +2,10 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
-- SDK: package.json 用 `file:./acde-api` (仓内的 `npm/acde-api/`, 只有类型声明, 见仓库根 `docs/acde-api.md`). 清单校验、契约级别
-  `API_LEVEL`、平台表在命令行自己的 `src/manifest/` (原 SDK 的 `validate.ts`、`runtime/*.js`, 用户 2026-11-17 定), Vite 插件在
-  `src/vite-plugin.ts` (原 `@dopame/acde-api/vite`). 运行时那边的清单校验 (原来 Broker 和 acdev 共用这一段) 随 `web/` 删除, 归 acdebin-system.
+- SDK: package.json 用 `file:../../libacde/acde-api` (并排检出的 libacde 的 `acde-api/`, 只有类型声明, 见 libacde 的 `docs/acde-api.md`).
+  清单校验、契约级别 `API_LEVEL`、平台表 (原 SDK 的 `validate.ts`、`runtime/*.js`) 在 libacde 的 `manifest/`, 运行时的页面一侧和命令行共用一份;
+  `src/manifest/` 只是转出它的薄壳 (2026-11-18 拆仓前在这里, 用户 2026-11-17 定的「放进命令行源码」随之改成放进 libacde). Vite 插件在
+  `src/vite-plugin.ts` (原 `@dopame/acde-api/vite`).
 - **运行时还不是安全边界**: 第三方沙箱 (acdert#30) 做好之前, `acdev install` 装的包和 `acdev build` / `acdev dev` 的开发构建都按开发者自己的
   代码对待: 构建执行工程的构建工具和依赖, 后端是有开发者全部权限的普通进程; 清单的 capabilities 和 `fs` 的根只管 `acde:` 模块给什么,
   不隔离进程. 只装、只跑信得过的代码.

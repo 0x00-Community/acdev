@@ -7,15 +7,17 @@
 acdev-relay、Linux 的 acdev-viewer)、SDK `acde-api-<版本>.tar.gz`、`acdev` 命令行和安装器一起放进
 `pkgs.dopame.ai/acde/<版本>/`, 同一版本也发到 npm (`@dopame/acdev`、`@dopame/acde-<os>-<cpu>`、`@dopame/acde-api`, 见「npm」), 标签 `v<版本>`
 打在本仓库. 版本号不用先提交: 推的标签给出它, 否则用输入 `version`, 都没有时取 pkgs 的 `latest.json`、npm 上两个包和 `v*` 标签里最高的版本加一个
-补丁号; 各作业用 `scripts/set-version.sh <版本> acdev` 把它写进 `Cargo.toml` 的 `[workspace.package]` (acdert/、crates/hostwin 跟它走)、
-`npm/package.json` 和 SDK 的 `npm/acde-api/package.json` (不提交). 运行时库就是本仓库的 `acdert/` (子模块 `acdert/vendor/blitz` 经令牌拉),
+补丁号; 各作业用 `scripts/set-version.sh <版本> acdev` 把它写进本仓库和旁边 libacde 的 `Cargo.toml` 的 `[workspace.package]`
+(crates/hostwin 跟本仓库的走, 运行时库 acdert 跟 libacde 的走)、`npm/package.json` 和 SDK 的 `libacde/acde-api/package.json` (不提交).
+运行时库是并排检出的 libacde (`.github/actions/libacde`: 经令牌克隆, 带子模块 `vendor/blitz`; `plan` 读一次 libacde 的 main, 输出 `libacde`,
+`build` 和 `pkgs` 都检出这一个提交),
 页面资源和启动器已嵌进 acdev 二进制, 不再有 `acde-host` 包和 `libexec/app` (2026-11-18 起; 原 AC/acdert 已归档).
 
 ## 构建耗时与并行 (release.yml)
 
 - 改前 (2026-11-18 之前, 运行 2258): 总共 30 分 41 秒; `build` 四个目标各 9～14 分钟 (并行), `host` 1 分多, `pkgs` 2 分.
-- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` acdert/js,
-  设 `ACDEV_BUN`: acdert 的 build.rs 在宿主 Linux 上用 bun 把 acdert/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; 小程序挪到 `tools`, 和主程序矩阵同时编、不等它, `pkgs` 只等两边;
+- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` libacde/js,
+  设 `ACDEV_BUN`: libacde 的 build.rs 在宿主 Linux 上用 bun 把 libacde/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; 小程序挪到 `tools`, 和主程序矩阵同时编、不等它, `pkgs` 只等两边;
   `pkgs` 只下载要发的产物 (按名字 `runtime-*`、`tool-*`, 不下 30 天留存的调试信息); npm 包和命令行归档仍只在 `pkgs` 打一次.
   缓存: `build` 和 `tools` 都用 rust-cache (registry 和 target, 按目标或程序分 key), 另把 cargo-xwin 下载的 MSVC CRT 和 SDK
   (`~/.cache/cargo-xwin`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
@@ -73,7 +75,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 ```
 
 - `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist] [--runtime <目录>]` (`--api` 默认
-  `acde-api` (仓内的 SDK); 现在对不上: 新的 SDK 只有类型声明, 没有下面要求的 `src/index.js`, 见仓库根 `docs/acde-api.md`; 没有 `package.json` 和 `src/index.js`, 或包名不是
+  `../../libacde/acde-api` (并排检出的 libacde 的 SDK); 现在对不上: 新的 SDK 只有类型声明, 没有下面要求的 `src/index.js`, 见 libacde 的 `docs/acde-api.md`; 没有 `package.json` 和 `src/index.js`, 或包名不是
   `@dopame/acde-api`、给了 `--sdk` 而版本不等时报错). 它把 `--api` 打成 `acde-api-<SDK 版本>.tar.gz`, 把 `--runtime` 目录里的文件 (发布时是各平台的
   `acdev-runtime-<triple>`、`acdev-guest-<版本>`、`acdev-tools-<triple>` 包) 拷进版本目录, 最后按版本目录里的全部文件写 `SHA256SUMS`. Windows 上打的归档
   没有 unix 的可执行位, 只供 Windows 和测试用 (`.gitattributes` 让 `skills/**`、`bin/acdev.sh` 和仓库根 `scripts/` 的 `install.sh`、`install.md` 在 Windows 检出里也是 LF); 发布在 Linux 上打. 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):

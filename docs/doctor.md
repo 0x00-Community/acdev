@@ -1,6 +1,6 @@
 # 运行时自检 `acdev runtime doctor` (`src/doctor.rs`)
 
-> 路径相对仓库根。CLI 一侧怎么调它、怎么并进 `acdev doctor` 见 `docs/acde-doctor.md`。从 acdert 的 `docs/dev/build-run.md` 迁来。
+> 路径相对仓库根。CLI 一侧怎么调它、怎么并进 `acdev doctor` 见 `docs/acde-doctor.md`。从 acdert (今 libacde) 的 `docs/dev/build-run.md` 迁来。
 
 `acdev runtime doctor [--json]` 由 `src/main.rs` 直接分派, 不起 V8 也不起 Broker: 查这台机器上 `acdev runtime app` / `acdev runtime desktop` 起得来要的
 东西, 给 `acdev doctor` 用 (acdev 看 `--help` 里有没有 `acdev runtime doctor` (或旧的 `acdert doctor`) 判断支不支持, 不按版本号). 每项 `ok` /

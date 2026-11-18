@@ -1,7 +1,7 @@
 name: test
 
-# Started by hand while the suite settles (see docs/dev/testing.md); it is meant to run on every push to main later.
-# acdert/web is gone (the page files are bundled from acdert/js into the runtime by build.rs, which needs bun): the web job and
+# Started by hand while the suite settles (see libacde's docs/dev/testing.md); it is meant to run on every push to main later.
+# acdert's web/ is gone (the page files are bundled from libacde/js into the runtime by build.rs, which needs bun): the web job and
 # acde-demo's ACDE_APP went with it (2026-11-18); WPT runs without --app (scripts/wpt/run.ts).
 on:
   workflow_dispatch:
@@ -43,11 +43,11 @@ jobs:
         shell: bash
         run: |
           set -eu
-          w=acdev/acdert/scripts/wpt/wpt.sh
+          w=libacde/scripts/wpt/wpt.sh
           $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
           $w run --acdert "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
       - name: check against scripts/wpt/expectations/linux
-        run: acdev/acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
+        run: libacde/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: always()
         with:
@@ -80,13 +80,13 @@ jobs:
           MODE: ${{ github.event.inputs.wpt }}
         run: |
           set -eu
-          w=acdev/acdert/scripts/wpt/wpt.sh
+          w=libacde/scripts/wpt/wpt.sh
           args=(--acdert "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
-          if [ "$MODE" = full ]; then args+=(--skip-slow acdev/acdert/scripts/wpt/expectations/linux); fi
+          if [ "$MODE" = full ]; then args+=(--skip-slow libacde/scripts/wpt/expectations/linux); fi
           $w run "${args[@]}"
       - name: check against scripts/wpt/expectations/linux
         if: github.event.inputs.wpt == 'full'
-        run: acdev/acdert/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
+        run: libacde/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: always()
         with:
@@ -119,7 +119,7 @@ jobs:
           WORKERS: ${{ github.event.inputs.workers }}
         run: |
           set -eu
-          w=acdev/acdert/scripts/wpt/wpt.sh
+          w=libacde/scripts/wpt/wpt.sh
           mkdir -p "$WPT_STATE/results/$LABEL"
           cat shards/*/"$LABEL"/results.jsonl > "$WPT_STATE/results/$LABEL/results.jsonl"
           cp "$(ls shards/*/"$LABEL"/meta.json | head -1)" "$WPT_STATE/results/$LABEL/meta.json"

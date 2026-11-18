@@ -1,11 +1,10 @@
 [workspace]
 resolver = "3"
-# crates/*: the host window. acdert/ (the runtime library the guest's acdebin-system links) is a member as a path
-# dependency of the root package, not listed here: a listed member overrides exclude for every path under it, so
-# acdert/vendor/blitz would be loaded into this workspace and its crates' rust-version.workspace would fail
+# crates/*: the host window. The runtime library acdert is libacde, checked out beside this repository (../libacde):
+# a path dependency outside the workspace, so a workspace of its own
 members = ["crates/*"]
-# npm/: the acde CLI (bun); acdert/vendor: the blitz fork (submodule), not built as members
-exclude = ["npm", "acdert/vendor", "crates/devd", "crates/viewer", "crates/relay"]
+# npm/: the acde CLI (bun), not built as a member
+exclude = ["npm", "crates/devd", "crates/viewer", "crates/relay"]
 
 [workspace.package]
 version = "0.0.11"
@@ -13,19 +12,13 @@ edition = "2024"
 repository = "http://gitea.dopamine/AC/acdev"
 publish = false
 
-[workspace.dependencies]
-# blitz: our fork (submodule acdert/vendor/blitz, Gitea AC/blitz), published to ac with the same names
-blitz-dom = { path = "acdert/vendor/blitz/packages/blitz-dom", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
-blitz-paint = { path = "acdert/vendor/blitz/packages/blitz-paint", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
-blitz-traits = { path = "acdert/vendor/blitz/packages/blitz-traits", version = "=0.3.0-beta.5", registry = "ac", default-features = false }
-
 [package]
 name = "acdev"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-acdert = { path = "acdert" }
+acdert = { path = "../libacde" }
 acde-hostwin = { path = "crates/hostwin" }
 # doctor.rs: draws a test frame on the GPU
 log = "0"

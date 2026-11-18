@@ -1,12 +1,11 @@
-| 改 SDK `@dopame/acde-api` (`npm/acde-api/`, 只有类型声明), 或在别的工程里引用它 | `docs/acde-api.md` |
 # acdev
 
 acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 的桌面基座) 的开发仓库, 方向是多平台模拟器: 内部用各平台的硬件虚拟化
 (Linux KVM、Windows WHPX、macOS Hypervisor.framework) 跑装着 Dopame OS 的虚拟机, 开发者工具内置其中 (用户定 2026-11-17). 现在仓库里有:
 
-- `acdert/`: 运行时库 (原 AC/acdert, 连历史并入): 内嵌 V8、自研 DOM 与排版绘制 (Blitz fork + detour / vello)、网页存储、媒体、WebGPU / WebGL 绑定和
-  `acde:` 系统模块, 拥有全部跨仓契约 (包清单、SDK `@dopame/acde-api`、`acde_*` 协议). 对外是 Rust 包 `acdert` (rlib + `libacdert.so` + `include/acdert.h`);
-  虚拟机里的 acdebin-system 也链接它.
+- 运行时库不在本仓库: [libacde](http://gitea.dopamine/AC/libacde) (原 AC/acdert, 2026-11-17 并进本仓库的 `acdert/`, 2026-11-18 连历史拆出),
+  和本仓库并排检出 (`../libacde`), 以 path 依赖链它 (Rust 包 `acdert`); 虚拟机里的 [acdes](http://gitea.dopamine/AC/acdes) 也这样链它. 跨仓契约
+  (包清单与清单规则、SDK `@dopame/acde-api`、契约级别、`acde_*` 协议) 和运行时的文档都在 libacde, 见它的 AGENTS.md.
 - 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdev runtime` (宿主窗口); 朝模拟器演进.
 - `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
 
@@ -21,39 +20,35 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 >   类型在 SDK `@dopame/acde-api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 workerd 的 binding, 直接注入页面所在的 V8 isolate, 调用直接进 Rust 原生实现, 不经 socket /
 >   IPC / 别的进程代办.
-> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, `acdert/vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在 acdert 自己的 V8 里. 没有
->   Chromium 的浏览器外壳; 正式运行没有远程调试端口, 只在开发模式 (`ACDE_DEV`) 下在本机 `127.0.0.1` 开 CDP 端点 (见 `docs/dev/devtools.md`).
+> - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, libacde 的 `vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在运行时库自己的 V8 里. 没有
+>   Chromium 的浏览器外壳; 正式运行没有远程调试端口, 只在开发模式 (`ACDE_DEV`) 下在本机 `127.0.0.1` 开 CDP 端点 (见 libacde 的 `docs/dev/devtools.md`).
 >   开发者工具内置进 acdev, 不依赖 Chrome (用户定 2026-11-17); 现在 `acdev devtools` 还借 Chrome / Edge 打开, 见 `docs/devtools-driver-mcp.md`.
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
->   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
+>   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 libacde 的 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
-`acdert/web/` (acde-api、acde-dom、acde-host) 已于 acdert 91e7dd1e 删除 (CTO 决定). SDK 的替代品是 `npm/acde-api/` 的 `@dopame/acde-api`, 只有类型声明
-(见 `docs/acde-api.md`). 契约级别只有一个来源: `npm/acde-api/api-level` (只写一个数字的纯数据文件, 用户 2026-11-17 定), 运行时编译时
-`include_str!` 读它, 命令行 `npm/src/manifest/level.ts` 也读它; 清单校验和 Vite 插件在 `npm/src/manifest/`、`npm/src/vite-plugin.ts`.
-网页接口层 (原 acde-dom) 和页面胶水 (原 acde-host 的页面一侧) 已取回到 `acdert/js/`, 作运行时内部组件嵌进二进制 (见 `docs/runtime/layout.md`「js」);
-管理中枢 (broker.js) 没有取回. 文档里其余指向 `web/` 的地方按删除前写.
+SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的 `acde-api/`, 命令行以 `file:../../libacde/acde-api` 引用 (见 libacde 的
+`docs/acde-api.md`); 清单规则在 libacde 的 `manifest/` (运行时的页面一侧和命令行共用一份), `npm/src/manifest/` 只是转出它的薄壳; Vite 插件在
+`npm/src/vite-plugin.ts`. 文档里其余指向 `web/` 的地方按删除前写.
 
 ## 代码约定
 
-- 闭源 (用户定 2026-11-08): 自己的代码是专有的 (`acdert/LICENSE`、`npm/LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`.
-  `acdert` 只发到内网 cargo 源 ac (`publish = ["ac"]`, 见 `docs/dev/release.md`「cargo 源 ac」), 其余 Rust 包 `publish = false`; 仓库和 release 不公开.
-  npm 上发的包见 `docs/release-distribution.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些). `acdert/vendor/` 和 `acdert/src/napi` 保留上游的许可证文件和版权行.
-- Rust 和 TypeScript 代码不写注释 (`//`、`/* */`、`///`、JSDoc 都不写), 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行 (`acdert/src/napi` 的
-  Deno 版权)、工具指令 (`/// <reference>`, `@ts-expect-error`)、`acdert/vendor/` 改动处的 `acrender:` (blitz fork 里) / `acde:` 标记. derive 要读的文字写成属性.
+- 闭源 (用户定 2026-11-08): 自己的代码是专有的 (`npm/LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`.
+  Rust 包 `publish = false`; 仓库和 release 不公开. npm 上发的包见 `docs/release-distribution.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些).
+- Rust 和 TypeScript 代码不写注释 (`//`、`/* */`、`///`、JSDoc 都不写), 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行、
+  工具指令 (`/// <reference>`, `@ts-expect-error`). derive 要读的文字写成属性.
 - 命令行的日志和输出只用英文; 同一份命令行代码在 bun 和 Node 上都跑, `Bun.*`、`bun:*`、宏只能出现在 bun 专属的路径上 (见 `docs/cli-overview.md` 的「bun 和 Node」).
 - 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill** (`npm/skills/acdev/`, 见 `docs/skills.md`);
   skill 只写对外的用法, 实现和取舍写在 `docs/`.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
-- 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外是换成 `acdert/vendor/` 的 crate 和配套的 (blitz-*、stylo*、
-  parley、html5ever、cssparser) 用 `=` 钉住.
+- 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外见 libacde 的 AGENTS.md (blitz fork 和配套的用 `=` 钉住).
 - `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编.
   0.x 写到次版本正是因为这个: 只写 `"0"` 时, workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖, 它们会落到旧锁里已有的老版本上, 只在 Linux
   编的 `voice`、`office` 就编不过 (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
 - `npm/bun.lock` 进 git, 改依赖时放在同一个提交里.
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
-- 格式化: Rust 用 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`; `acdert/vendor/` 不在 workspace 里, 不碰).
+- 格式化: Rust 用 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`).
   Guard 的行宽同为 160 (`git config --local akira.guardMaxLineLength 160`, 全仓).
-- 构建不从外网取东西 (2026-11-14): 依赖都从内网 Gitea 取 (blitz 子模块、rusty_v8 预编译库、CI 的 action), 见 `docs/dev/build-run.md`「构建不从外网取东西」.
+- 构建不从外网取东西 (2026-11-14): 依赖都从内网 Gitea 取 (libacde 和它的 blitz 子模块、rusty_v8 预编译库、CI 的 action), 见 libacde 的 `docs/dev/build-run.md`「构建不从外网取东西」.
   Cargo.toml / package.json 里的仓库地址写 gitea (`http://gitea.dopamine/AC/acdev`).
 
 ## 提交与推送
@@ -70,38 +65,17 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 - 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明负载), 不加 Co-Authored-By.
 - 提交前: `cargo fmt --all`; 改了 `npm/` 时 `bun run typecheck` (在 `npm/`); 总仓的质量检查 `bun scripts/quality/check.ts <本仓库> origin/main`
   (在总仓跑, 结果须为 0 条); 提交时 Guard 的暂存检查.
-- 构建、运行和测试按工程需要直接做 (命令行: `bun test`、`bun run typecheck`, 在 `npm/`; 运行时: 见 `docs/dev/testing.md`), 做了就在提交信息里写清
+- 构建、运行和测试按工程需要直接做 (命令行: `bun test`、`bun run typecheck`, 在 `npm/`; 运行时: 见 libacde 的 `docs/dev/testing.md`), 做了就在提交信息里写清
   已验证 / 未验证. 汇报时也分开写「已验证 / 未验证」.
 
 ## 文件路由
 
-`docs/runtime/`、`docs/graphics/`、`docs/web/`、`docs/dev/` 是运行时库的文档, 代码路径相对 `acdert/`; 其余 `docs/*.md` 里命令行的路径相对 `npm/`,
-调试运行时的相对仓库根, 每个文件开头注明.
+运行时库的文档在 libacde 的 `docs/`. 这里 `docs/*.md` 里命令行的路径相对 `npm/`, 调试运行时的相对仓库根, 每个文件开头注明.
 
 | 什么时候读 | 文件 |
 | --- | --- |
 | 改说明或新增说明文档 | `docs/writing-docs.md` |
-| 第一次接手运行时, 要弄清各仓的分工、两种跑法 (会话 / 宿主窗口) 或进程与线程 | `docs/runtime/architecture.md` |
-| 找运行时的某个模块或目录归谁, 新加文件前确认放哪 | `docs/runtime/layout.md` |
-| 改 C 接口 (`acdert/src/ffi.rs`、`acdert/include/acdert.h`)、`Platform` 回调或 so 的导出表 | `docs/runtime/ffi.md` |
-| 改窗口表、窗口模式与状态、焦点 / 模态 / grab、全局快捷键, 或 `acdert/protocol/` 里的 `acde_window` / `acde_shell` | `docs/runtime/window-model.md` |
-| 改包清单的 `acde` 字段、桌面服务、契约级别 `apiLevel`、选哪个桌面、交出会话或登录页 | `docs/runtime/packages.md` |
-| 改 web 的出帧、窗框、钉住的面板、`acde:` 模块的注入 (层级、能力、批准)、沙箱或 web 的生命周期 | `docs/runtime/webs.md` |
-| 改应用入口和脚本加载, 或某个浏览器接口 (表单控件、XML、通知、声音、视频、设备、摄像头和麦克风) | `docs/web/web-apps.md` |
-| 改网页存储 (localStorage、IndexedDB、cookie、Cache API、`navigator.storage`) | `docs/web/storage.md` |
-| 改应用后端的起停、代理变量、Windows 后端契约, 或 fetch / XHR / WebSocket 的路由 | `docs/web/backend.md` |
-| 改 `acde:fs`、应用的根、拖放和打开请求的句柄、文件夹和文件选择器 | `docs/web/fs.md` |
-| 改默认应用、文件类型判断、打开方式或 Windows 的文件关联 | `docs/web/default-apps.md` |
-| 改 `acde:inspect` 的语义树、ref 和操作, 或原生窗口的 AT-SPI | `docs/web/inspect.md` |
-| 改 `acdert/src/render` 的接口、canvas 2D、窗框绘制、模糊、GPU 设备或性能预算 | `docs/graphics/render-gpu.md` |
-| 改 WebGL (`acdert/src/webgl`、`acdert/js/dom/src/webgl/`) 或 GLSL 前端 | `docs/graphics/webgl.md` |
-| 改运行时自带的 JS (`acdert/js/`: 网页接口层、页面胶水) 或它的打包 | `docs/runtime/layout.md`「js」 |
-| 改 `acdert/vendor/blitz`, 或升 stylo / parley / html5ever / naga 这类钉住版本的依赖 | `docs/graphics/vendor.md` |
-| 构建运行时、在 Windows 上编、升 v8 或改依赖镜像、设环境变量、跑 `acdert` 的命令和 doctor、看日志和 `perf::` 计时 | `docs/dev/build-run.md` |
-| 改 acdev dev 的 IPC、调试请求 (eval / shot / route / clock / input …)、dev 日志或热重载 (运行时一侧) | `docs/dev/dev-ipc.md` |
-| 改 DevTools 端点、页面一侧的 CDP 域 (DOM / CSS / Network / Overlay)、断点或重载不断开 | `docs/dev/devtools.md` |
-| 写运行时的回归测试、跑或更新 WPT 期望、改 `.github/workflows/test.yml` 或 `.github/actions/wpt-setup` | `docs/dev/testing.md` |
-| 把 `acdert` 发到 cargo 源 ac, 或了解运行时怎么随 acdev 发版 | `docs/dev/release.md` |
+| 改运行时库 (libacde: V8、DOM、渲染、`acde:` 模块、存储、网页接口、清单规则、SDK、`protocol/`、C 接口、WPT) 或要弄清各仓的分工 | libacde 的 `AGENTS.md` 和它的 `docs/` |
 | 改客户机设备守护进程 acdevd (`crates/devd`): vsock、推送、运行、停止的协议 | `docs/devd.md` |
 | 改 acdev 自己的客户机窗口 `acdev-viewer` (`crates/viewer`): QEMU 的 D-Bus 显示、画面、键鼠 | `docs/viewer.md` |
 | 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |

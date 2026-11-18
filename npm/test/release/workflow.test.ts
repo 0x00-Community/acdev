@@ -125,6 +125,7 @@ describe('release.yml', () => {
     expect(jobs['plan']!.outputs).toEqual({
       publish: '${{ steps.version.outputs.publish }}',
       sha: '${{ steps.version.outputs.sha }}',
+      libacde: '${{ steps.libacde.outputs.sha }}',
       version: '${{ steps.version.outputs.version }}',
       tag: '${{ steps.version.outputs.tag }}',
       targets: '${{ steps.targets.outputs.targets }}',
@@ -188,20 +189,20 @@ describe('release.yml', () => {
     }
   })
 
-  test('one version: set into Cargo.toml, npm/package.json and the SDK in npm/acde-api', () => {
+  test('one version: set into Cargo.toml, npm/package.json and the SDK in libacde/acde-api', () => {
     expect(TEXT).not.toMatch(/AC\/acdert\.git|acdert_commit|acdert_sha|acdert\/web/)
     expect(jobs['pkgs']!.env?.['SDK_VERSION']).toBe('${{ needs.plan.outputs.version }}')
     const pkgs = runs('pkgs')
     const set = indexIn(pkgs, 'sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev')
     expect(set).toBeLessThan(indexIn(pkgs, 'bun scripts/dist.ts'))
-    expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/acdev/npm/acde-api" --sdk "$SDK_VERSION"')
+    expect(pkgs).toContain('--api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$SDK_VERSION"')
     expect(pkgs).not.toMatch(/\bnpm (?:publish|install|view)\b/)
     expect(TEXT).not.toMatch(/acdert-version|acdert-host|acdert-x86|pkgs\.dopame\.ai\/acdert|acde-host/)
   })
 
   test('the builds, the guest daemons and the host tools come from this run, built from the planned commit', () => {
     const build = runs('build')
-    expect(build).toContain('-C acdev submodule update --init --depth 1')
+    expect(jobs['build']!.steps.some((item) => item.uses === './acdev/.github/actions/libacde')).toBe(true)
     const triple = ['$', '{{ matrix.triple }}'].join('')
     expect(build).toContain(`cargo build --profile dist -p acdev --target ${triple}`)
     expect(build).toContain(`"out/acdev-runtime-${triple}.tar.xz"`)
@@ -220,14 +221,14 @@ describe('release.yml', () => {
       .toEqual(['runtime-*', 'tool-*'])
   })
 
-  test('build has bun 1.4.4 and acdert/js installed before cargo: build.rs bundles acdert/js', () => {
+  test('build has bun 1.4.4 and libacde/js installed before cargo: build.rs bundles libacde/js', () => {
     const items = jobs['build']!.steps
     const bun = items.findIndex((item) => item.uses?.includes('/setup-bun@'))
     const cargo = items.findIndex((item) => (item.run ?? '').includes('cargo build --profile dist'))
     expect(bun).toBeGreaterThanOrEqual(0)
     expect(bun).toBeLessThan(cargo)
     expect(items[bun]!.with?.['bun-version']).toBe('1.4.4')
-    expect(runs('build')).toContain('bun install --frozen-lockfile --cwd acdev/acdert/js')
+    expect(runs('build')).toContain('bun install --frozen-lockfile --cwd libacde/js')
     expect(runs('build')).toContain('echo "ACDEV_BUN=$(command -v bun)" >> "$GITHUB_ENV"')
   })
 
@@ -331,7 +332,7 @@ describe('release.yml', () => {
   })
 
   test('every action is pinned to a full commit SHA with its version noted', () => {
-    const all = Object.keys(jobs).flatMap((job) => uses(job))
+    const all = Object.keys(jobs).flatMap((job) => uses(job)).filter((action) => action !== './acdev/.github/actions/libacde')
     expect(all.length).toBeGreaterThan(0)
     for (const action of all) expect(action).toMatch(/^http:\/\/gitea\.dopamine\/mirror\/[\w.-]+@[0-9a-f]{40}$/)
     expect(TEXT.match(/@[0-9a-f]{40} # v\d+/g)?.length).toBe(all.length)

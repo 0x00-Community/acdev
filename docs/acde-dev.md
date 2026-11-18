@@ -26,7 +26,7 @@
   再补一行 `DevSession.WINDOW_HINT`. 测试的 `env()` 在没有显示的机器上补 `WAYLAND_DISPLAY=acde-test`, 假 acdert 照常起.
 - 监听每个工程 (`TreeWatch.start`, `src/watch.ts`): macOS、Windows 用 `fs.watch(工程, {recursive: true})`; Linux 上递归监听挂在文件的 inode 上, 原子保存 (写临时文件再改名盖过去, vim、JetBrains、`sed -i`、`git checkout`、多数编码 agent 都这样) 之后新文件不再被监听 (acde#88), 所以改为每个目录一个 非递归 `fs.watch` (目录的监听按名字报子项, 不受换 inode 影响): 起步时遍历, 跳过名字在 `SKIPPED` 里的目录和 `--out`; 事件里出现的目录换了 inode 或新建时重新遍历挂上, 并把里面已有的文件当作改动报出; 删掉的目录摘掉. 再往下的过滤一样: 跳过路径里任何一段在 `SKIPPED` (`src/paths.ts`, 含 `__screenshots__` / `__snapshots__`) 的、e2e 测试文件、只是目录的事件、`--out` 目录和嵌在里面的别的工程 (acdev test 写基线时不能把应用重载掉); 150 ms 合并, 一次构建一个, 只重建改了的那个 (重读配置),
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
-- **热重载** (`src/changes.ts`, 运行时一侧见 acdert 的 `docs/dev/dev-ipc.md`「热重载」): 每次构建后给运行时加载的文件拍快照
+- **热重载** (`src/changes.ts`, 运行时一侧见 libacde 的 `docs/dev/dev-ipc.md`「热重载」): 每次构建后给运行时加载的文件拍快照
   (`Changes.snapshot`: 相对路径 → SHA-256, HTML 先去掉 `<script>` / `<style>` / `<link rel=stylesheet>` 再算, 不看 `node_modules`、`.git`、`.acde`),
   和上一次比 (`Changes.reload`): 变了的全是 `.css` / `.js` / `.mjs` / `.map` 且不在后端目录或服务模块里 (`Served.fixed`) 时发
   `reload {app, hot: true}` (桌面 `reload {hot: true}`), 运行时能换的原地换、换不了自己整页重载; 别的变化照旧 `reload`.

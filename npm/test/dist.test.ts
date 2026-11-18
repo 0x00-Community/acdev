@@ -12,7 +12,7 @@ import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
-const API = process.env['ACDEV_TEST_API'] ?? join(ROOT, 'acde-api')
+const API = process.env['ACDEV_TEST_API'] ?? join(ROOT, '..', '..', 'libacde', 'acde-api')
 const SDK = (JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }).version
 const FETCHER = which('curl') ?? which('wget')
 

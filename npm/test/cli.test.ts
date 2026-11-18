@@ -507,7 +507,7 @@ describe('acde.config.jsonc', () => {
 })
 
 describe('a project made by acde from its checkout', () => {
-  const API = realpathSync(join(import.meta.dir, '../acde-api'))
+  const API = realpathSync(join(import.meta.dir, '../../../libacde/acde-api'))
   const ROOT = realpathSync(join(import.meta.dir, '..'))
 
   function tools(names: readonly string[]): string {
@@ -544,7 +544,7 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is this acdev\'s npm/acde-api, by path; ACDEV_SDK names another', () => {
+  test('the SDK is libacde/acde-api beside this acdev, by path; ACDEV_SDK names another', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
