@@ -12,7 +12,7 @@ import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
   accelArgs, bundledFirmware, findQemu, HOST, missingFeatures, preferredAccel, spawnDetached, type Accel, type Endpoint, type Host, type Qemu,
 } from './host.ts'
-import { crateBinary } from './binary.ts'
+import { crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
 export interface StartOptions {
@@ -471,9 +471,17 @@ export class Machine {
   }
 
   devdBinary(): string {
-    const binary = Devd.binary(Machine.ROOT, this.env)
-    Devd.checkVersion(binary, Machine.ROOT)
-    return binary
+    if (this.host.platform === 'linux') {
+      const binary = Devd.binary(Machine.ROOT, this.env)
+      Devd.checkVersion(binary, Machine.ROOT)
+      return binary
+    }
+    const given = this.env['ACDEV_DEVD']
+    if (!given || !existsSync(given)) {
+      throw new Error(`vm: set ACDEV_DEVD to an acdevd built for the guest (Linux ${Machine.GUEST}): on Linux, cargo build --release `
+        + 'in crates/devd (or --target x86_64-unknown-linux-musl elsewhere); this host cannot run or build it for the guest')
+    }
+    return given
   }
 
   async checkCpu(): Promise<void> {
@@ -504,6 +512,10 @@ export class Machine {
     } finally {
       agent.close()
     }
+    return Machine.#sameVersion(await this.#devdVersion(seconds))
+  }
+
+  async #devdVersion(seconds: number): Promise<string> {
     const devd = this.devd()
     const deadline = Date.now() + seconds * 1000
     for (;;) {
@@ -514,6 +526,12 @@ export class Machine {
         await new Promise((done) => setTimeout(done, 1_000))
       }
     }
+  }
+
+  static #sameVersion(running: string): string {
+    const want = crateVersion(Machine.ROOT, 'devd')
+    if (want !== null && running !== want) throw new Error(`vm: the guest runs acdevd ${running}, this acdev needs ${want}: rebuild ACDEV_DEVD`)
+    return running
   }
 
   static async #check(agent: GuestAgent, command: string): Promise<void> {

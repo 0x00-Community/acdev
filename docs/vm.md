@@ -36,6 +36,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」); QMP 和 guest agent 也改用 `127.0.0.1` 上的空闲端口
   (`run/endpoints.json`), 因为 Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 QEMU 的 Unix 套接字. 这两个端口本机别的进程也
   能连 (QMP 能关机、截屏), Windows 上暂且接受.
+- acdevd 要的是客户机 (Linux x86_64) 的程序, Windows、macOS 上既跑不了也编不出它: 不是 Linux 的宿主必须设 `ACDEV_DEVD` 指向一个在 Linux
+  上编好的 acdevd (`crates/devd` 里 `cargo build --release`, 或 `--target x86_64-unknown-linux-musl`), 否则 `start` 一开始就报错. 宿主上
+  跑不了 `acdevd --version`, 所以版本改在装进客户机后核对: 客户机里的 acdevd 回答的版本和 `crates/devd/Cargo.toml` 不同就报错 (所有平台).
 - 没有 9p: `--share` 直接报错, 用 `acdev vm push`. 没有 acdev-viewer: `--viewer`、`--headless --outputs N` 报错.
 - `fetch` 不建 `latest.qcow2` 符号链接 (Windows 上要管理员或开发者模式), 最新镜像的名字写在 `images/latest` (所有平台都写).
 

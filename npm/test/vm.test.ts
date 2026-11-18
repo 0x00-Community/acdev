@@ -543,6 +543,7 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(machine.linkKind()).toBe('tcp')
     await expect(machine.start({ share: 'C:\\src' }, () => undefined)).rejects.toThrow('use acdev vm push')
     await expect(machine.start({ display: 'viewer' }, () => undefined)).rejects.toThrow('Linux only for now')
+    expect(() => machine.devdBinary()).toThrow('set ACDEV_DEVD to an acdevd built for the guest (Linux x86_64)')
   })
 
   test('the guest CPU must have the x86-64-v3 features', () => {

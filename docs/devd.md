@@ -15,6 +15,8 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
   注意: `CARGO_TARGET_DIR` 排在约定目录前面. 它若指着 acdev 根工作区的产物目录 (如 `logs/cargo-target/acdev`), 那里留着的旧 acdevd
   会先被找到、被版本检查拦下报错, 不会再往下找. devd 是独立的 Cargo 工作区: 编它时用它自己的约定目录
   (`CARGO_TARGET_DIR=<总仓>/logs/cargo-target/acdev-devd`), 或者用 `ACDEV_DEVD` 明确指定.
+- 不是 Linux 的宿主上 (Windows、macOS) 不找也不编: 必须由 `ACDEV_DEVD` 给一个 Linux 客户机用的 acdevd, 版本在装进客户机后比 (见 `docs/vm.md`
+  「Windows」).
 - `acdevd connect CID [PORT]`: 在宿主上把标准输入输出接到客户机 `CID` 的 acdevd. 宿主的 bun 和 Node.js 都开不了 vsock 套接字,
   所以 acdev 起这个子进程, 经它的标准输入输出说协议.
 - vsock 只用 libc 的 `socket` / `bind` / `listen` / `accept4` / `connect` (`AF_VSOCK` = 40, `sockaddr_vm`), 拿到的描述符包成
