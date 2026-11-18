@@ -302,9 +302,9 @@ jobs:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
         run: |
           case "${{ matrix.cross }}" in
-            xwin) cargo xwin build --profile dist -p acdev --target ${{ matrix.triple }} ;;
-            zigbuild) cargo zigbuild --profile dist -p acdev --target ${{ matrix.triple }} ;;
-            *) cargo build --profile dist -p acdev --target ${{ matrix.triple }} ;;
+            xwin) cargo xwin build --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
+            zigbuild) cargo zigbuild --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
+            *) cargo build --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
           esac
       - name: archive the binary (one file, fixed times and owner) and keep the split debug information
         if: env.BUILD == 'true'
@@ -401,8 +401,8 @@ jobs:
         run: |
           set -eu
           case "${{ matrix.cross }}" in
-            xwin) RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --target ${{ matrix.triple }} ;;
-            *) cargo build --release --target ${{ matrix.triple }} ;;
+            xwin) RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --locked --release --target ${{ matrix.triple }} ;;
+            *) cargo build --locked --release --target ${{ matrix.triple }} ;;
           esac
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp "target/${{ matrix.triple }}/release/${{ matrix.bin }}${{ matrix.exe }}" "$GITHUB_WORKSPACE/out/${{ matrix.name }}${{ matrix.exe }}"

@@ -204,7 +204,7 @@ describe('release.yml', () => {
     const build = runs('build')
     expect(jobs['build']!.steps.some((item) => item.uses === './acdev/.github/actions/libacde')).toBe(true)
     const triple = ['$', '{{ matrix.triple }}'].join('')
-    expect(build).toContain(`cargo build --profile dist -p acdev --target ${triple}`)
+    expect(build).toContain(`cargo build --locked --profile dist -p acdev --target ${triple}`)
     expect(build).toContain(`"out/acdev-runtime-${triple}.tar.xz"`)
     expect(build).toContain(`"out/acdev-runtime-${triple}.tar.gz"`)
     const tools = jobs['tools'] as Job & { strategy: { matrix: { include: Record<string, string>[] } } }
@@ -212,7 +212,7 @@ describe('release.yml', () => {
       ['acdevd-x86_64', 'x86_64-unknown-linux-musl'], ['acdevd-aarch64', 'aarch64-unknown-linux-musl'],
       ['acdev-relay', 'x86_64-pc-windows-msvc'], ['acdev-viewer', 'x86_64-unknown-linux-gnu'],
     ])
-    expect(runs('tools')).toContain('cargo build --release --target')
+    expect(runs('tools')).toContain('cargo build --locked --release --target')
     const pkgs = runs('pkgs')
     expect(pkgs).toContain('--runtime "$GITHUB_WORKSPACE/in/runtime"')
     expect(pkgs).toContain('cp "in/runtime-$t/$f" in/runtime/')
@@ -224,7 +224,7 @@ describe('release.yml', () => {
   test('build has bun 1.4.4 and libacde/js installed before cargo: build.rs bundles libacde/js', () => {
     const items = jobs['build']!.steps
     const bun = items.findIndex((item) => item.uses?.includes('/setup-bun@'))
-    const cargo = items.findIndex((item) => (item.run ?? '').includes('cargo build --profile dist'))
+    const cargo = items.findIndex((item) => (item.run ?? '').includes('cargo build --locked --profile dist'))
     expect(bun).toBeGreaterThanOrEqual(0)
     expect(bun).toBeLessThan(cargo)
     expect(items[bun]!.with?.['bun-version']).toBe('1.4.4')

@@ -41,7 +41,8 @@ SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 liba
   skill 只写对外的用法, 实现和取舍写在 `docs/`.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外见 libacde 的 AGENTS.md (blitz fork 和配套的用 `=` 钉住).
-- `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编.
+- `Cargo.lock` 进 git (用户定 2026-11-18; 根上一份, `crates/devd`、`relay`、`viewer` 各一份): 依赖只在主动更新时变, CI 一律 `--locked`.
+  更新依赖见 `docs/runtime-build.md`「依赖与 Cargo.lock」.
   0.x 写到次版本正是因为这个: 只写 `"0"` 时, workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖, 它们会落到旧锁里已有的老版本上, 只在 Linux
   编的 `voice`、`office` 就编不过 (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
 - `npm/bun.lock` 进 git, 改依赖时放在同一个提交里.

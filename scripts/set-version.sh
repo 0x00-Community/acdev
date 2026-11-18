@@ -13,4 +13,8 @@ done
 for json in "$dir/npm/package.json" "$lib/acde-api/package.json"; do
   node -e 'const f=process.argv[1],p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' "$json" "$v"
 done
+for lock in "$dir/Cargo.lock" "$lib/Cargo.lock"; do
+  [ -f "$lock" ] || continue
+  sed -i "/^name = \"\(acdev\|acde-hostwin\|libacde\)\"$/{n;s/^version = \".*\"$/version = \"$v\"/}" "$lock"
+done
 echo "version $v"

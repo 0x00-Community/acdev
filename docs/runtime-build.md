@@ -5,7 +5,7 @@
 运行时库是并排检出的 [libacde](http://gitea.dopamine/AC/libacde) (`../libacde`, path 依赖, 不是本工作区的成员, 自成一个工作区), 它的 `vendor/blitz` 是子模块
 (在 libacde 里 `git submodule update --init`); 它依赖的 AC 内部 crate 从 AC 的 cargo 注册表 `ac` 取
 (`.cargo/config.toml`, `credential-provider = "cargo:token"`), 不再有 `[patch.crates-io]`; rusty_v8 的预编译包取内网镜像
-(`RUSTY_V8_MIRROR`), 不回退到 GitHub. `Cargo.lock` 不进 git, 拉取之后先 `cargo update`.
+(`RUSTY_V8_MIRROR`), 不回退到 GitHub. `Cargo.lock` 进 git, 见下文「依赖与 Cargo.lock」.
 
 ```sh
 cargo build -p acdev                              # target/debug/acdev
@@ -39,4 +39,17 @@ SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxco
 把它钉住. acdev 不提交 `Cargo.lock`, CI 每次 `cargo update`, 不钉就会解析到最新的 0.1.7.
 
 解除条件 (任一): 上游新版不再在构建时匿名调用 GitHub API (或允许带令牌、允许跳过); 或预编译的 DXC 放进内网 gitea, 由环境变量指给它
-(也合「构建不从外网取东西」); 或改成提交 `Cargo.lock` 并让 CI 能稳定编过新版. 解除时删掉根 `Cargo.toml` 里这一项和本节.
+(也合「构建不从外网取东西」); 解除时删掉根 `Cargo.toml` 里这一项和本节. 现在 `Cargo.lock` 已进 git, 锁文件本身就把它定在 0.1.4; `Cargo.toml` 里的 `=0.1.4` 仍留着,
+是为了定期 `cargo update` 时不被顺手升到 0.1.7.
+
+## 依赖与 Cargo.lock (用户定 2026-11-18)
+
+- `Cargo.lock` 进 git: 根工作区 (acdev、crates/hostwin, 加上并排 `../libacde` 及其 `vendor/blitz` 的全部依赖) 一份, 另编的 `crates/devd`、
+  `crates/relay`、`crates/viewer` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`wpt-setup` 的 `cargo fetch --locked`,
+  release 的 build 和 tools); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
+- 发版时 `scripts/set-version.sh` 改了 acdev、libacde 的工作区版本号, 也同步改两边 `Cargo.lock` 里 `acdev`、`acde-hostwin`、`libacde`
+  这三项的 version, 所以 `--locked` 照样过.
+- 更新依赖: 定期在工作树里 `cargo update` (三个小程序各在自己目录里跑), 只提交锁文件的变化, 单独一个提交
+  (`build: cargo update ...`, 正文写升了哪些要紧的包); 交测试 Agent 编过并跑过测试再推. 只升某一个包用 `cargo update -p <包>`.
+- libacde 改了依赖 (Cargo.toml 增删或改版本要求) 时, acdev 的锁文件要跟着更新, 否则 CI 的 `--locked` 失败: 在 acdev 里
+  `cargo update -p libacde` (必要时加上新依赖的名字), 和 libacde 的那次改动一起排进同一个测试点.
