@@ -220,6 +220,17 @@ describe('release.yml', () => {
       .toEqual(['runtime-*', 'tool-*'])
   })
 
+  test('build has bun 1.4.4 and acdert/js installed before cargo: build.rs bundles acdert/js', () => {
+    const items = jobs['build']!.steps
+    const bun = items.findIndex((item) => item.uses?.includes('/setup-bun@'))
+    const cargo = items.findIndex((item) => (item.run ?? '').includes('cargo build --profile dist'))
+    expect(bun).toBeGreaterThanOrEqual(0)
+    expect(bun).toBeLessThan(cargo)
+    expect(items[bun]!.with?.['bun-version']).toBe('1.4.4')
+    expect(runs('build')).toContain('bun install --frozen-lockfile --cwd acdev/acdert/js')
+    expect(runs('build')).toContain('echo "ACDEV_BUN=$(command -v bun)" >> "$GITHUB_ENV"')
+  })
+
   test('the lockfile fetches every package from the default registry, not a mirror', () => {
     expect(LOCK).not.toContain('mirrors.cloud.tencent.com')
   })

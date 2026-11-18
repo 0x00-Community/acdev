@@ -14,7 +14,8 @@ acdev-relay、Linux 的 acdev-viewer)、SDK `acde-api-<版本>.tar.gz`、`acdev`
 ## 构建耗时与并行 (release.yml)
 
 - 改前 (2026-11-18 之前, 运行 2258): 总共 30 分 41 秒; `build` 四个目标各 9～14 分钟 (并行), `host` 1 分多, `pkgs` 2 分.
-- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; 小程序挪到 `tools`, 和主程序矩阵同时编、不等它, `pkgs` 只等两边;
+- 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` acdert/js,
+  设 `ACDEV_BUN`: acdert 的 build.rs 在宿主 Linux 上用 bun 把 acdert/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; 小程序挪到 `tools`, 和主程序矩阵同时编、不等它, `pkgs` 只等两边;
   `pkgs` 只下载要发的产物 (按名字 `runtime-*`、`tool-*`, 不下 30 天留存的调试信息); npm 包和命令行归档仍只在 `pkgs` 打一次.
   缓存: `build` 和 `tools` 都用 rust-cache (registry 和 target, 按目标或程序分 key), 另把 cargo-xwin 下载的 MSVC CRT 和 SDK
   (`~/.cache/cargo-xwin`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
