@@ -40,28 +40,38 @@ function runtimeFile(build: string): string {
   return `acdev-runtime-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
 }
 
+const TOOLS: Readonly<Record<string, { file: string; program: string }>> = {
+  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', program: 'acdev-relay.exe' },
+  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdev-viewer' },
+}
+
+function packed(at: string, file: string, programs: Record<string, string>): void {
+  const inner = join(at, `.${file}`)
+  mkdirSync(inner, { recursive: true })
+  for (const [name, text] of Object.entries(programs)) {
+    writeFileSync(join(inner, name), text)
+    chmodSync(join(inner, name), 0o755)
+  }
+  const archived = systemTar([file.endsWith('.xz') ? '-cJf' : '-czf', join(at, file), '-C', inner, ...Object.keys(programs)])
+  if (archived.status !== 0) throw new Error(`tar: ${archived.stderr}`)
+  rmSync(inner, { recursive: true, force: true })
+}
+
 function runtimeFiles(at: string, version: string, options: RuntimeOptions = {}): void {
   mkdirSync(at, { recursive: true })
-  const stage = join(at, '.stage')
-  mkdirSync(join(stage, 'app', 'dist'), { recursive: true })
-  writeFileSync(join(stage, 'app', 'dist', 'broker.js'), 'export {}\n')
-  writeFileSync(join(stage, 'app', 'package.json'), '{}\n')
-  const packed = systemTar(['-czf', join(at, `acde-host-${version}.tar.gz`), '-C', stage, 'app'])
-  if (packed.status !== 0) throw new Error(`tar: ${packed.stderr}`)
-  rmSync(stage, { recursive: true, force: true })
+  const guest = (arch: string) => `#!/bin/sh\necho "acdevd ${version} (${arch})"\n`
+  packed(at, `acdev-guest-${version}.tar.gz`, { 'acdevd-x86_64': guest('x86_64'), 'acdevd-aarch64': guest('aarch64') })
   for (const build of options.builds ?? BUILDS) {
     const windows = build.endsWith('-windows-msvc')
-    const file = runtimeFile(build)
-    const script = `#!/bin/sh\necho "acdev runtime ${version} (${build})"\n`
-    const inner = join(at, `.${build}`)
-    const member = options.member ?? (windows ? 'acdev.exe' : 'acdev runtime')
-    mkdirSync(inner)
-    writeFileSync(join(inner, member), script)
-    chmodSync(join(inner, member), 0o755)
-    const archived = systemTar([windows ? '-czf' : '-cJf', join(at, file), '-C', inner, member])
-    if (archived.status !== 0) throw new Error(`tar: ${archived.stderr}`)
-    rmSync(inner, { recursive: true, force: true })
+    const member = options.member ?? (windows ? 'acdev.exe' : 'acdev')
+    packed(at, runtimeFile(build), { [member]: `#!/bin/sh\necho "acdev runtime ${version} (${build})"\n` })
+    const tool = TOOLS[build]
+    if (tool) packed(at, tool.file, { [tool.program]: `#!/bin/sh\necho "${tool.program} ${version}"\n` })
   }
+}
+
+function releaseFiles(version: string): string[] {
+  return [`acdev-guest-${version}.tar.gz`, ...BUILDS.map((b) => runtimeFile(b)), ...Object.values(TOOLS).map((tool) => tool.file)]
 }
 
 function sums(at: string): void {
@@ -113,8 +123,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       const made = await dist(out, version, runtime)
       expect(made.code, made.out).toBe(0)
     }
-    variant(out, 'tampered', '0.0.2', (at) => writeFileSync(join(at, 'acde-host-0.0.2.tar.gz'), 'changed after the checksum'))
-    variant(out, 'missing', '0.0.2', (at) => rmSync(join(at, 'acde-host-0.0.2.tar.gz')))
+    variant(out, 'tampered', '0.0.2', (at) => writeFileSync(join(at, 'acdev-guest-0.0.2.tar.gz'), 'changed after the checksum'))
+    variant(out, 'missing', '0.0.2', (at) => rmSync(join(at, 'acdev-guest-0.0.2.tar.gz')))
     variant(out, 'elsewhere', '0.0.2', (at) => {
       for (const build of BUILDS.filter((b) => !b.endsWith('-windows-msvc'))) rmSync(join(at, runtimeFile(build)))
       sums(at)
@@ -139,16 +149,16 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       'acdev-0.0.2/lib/acdev/package.json',
       'acdev-0.0.2/lib/acdev/launcher.mjs', 'acdev-0.0.2/lib/acdev/dist/cli.js', 'acdev-0.0.2/lib/acdev/dist/driver/index.js',
       'acdev-0.0.2/lib/acdev/dist/e2e/index.js', 'acdev-0.0.2/lib/acdev/templates/app/index.html',
-      'acdev-0.0.2/lib/acde-api/package.json', 'acdev-0.0.2/lib/acde-api/src/index.js',
+      'acdev-0.0.2/lib/acde-api/package.json', 'acdev-0.0.2/lib/acde-api/src/index.d.ts',
       'acdev-0.0.2/lib/acdev/skills/acdev/SKILL.md', 'acdev-0.0.2/lib/acdev/skills/acdev/references/reference/cli.md',
     ]) expect(listed).toContain(path)
     expect(readFileSync(join(out, 'install.md'), 'utf8')).toBe(readFileSync(join(ROOT, '..', 'scripts', 'install.md'), 'utf8'))
-    expect(listed.some((path) => /\/(bin\/acdert|bin\/acdebin-dbg|bin\/app|lib\/acde\/src)\b/.test(path))).toBe(false)
+    expect(listed.some((path) => /\/(bin\/acdert|bin\/acdebin-dbg|bin\/app|libexec|lib\/acdev\/src)\b/.test(path))).toBe(false)
     expect(listed.some((path) => path.endsWith('.map') || path.includes('/._'))).toBe(false)
-    expect(listed.some((path) => /\/lib\/acde\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
+    expect(listed.some((path) => /\/lib\/acdev\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
     const listedSums = readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')
     expect(listedSums).toContain(`${sha256(tarball)}  acdev-0.0.2.tar.gz\n`)
-    for (const file of [`acde-api-${SDK}.tar.gz`, 'acde-host-0.0.2.tar.gz', ...BUILDS.map((b) => runtimeFile(b))]) {
+    for (const file of [`acde-api-${SDK}.tar.gz`, ...releaseFiles('0.0.2')]) {
       expect(listedSums).toContain(`${sha256(join(out, '0.0.2', file))}  ${file}\n`)
     }
     expect(existsSync(join(out, '0.0.2', 'acdert-version'))).toBe(false)
@@ -159,19 +169,24 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const home = tmp()
     const first = await install(home)
     expect(first.code, first.out).toBe(0)
-    expect(first.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
-    for (const file of ['acdev-0.0.2.tar.gz', 'acde-host-0.0.2.tar.gz']) {
+    expect(first.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
+    for (const file of ['acdev-0.0.2.tar.gz', 'acdev-guest-0.0.2.tar.gz']) {
       expect(first.out, 'no terminal: the size first, then the checked file').toContain(`downloading ${file} (`)
       expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: \\d+ [KM]B, SHA-256 matches`))
     }
     expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acdev', 'bin')}:$PATH"`)
-    const runtime = join(home, '.acdev', 'bin', 'acdev runtime')
+    const libexec = join(home, '.acdev', 'current', 'libexec')
+    const runtime = join(libexec, 'acdev')
     expect(statSync(runtime).mode & 0o111).not.toBe(0)
     expect((await run(['sh', runtime], {})).stdout).toStartWith('acdev runtime 0.0.2 (')
-    expect(existsSync(join(home, '.acdev', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
+    for (const arch of ['x86_64', 'aarch64']) {
+      expect((await run(['sh', join(libexec, `acdevd-${arch}`)], {})).stdout).toBe(`acdevd 0.0.2 (${arch})\n`)
+    }
+    if (process.platform === 'linux' && process.arch === 'x64') expect(existsSync(join(libexec, 'acdev-viewer'))).toBe(true)
+    expect(existsSync(join(libexec, 'app'))).toBe(false)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acdev', 'bin'))).toBe('current/bin')
-    const line = `\n# acde\n${GUARDED}\n`
+    const line = `\n# acdev\n${GUARDED}\n`
     const startup = ['.zshrc', '.zprofile', '.profile', ...(which('bash') ? ['.bashrc'] : [])]
     for (const file of startup) {
       expect(readFileSync(join(home, file), 'utf8'), file).toBe(line)
@@ -180,7 +195,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const again = await install(home, ['--version', '0.0.1'])
     expect(again.code, again.out).toBe(0)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.1')
-    for (const file of startup) expect(readFileSync(join(home, file), 'utf8').match(/# acde/g), file).toHaveLength(1)
+    for (const file of startup) expect(readFileSync(join(home, file), 'utf8').match(/# acdev\n/g), file).toHaveLength(1)
     const bin = join(home, '.acdev', 'bin')
     const once = (shell: string, files: string[]) => {
       const script = `${files.map((f) => `. ./${f}`).join('; ')}; echo "$PATH"`
@@ -193,8 +208,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       expect(zsh.stdout.trim().split(':').filter((dir) => dir === bin), 'a login and interactive zsh').toHaveLength(1)
     }
     if (which('bash')) {
-      const login = await run(['bash', '-lc', 'command -v acde'], { HOME: home, PATH: '/usr/bin:/bin' }, home)
-      expect(login.stdout.trim(), 'a login bash finds acde').toBe(join(home, '.acdev', 'bin', 'acdev'))
+      const login = await run(['bash', '-lc', 'command -v acdev'], { HOME: home, PATH: '/usr/bin:/bin' }, home)
+      expect(login.stdout.trim(), 'a login bash finds acdev').toBe(join(home, '.acdev', 'bin', 'acdev'))
     }
   }, 60_000)
 
@@ -209,13 +224,13 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       try {
         const first = await install(home, ['--version', '0.0.1'])
         expect(first.code, first.out).toBe(0)
-        expect(first.out).toContain(`removed acde 0.0.0 (${join(versions, '0.0.0')})`)
-        expect(first.out).toContain(`kept acde 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
+        expect(first.out).toContain(`removed acdev 0.0.0 (${join(versions, '0.0.0')})`)
+        expect(first.out).toContain(`kept acdev 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
         const second = await install(home)
         expect(second.code, second.out).toBe(0)
         expect(readdirSync(versions).filter((name) => !name.startsWith('.')).sort())
           .toEqual(['0.0.0-busy', '0.0.1', '0.0.2'])
-        expect(second.out).toContain(`kept acde 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
+        expect(second.out).toContain(`kept acdev 0.0.0-busy (${join(versions, '0.0.0-busy')}): a program in it`)
       } finally {
         running.kill()
         await running.exited
@@ -233,14 +248,14 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(ran.code, ran.out).toBe(0)
     expect(readFileSync(join(home, '.zshrc'), 'utf8')).toBe(`# mine\n\n# acde\n${GUARDED}\nalias ll="ls -l"\n`)
     expect(ran.out).toContain(`made the acdev PATH line in ${join(home, '.zshrc')} add $HOME/.acdev/bin only once`)
-    expect(readFileSync(join(home, '.zprofile'), 'utf8')).toBe(`\n# acde\n${GUARDED}\n`)
+    expect(readFileSync(join(home, '.zprofile'), 'utf8')).toBe(`\n# acdev\n${GUARDED}\n`)
   }, 60_000)
 
   test('install.sh: a progress bar in a terminal, none when captured, a line per checked file either way', async () => {
     const captured = await install(tmp(), ['--no-modify-path'])
     expect(captured.code, captured.out).toBe(0)
-    expect(captured.out).toMatch(/: acdebin-dbg-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
-    expect(captured.out).toMatch(/: acde-host-0\.0\.2\.tar\.gz: \d+ KB, SHA-256 matches\n/)
+    expect(captured.out).toMatch(/: acdev-runtime-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
+    expect(captured.out).toMatch(/: acdev-guest-0\.0\.2\.tar\.gz: \d+ KB, SHA-256 matches\n/)
     expect(captured.out).not.toContain('%')
     const home = tmp()
     let shown = ''
@@ -255,12 +270,12 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     })
     expect(await proc.exited, shown).toBe(0)
     expect(shown).toMatch(/100(\.0)?%/)
-    expect(shown).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
+    expect(shown).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
   }, 60_000)
 
   test('install.sh fails early and clearly', async () => {
     const home = tmp()
-    expect((await install(home, ['--version', '9.9.9'])).stderr).toContain('is there an acde 9.9.9?')
+    expect((await install(home, ['--version', '9.9.9'])).stderr).toContain('is there an acdev 9.9.9?')
     expect((await install(home, ['--bogus'])).stderr).toContain('unknown argument: --bogus')
     const tampered = tmp()
     for (const file of ['latest', 'install.sh']) writeFileSync(join(tampered, file), readFileSync(join(out, file)))
@@ -288,10 +303,10 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const home = tmp()
     expect((await install(home, ['--no-modify-path', '--version', '0.0.1'])).code).toBe(0)
     const failing: [string, string][] = [
-      ['tampered', 'acde-host-0.0.2.tar.gz does not match its checksum'],
-      ['missing', `could not download ${base}/missing/0.0.2/acde-host-0.0.2.tar.gz`],
+      ['tampered', 'acdev-guest-0.0.2.tar.gz does not match its checksum'],
+      ['missing', `could not download ${base}/missing/0.0.2/acdev-guest-0.0.2.tar.gz`],
       ['elsewhere', 'acdev 0.0.2 has no acdev runtime for this platform'],
-      ['hollow', 'does not hold acdev runtime'],
+      ['hollow', 'does not hold the runtime acdev'],
     ]
     for (const [mirror, said] of failing) {
       const bad = await install(home, ['--no-modify-path'], { ACDEV_DIST: `${base}/${mirror}` })
@@ -317,24 +332,24 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   test('acdev doctor --fix --yes runs the installer again when the acdev runtime next to acde is gone', async () => {
     const home = tmp()
     expect((await install(home, ['--no-modify-path'])).code).toBe(0)
-    const runtime = join(home, '.acdev', 'versions', '0.0.2', 'bin', 'acdev runtime')
+    const runtime = join(home, '.acdev', 'versions', '0.0.2', 'libexec', 'acdev')
     rmSync(runtime)
     const acde = join(home, '.acdev', 'bin', 'acdev')
     const vars = {
       HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ACDEV_DIST: base,
       XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
     }
-    const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdev runtime released with it, ` +
-      'checks it against SHA256SUMS and puts it next to acde'
+    const does = `run the installer of acdev 0.0.2 again (${base}/install.sh), which downloads the acdev runtime released with it, ` +
+      'checks it against SHA256SUMS and puts it next to acdev'
     const checked = await run(['sh', acde, 'doctor'], vars, home)
-    const none = 'error  acdev runtime: acdev dev needs the Dopame runtime (acdev runtime) and found none: '
+    const none = 'acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: '
     expect(checked.stdout).toContain(`${none}no ${realpathSync(home)}`)
     const asked = await run(['sh', acde, 'doctor', '--fix'], vars, home)
     expect(asked.stdout).toContain(`skipped: ${does} (it asks first: pass --yes to allow it)\n`)
     expect(asked.stdout).toContain('fixed: install the acdev skill for the coding agents found here (acdev skills install)\n')
     expect(existsSync(runtime)).toBe(false)
     const fixed = await run(['sh', acde, 'doctor', '--fix', '--yes'], vars, home)
-    expect(fixed.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
+    expect(fixed.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
     expect(fixed.stdout).toContain(`fixed: ${does}\n`)
     expect(existsSync(runtime)).toBe(true)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.2')
@@ -377,7 +392,7 @@ describe('the release archive and the installed CLI', () => {
     }
     const windows = runtimeFile('x86_64-pc-windows-msvc')
     variant(out, 'tampered', '0.0.2', (at) => writeFileSync(join(at, windows), 'changed after the checksum'))
-    variant(out, 'missing', '0.0.2', (at) => rmSync(join(at, 'acde-host-0.0.2.tar.gz')))
+    variant(out, 'missing', '0.0.2', (at) => rmSync(join(at, 'acdev-guest-0.0.2.tar.gz')))
     variant(out, 'elsewhere', '0.0.2', (at) => {
       for (const build of BUILDS.filter((b) => !['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin'].includes(b))) {
         rmSync(join(at, runtimeFile(build)))
@@ -403,12 +418,11 @@ describe('the release archive and the installed CLI', () => {
 
   afterAll(cleanup)
 
-  test('the version directory holds the CLI, the SDK, the host files and the builds, all in its SHA256SUMS', () => {
+  test('the version directory holds the CLI, the SDK, the builds, the guest daemons and the host tools, all in its SHA256SUMS', () => {
     expect(built).toBe(true)
     const at = join(out, '0.0.2')
     const files = readdirSync(at).filter((file) => file !== 'SHA256SUMS').sort()
-    expect(files).toEqual(['acdev-0.0.2.tar.gz', `acde-api-${SDK}.tar.gz`, 'acde-host-0.0.2.tar.gz',
-      ...BUILDS.map((b) => runtimeFile(b))].sort())
+    expect(files).toEqual(['acdev-0.0.2.tar.gz', `acde-api-${SDK}.tar.gz`, ...releaseFiles('0.0.2')].sort())
     expect(readFileSync(join(at, 'SHA256SUMS'), 'utf8')).toBe(files.map((file) => `${sha256(join(at, file))}  ${file}\n`).join(''))
   })
 
@@ -420,7 +434,7 @@ describe('the release archive and the installed CLI', () => {
     const missingArgs = ['--api', join(root, 'nope'), '--version', '0.0.3', '--out', join(root, 'x')]
     const missing = await run([process.execPath, 'scripts/dist.ts', ...missingArgs], {})
     expect(missing.code).toBe(1)
-    expect(missing.out).toContain('not a built @dopame/acde-api package')
+    expect(missing.out).toContain('not the @dopame/acde-api package')
   }, 60_000)
 
   test('Windows x64: install.ps1 and the installed CLI work in paths containing spaces', async () => {
@@ -431,9 +445,10 @@ describe('the release archive and the installed CLI', () => {
     try {
       const result = await installPs1(home, 'release', { ACDEV_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
-      expect(result.out).toContain('installed acde 0.0.2 with acdev runtime 0.0.2')
+      expect(result.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
       expect(result.out).toMatch(/acdev: acdev-runtime-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
-      expect(result.out).toContain('acdev: acde-host-0.0.2.tar.gz: ')
+      expect(result.out).toContain('acdev: acdev-guest-0.0.2.tar.gz: ')
+      expect(result.out).toContain('acdev: acdev-tools-x86_64-pc-windows-msvc.tar.gz: ')
       const bin = join(home, 'current', 'bin')
       expect(result.stdout.trimEnd().split(/\r?\n/).at(-1)).toBe(`  $env:Path = "${bin};$env:Path"`)
     } finally {
@@ -442,10 +457,11 @@ describe('the release archive and the installed CLI', () => {
 
     const current = join(home, 'current')
     expect(realpathSync(current)).toBe(realpathSync(join(home, 'versions', '0.0.2')))
-    expect(readFileSync(join(current, 'bin', 'acdev.exe'), 'utf8')).toBe(
+    expect(readFileSync(join(current, 'libexec', 'acdev.exe'), 'utf8')).toBe(
       '#!/bin/sh\necho "acdev runtime 0.0.2 (x86_64-pc-windows-msvc)"\n',
     )
-    expect(existsSync(join(current, 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
+    for (const name of ['acdevd-x86_64', 'acdevd-aarch64', 'acdev-relay.exe']) expect(existsSync(join(current, 'libexec', name))).toBe(true)
+    expect(existsSync(join(current, 'libexec', 'app'))).toBe(false)
     expect(existsSync(join(current, 'lib', 'acdev', 'src'))).toBe(false)
     expect(readFileSync(join(current, 'LICENSE'), 'utf8')).toBe(readFileSync(join(ROOT, 'LICENSE'), 'utf8'))
     const entries = join(current, 'lib', 'acdev', 'dist')
@@ -459,7 +475,7 @@ describe('the release archive and the installed CLI', () => {
     expect(driver).toContain('Acde,')
     expect(test).toContain('expect')
 
-    const shim = join(current, 'bin', 'acde.cmd')
+    const shim = join(current, 'bin', 'acdev.cmd')
     const project = join(root, 'hello world')
     const build = join(root, 'build output')
     const withApi = join(root, 'with api')
@@ -498,7 +514,7 @@ describe('the release archive and the installed CLI', () => {
       expect((await installPs1(home, 'release', { ...dist, ACDEV_VERSION: '0.0.1' })).code).toBe(0)
       const second = await installPs1(home, 'release', dist)
       expect(second.code, second.out).toBe(0)
-      expect(second.out).toContain(`removed acde 0.0.0 (${join(home, 'versions', '0.0.0')})`)
+      expect(second.out).toContain(`removed acdev 0.0.0 (${join(home, 'versions', '0.0.0')})`)
       expect(readdirSync(join(home, 'versions')).sort()).toEqual(['0.0.1', '0.0.2'])
     } finally {
       server.stop(true)
@@ -513,12 +529,12 @@ describe('the release archive and the installed CLI', () => {
     const dist = { ACDEV_DIST: server.url.origin }
     try {
       expect((await installPs1(home, 'release', dist)).code).toBe(0)
-      const before = readFileSync(join(home, 'current', 'bin', 'acdev.exe'))
+      const before = readFileSync(join(home, 'current', 'libexec', 'acdev.exe'))
       writeFileSync(join(home, 'current', 'marker'), 'kept')
       const failing: [string, string][] = [
         ['tampered', 'checksum mismatch for acdev-runtime-x86_64-pc-windows-msvc.tar.gz'],
         ['hollow', 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz does not hold acdev.exe'],
-        ['missing', `could not download ${server.url.origin}/missing/0.0.2/acde-host-0.0.2.tar.gz`],
+        ['missing', `could not download ${server.url.origin}/missing/0.0.2/acdev-guest-0.0.2.tar.gz`],
         ['elsewhere', 'acdev 0.0.2 has no acdev runtime for this platform (x86_64-pc-windows-msvc); ' +
           'it is built for: aarch64-apple-darwin x86_64-unknown-linux-gnu'],
       ]
@@ -528,7 +544,7 @@ describe('the release archive and the installed CLI', () => {
         const plain = bad.out.replace(/\x1b\[[0-9;]*m/g, '').replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ')
         expect(plain).toContain(said)
         expect(readFileSync(join(home, 'current', 'marker'), 'utf8')).toBe('kept')
-        expect(readFileSync(join(home, 'current', 'bin', 'acdev.exe'))).toEqual(before)
+        expect(readFileSync(join(home, 'current', 'libexec', 'acdev.exe'))).toEqual(before)
       }
     } finally {
       server.stop(true)
@@ -542,8 +558,8 @@ describe('the release archive and the installed CLI', () => {
       ...s.env, ACDEV_RUNTIME: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
     }, s.project)
     expect(ran.code).toBe(1)
-    expect(ran.out).toContain('acdev dev needs the Dopame runtime (acdev runtime) and found none')
-    expect(ran.out).toContain('set ACDEV_RUNTIME to an acdev runtime binary')
+    expect(ran.out).toContain('acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none')
+    expect(ran.out).toContain('set ACDEV_RUNTIME to the runtime binary')
     expect(home).toBeTruthy()
   }, 60_000)
 })

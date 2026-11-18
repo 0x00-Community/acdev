@@ -239,8 +239,8 @@ main() {
   elif [ -n "$(listed "$tmp/SHA256SUMS" "acdert-version")" ]; then
     die "acdev $version comes from before acdev and its runtime were released together: leave out --version for the latest"
   else
-    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdebin-dbg-/) {
-      sub(/^acdebin-dbg-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
+    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdev-runtime-/) {
+      sub(/^acdev-runtime-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
     die "acdev $version has no acdev runtime for this platform ($triple); it is built for: ${supported% }"
   fi
