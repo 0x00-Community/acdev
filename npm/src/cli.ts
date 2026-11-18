@@ -35,7 +35,7 @@ class Cli {
     install: { args: [0, 1], flags: ['out'] },
     uninstall: { args: [0, 1], switches: ['yes', 'data', 'keep-data'] },
     sdk: { args: [0, 2] },
-    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose', 'force', 'keep'] },
+    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless', 'verbose', 'force', 'keep', 'lock'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
@@ -222,6 +222,7 @@ class Cli {
         ...(flags.has('verbose') && { verbose: true }),
         ...(flags.has('force') && { force: true }),
         ...(flags.has('keep') && { keep: true }),
+        ...(flags.has('lock') && { lock: true }),
         ...(process.env[Sessions.TEST_ENV] === '1' && { test: true }),
         acdert: await requireRuntime(),
       })

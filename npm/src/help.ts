@@ -138,6 +138,7 @@ export class Help {
           { flag: '--desktop ID|DIR', about: 'Run the projects in that desktop' },
           { flag: '--out DIR', about: 'Where to build (default: .acde; one project only)' },
           { flag: '--force', about: 'Start even when another acdev dev runs the same project' },
+          { flag: '--lock', about: 'Open the lock page of the desktop project alone, with a stand-in acde:lock (see the lock page checks)' },
           {
             flag: '--keep',
             about: 'Keep the folders that stand in for Documents, Downloads and the other shared places after the session '

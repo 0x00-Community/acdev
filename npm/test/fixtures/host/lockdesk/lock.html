@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Locked</title>
+  </head>
+  <body>
+    <h1>Locked</h1>
+    <p id="user"></p>
+    <script type="module">
+      const { lock } = await import('acde:lock')
+      const user = await lock.user()
+      document.querySelector('#user').textContent = user.fullName
+      console.log(`lock page for ${user.name}`)
+    </script>
+  </body>
+</html>

@@ -20,6 +20,9 @@
   那边加了每次启动都打的行, 要加进 `LIFECYCLE`. `--verbose` 时 stderr 直接继承, 什么都不丢. driver (`Acde.launch`, MCP 的 `start`、`acdev test`)
   总带 `--verbose`, 日志照旧完整.
 - 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdev runtime 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
+- 锁屏页预览 (`--lock`, 日常桌面工作项 23): 对一个桌面工程起 `<运行时> lock <桌面 id>`, 单应用启动器单独打开清单 `lock` 写的页面, 页面拿到的 `acde:lock` 是
+  启动器的假实现 (`js/launcher/src/app/lock.ts`): 固定用户、头像 null; `right-password` 解锁, `wrong-password` 回 auth (403), `busy-password` 回 busy (409),
+  `throttled-password` 回 throttled (429, `retryAfter` 3), 别的密码回 auth. 约定与 acde-dopame `docs/verify.md` 的锁屏页无头检查一致.
 - 共享位置 (用户 2026-11-18): 每次会话在系统临时目录建 `acdev-places-*`, 下有 desktop、documents、downloads、music、pictures、videos, 经 `XDG_<名>_DIR` 交给运行时 (运行时找公共位置先看这些变量, Windows 也一样), 另设 `ACDE_DEV_PLACES` 让单应用启动器按清单 `fs.roots` 授予这些位置; 应用碰不到本机真实的文档、下载等. 会话结束时删掉, `--keep` 时保留并打印路径. 应用私有目录仍是运行时的 `$XDG_DATA_HOME/acde/files/<应用 id>`.
 - 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acdev dev` 和 `acdev test --headed`
   在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acdev dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdev runtime 只报

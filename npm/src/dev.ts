@@ -20,7 +20,7 @@ const SETTLE_MS = 150
 const MARK_MS = 2_000
 
 export interface Target {
-  readonly kind: 'app' | 'desktop'
+  readonly kind: 'app' | 'desktop' | 'lock'
   readonly id: string
 }
 
@@ -33,6 +33,7 @@ export interface DevOptions {
   readonly verbose?: boolean
   readonly force?: boolean
   readonly keep?: boolean
+  readonly lock?: boolean
   readonly test?: boolean
   readonly acdert: string
 }
@@ -94,6 +95,7 @@ export class DevSession {
   readonly #verbose: boolean
   readonly #force: boolean
   readonly #keep: boolean
+  readonly #lock: boolean
   readonly #test: boolean
   readonly #endpoint = DevClient.endpoint()
   #link: DevClient | null = null
@@ -126,6 +128,10 @@ export class DevSession {
     this.#verbose = options.verbose === true
     this.#force = options.force === true
     this.#keep = options.keep === true
+    this.#lock = options.lock === true
+    if (this.#lock && (options.app !== undefined || this.multiple)) {
+      throw new Error('--lock opens the lock page of one desktop project; leave out --app and other projects')
+    }
     this.#test = options.test === true
   }
 
@@ -143,6 +149,12 @@ export class DevSession {
     const first = built.apps[0]
     if (first === undefined) throw new Error('nothing to run: no desktop and no app')
     return { kind: 'app', id: first }
+  }
+
+  static lockTarget(built: Built): Target {
+    const desktop = built.desktops[0]
+    if (desktop === undefined) throw new Error(`--lock: ${built.dir} has no desktop, so no lock page`)
+    return { kind: 'lock', id: desktop }
   }
 
   static #notApp(app: string, apps: readonly string[]): string {
@@ -178,6 +190,7 @@ export class DevSession {
 
   #plan(): Target {
     const built = this.#units.map((u) => u.built!)
+    if (this.#lock) return DevSession.lockTarget(built[0]!)
     if (!this.multiple) return DevSession.target(built[0]!, this.#app)
     const owners = new Map<string, string>()
     for (const unit of this.#units) {
@@ -274,7 +287,7 @@ export class DevSession {
     await this.#firstBuild()
     const target = this.#plan()
     await this.#checkLevels()
-    this.#shown = target.kind === 'desktop' ? target.id : null
+    this.#shown = target.kind === 'app' ? null : target.id
     DevClient.prepare(this.#endpoint)
     const watchers: Watching[] = []
     const signals: [NodeJS.Signals, () => void][] = []

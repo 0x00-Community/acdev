@@ -1,0 +1,10 @@
+{
+  "name": "lockdesk",
+  "private": true,
+  "version": "0.0.0",
+  "acde": {
+    "apiLevel": 1,
+    "apps": [],
+    "desktops": [{ "id": "lockdesk", "name": "Lock Desk", "entry": "index.html", "lock": "lock.html" }]
+  }
+}
