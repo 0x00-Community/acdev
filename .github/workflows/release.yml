@@ -13,7 +13,7 @@ name: release
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
 # Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
 # Gitea reads .github/workflows; the same file also runs on GitHub.
-# Every target builds on the debian12 runners: Linux natively, Windows with cargo-xwin,
+# Every target builds on the x86_64-debian runners: Linux natively, Windows with cargo-xwin,
 # macOS with cargo-zigbuild and the MacOSX15.5 SDK; no macOS or Windows machine is needed.
 # Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
 # the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
@@ -63,7 +63,7 @@ env:
 
 jobs:
   plan:
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     outputs:
       publish: ${{ steps.version.outputs.publish }}
@@ -195,7 +195,7 @@ jobs:
           - { triple: x86_64-apple-darwin, cross: zigbuild }
           - { triple: x86_64-unknown-linux-gnu, cross: '' }
           - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe }
-    runs-on: debian12
+    runs-on: x86_64-debian
     timeout-minutes: 120
     env:
       BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
@@ -355,7 +355,7 @@ jobs:
           - { name: acdevd-aarch64, crate: devd, bin: acdevd, triple: aarch64-unknown-linux-musl, cross: '', ships: all }
           - { name: acdev-relay, crate: relay, bin: acdev-relay, triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, ships: x86_64-pc-windows-msvc }
           - { name: acdev-viewer, crate: viewer, bin: acdev-viewer, triple: x86_64-unknown-linux-gnu, cross: '', ships: x86_64-unknown-linux-gnu }
-    runs-on: debian12
+    runs-on: x86_64-debian
     timeout-minutes: 30
     env:
       BUILD: ${{ matrix.ships == 'all' || contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.ships)) }}
@@ -417,7 +417,7 @@ jobs:
 
   pkgs:
     needs: [plan, build, tools]
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
@@ -525,7 +525,7 @@ jobs:
 
   guard:
     needs: [plan, pkgs]
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
@@ -560,7 +560,7 @@ jobs:
   upload:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     permissions:
       contents: read
@@ -687,7 +687,7 @@ jobs:
     # @dopame/acde-api is private and not on npm: projects take acde-api-<version>.tar.gz from pkgs by a file: or URL reference
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true'
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     env:
       V: ${{ needs.plan.outputs.version }}
@@ -768,7 +768,7 @@ jobs:
   tag:
     needs: [plan, guard, upload]
     if: needs.plan.outputs.publish == 'true' && needs.upload.result == 'success'
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     permissions:
       contents: write
@@ -806,7 +806,7 @@ jobs:
   latest:
     needs: [plan, guard, tag]
     if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
-    runs-on: debian12
+    runs-on: x86_64-debian
     container: node:22-bookworm
     permissions:
       contents: read

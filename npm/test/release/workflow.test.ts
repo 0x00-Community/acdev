@@ -248,10 +248,10 @@ describe('release.yml', () => {
     expect(runs('upload')).toContain('"out/$v/acdev-$v.tar.gz"')
   })
 
-  test('Linux jobs run on debian12, inside node:22-bookworm (the builds run on each target\'s own runner)', () => {
+  test('Linux jobs run on x86_64-debian, inside node:22-bookworm (the builds run on each target\'s own runner)', () => {
     for (const [id, job] of Object.entries(jobs)) {
       if (id === 'build' || id === 'tools') continue
-      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe('debian12')
+      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe('x86_64-debian')
       expect((job as Job & { container?: string }).container).toBe('node:22-bookworm')
     }
   })

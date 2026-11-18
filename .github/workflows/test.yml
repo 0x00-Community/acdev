@@ -28,7 +28,7 @@ env:
 jobs:
   gate:
     if: github.event.inputs.wpt == 'gate'
-    runs-on: x86_64-debian-234
+    runs-on: x86_64-debian
     timeout-minutes: 175
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -58,7 +58,7 @@ jobs:
   # full and baseline: one job per shard, one after another (a job stops at Gitea's 3-hour limit; every applicable test does not fit in one).
   wpt:
     if: github.event.inputs.wpt != 'gate'
-    runs-on: x86_64-debian-234
+    runs-on: x86_64-debian
     timeout-minutes: 175
     strategy:
       fail-fast: false
@@ -98,7 +98,7 @@ jobs:
   expectations:
     needs: wpt
     if: always() && github.event.inputs.wpt == 'baseline'
-    runs-on: x86_64-debian-234
+    runs-on: x86_64-debian
     timeout-minutes: 175
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -141,7 +141,7 @@ jobs:
   # full and baseline: acde-demo's apps and its regression cells.
   demo:
     if: github.event.inputs.wpt != 'gate'
-    runs-on: x86_64-debian-234
+    runs-on: x86_64-debian
     timeout-minutes: 120
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
