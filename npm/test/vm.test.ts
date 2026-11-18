@@ -7,7 +7,7 @@ import { which } from '../launcher.mjs'
 import { GuestAgent, monitor, relayed } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
 import { crateBinary, crateVersion } from '../src/vm/binary.ts'
-import { accelArgs, bundledFirmware, findQemu, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
+import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -575,7 +575,7 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(error.message).toBe('acdev-relay: /no/such.sock: connection refused')
   })
 
-  test('on an Intel Mac: HVF with the host CPU, QEMU\'s Cocoa window, a forwarded TCP port; Apple silicon waits for 04', async () => {
+  test('on an Intel Mac: HVF with the host CPU, QEMU\'s Cocoa window, a forwarded TCP port; Apple silicon refuses an x86_64 guest', async () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, mac)
     const args = machine.args({}, 'hvf', { kind: 'tcp', port: 4005 }).join(' ')
     expect(args).toContain('-machine q35 -accel hvf -cpu host')
@@ -584,8 +584,29 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(args).not.toContain('vhost-vsock')
     expect(machine.linkKind()).toBe('tcp')
     await expect(machine.start({ gl: true }, () => undefined)).rejects.toThrow('Linux only')
-    const silicon = new Machine({ ACDEV_VM_DIR: tmp() }, { platform: 'darwin', arch: 'arm64' })
-    await expect(silicon.start({}, () => undefined)).rejects.toThrow('work item 04')
+    const silicon = new Machine({ ACDEV_VM_DIR: tmp(), ACDEV_VM_ARCH: 'x86_64' }, { platform: 'darwin', arch: 'arm64' })
+    await expect(silicon.start({}, () => undefined)).rejects.toThrow('runs only an aarch64 guest')
+  })
+
+  test('aarch64 guests: on arm64 hosts or ACDEV_VM_ARCH; virt, the GIC, virtio-gpu-pci, PL011', () => {
+    expect(guestArch({ platform: 'darwin', arch: 'arm64' })).toBe('aarch64')
+    expect(guestArch({ platform: 'linux', arch: 'x64' })).toBe('x86_64')
+    expect(guestArch({ platform: 'linux', arch: 'x64' }, { ACDEV_VM_ARCH: 'aarch64' })).toBe('aarch64')
+    expect(() => guestArch({ platform: 'linux', arch: 'x64' }, { ACDEV_VM_ARCH: 'riscv64' })).toThrow('x86_64 or aarch64')
+    expect(guestDevices('aarch64', 'kvm').machine).toBe('virt,gic-version=host')
+    expect(guestDevices('aarch64', 'hvf')).toEqual({ machine: 'virt,gic-version=max', gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', console: 'ttyAMA0' })
+    expect(accelArgs('whpx', 'aarch64')).toEqual(['-accel', 'whpx', '-cpu', 'host'])
+    const silicon = { platform: 'darwin', arch: 'arm64' } as const
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/a.fd', OVMF_VARS: '/b.fd' }, silicon)
+    const args = machine.args({ outputs: 2 }, 'hvf', { kind: 'tcp', port: 4006 }).join(' ')
+    expect(args).toContain('-machine virt,gic-version=max -accel hvf -cpu host')
+    expect(args).toContain('-device virtio-gpu-pci,id=gpu0,max_outputs=2 ')
+    expect(args).toContain('-fw_cfg name=opt/acdev/key')
+    expect(args).not.toContain('virtio-vga')
+    expect(bundledFirmware(silicon, { system: '/opt/homebrew/bin/qemu-system-aarch64', img: '/opt/homebrew/bin/qemu-img' }, 'aarch64'))
+      .toEqual(['/opt/homebrew/share/qemu/edk2-aarch64-code.fd', '/opt/homebrew/share/qemu/edk2-arm-vars.fd'])
+    expect(Machine.latestName('aarch64')).toBe('latest-qcow2-aarch64')
+    expect(Machine.latestName('x86_64')).toBe('latest-qcow2')
   })
 
   test('the guest CPU must have the x86-64-v3 features', () => {

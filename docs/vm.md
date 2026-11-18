@@ -76,8 +76,8 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 
 ## macOS (HVF)
 
-工作项 03 (三平台模拟器里程碑). 先做 Intel Mac (x86_64 客户机, 和 Linux、Windows 同一份镜像); Apple 芯片只能跑 aarch64 客户机,
-`start` 直接报"等工作项 04".
+工作项 03 (三平台模拟器里程碑). Intel Mac 跑 x86_64 客户机 (和 Linux、Windows 同一份镜像); Apple 芯片只能跑 aarch64 客户机, 见下面
+「aarch64 客户机」(工作项 04).
 
 - QEMU: `brew install qemu` (Homebrew 在 Apple 芯片上装到 `/opt/homebrew`, 在 Intel 上装到 `/usr/local`, `qemuDirs` 两处都找), 或 MacPorts.
   Homebrew 的配方 (`Formula/q/qemu.rb`) 开了 `--enable-cocoa`、`--enable-virtfs`, 关了 GTK 和 SDL; Apple 芯片上的 HVF 要 macOS 15 的 SDK
@@ -90,6 +90,31 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
   Unix 套接字 (macOS 的 Unix 套接字路径上限 104 字节, `ACDEV_VM_DIR` 别放太深〔推论〕). 9p `--share` 可用.
 - QEMU 用分离的子进程起 (macOS 没有 `setsid` 命令, 用 Node 的 `detached`).
 - acdevd 同 Windows: 设 `ACDEV_DEVD` 指向 Linux x86_64 的 acdevd.
+
+## aarch64 客户机
+
+工作项 04. 宿主是 arm64 (Apple 芯片的 Mac、arm64 的 Linux 或 Windows) 时客户机是 aarch64, 也可以用 `ACDEV_VM_ARCH=x86_64|aarch64` 指定
+(比如在 x86 Linux 上用 TCG 慢速跑 aarch64 镜像来验证镜像本身). 和 x86_64 的差别都在 `src/vm/host.ts` (`guestArch`、`guestDevices`、
+`SYSTEM_FIRMWARE`):
+
+- QEMU 是 `qemu-system-aarch64`; 机器 `-machine virt,gic-version=…`: KVM 下 `host`, 其余 `max` (os 仓 `image/from-iso.sh` 装 aarch64 盘时用
+  `virt,gic-version=max`); CPU: KVM、HVF 用 `host`, WHPX 也用 `host` (QEMU 文档 `whpx.rst` 的 arm64 例子), TCG 用 `max`.
+- 固件: Debian / Ubuntu 的 `qemu-efi-aarch64` (`/usr/share/AAVMF/AAVMF_CODE.fd`、`AAVMF_VARS.fd`)、Arch 的 `edk2-aarch64`
+  (`/usr/share/edk2/aarch64/QEMU_CODE.fd`、`QEMU_VARS.fd`)、Fedora 的 `QEMU_EFI-pflash.raw`, 再退到 QEMU 自带的 `edk2-aarch64-code.fd` 加
+  `edk2-arm-vars.fd` (Homebrew 在 `share/qemu` 下). 两块 pflash 的写法和 x86_64 一样〔Debian、Arch 的文件名照各自的包, 未逐一核实〕.
+- 显卡: virt 上没有 VGA, 用 `virtio-gpu-pci` (`--gl` 时 `virtio-gpu-gl-pci`), 同样带 `id=gpu0` 和 `max_outputs=N`; QEMU 文档 `whpx.rst`:
+  对非 Windows 客户机, `virtio-gpu-pci` 比 `ramfb` 能做得多.
+- 串口是 PL011, 客户机里叫 `ttyAMA0`: `acdev vm console` 写 `console=ttyAMA0,115200`.
+- 其余设备 (virtio 盘、网卡、键盘、平板、virtio-serial 的 guest agent、两个 PCIe 根端口、`-fw_cfg` 的密钥、Linux 宿主上的
+  `vhost-vsock-pci`) 写法不变: virt 也有 `pcie.0`; fw_cfg 在 virt 上走 MMIO, 客户机的 `qemu_fw_cfg` 驱动从设备树或 ACPI 找到它,
+  `/sys/firmware/qemu_fw_cfg/by_name/…` 路径一样〔推论, 未在 aarch64 客户机上看过〕.
+- CPU 特性检查只对 x86_64 做.
+- acdevd 要 aarch64 的: 宿主架构和客户机不同 (或不是 Linux) 时必须设 `ACDEV_DEVD` (`--target aarch64-unknown-linux-musl`, 或在 aarch64
+  Linux 上编).
+- 镜像: `fetch` 读 `ACDEV_VM_DIST` 下的 `latest-qcow2-aarch64` (x86_64 照旧是 `latest-qcow2`), 名字里要有 `aarch64`; 最新的名字记在
+  `images/latest-aarch64`, 不建 `latest.qcow2`. `latest-qcow2-aarch64` 这个文件名是我们定的, 要和 os 维护者对齐〔os 仓还没有 aarch64 镜像〕.
+- Apple 芯片上的 HVF 要 macOS 15 以上编的 QEMU (Homebrew 配方在 Sonoma 及更早关掉 arm64 的 HVF). 客户机内存超过 IPA 范围时的布局 (`highmem`)
+  在 Apple 芯片上的行为〔未核实〕, 内存先用默认的 8G, 不行就 `ACDEV_VM_MEMORY=4G`.
 
 ## 目录与镜像
 

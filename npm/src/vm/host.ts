@@ -11,6 +11,46 @@ export const HOST: Host = { platform: process.platform, arch: process.arch }
 
 export type Accel = 'kvm' | 'whpx' | 'hvf' | 'tcg'
 
+export type Guest = 'x86_64' | 'aarch64'
+
+export function guestArch(host: Host, env: NodeJS.ProcessEnv = {}): Guest {
+  const given = env['ACDEV_VM_ARCH']
+  if (given !== undefined && given !== '') {
+    if (given !== 'x86_64' && given !== 'aarch64') throw new Error(`vm: ACDEV_VM_ARCH=${given}: x86_64 or aarch64`)
+    return given
+  }
+  return host.arch === 'arm64' ? 'aarch64' : 'x86_64'
+}
+
+export const SYSTEM_FIRMWARE: Readonly<Record<Guest, readonly (readonly [string, string])[]>> = {
+  x86_64: [
+    ['/usr/share/OVMF/OVMF_CODE_4M.fd', '/usr/share/OVMF/OVMF_VARS_4M.fd'],
+    ['/usr/share/edk2/x64/OVMF_CODE.4m.fd', '/usr/share/edk2/x64/OVMF_VARS.4m.fd'],
+    ['/usr/share/edk2/ovmf/OVMF_CODE.fd', '/usr/share/edk2/ovmf/OVMF_VARS.fd'],
+    ['/usr/share/OVMF/OVMF_CODE.fd', '/usr/share/OVMF/OVMF_VARS.fd'],
+    ['/usr/share/qemu/edk2-x86_64-code.fd', '/usr/share/qemu/edk2-i386-vars.fd'],
+  ],
+  aarch64: [
+    ['/usr/share/AAVMF/AAVMF_CODE.fd', '/usr/share/AAVMF/AAVMF_VARS.fd'],
+    ['/usr/share/edk2/aarch64/QEMU_CODE.fd', '/usr/share/edk2/aarch64/QEMU_VARS.fd'],
+    ['/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw', '/usr/share/edk2/aarch64/vars-template-pflash.raw'],
+    ['/usr/share/qemu/edk2-aarch64-code.fd', '/usr/share/qemu/edk2-arm-vars.fd'],
+  ],
+}
+
+export interface GuestDevices {
+  readonly machine: string
+  readonly gpu: string
+  readonly gpuGl: string
+  readonly console: string
+}
+
+export function guestDevices(guest: Guest, accel: Accel): GuestDevices {
+  if (guest === 'x86_64') return { machine: 'q35', gpu: 'virtio-vga', gpuGl: 'virtio-vga-gl', console: 'ttyS0' }
+  const gic = accel === 'kvm' ? 'host' : 'max'
+  return { machine: `virt,gic-version=${gic}`, gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', console: 'ttyAMA0' }
+}
+
 export interface Qemu {
   readonly system: string
   readonly img: string
@@ -25,9 +65,9 @@ export function preferredAccel(host: Host, kvmOpens: boolean): Accel {
   return 'tcg'
 }
 
-export function accelArgs(accel: Accel): string[] {
+export function accelArgs(accel: Accel, guest: Guest = 'x86_64'): string[] {
   if (accel === 'kvm' || accel === 'hvf') return ['-accel', accel, '-cpu', 'host']
-  if (accel === 'whpx') return ['-accel', 'whpx', '-cpu', 'max']
+  if (accel === 'whpx') return ['-accel', 'whpx', '-cpu', guest === 'aarch64' ? 'host' : 'max']
   return ['-accel', 'tcg,thread=multi', '-cpu', 'max']
 }
 

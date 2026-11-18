@@ -10,7 +10,8 @@ import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
-  accelArgs, bundledFirmware, findQemu, HOST, missingFeatures, preferredAccel, spawnDetached, type Accel, type Host, type Qemu,
+  accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
+  type Accel, type Guest, type Host, type Qemu,
 } from './host.ts'
 import { CHECKOUT, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
@@ -36,17 +37,10 @@ export class Machine {
   static readonly DIST = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/iso'
   static readonly MOUNT_TAG = 'acdev'
   static readonly SHARE = '/mnt/acdev'
-  static readonly FIRMWARE: readonly (readonly [string, string])[] = [
-    ['/usr/share/OVMF/OVMF_CODE_4M.fd', '/usr/share/OVMF/OVMF_VARS_4M.fd'],
-    ['/usr/share/edk2/x64/OVMF_CODE.4m.fd', '/usr/share/edk2/x64/OVMF_VARS.4m.fd'],
-    ['/usr/share/edk2/ovmf/OVMF_CODE.fd', '/usr/share/edk2/ovmf/OVMF_VARS.fd'],
-    ['/usr/share/OVMF/OVMF_CODE.fd', '/usr/share/OVMF/OVMF_VARS.fd'],
-    ['/usr/share/qemu/edk2-x86_64-code.fd', '/usr/share/qemu/edk2-i386-vars.fd'],
-  ]
   readonly dir: string
   readonly env: NodeJS.ProcessEnv
   readonly host: Host
-  static readonly GUEST = 'x86_64'
+  readonly guest: Guest
   static readonly ROOT = CHECKOUT
   static readonly DEVD = '/usr/local/bin/acdevd'
   static readonly HOTPLUG = ['rp1', 'rp2'] as const
@@ -57,6 +51,7 @@ export class Machine {
   constructor(env: NodeJS.ProcessEnv = process.env, host: Host = HOST) {
     this.env = env
     this.host = host
+    this.guest = guestArch(host, env)
     const local = host.platform === 'win32' ? env['LOCALAPPDATA'] : undefined
     const data = env['XDG_DATA_HOME'] || local || join(homedir(), '.local', 'share')
     this.dir = resolve(env['ACDEV_VM_DIR'] || join(data, 'acdev', 'vm'))
@@ -93,7 +88,7 @@ export class Machine {
   }
 
   qemu(): Qemu {
-    return findQemu({ host: this.host, env: this.env }, Machine.GUEST)
+    return findQemu({ host: this.host, env: this.env }, this.guest)
   }
 
   get key(): string {
@@ -160,15 +155,17 @@ export class Machine {
   async fetch(say: (line: string) => void): Promise<string> {
     const dist = (this.env['ACDEV_VM_DIST'] || Machine.DIST).replace(/\/+$/, '')
     mkdirSync(this.images, { recursive: true })
-    const name = (await Machine.#text(`${dist}/latest-qcow2`)).trim()
-    if (!/^[\w.-]+\.qcow2$/.test(name)) throw new Error(`vm: ${dist}/latest-qcow2 names no qcow2 image (${name})`)
+    const pointer = `${dist}/${Machine.latestName(this.guest)}`
+    const name = (await Machine.#text(pointer)).trim()
+    if (!/^[\w.-]+\.qcow2$/.test(name) || !name.includes(this.guest)) throw new Error(`vm: ${pointer} names no ${this.guest} qcow2 image (${name})`)
     const file = join(this.images, name)
     if (existsSync(file)) say(`${name} is already here`)
     else await this.#download(`${dist}/${name}`, file, say)
-    writeFileSync(join(this.images, 'latest'), `${name}\n`)
+    writeFileSync(join(this.images, this.#latestFile()), `${name}\n`)
+    if (this.guest !== 'x86_64' || this.host.platform === 'win32') return file
     const latest = join(this.images, 'latest.qcow2')
     rmSync(latest, { force: true })
-    if (this.host.platform !== 'win32') symlinkSync(name, latest)
+    symlinkSync(name, latest)
     return file
   }
 
@@ -204,10 +201,10 @@ export class Machine {
     const code = this.env['OVMF_CODE']
     const vars = this.env['OVMF_VARS']
     if (code && vars) return [code, vars]
-    const system = this.host.platform === 'linux' ? Machine.FIRMWARE : []
+    const system = this.host.platform === 'linux' ? SYSTEM_FIRMWARE[this.guest] : []
     const found = system.find(([c, v]) => existsSync(c) && existsSync(v))
     if (found) return found
-    const bundled = bundledFirmware(this.host, this.qemu(), Machine.GUEST)
+    const bundled = bundledFirmware(this.host, this.qemu(), this.guest)
     if (bundled.every((file) => existsSync(file))) return bundled
     throw new Error(`vm: no UEFI firmware: install OVMF (ovmf / edk2-ovmf), or QEMU's own ${bundled.join(' and ')}, or set OVMF_CODE and OVMF_VARS`)
   }
@@ -260,12 +257,13 @@ export class Machine {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
     const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
-    const gpu = ['-device', `${options.gl ? 'virtio-vga-gl' : 'virtio-vga'},id=${Machine.GPU}${heads}`]
+    const devices = guestDevices(this.guest, accel)
+    const gpu = ['-device', `${options.gl ? devices.gpuGl : devices.gpu},id=${Machine.GPU}${heads}`]
     const shown = ['-display', this.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
-      '-name', 'acdev', '-machine', 'q35', ...accelArgs(accel),
+      '-name', 'acdev', '-machine', devices.machine, ...accelArgs(accel, this.guest),
       '-smp', this.env['ACDEV_VM_CPUS'] || '4', '-m', this.env['ACDEV_VM_MEMORY'] || '8G',
       '-drive', `if=pflash,format=raw,readonly=on,file=${code}`,
       '-drive', `if=pflash,format=raw,file=${join(this.dir, 'vars.fd')}`,
@@ -311,8 +309,8 @@ export class Machine {
   #refuse(options: StartOptions): void {
     if (options.gl && options.display && options.display !== 'window') throw new Error('vm: --gl needs a window')
     if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
-    if (this.host.platform === 'darwin' && this.host.arch === 'arm64') {
-      throw new Error('vm: Apple silicon runs only an aarch64 guest, which acdev does not start yet (work item 04)')
+    if (this.host.platform === 'darwin' && this.host.arch === 'arm64' && this.guest !== 'aarch64') {
+      throw new Error('vm: Apple silicon runs only an aarch64 guest (unset ACDEV_VM_ARCH)')
     }
     if (this.host.platform === 'win32' && options.share) throw new Error('vm: --share needs 9p, which QEMU on Windows does not have; use acdev vm push')
     const viewer = options.display === 'viewer' || (options.display === 'none' && (options.outputs ?? 1) > 1)
@@ -457,20 +455,21 @@ export class Machine {
   }
 
   devdBinary(): string {
-    if (this.host.platform === 'linux') {
+    if (this.host.platform === 'linux' && guestArch(this.host) === this.guest) {
       const binary = Devd.binary(Machine.ROOT, this.env)
       Devd.checkVersion(binary, Machine.ROOT)
       return binary
     }
     const given = this.env['ACDEV_DEVD']
     if (!given || !existsSync(given)) {
-      throw new Error(`vm: set ACDEV_DEVD to an acdevd built for the guest (Linux ${Machine.GUEST}): on Linux, cargo build --release `
-        + 'in crates/devd (or --target x86_64-unknown-linux-musl elsewhere); this host cannot run or build it for the guest')
+      throw new Error(`vm: set ACDEV_DEVD to an acdevd built for the guest (Linux ${this.guest}): on Linux, cargo build --release `
+        + `in crates/devd (or --target ${this.guest}-unknown-linux-musl elsewhere); this host cannot run or build it for the guest`)
     }
     return given
   }
 
   async checkCpu(): Promise<void> {
+    if (this.guest !== 'x86_64') return
     const cpuinfo = await this.exec('cat /proc/cpuinfo', 60_000)
     const missing = missingFeatures(cpuinfo.stdout.toString())
     if (missing.length > 0) {
@@ -540,7 +539,7 @@ export class Machine {
     const entries = '/boot/loader/entries/*.conf /efi/loader/entries/*.conf /boot/efi/loader/entries/*.conf'
     const done = await this.exec(`for f in ${entries}; do [ -f "$f" ] || continue; `
       + 'sed -i -e "/^options /s/ console=[^ ]*//g" -e "/^options /s/ loglevel=6//g" '
-      + '-e "s/^options .*/& console=tty0 console=ttyS0,115200 loglevel=6/" "$f"; echo "$f"; done', 60_000)
+      + `-e "s/^options .*/& console=tty0 console=${guestDevices(this.guest, 'tcg').console},115200 loglevel=6/" "$f"; echo "$f"; done`, 60_000)
     if (done.code !== 0) throw new Error(`vm: console: ${done.stderr.toString().trim()}`)
     return done.stdout.toString().trim().split('\n').filter(Boolean)
   }
@@ -560,11 +559,19 @@ export class Machine {
     return existsSync(base) ? readFileSync(base, 'utf8').trim() || null : null
   }
 
+  static latestName(guest: Guest): string {
+    return guest === 'x86_64' ? 'latest-qcow2' : `latest-qcow2-${guest}`
+  }
+
+  #latestFile(): string {
+    return this.guest === 'x86_64' ? 'latest' : `latest-${this.guest}`
+  }
+
   image(): string | null {
-    const named = join(this.images, 'latest')
+    const named = join(this.images, this.#latestFile())
     if (existsSync(named)) return join(this.images, readFileSync(named, 'utf8').trim())
     const latest = join(this.images, 'latest.qcow2')
-    return existsSync(latest) ? join(this.images, readlinkSync(latest)) : null
+    return this.guest === 'x86_64' && existsSync(latest) ? join(this.images, readlinkSync(latest)) : null
   }
 }
 
