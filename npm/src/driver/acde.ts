@@ -22,7 +22,7 @@ import {
   type NetworkOptions, type PermissionDecision, type PermissionPrompt, type Permissions, type PromptMatch,
   type QueryOptions, type QueryResult, type RequestEntry, type RouteOptions, type RouteResponse, type Shot,
   type Snapshot, type SnapshotOptions, type Step, type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions,
-  type Web,
+  type Web, type WebList,
 } from './types.ts'
 
 export * from './types.ts'
@@ -253,9 +253,13 @@ export class Acde {
   }
 
   async webs(): Promise<Web[]> {
-    const webs = ((await this.#request('webs')) as { webs?: Web[] } | null)?.webs
-    if (!Array.isArray(webs)) throw new Error('acdev runtime answered webs without a list')
-    return webs
+    return [...(await this.webList()).webs]
+  }
+
+  async webList(): Promise<WebList> {
+    const answer = (await this.#request('webs')) as { webs?: Web[]; locked?: unknown } | null
+    if (!Array.isArray(answer?.webs)) throw new Error('acdev runtime answered webs without a list')
+    return { webs: answer.webs, locked: typeof answer.locked === 'boolean' ? answer.locked : null }
   }
 
   async devtools(): Promise<unknown> {

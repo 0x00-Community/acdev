@@ -115,8 +115,8 @@ export class Tools {
     try {
       switch (command) {
         case 'webs': {
-          const webs = await acde.webs()
-          console.log(Format.webs(webs))
+          const { webs, locked } = await acde.webList()
+          console.log(Format.webs(webs, locked))
           for (const line of await Approvals.waiting(acde, Tools.ANSWER)) console.log(line)
           return 0
         }

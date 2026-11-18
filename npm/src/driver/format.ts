@@ -47,14 +47,16 @@ export class Format {
     return `${prompt.app} waits for approval of ${prompt.capability}: ${how}`
   }
 
-  static webs(webs: readonly Web[]): string {
+  static webs(webs: readonly Web[], locked: boolean | null = null): string {
+    const marked = webs.some((w) => w.lock !== undefined)
     const rows = [
-      ['NAME', 'KIND', 'APP', 'WINDOW', 'TITLE'],
-      ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), w.title ?? '']),
+      ['NAME', 'KIND', 'APP', 'WINDOW', ...(marked ? ['LOCK'] : []), 'TITLE'],
+      ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), ...(marked ? [w.lock ? 'lock' : '-'] : []), w.title ?? '']),
     ]
     const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)))
     const row = (r: string[]) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join('  ')
-    return rows.map((r) => row(r).trimEnd()).join('\n')
+    const table = rows.map((r) => row(r).trimEnd()).join('\n')
+    return locked === null ? table : `${table}\nlocked: ${locked ? 'yes (the lock page is up)' : 'no'}`
   }
 
   static node(n: InspectNode): string {

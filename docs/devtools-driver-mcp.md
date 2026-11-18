@@ -10,6 +10,8 @@
 `/run/user/<uid>/acde/dev.sock`, 见 `docs/devd.md`), 在隧道上建 `DevClient` (`DevClient.over`, 收任何 `Duplex`), 先发
 `{type: 'hello', role: 'dev'}`, 之后和宿主同样一行一个 JSON. 会话记录是 `Sessions.guest()` (`endpoint` 为 `vm`, `pid` 0, `desktop` 为 `vm`);
 `Sessions.pins` 判断钉住的是不是它. `acdev stop --session vm` 报错 (会话随用户注销结束, `acdev vm stop` 停客户机).
+`webs` 在客户机里的回答多一个顶层 `locked` (有没有锁屏进程), 锁屏页那一行带 `lock: true` (`Acde.webList` 都留着, `webs()` 只给列表);
+`Format.webs` 在有页面带 `lock` 时多一列 LOCK, 回答带 `locked` 时表下多一行 `locked: yes|no`; 宿主上两者都没有, 输出不变. 命令行和 MCP 同一份.
 `screen` 在客户机会话里不带 `path` (宿主路径在客户机里写不了), 管家回 `{png: <base64>, width, height}`, acdev 解码后写到宿主路径
 (`Acde.screen`, 命令行和 MCP 同经它); 宿主会话照旧让运行时写文件.
 和宿主不同的回答: 客户机的 `input` 回 `{done, textSkipped}` (窗口管理器注入, 见 acdes `docs/manager.md`), 不是 act 回答; `Acde.inputResult` 两种都认,

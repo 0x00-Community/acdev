@@ -332,6 +332,15 @@ Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000)
       'desktop        desktop  -      0        Dopame',
       'vault#1048576  app      vault  1048576  文库',
     ].join('\n'))
+    expect(Format.webs([
+      { name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Dopame', lock: false },
+      { name: 'lock', app: null, kind: 'desktop', window: 2, title: 'Lock', lock: true },
+    ], true)).toBe([
+      'NAME     KIND     APP  WINDOW  LOCK  TITLE',
+      'desktop  desktop  -    0       -     Dopame',
+      'lock     desktop  -    2       lock  Lock',
+      'locked: yes (the lock page is up)',
+    ].join('\n'))
     expect(slug('vault#1048576')).toBe('vault#1048576')
     expect(slug('a/b:c')).toBe('a-b-c')
   })

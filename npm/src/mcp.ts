@@ -880,9 +880,9 @@ export class Mcp {
   }
 
   static async #webs(acde: Acde): Promise<string> {
-    const webs = await acde.webs()
+    const { webs, locked } = await acde.webList()
     const waiting = await Approvals.waiting(acde, ANSWER)
-    return [Format.webs(webs), ...waiting].join('\n')
+    return [Format.webs(webs, locked), ...waiting].join('\n')
   }
 
   static #entries<T>(page: DevPage<T>, line: (entry: T) => string): Result {

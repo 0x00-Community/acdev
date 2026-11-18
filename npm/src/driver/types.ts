@@ -7,6 +7,12 @@ export interface Web {
   readonly kind: string
   readonly window: number
   readonly title: string | null
+  readonly lock?: boolean
+}
+
+export interface WebList {
+  readonly webs: readonly Web[]
+  readonly locked: boolean | null
 }
 
 export interface Shot {
