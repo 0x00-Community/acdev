@@ -196,13 +196,13 @@ describe('release.yml', () => {
     expect(LOCK).not.toContain('mirrors.cloud.tencent.com')
   })
 
-  test('every job runs on the x86_64-debian runners themselves, in no container; Apple silicon builds on .210', () => {
+  test('every job runs on the x86_64-debian runners themselves, in no container; Apple silicon on aarch64-debian', () => {
     for (const [id, job] of Object.entries(jobs)) {
       expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe(id === 'build' ? '${{ matrix.runner }}' : 'x86_64-debian')
       expect((job as Job & { container?: string }).container).toBeUndefined()
     }
     expect(jobs['build']!.strategy!.matrix.include.map((leg) => [leg['triple'], leg['runner']])).toEqual([
-      ['aarch64-apple-darwin', 'aarch64-debian-210'], ['x86_64-apple-darwin', 'x86_64-debian'],
+      ['aarch64-apple-darwin', 'aarch64-debian'], ['x86_64-apple-darwin', 'x86_64-debian'],
       ['x86_64-unknown-linux-gnu', 'x86_64-debian'], ['x86_64-pc-windows-msvc', 'x86_64-debian'],
     ])
     expect(runs('build')).toContain('aarch64) f=cargo-zigbuild-aarch64-unknown-linux-gnu.tar.xz')

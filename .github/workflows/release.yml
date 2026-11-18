@@ -137,14 +137,14 @@ jobs:
           echo "targets=${left#,}" | tee -a "$GITHUB_OUTPUT"
 
   # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
-  # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on the aarch64 runner of .210 (user)
+  # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on any aarch64-debian runner (user)
   build:
     needs: plan
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { triple: aarch64-apple-darwin, cross: zigbuild, runner: aarch64-debian-210 }
+          - { triple: aarch64-apple-darwin, cross: zigbuild, runner: aarch64-debian }
           - { triple: x86_64-apple-darwin, cross: zigbuild, runner: x86_64-debian }
           - { triple: x86_64-unknown-linux-gnu, cross: '', runner: x86_64-debian }
           - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, runner: x86_64-debian }
