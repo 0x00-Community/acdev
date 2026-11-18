@@ -10,9 +10,9 @@
   不起 acdev runtime; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
 - acdev runtime 的 stderr: 默认经管道逐行转出, 只丢运行时自己的 info 及以下日志, 开发者的代码打的和关于应用的事都留下 (`DevSession.keeps`).
   运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (libacde `src/log`). 留下: 不是这种格式的行 (panic、多行消息
-  的后续行)、任何目标的 `W` / `E`、目标 `js` 的任何级别 (页面的 `console.*`, 消息里没有页面名)、目标 `acde::child` / `acde::backends`
-  里消息以 `[` 开头的 `I` 行 (后端和桌面服务进程的输出 `[<app>#backend] …` / `[<服务>] …`; 走 `spawnBackend` 的是 `acde::backends`,
-  走 `spawn` 的是 `acde::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by a runtime that is gone`)、目标 `acde_host` 的 `I` 行
+  的后续行)、任何目标的 `W` / `E`、目标 `js` 的任何级别 (页面的 `console.*`, 消息里没有页面名)、目标 `acde::host::child` / `acde::host::backends`
+  里消息以 `[` 开头的 `I` 行 (后端和桌面服务进程的输出 `[<app>#backend] …` / `[<服务>] …`; 走 `spawnBackend` 的是 `acde::host::backends`,
+  走 `spawn` 的是 `acde::host::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by a runtime that is gone`)、目标 `acde_host` 的 `I` 行
   (宿主讲应用发生了什么: 后端 `started (pid …, port …)` / `stopped`、重载后的 `acdev dev: state restored`、页面的 `alert:`、`waits for the user
   to allow "camera"` 这类待答的批准、`color scheme: …`), 但不含每次都有的生命周期行 (`DevSession.LIFECYCLE`: `startup: …`、`broker started (…)`、
   `ended (…), exit N` / `session <kind>, exit N`). 其余目标的 `I` (GPU、监听地址、`acdev dev: reload <id>`, acdev dev 自己打 `rebuilt …, reloading`)

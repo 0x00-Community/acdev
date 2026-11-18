@@ -67,7 +67,7 @@ export class DevSession {
   static readonly RECORD = /^\d+\.\d{3} ([EWIDT]) \S+ (\S+): (.*)$/
   static readonly PAGE = 'js'
   static readonly HOST = 'acde_host'
-  static readonly PROCESSES: ReadonlySet<string> = new Set(['acde::child', 'acde::backends'])
+  static readonly PROCESSES: ReadonlySet<string> = new Set(['acde::host::child', 'acde::host::backends'])
   static readonly LIFECYCLE = /^(?:startup: |broker started \(|(?:ended \(.*\)|session \S+), exit -?\d+$)/
 
   static keeps(line: string): boolean {

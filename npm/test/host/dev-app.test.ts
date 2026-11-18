@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/client'
@@ -11,6 +11,9 @@ const APP = join(import.meta.dir, '../fixtures/host/hello')
 const RUNTIME = process.env['ACDEV_RUNTIME'] ?? ''
 const WANTED = process.env['ACDEV_HOST_E2E'] === '1'
 const START_MS = 120_000
+const KEEP = process.env['ACDEV_HOST_KEEP'] === '1'
+
+setDefaultTimeout(60_000)
 
 const skip = skipping(!WANTED || !RUNTIME, 'host e2e: set ACDEV_HOST_E2E=1 and ACDEV_RUNTIME to a real acdev runtime (bun run test:host)')
 
@@ -73,7 +76,8 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
       await Promise.race([dev.exited, Bun.sleep(10_000)])
       if (dev.exitCode === null) dev.kill('SIGKILL')
     }
-    cleanup()
+    if (KEEP) console.warn(`kept the scratch directory with dev.out.log and dev.err.log: ${home}`)
+    else cleanup()
   })
 
   test('acdev webs lists the one page of the app', async () => {
@@ -124,7 +128,8 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
   test('a backend crash shows in the acdev dev log and the backend comes back', async () => {
     const before = await backendPid()
     await page("fetch('/api/crash').then(() => 'answered', () => 'failed')")
-    const log = await devLog('[hello-backend#backend] stopped (exit 3); starting it again')
+    await devLog('[hello-backend#backend] stopped (exit 3); starting it again')
+    const log = await devLog('hello-backend crashes on purpose')
     expect(log).toContain('hello-backend crashes on purpose')
     expect(log).toContain('[hello-backend#backend] stopped (exit 3); starting it again')
     const deadline = Date.now() + 20_000
@@ -158,12 +163,15 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
 
   test('route answers the page fetch after a reload; network lists it; unroute takes it away', async () => {
     const id = await driver!.route('/api/hello', { json: { hello: 'routed' } })
-    await driver!.reload('hello-backend')
-    expect(await settle("document.querySelector('#status').textContent", 'backend says routed')).toBe('backend says routed')
-    const requests = await driver!.network({ web: 'hello-backend' })
-    expect(requests.entries.some((r) => r.url.endsWith('/api/hello'))).toBe(true)
-    expect(await driver!.unroute(id)).toEqual({ removed: 1, left: 0 })
-  })
+    try {
+      await driver!.reload('hello-backend')
+      expect(await settle(status, 'backend says routed', 30_000)).toBe('backend says routed')
+      const requests = await driver!.network({ web: 'hello-backend' })
+      expect(requests.entries.some((r) => r.url.endsWith('/api/hello') && r.mocked === true)).toBe(true)
+    } finally {
+      expect(await driver!.unroute(id)).toEqual({ removed: 1, left: 0 })
+    }
+  }, START_MS)
 
   test('clock takes over the page time; emulate turns on dark mode', async () => {
     const state = await driver!.clock('hello-backend', { action: 'install', time: 0 })
