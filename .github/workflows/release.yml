@@ -236,6 +236,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "XWIN_INCLUDE_ATL=true" >> "$GITHUB_ENV"
+          echo "XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
       - name: cargo-zigbuild, zig and the macOS SDK (macOS from Linux)
         if: env.BUILD == 'true' && matrix.cross == 'zigbuild'
         shell: bash
@@ -277,7 +278,7 @@ jobs:
         with:
           key: dist-${{ matrix.triple }}
           workspaces: acdev -> target
-          cache-directories: ~/.cache/cargo-xwin
+          cache-directories: ~/.cache/cargo-xwin-atl
       - name: the release version into Cargo.toml and package.json (not committed)
         if: env.BUILD == 'true'
         run: sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev

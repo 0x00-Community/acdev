@@ -155,3 +155,11 @@ permission denied`; Windows 的作业收尾时也有同样的报错. 判断是�
 同一个 action 在一个作业里第二次准备时要覆盖它们, 就失败了. 没查到 act_runner 对此的说明或更正的版本 (只查到别处相同的现象: 拷贝或覆盖只读的 pack
 文件失败), 所以在工作流里绕开, 不动执行机: build 把 runtime 和调试信息放进一个产物、只上传一次; `pkgs` 用一个 `pattern` 下载两类产物.
 以后加步骤时, 同一个作业里同一个远程 action (`uses: http://...`) 只出现一次; 本仓库的本地 action (`./acdev/.github/actions/...`) 不受影响.
+
+## Windows 构建的 xwin 缓存按是否含 ATL 分开 (2026-11-18)
+
+`mach-dxcompiler-rs` 0.1.4 的静态 DXC 要链 MSVC 的 ATL (`atls.lib`). build 作业给 cargo-xwin 设了 `XWIN_INCLUDE_ATL=true`, 但
+cargo-xwin 的缓存目录 (默认 `~/.cache/cargo-xwin`) 不随这个开关区分, 下载过的 CRT 和 SDK 有就直接用. ci-debian 执行机是宿主模式,
+`~` 是 cicd 用户真实的家目录, 各作业共用: tools 作业里 acdev-relay 用 cargo-xwin 时不带 ATL, 先在 243 上填了这个目录, run 2545 的
+Windows 构建落到 243 后就沿用了不含 ATL 的缓存, 链接时报 `lld-link: error: could not open 'atls.lib'`. 所以 build 作业另设
+`XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl` (rust-cache 的 `cache-directories` 跟着改), tools 仍用默认目录, 两边不再混用.
