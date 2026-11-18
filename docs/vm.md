@@ -34,8 +34,14 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
   x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
 - 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」).
-- QMP 和 guest agent 和别的平台一样是 `run/` 下的 Unix 套接字 (`%LOCALAPPDATA%\acdev\vm\run\qmp.sock`、`qga.sock`): QEMU 8.2 在
-  Windows 上支持 AF_UNIX (`util/qemu-sockets.c` 的 `unix_listen_saddr` 不排除 `_WIN32`, `include/sysemu/os-win32.h` 引入 `afunix.h`);
+- QMP 和 guest agent 和别的平台一样是 Unix 套接字, 但 Windows 上不放在 `run/` 下, 而放在 `%TEMP%\acdev-<目录哈希 12 位>\` (`qmp.sock`、
+  `qga.sock`, 端口转发选 unix 时还有 `devd.sock`; `Machine.sockets`), 镜像、覆盖盘等大文件仍在 `ACDEV_VM_DIR`. 原因: 2026-11-18
+  acdev-test 实测, 默认目录 `%LOCALAPPDATA%\acdev\vm` 下 QEMU 能建套接字, 但 connect 报 10022 (WSAEINVAL); `%TEMP%`、`C:\acdev-test` 等处
+  正常, `%LOCALAPPDATA%` 下任何新建的子目录都不行. 别人也撞上过, 都没查到根因: try-omarchy-windows 的 QMP 套接字同样在 `%LOCALAPPDATA%` 下报
+  WSAEINVAL, 改放 `os.TempDir()` 解决 (https://github.com/omacom/try-omarchy-windows/issues/140 ); zed-industries/delta-claude 的
+  `%LOCALAPPDATA%\Delta` 下也是 10022 (https://github.com/zed-industries/delta-claude/issues/37 ). 原因〔未核实〕; 路径长度不是 (sun_path 上限
+  108 字节, 失败的路径比能用的 `C:\Users\…\acdevc` 长不了多少), `%TEMP%` 本身也在 `%LOCALAPPDATA%` 下却能用.
+  连接时遇到 10022 (或 `EINVAL`) 不再等满 `--wait` 的 300 秒: guest agent 的等待 (`GuestAgent.ping`) 直接报错, 说是哪个套接字.
   Windows 从 10 1803 起支持 AF_UNIX (微软 https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/ ), 而 WHPX 本来就要 2004.
   Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 AF_UNIX (Node 文档 net「IPC support」), 所以每次连接起一个 `acdev-relay`
   (`crates/relay`, 只用 std 加 `uds_windows`), 它把标准输入输出接到这个套接字上, 做法同 `acdevd connect`; 找它用 `ACDEV_RELAY`, 否则
@@ -44,7 +50,7 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
     不用 QEMU 的命名管道 (`-chardev pipe`): 8.2.2 的 `chardev/char-pipe.c` 只开一个实例, 初始化时阻塞到第一个客户端连上
     (`GetOverlappedResult(…, TRUE)`), 断开后不再接新连接; 不用 TLS 预共享密钥: Bun 1.4.4 的 `tls.connect` 不支持 `pskCallback`
     (2026-11-18 acdev-test 实测, TLS 1.2、1.3 都失败).
-  - 别的用户连不上靠的是 `%LOCALAPPDATA%` 的访问控制 (默认只有本人、SYSTEM 和管理员), 套接字文件继承它〔未核实〕.
+  - 别的用户连不上靠的是 `%TEMP%` (在用户自己的 `AppData\Local\Temp` 下) 的访问控制 (默认只有本人、SYSTEM 和管理员), 套接字文件继承它〔未核实〕.
 - acdevd 要的是客户机 (Linux x86_64) 的程序, Windows、macOS 上既跑不了也编不出它: 不是 Linux 的宿主必须设 `ACDEV_DEVD` 指向一个在 Linux
   上编好的 acdevd (`crates/devd` 里 `cargo build --release`, 或 `--target x86_64-unknown-linux-musl`), 否则 `start` 一开始就报错. 宿主上
   跑不了 `acdevd --version`, 所以版本改在装进客户机后核对: 客户机里的 acdevd 回答的版本和 `crates/devd/Cargo.toml` 不同就报错 (所有平台).

@@ -179,7 +179,11 @@ export class GuestAgent {
         await agent.#channel.call('guest-ping')
         agent.close()
         return true
-      } catch {
+      } catch (error) {
+        const said = (error as Error).message
+        if (/os error 10022|\bEINVAL\b|invalid argument/i.test(said)) {
+          throw new Error(`vm: cannot connect to ${path}: ${said} (a Unix socket there does not work; see docs/vm.md "Windows")`)
+        }
         if (Date.now() > deadline) return false
         await new Promise((resolve) => setTimeout(resolve, 2_000))
       }

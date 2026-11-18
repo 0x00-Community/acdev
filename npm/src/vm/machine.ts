@@ -5,7 +5,7 @@ import {
   rmSync, statSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { createServer } from 'node:net'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
@@ -78,12 +78,18 @@ export class Machine {
     return join(this.logs, 'serial.log')
   }
 
+  get sockets(): string {
+    if (this.host.platform !== 'win32') return this.run
+    const temp = this.env['TEMP'] || this.env['TMP'] || tmpdir()
+    return join(temp, `acdev-${createHash('sha256').update(this.dir).digest('hex').slice(0, 12)}`)
+  }
+
   get qmp(): string {
-    return join(this.run, 'qmp.sock')
+    return join(this.sockets, 'qmp.sock')
   }
 
   get qga(): string {
-    return join(this.run, 'qga.sock')
+    return join(this.sockets, 'qga.sock')
   }
 
   qemu(): Qemu {
@@ -110,7 +116,7 @@ export class Machine {
   async newLink(): Promise<Link> {
     const kind = this.linkKind()
     if (kind === 'vsock') return { kind }
-    if (kind === 'unix') return { kind, path: join(this.run, 'devd.sock') }
+    if (kind === 'unix') return { kind, path: join(this.sockets, 'devd.sock') }
     return { kind, port: await Machine.#freePort() }
   }
 
@@ -292,7 +298,9 @@ export class Machine {
   }
 
   async #freshRun(): Promise<Link> {
-    for (const name of ['qga.sock', 'qmp.sock', 'qemu.pid', 'devd.sock', 'key']) rmSync(join(this.run, name), { force: true })
+    for (const name of ['qemu.pid', 'key']) rmSync(join(this.run, name), { force: true })
+    mkdirSync(this.sockets, { recursive: true })
+    for (const name of ['qga.sock', 'qmp.sock', 'devd.sock']) rmSync(join(this.sockets, name), { force: true })
     const link = await this.newLink()
     writeFileSync(this.linkFile, `${JSON.stringify(link)}\n`)
     writeFileSync(this.key, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 })

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { GuestAgent, monitor, relayed } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
@@ -534,11 +534,14 @@ describe('hosts other than Linux (only the parts that run here)', () => {
 
   test('on Windows QMP and the guest agent are Unix sockets in run/ too; --share and the viewer are refused', async () => {
     const dir = tmp()
-    const machine = new Machine({ ACDEV_VM_DIR: dir, OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, windows)
+    const temp = tmp()
+    const machine = new Machine({ ACDEV_VM_DIR: dir, TEMP: temp, OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, windows)
     const args = machine.args({}, 'whpx', { kind: 'tcp', port: 4003 }).join(' ')
+    expect(dirname(machine.qmp)).toMatch(/[\\/]acdev-[0-9a-f]{12}$/)
+    expect(machine.qmp.startsWith(temp)).toBe(true)
     expect(args).toContain('-accel whpx -cpu max')
-    expect(args).toContain(`-qmp unix:${join(dir, 'run', 'qmp.sock')},server=on,wait=off`)
-    expect(args).toContain(`-chardev socket,path=${join(dir, 'run', 'qga.sock')},server=on,wait=off,id=qga0`)
+    expect(args).toContain(`-qmp unix:${machine.qmp},server=on,wait=off`)
+    expect(args).toContain(`-chardev socket,path=${machine.qga},server=on,wait=off,id=qga0`)
     expect(args).toContain('hostfwd=tcp:127.0.0.1:4003-:5252')
     expect(machine.linkKind()).toBe('tcp')
     await expect(machine.start({ share: 'C:\\src' }, () => undefined)).rejects.toThrow('use acdev vm push')
