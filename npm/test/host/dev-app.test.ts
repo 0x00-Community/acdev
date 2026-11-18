@@ -48,6 +48,7 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     env = {
       ...process.env as Record<string, string>,
       ACDEV_RUNTIME: RUNTIME,
+      ACDEV_BROWSER: 'none',
       XDG_RUNTIME_DIR: runtimeDir,
       XDG_DATA_HOME: join(home, 'data'),
       XDG_CONFIG_HOME: join(home, 'config'),
@@ -83,5 +84,34 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
   test('acdev console shows what the page logged', async () => {
     const ran = await until('the page output in acdev console', ['console'], (read) => read.code === 0 && read.out.includes('hello ready'))
     expect(ran.out).toContain('hello ready')
+  })
+
+  test('acdev devtools serves the page over CDP: /json/list names it and Runtime.evaluate answers from it', async () => {
+    const ran = await acdev(['devtools', 'hello-backend'])
+    expect(ran.code).toBe(0)
+    const address = ran.out.split('\n').find((line) => line.startsWith('devtools://')) ?? ''
+    const ws = new URL(address).searchParams.get('ws') ?? ''
+    const port = Number(ws.split('/')[0]?.split(':')[1])
+    expect(Number.isInteger(port)).toBe(true)
+    const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json() as { id: string; type: string; webSocketDebuggerUrl: string }[]
+    const page = list.find((target) => target.id.startsWith('hello-backend'))
+    expect(page?.type).toBe('page')
+    const socket = new WebSocket(page!.webSocketDebuggerUrl)
+    try {
+      const title = await new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no answer to Runtime.evaluate within 10 s')), 10_000)
+        socket.onerror = () => reject(new Error(`could not connect to ${page!.webSocketDebuggerUrl}`))
+        socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'document.title', returnByValue: true } }))
+        socket.onmessage = (message) => {
+          const answer = JSON.parse(String(message.data)) as { id?: number; result?: { result?: { value?: unknown } } }
+          if (answer.id !== 1) return
+          clearTimeout(timer)
+          resolve(answer.result?.result?.value)
+        }
+      })
+      expect(title).toBe('Hello Backend')
+    } finally {
+      socket.close()
+    }
   })
 })
