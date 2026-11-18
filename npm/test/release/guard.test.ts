@@ -17,13 +17,20 @@ function sha(file: string): string {
 
 const TARGETS = ['x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc']
 
-function pack(root: string, file: string, member: string, text: string, flag: string): void {
-  const stage = join(root, `.${member.replaceAll('/', '_')}`)
-  mkdirSync(join(stage, member, '..'), { recursive: true })
-  writeFileSync(join(stage, member), text)
-  const made = systemTar([flag, file, '-C', stage, member.split('/')[0]!])
+function pack(root: string, file: string, members: readonly string[], text: string, flag: string): void {
+  const stage = join(root, `.${members.join('+').replaceAll('/', '_')}`)
+  for (const member of members) {
+    mkdirSync(join(stage, member, '..'), { recursive: true })
+    writeFileSync(join(stage, member), text)
+  }
+  const made = systemTar([flag, file, '-C', stage, ...new Set(members.map((member) => member.split('/')[0]!))])
   if (made.status !== 0) throw new Error(`tar failed: ${made.stderr}`)
   rmSync(stage, { recursive: true, force: true })
+}
+
+const TOOLS: Readonly<Record<string, { file: string; program: string; flag: string }>> = {
+  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdev-viewer', flag: '-cJf' },
+  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', program: 'acdev-relay.exe', flag: '-czf' },
 }
 
 function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): string {
@@ -35,12 +42,15 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   for (const target of TARGETS) {
     const windows = target.endsWith('-windows-msvc')
     const file = `acdev-runtime-${target}${windows ? '.tar.gz' : '.tar.xz'}`
-    pack(root, join(version, file), runtimeMember || (windows ? 'acdev.exe' : 'acdev runtime'), 'binary', windows ? '-czf' : '-cJf')
+    pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev')], 'binary', windows ? '-czf' : '-cJf')
     lines.push(`${sha(join(version, file))}  ${file}`)
+    const tool = TOOLS[target]!
+    pack(root, join(version, tool.file), [tool.program], 'binary', tool.flag)
+    lines.push(`${sha(join(version, tool.file))}  ${tool.file}`)
   }
-  pack(root, join(version, `acde-host-${VERSION}.tar.gz`), 'app/dist/broker.js', 'export {}\n', '-czf')
-  pack(root, join(version, `acde-api-${VERSION}.tar.gz`), 'package/package.json', '{}', '-czf')
-  for (const file of [`acde-host-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
+  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64'], 'binary', '-czf')
+  pack(root, join(version, `acde-api-${VERSION}.tar.gz`), ['package/package.json'], '{}', '-czf')
+  for (const file of [`acdev-guest-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
     const top = `acdev-${VERSION}`
@@ -106,10 +116,13 @@ describe('release guard', () => {
     expect(made.out).toContain('install.sh: missing from the release')
   }, 180_000)
 
-  test('fails when a build holds anything but acdev runtime, or a target is missing', () => {
+  test('fails when a build holds anything but the acdev runtime, or a target or the guest daemons are missing', () => {
     const wrong = guard(release([], false, 'acdert'))
     expect(wrong.code).toBe(1)
-    expect(wrong.out).toContain('acdev-runtime-x86_64-unknown-linux-gnu.tar.xz: not exactly the one file acdev runtime')
+    expect(wrong.out).toContain('acdev-runtime-x86_64-unknown-linux-gnu.tar.xz: not exactly the files acdev')
+    const guestless = release()
+    rmSync(join(guestless, VERSION, `acdev-guest-${VERSION}.tar.gz`))
+    expect(guard(guestless).out).toContain(`${VERSION}/acdev-guest-${VERSION}.tar.gz: missing from the release`)
     const out = release()
     rmSync(join(out, VERSION, 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz'))
     expect(guard(out).out).toContain(`${VERSION}/acdev-runtime-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
