@@ -20,7 +20,7 @@ pub(crate) struct Server {
     compositor: OnceLock<Compositor>,
     state: Mutex<State>,
     pub broker: Arc<Inbox>,
-    pub gpu: Arc<Gpu>,
+    gpu: Mutex<Arc<Gpu>>,
 }
 
 static SERVER: OnceLock<Server> = OnceLock::new();
@@ -37,6 +37,32 @@ impl Server {
     pub fn send(&self, cmd: Cmd) {
         if let Some(proxy) = self.proxy.get() {
             proxy.send(cmd);
+        }
+    }
+
+    pub fn gpu(&self) -> Arc<Gpu> {
+        self.gpu.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_gpu(&self, gpu: Arc<Gpu>) {
+        *self.gpu.lock().unwrap_or_else(|e| e.into_inner()) = gpu;
+    }
+
+    fn device_changed(&self, host: &dyn Host) {
+        let gpu = self.gpu();
+        if let Some(compositor) = self.compositor() {
+            compositor.release();
+        }
+        let surface = match host.surface(&gpu.instance) {
+            Ok(surface) => surface,
+            Err(e) => return crate::output::gpu::give_up(&format!("the host window surface on the new GPU device: {e}")),
+        };
+        if let Some(compositor) = self.compositor() {
+            compositor.device(gpu.clone(), surface);
+        }
+        let links: Vec<_> = self.state().entries.values().filter_map(|entry| entry.link.clone()).collect();
+        for link in links {
+            link.send(Msg::Device(gpu.clone()));
         }
     }
 
@@ -212,7 +238,13 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
     if let Err(e) = std::thread::Builder::new().name("acde-warm".into()).spawn(acde::render::gpu::warm) {
         log::warn!("offscreen warm-up thread: {e}");
     }
-    let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
+    let server = Server {
+        proxy: OnceLock::new(),
+        compositor: OnceLock::new(),
+        state: Mutex::new(State::default()),
+        broker: Arc::new(Inbox::default()),
+        gpu: Mutex::new(gpu),
+    };
     if SERVER.set(server).is_err() {
         log::error!("host window: already started");
         return 1;
@@ -252,14 +284,14 @@ impl Handler for App {
             state.controls = host.controls();
             log_refresh(state.refresh);
         }
-        let surface = match host.surface(&server.gpu.instance) {
+        let surface = match host.surface(&server.gpu().instance) {
             Ok(surface) => surface,
             Err(e) => {
                 log::error!("host window surface: {e}");
                 return host.exit(1);
             }
         };
-        match compose::start(server.gpu.clone(), surface, size) {
+        match compose::start(server.gpu(), surface, size) {
             Ok((compositor, _)) => _ = server.compositor.set(compositor),
             Err(e) => {
                 log::error!("{e}");
@@ -356,6 +388,7 @@ impl Handler for App {
                 });
                 let _ = reply.send(answer);
             }
+            HostEvent::Cmd(Cmd::Device) => server.device_changed(host),
             HostEvent::Cmd(Cmd::Exit(code)) => host.exit(code),
         }
     }

@@ -65,9 +65,7 @@ impl Presenter {
         render: RenderHandle,
         inbox: Arc<Inbox>,
     ) -> Result<Self, String> {
-        let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
-        let composer = Composer::new(&gpu.shared.device, &gpu.shared.queue);
-        let overrides = Overrides::from(gpu.shared.images.clone());
+        let (vello, composer, overrides) = Self::drawing(&gpu)?;
         Ok(Self {
             gpu,
             vello,
@@ -90,6 +88,29 @@ impl Presenter {
             menu: None,
             menu_closed: false,
         })
+    }
+
+    fn drawing(gpu: &Gpu) -> Result<(Vello, Composer, Overrides), String> {
+        let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
+        let composer = Composer::new(&gpu.shared.device, &gpu.shared.queue);
+        Ok((vello, composer, Overrides::from(gpu.shared.images.clone())))
+    }
+
+    fn renew(&mut self, gpu: Arc<Gpu>) {
+        if Arc::ptr_eq(&gpu, &self.gpu) {
+            return;
+        }
+        match Self::drawing(&gpu) {
+            Ok((vello, composer, overrides)) => {
+                (self.vello, self.composer, self.overrides, self.gpu) = (vello, composer, overrides, gpu);
+                self.targets.clear();
+                self.scratch.clear();
+                self.unpublished.clear();
+                self.render.invalidate();
+                self.dirty = true;
+            }
+            Err(e) => crate::output::gpu::give_up(&format!("window {} on the new GPU device: {e}", self.id)),
+        }
     }
 
     pub fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
@@ -200,12 +221,16 @@ impl Presenter {
                 self.pacer.set_refresh(Some(pace));
             }
             Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
+            Msg::Device(gpu) => self.renew(gpu),
             Msg::Stop => return true,
         }
         false
     }
 
     fn paint(&mut self) {
+        if self.gpu.shared.gone() {
+            return;
+        }
         self.dirty = false;
         let Some(frame) = self.render.frame() else { return };
         if frame.commit == 0 {
@@ -344,7 +369,7 @@ impl Presenter {
             | wgpu::TextureUsages::COPY_DST;
         let texture = acde::gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let page = Arc::new(Page { size, view: view.clone(), texture, straight: true.into() });
+        let page = Arc::new(Page { size, view: view.clone(), texture, straight: true.into(), owner: self.gpu.shared.clone() });
         self.targets.insert(window, page);
         self.unpublished.insert(window);
         view
@@ -425,7 +450,7 @@ impl Presenter {
                 (extent, blurred) = ((1, 1), Vec::new());
                 let mut items = Vec::new();
                 for (j, slot) in slots.iter().enumerate() {
-                    let (Some((b, [sx, sy])), Some((_, drawn)), Some(scene)) = (slot, jobs[j], scenes[j].take()) else { continue };
+                    let (Some((b, [sx, sy])), Some((_, drawn)), Some(mut scene)) = (slot, jobs[j], scenes[j].take()) else { continue };
                     if *b != batch {
                         scenes[j] = Some(scene);
                         continue;
@@ -434,6 +459,8 @@ impl Presenter {
                     extent = (extent.0.max(sx + w), extent.1.max(sy + h));
                     let (sx, sy) = (f64::from(*sx), f64::from(*sy));
                     let place = Affine::translate((sx - f64::from(ox), sy + dy - f64::from(oy)));
+                    // a page drawn before a device loss can still name images of the old device until it draws again
+                    acde::vello::clear_stale_images(&mut scene, &self.gpu.shared);
                     items.push((scene, place, Some(Rect::new(sx, sy, sx + f64::from(w), sy + f64::from(h)))));
                     redrawn += 1;
                 }
@@ -464,6 +491,10 @@ impl Presenter {
         if !over.is_empty() && target.y < top as i32 {
             self.flush(&mut encoder);
             let canvas = self.composer.layer_view(size);
+            let mut over = over;
+            for (scene, _) in &mut over {
+                acde::vello::clear_stale_images(scene, &self.gpu.shared);
+            }
             self.vello.render(over, &mut self.overrides, &canvas, size, Color::TRANSPARENT, Some(&shared))?;
             self.composer.place(&mut encoder, &view, [0, 0], [0, 0], target.xywh());
         }

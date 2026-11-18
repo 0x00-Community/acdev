@@ -51,6 +51,7 @@ pub(crate) struct Page {
     pub view: wgpu::TextureView,
     pub texture: wgpu::Texture,
     pub straight: std::sync::atomic::AtomicBool,
+    pub owner: Arc<acde::gpu::Gpu>,
 }
 
 pub(crate) struct Layer {
@@ -75,6 +76,8 @@ enum Msg {
     Dirty,
     Resized(u32, u32),
     Screenshot(PathBuf, ShotReply),
+    Release(mpsc::SyncSender<()>),
+    Device(Arc<Gpu>, Option<wgpu::Surface<'static>>),
     Stop,
 }
 
@@ -102,6 +105,17 @@ impl Compositor {
         let (reply, got) = mpsc::sync_channel(1);
         self.0.send(Msg::Screenshot(path, reply)).map_err(|_| "the compositor has stopped".to_owned())?;
         got.recv_timeout(SCREENSHOT_WAIT).map_err(|_| "the compositor did not answer".to_owned())?
+    }
+
+    pub fn release(&self) {
+        let (reply, got) = mpsc::sync_channel(1);
+        if self.0.send(Msg::Release(reply)).is_ok() {
+            let _ = got.recv_timeout(SCREENSHOT_WAIT);
+        }
+    }
+
+    pub fn device(&self, gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>) {
+        let _ = self.0.send(Msg::Device(gpu, surface));
     }
 
     pub fn stop(&self) {
@@ -140,8 +154,21 @@ enum Fault {
 }
 
 impl Fault {
-    fn from_env() -> Option<Self> {
-        let fault = match std::env::var("ACDE_HOST_FAULT").ok()?.as_str() {
+    /// `ACDE_HOST_FAULT=<fault>[:<ms>]`: the fault, and when to inject it (that long after the compositor starts; without a
+    /// delay, at the third frame).
+    fn from_env() -> Option<(Self, Option<Duration>)> {
+        let value = std::env::var("ACDE_HOST_FAULT").ok()?;
+        let (name, delay) = match value.split_once(':') {
+            Some((name, ms)) => match ms.parse::<u64>() {
+                Ok(ms) => (name.to_owned(), Some(Duration::from_millis(ms))),
+                Err(_) => {
+                    log::warn!("ACDE_HOST_FAULT: {ms} is not a delay in milliseconds");
+                    return None;
+                }
+            },
+            None => (value, None),
+        };
+        let fault = match name.as_str() {
             "outdated" => Self::Outdated,
             "lost" => Self::Lost,
             "panic" => Self::Panic,
@@ -150,8 +177,15 @@ impl Fault {
                 return None;
             }
         };
-        Some(fault)
+        Some((fault, delay))
     }
+}
+
+struct Parts {
+    output: Option<Output>,
+    offscreen: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    composer: acde::vello::Composer,
 }
 
 struct Thread {
@@ -167,6 +201,7 @@ struct Thread {
     canvas: Option<Canvas>,
     retry_at: Option<Instant>,
     fault: Option<Fault>,
+    fault_due: Option<Instant>,
     draws: u64,
 }
 
@@ -197,6 +232,23 @@ fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) 
 }
 
 pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size: (u32, u32)) -> Result<(Compositor, JoinHandle<()>), String> {
+    let size = (size.0.max(1), size.1.max(1));
+    let Parts { output, offscreen, layout, composer } = parts(&gpu, surface, size)?;
+    let dump = std::env::var_os("ACDE_HOST_DUMP").map(PathBuf::from);
+    let (tx, rx) = mpsc::channel();
+    let pages = HashMap::new();
+    let (fault, fault_due) = match Fault::from_env() {
+        Some((fault, delay)) => (Some(fault), delay.map(|d| Instant::now() + d)),
+        None => (None, None),
+    };
+    let mut thread =
+        Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, fault_due, draws: 0 };
+    let run = move || guarded(|| thread.run(&rx));
+    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(run).map_err(|e| format!("compose thread: {e}"))?;
+    Ok((Compositor(tx), handle))
+}
+
+fn parts(gpu: &Gpu, surface: Option<wgpu::Surface<'static>>, size: (u32, u32)) -> Result<Parts, String> {
     let device = &gpu.shared.device;
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("acde compose"),
@@ -228,7 +280,7 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("acde compose"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
     let output = match surface {
         Some(surface) => {
-            let config = configuration(&gpu, &surface, size)?;
+            let config = configuration(gpu, &surface, size)?;
             {
                 let _lock = gpu.shared.submit_lock();
                 surface.configure(device, &config);
@@ -239,16 +291,8 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
         None => None,
     };
     let offscreen = make_pipeline(device, &pipeline_layout, &module, OFFSCREEN);
-    let dump = std::env::var_os("ACDE_HOST_DUMP").map(PathBuf::from);
-    let (tx, rx) = mpsc::channel();
-    let size = (size.0.max(1), size.1.max(1));
     let composer = acde::vello::Composer::new(device, &gpu.shared.queue);
-    let pages = HashMap::new();
-    let fault = Fault::from_env();
-    let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, draws: 0 };
-    let run = move || guarded(|| thread.run(&rx));
-    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(run).map_err(|e| format!("compose thread: {e}"))?;
-    Ok((Compositor(tx), handle))
+    Ok(Parts { output, offscreen, layout, composer })
 }
 
 fn make_pipeline(device: &wgpu::Device, layout: &wgpu::PipelineLayout, module: &wgpu::ShaderModule, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
@@ -291,7 +335,8 @@ impl Thread {
             }
             for msg in msgs {
                 match msg {
-                    Msg::Page(id, page) => _ = self.pages.insert(id, self.bind(page)),
+                    Msg::Page(id, page) if Arc::ptr_eq(&page.owner, &self.gpu.shared) => _ = self.pages.insert(id, self.bind(page)),
+                    Msg::Page(..) => {}
                     Msg::Remove(id) => _ = self.pages.remove(&id),
                     Msg::Dirty => {}
                     Msg::Resized(w, h) => {
@@ -301,10 +346,31 @@ impl Thread {
                         }
                     }
                     Msg::Screenshot(path, reply) => _ = reply.send(self.screenshot(&path)),
+                    Msg::Release(reply) => {
+                        self.output = None;
+                        let _ = reply.send(());
+                    }
+                    Msg::Device(gpu, surface) => self.renew(gpu, surface),
                     Msg::Stop => return,
                 }
             }
             self.draw();
+        }
+    }
+
+    fn renew(&mut self, gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>) {
+        match parts(&gpu, surface, self.size) {
+            Ok(Parts { output, offscreen, layout, composer }) => {
+                self.gpu = gpu;
+                self.output = output;
+                self.offscreen = offscreen;
+                self.layout = layout;
+                self.composer = composer;
+                self.pages.clear();
+                self.canvas = None;
+                self.retry_at = None;
+            }
+            Err(e) => crate::output::gpu::give_up(&format!("composing on the new GPU device: {e}")),
         }
     }
 
@@ -456,13 +522,23 @@ impl Thread {
     }
 
     fn draw(&mut self) {
+        if self.gpu.shared.gone() {
+            return;
+        }
         let Some(ids) = self.prepare() else { return };
         if self.dump.is_some() && self.dump_at.is_none() {
             self.dump_at = Some(Instant::now() + DUMP_DELAY);
         }
         self.draws += 1;
-        if self.draws == FAULT_AT {
+        let due = match self.fault_due {
+            Some(at) => Instant::now() >= at,
+            None => self.draws == FAULT_AT,
+        };
+        if due && self.fault.is_some() {
             self.inject_fault();
+            if self.fault_due.is_some() {
+                self.fault = None;
+            }
         }
         if self.output.is_none() {
             return;

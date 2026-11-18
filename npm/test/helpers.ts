@@ -1,5 +1,5 @@
 import {
-  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync,
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,6 +19,14 @@ const running = new Set<Child>()
 
 export function tmp(): string {
   const dir = mkdtempSync(join(tmpdir(), 'acde-test-'))
+  scratch.push(dir)
+  return dir
+}
+
+export function runtimeDir(): string {
+  if (process.platform === 'win32') return join(tmp(), 'run')
+  const dir = mkdtempSync('/tmp/acdev-run-')
+  chmodSync(dir, 0o700)
   scratch.push(dir)
   return dir
 }

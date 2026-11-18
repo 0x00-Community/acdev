@@ -20,6 +20,7 @@ pub(crate) enum Cmd {
     HostState(Option<acde::model::WindowState>),
     HostSize([f64; 2]),
     Resize { size: [f64; 2], reply: ResizeReply },
+    Device,
     Exit(i32),
 }
 

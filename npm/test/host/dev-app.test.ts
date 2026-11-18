@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Acde } from '../../src/driver/index.ts'
-import { cleanup, skipping, tmp } from '../helpers.ts'
+import { cleanup, runtimeDir, skipping, tmp } from '../helpers.ts'
 
 const CLI = join(import.meta.dir, '../../src/cli.ts')
 const APP = join(import.meta.dir, '../fixtures/host/hello')
@@ -52,13 +52,12 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     home = tmp()
     project = join(home, 'hello')
     cpSync(APP, project, { recursive: true })
-    const runtimeDir = join(home, 'run')
-    mkdirSync(runtimeDir, { mode: 0o700 })
+    const run = runtimeDir()
     env = {
       ...process.env as Record<string, string>,
       ACDEV_RUNTIME: RUNTIME,
       ACDEV_BROWSER: 'none',
-      XDG_RUNTIME_DIR: runtimeDir,
+      XDG_RUNTIME_DIR: run,
       XDG_DATA_HOME: join(home, 'data'),
       XDG_CONFIG_HOME: join(home, 'config'),
       XDG_CACHE_HOME: join(home, 'cache'),
@@ -269,5 +268,25 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     const back = (await driver!.query({ selector: '#back' })).nodes[0]!
     expect((await driver!.act(back.ref, 'click')).ok).toBe(true)
     expect(await settle('document.title', 'Hello Backend')).toBe('Hello Backend')
+  })
+
+  test('SIGTERM to acdev dev ends the runtime cleanly: the backend is stopped, and acdev dev exits 0', async () => {
+    const backend = await backendPid()
+    await driver?.close()
+    driver = null
+    dev!.kill('SIGTERM')
+    await Promise.race([dev!.exited, Bun.sleep(15_000)])
+    expect(dev!.exitCode).toBe(0)
+    const gone = () => {
+      try {
+        process.kill(backend, 0)
+        return false
+      } catch {
+        return true
+      }
+    }
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline && !gone()) await Bun.sleep(100)
+    expect(gone()).toBe(true)
   })
 })
