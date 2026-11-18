@@ -741,8 +741,15 @@ export class Acde {
     try {
       return await this.#client.request(op, args)
     } catch (error) {
-      throw Acde.unsupported(op, error)
+      if (!this.guest || !Acde.lookAgain(op, error)) throw Acde.unsupported(op, error)
+      return await this.#client.request(op, args)
     }
+  }
+
+  static readonly LOOKS = new Set(['webs', 'snapshot', 'query', 'console', 'network', 'permissions'])
+
+  static lookAgain(op: string, error: unknown): boolean {
+    return Acde.LOOKS.has(op) && error instanceof Error && error.message === 'the page went away'
   }
 
   static unsupported(op: string, error: unknown): unknown {

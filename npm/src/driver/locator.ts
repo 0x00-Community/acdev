@@ -301,14 +301,23 @@ export class Locator {
     return this.#step(`setChecked(${checked})`, () => this.#setChecked(checked, options.timeout))
   }
 
+  static screenPoint({ node, window }: { readonly node: InspectNode; readonly window: InspectWindow }): string {
+    const [wx, wy] = window.rect
+    const [x, y, w, h] = node.rect ?? [0, 0, 0, 0]
+    return `${Math.round(wx + x + w / 2)},${Math.round(wy + y + h / 2)}`
+  }
+
   dragTo(target: Locator, options: Timeout = {}): Promise<ActResult> {
     return this.#step(`dragTo(${target.describe()})`, async () => {
       const ms = this.#timeout(options.timeout)
       const deadline = Date.now() + ms
       for (;;) {
         const left = () => Math.max(0, deadline - Date.now())
-        const to = (await target.#one(left(), () => null)).node.ref
-        const { node } = await this.#one(left(), (n) => (!Locator.visible(n) ? `${Locator.line(n)} is hidden` : n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
+        const onto = await target.#one(left(), () => null)
+        const usable = (n: InspectNode) =>
+          !Locator.visible(n) ? `${Locator.line(n)} is hidden` : n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null
+        const { node, window } = await this.#one(left(), usable)
+        const to = this.scope.acde.guest && onto.window.id !== window.id ? Locator.screenPoint(onto) : onto.node.ref
         const result = await this.scope.acde.act(node.ref, 'drag', to)
         if (result.ok) return result
         if (Date.now() >= deadline) throw new ActError(`${this.describe()}: drag to ${target.describe()}`, result)

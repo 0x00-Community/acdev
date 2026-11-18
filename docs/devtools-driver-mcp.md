@@ -131,7 +131,7 @@
   `AppWindow` 每次用到时在窗口表里重新找; `route` / `waitFor*` 带上它的 web. `Locator` 每次在最新语义树 (`limit: 3000, offscreen: true`) 上重新求、不缓存 ref; 动作要**恰好一个**匹配
   (多个报错, 不猜), click / fill / type / selectOption 还等不 `disabled`, `ok: false` 重试到超时再抛 `ActError`. `getByLabel` 是名字匹配的表单角色
   (textbox、combobox、checkbox …); `getByPlaceholder` / `getByTitle` / `getByAltText` 用 `query` 的 `attributes` 读回属性再比. `check` / `uncheck` /
-  `setChecked` 状态不对才点, 点完等状态变过去; `dragTo(目标)` 每次重新找两边, 发 `act drag`. `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
+  `setChecked` 状态不对才点, 点完等状态变过去; `dragTo(目标)` 每次重新找两边, 发 `act drag` (客户机会话里目标在另一个窗口时, 用目标窗口原点加目标元素 rect 中心算出屏幕坐标 `"x,y"` 发出, 因为源进程量不到别的进程里的元素). `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
   或多个时一直等; `toHaveAttribute` 在父元素下 `query('*')` 带属性找回自己. 语义树的限制在 libacde: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字,
   `<select>` 下拉框是 `combobox` (值是选中项, 打开时下面有 `option`), 列表框是 `listbox` (看得见的行是 `option`); 选值用 `selectOption`
   (走 `act select`, 不经弹出的列表), `click()` 走真的输入, 会打开下拉列表.
@@ -209,3 +209,5 @@
   tsconfig 给 `bun test --tsconfig-override` (`tsconfig.ts`): `extends` 工程最近的 tsconfig.json, `paths` 是它自己的 (顺着 `extends` 链取最近定义的
   `paths` 和 `baseUrl`, 换成绝对路径; 链上可以是相对路径、数组、包) 加上这两个模块, 指向跑测试的这个 acdev (`packageRoot()`, 打包后也对),
   所以 CLI 和 driver 总是同一个版本. 编辑器里的类型还得工程自己装.
+
+**客户机会话里页面没了** (2026-11-20): 不带 ref 的 snapshot、webs、query、console、network、permissions 由管家交给当时的前台进程; 这个进程恰好在请求途中退出 (比如测试刚杀了它) 时回 `the page went away`. driver 对这几种只读请求在客户机会话里再问一次, 这时管家会换一个进程回答; act、eval 这类有副作用的不重试.

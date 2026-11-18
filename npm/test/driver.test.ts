@@ -91,6 +91,21 @@ describe('Locator.match', () => {
 })
 
 describe('Locator composition and input helpers', () => {
+  test('a look whose guest page went away is asked again; an act is not', () => {
+    const gone = new Error('the page went away')
+    check(Acde.lookAgain('snapshot', gone)).toBe(true)
+    check(Acde.lookAgain('act', gone)).toBe(false)
+    check(Acde.lookAgain('snapshot', new Error('no web x'))).toBe(false)
+  })
+
+  test('a drop in another window of the guest goes to the screen point of the target', () => {
+    const rect = [200, 100, 800, 600] as const
+    const shown = { z: 1, focus: false, hidden: false, pid: 50 }
+    const window = { ref: 'w9', id: 9, kind: 'native', app: 'editor', title: 'Editor', mode: 'window', rect, ...shown } as const
+    const node = { ref: 'w9.82', role: 'region', rect: [40, 60, 100, 50] } as const
+    check(Locator.screenPoint({ node, window })).toBe('290,185')
+  })
+
   const node = (ref: string, role: string, name?: string, children?: InspectNode[], states?: string[]): InspectNode => ({ ref, role, ...(name !== undefined && { name }), ...(children && { children }), ...(states && { states }) })
   const tree = [
     node('w1.1', 'listitem', 'Buy milk', [node('w1.2', 'checkbox', 'Done', undefined, ['checked']), node('w1.3', 'button', 'Delete')]),
