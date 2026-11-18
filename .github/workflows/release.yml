@@ -11,7 +11,8 @@ name: release
 # acdev runtime binary. The small programs (acdevd for the guests, acdev-relay for Windows, acdev-viewer for Linux) build in the
 # job tools, beside the build matrix and without waiting for it.
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
-# Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
+# Every job runs on the runner itself (the ci-debian runners have no Docker; their node 20 and npm 9 are enough for the
+# node -p / npm steps, and the CLI smoke test runs with bun): a tool one lacks (awscli) comes from apt with sudo.
 # Gitea reads .github/workflows; the same file also runs on GitHub.
 # Every target builds on the x86_64-debian runners: Linux natively, Windows with cargo-xwin,
 # macOS with cargo-zigbuild and the MacOSX15.5 SDK; no macOS or Windows machine is needed.
@@ -64,7 +65,6 @@ env:
 jobs:
   plan:
     runs-on: x86_64-debian
-    container: node:22-bookworm
     outputs:
       publish: ${{ steps.version.outputs.publish }}
       sha: ${{ steps.version.outputs.sha }}
@@ -418,17 +418,20 @@ jobs:
   pkgs:
     needs: [plan, build, tools]
     runs-on: x86_64-debian
-    container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
       SHA: ${{ needs.plan.outputs.sha }}
       SDK_VERSION: ${{ needs.plan.outputs.version }}
       TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
-      - name: tools from Debian 12
+      - name: tools the runner lacks (sudo apt; skipped when installed)
         run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq xz-utils > /dev/null
+          miss=; for p in jq xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
+          if [ -n "$miss" ]; then
+            s=$(command -v sudo || true)
+            $s apt-get update -qq
+            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
+          fi
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
@@ -526,7 +529,6 @@ jobs:
   guard:
     needs: [plan, pkgs]
     runs-on: x86_64-debian
-    container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
       TARGETS: ${{ needs.plan.outputs.targets }}
@@ -550,7 +552,12 @@ jobs:
             echo "::error::the release is $v but the tag is $TAG"
             exit 1
           fi
-          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends xz-utils > /dev/null
+          miss=; for p in xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
+          if [ -n "$miss" ]; then
+            s=$(command -v sudo || true)
+            $s apt-get update -qq
+            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
+          fi
           bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v" --targets "$TARGETS"
       - name: a preview stops here
         if: needs.plan.outputs.publish != 'true'
@@ -561,7 +568,6 @@ jobs:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
     runs-on: x86_64-debian
-    container: node:22-bookworm
     permissions:
       contents: read
       id-token: write
@@ -569,10 +575,14 @@ jobs:
       TAG: ${{ needs.plan.outputs.tag }}
       TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
-      - name: tools from Debian 12
+      - name: tools the runner lacks (sudo apt; skipped when installed)
         run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
+          miss=; for p in jq awscli; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
+          if [ -n "$miss" ]; then
+            s=$(command -v sudo || true)
+            $s apt-get update -qq
+            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
+          fi
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acdev-release
@@ -688,7 +698,6 @@ jobs:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true'
     runs-on: x86_64-debian
-    container: node:22-bookworm
     env:
       V: ${{ needs.plan.outputs.version }}
       TARGETS: ${{ needs.plan.outputs.targets }}
@@ -701,7 +710,12 @@ jobs:
       - name: the packages
         run: |
           set -eu
-          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends xz-utils > /dev/null
+          miss=; for p in xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
+          if [ -n "$miss" ]; then
+            s=$(command -v sudo || true)
+            $s apt-get update -qq
+            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
+          fi
           rel="$GITHUB_WORKSPACE/out/$V"
           mkdir -p npm
           deps=
@@ -769,7 +783,6 @@ jobs:
     needs: [plan, guard, upload]
     if: needs.plan.outputs.publish == 'true' && needs.upload.result == 'success'
     runs-on: x86_64-debian
-    container: node:22-bookworm
     permissions:
       contents: write
     env:
@@ -807,17 +820,20 @@ jobs:
     needs: [plan, guard, tag]
     if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
     runs-on: x86_64-debian
-    container: node:22-bookworm
     permissions:
       contents: read
       id-token: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
-      - name: tools from Debian 12
+      - name: tools the runner lacks (sudo apt; skipped when installed)
         run: |
-          apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
+          miss=; for p in jq awscli; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
+          if [ -n "$miss" ]; then
+            s=$(command -v sudo || true)
+            $s apt-get update -qq
+            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
+          fi
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acdev-release
