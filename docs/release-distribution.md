@@ -21,7 +21,8 @@ acdev-relay、Linux 的 acdev-viewer)、SDK `acde-api-<版本>.tar.gz`、`acdev`
   (`~/.cache/cargo-xwin`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
   rust-cache 会清掉本工作区包的产物, 依赖的构建脚本输出一般留着, 要看试编的第二次是否还在下载〕. 不用 sccache (它会关掉增量编译, runner 上也没装).
 - 改后的耗时: 待试编后补.
-- aws-lc-sys (rustls 经 aws-lc-rs 带进来的 C 代码) 在交叉编译时要的东西 (aws-lc-rs 文档「Requirements」): 非 FIPS 构建只要 C 编译器, 不要 CMake、
+- aws-lc-sys (rustls 经 aws-lc-rs 带进来的 C 代码) 在交叉编译时要的东西 (aws-lc-rs 文档「Requirements」 https://aws.github.io/aws-lc-rs/requirements/index.html ,
+  Windows 的 https://aws.github.io/aws-lc-rs/requirements/windows.html 、Apple 的 https://aws.github.io/aws-lc-rs/requirements/apple.html ): 非 FIPS 构建只要 C 编译器, 不要 CMake、
   Go、bindgen; Windows x86_64 还要 NASM (`x86_64-pc-windows-msvc`: "The default build needs a C/C++ compiler and NASM"; 没有 NASM 时可用
   `AWS_LC_SYS_PREBUILT_NASM=1` 的预编译对象), 所以 `build` 的交叉作业 apt 装 `nasm`; cargo-xwin 用的是 GNU 驱动模式的 clang, 文档说这样
   "takes GNU-style flags, even when targeting the MSVC ABI", 能不能过〔未核实〕. macOS (zigbuild) 只要 C 编译器, cargo-zigbuild 给 `zig cc`,
