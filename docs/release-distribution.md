@@ -172,7 +172,7 @@ test 运行同时跑时才会).
 
 - 写: 各仓库的 CI 用自己的密钥经 ssh 写 (acdev 的是 secret `ARTIFACTS_UPLOAD_KEY`), 密钥在 .127 上限成 `rrsync -wo /srv/artifacts/<仓库>`
   (只能写, 不能读、列、删). 锚点 `&ssh` 那一步把密钥和 .127 的主机密钥写进 `$RUNNER_TEMP/ssh`, 设 `RSYNC_RSH`; 之后 `rsync -rt … "$TO:<路径>/"`.
-  rrsync 3.5.0 不能覆盖目标位置上同名的已有文件, 所以一律传到目录 (`host:dir/`), 不写 `host:dir/file`.
+  rrsync 3.5.0 不能覆盖目标位置上同名的已有文件, 所以一律传到目录 (`host:dir/`), 不写 `host:dir/file`; rsync 只建目标的最后一级, 所以带 `--mkpath` (rrsync 放行它; run 2583 没带, `<run 号>/build-*/` 建不出来).
 - 读: 不用 http / ftp (用户定), .127 的 `artifacts-tar@` (端口 9127, socket 激活, 沙箱) 读一行相对路径, 回 `tar -C /srv/artifacts -cf - <路径>`:
   `printf 'acdev/<路径>\n' | nc $PULL | tar -x`. 没有认证, 拒绝 `..` 和绝对路径, 不存在的路径回空 (tar 报错, 工作流里吞掉再查目录). 千兆上约 110 MB/s.
 - 布局: release 的 `acdev/<run 号>/` 下 `build-<triple>/` (含 `symbols/`)、`guest/`、`acdev-release/` (发布目录) 和 `run.json`

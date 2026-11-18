@@ -121,7 +121,7 @@ jobs:
           $w expectations check "$LABEL" --platform linux --max 100
       - name: the results to the artifacts host (acdev/test-<run>/wpt-gate)
         if: always()
-        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-gate/"'
+        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --mkpath --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-gate/"'
 
   # full and baseline: four shards one after another (one job stops at Gitea's 3-hour limit)
   wpt:
@@ -152,7 +152,7 @@ jobs:
           if [ "$MODE" = full ]; then $w expectations check "$LABEL" --platform linux --max 100; fi
       - name: the results to the artifacts host (acdev/test-<run>/wpt-shard-<n>)
         if: always()
-        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-shard-${{ matrix.shard }}/"'
+        run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --mkpath --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-shard-${{ matrix.shard }}/"'
 
   # baseline: the shards together, the passing tests twice more, expectations from the three runs
   expectations:
@@ -194,7 +194,7 @@ jobs:
         run: |
           shopt -s nullglob
           set -- expectation[s] results/*/report.md
-          [ $# = 0 ] || rsync -rtR --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/wpt-expectations/"
+          [ $# = 0 ] || rsync -rtR --mkpath --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/wpt-expectations/"
 
   # full and baseline: acde-demo's apps and its regression cells
   demo:
@@ -224,4 +224,4 @@ jobs:
           shopt -s nullglob
           cd acde-demo/apps 2>/dev/null || exit 0
           set -- */.acde/test-results
-          [ $# = 0 ] || rsync -rtR --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/demo-e2e/"
+          [ $# = 0 ] || rsync -rtR --mkpath --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/demo-e2e/"

@@ -246,6 +246,9 @@ describe('cicd.yaml', () => {
     expect(runs('pkgs')).toContain('out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"')
     expect(runs('pkgs')).toContain('nc $PULL | tar -x')
     expect(runs('publish')).toContain("printf 'acdev/%s/acdev-release\\n' \"$GITHUB_RUN_NUMBER\" | nc $PULL | tar -x")
+    for (const line of (TEXT + TEST).split('\n').filter((line) => /^\s*(\[[^\n]*\|\| )?rsync /.test(line) && line.includes('$TO:') && !line.includes('"$TO:"'))) {
+      expect(line).toContain('--mkpath')
+    }
     expect(TEXT + TEST).not.toMatch(/rsync[^\n]*--delete|\$TO:[^\n"]*\/[A-Za-z.]+"$/m)
   })
 
