@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
@@ -243,20 +243,22 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
   })
 
   test('acde:fs gives the declared documents place as a folder of the session, not the real Documents', async () => {
+    const file = `acdev-host-${process.pid}-${Date.now()}.txt`
     const code = `(async () => {
       const { fs } = await import('acde:fs')
       const roots = await fs.roots()
       const documents = roots.find((root) => root.place === 'documents')
-      await fs.writeFile(documents.id, 'acdev-host-test.txt', 'hello places')
-      const text = (await fs.readText(documents.id, 'acdev-host-test.txt')).text
-      return { path: documents.path ?? '', text, private: roots.some((root) => root.source === 'private') }
+      await fs.writeFile(documents.id, '${file}', 'hello places')
+      const text = (await fs.readText(documents.id, '${file}')).text
+      return { text, private: roots.some((root) => root.source === 'private') }
     })()`
-    const answer = (await page(code)) as { path: string; text: string; private: boolean }
+    const answer = (await page(code)) as { text: string; private: boolean }
     expect(answer.text).toBe('hello places')
     expect(answer.private).toBe(true)
-    expect(answer.path).toContain('acdev-places-')
-    expect(answer.path.startsWith(join(homedir(), 'Documents'))).toBe(false)
-    expect(existsSync(join(answer.path, 'acdev-host-test.txt'))).toBe(true)
+    const sessions = readdirSync(tmpdir()).filter((name) => name.startsWith('acdev-places-'))
+    const written = sessions.map((name) => join(tmpdir(), name, 'documents', file)).filter((path) => existsSync(path))
+    expect(written.length).toBe(1)
+    expect(existsSync(join(homedir(), 'Documents', file))).toBe(false)
   })
 
   test('act on a link to another page of the app answers, and the other page loads', async () => {
