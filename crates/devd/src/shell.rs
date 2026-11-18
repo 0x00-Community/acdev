@@ -21,6 +21,7 @@ unsafe extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
     fn setsid() -> i32;
     fn kill(pid: i32, sig: i32) -> i32;
+    fn signal(sig: i32, handler: usize) -> usize;
 }
 
 const O_RDWR: i32 = 0o2;
@@ -29,6 +30,7 @@ const O_CLOEXEC: i32 = 0o2000000;
 const TIOCSWINSZ: u64 = 0x5414;
 const TIOCSCTTY: u64 = 0x540E;
 const SIGHUP: i32 = 1;
+const SIG_DFL: usize = 0;
 const DRAIN: Duration = Duration::from_millis(500);
 
 #[repr(C)]
@@ -122,6 +124,7 @@ fn command(request: &Request, slave: &File) -> io::Result<Command> {
     }
     unsafe {
         command.pre_exec(|| {
+            signal(SIGHUP, SIG_DFL);
             os_error(setsid(), ())?;
             os_error(ioctl(0, TIOCSCTTY, 0), ())
         });
@@ -179,7 +182,7 @@ pub fn run(body: &[u8], mut reader: UnixStream, writer: UnixStream) -> io::Resul
         }
     }
     if !finished.load(Ordering::SeqCst) {
-        unsafe { kill(-(pid as i32), SIGHUP) };
+        crate::serve::end_group(pid, SIGHUP, &finished);
     }
     waiter.join().unwrap_or(Ok(()))
 }

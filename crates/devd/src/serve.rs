@@ -244,9 +244,25 @@ fn watch_hangup(mut reader: UnixStream, pid: u32, finished: Arc<AtomicBool>) -> 
     thread::spawn(move || {
         let mut byte = [0u8; 1];
         if matches!(reader.read(&mut byte), Ok(0) | Err(_)) && !finished.load(Ordering::SeqCst) {
-            unsafe { kill(-(pid as i32), SIGTERM) };
+            end_group(pid, SIGTERM, &finished);
         }
     })
+}
+
+const KILL_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
+
+pub fn end_group(pid: u32, first: i32, finished: &AtomicBool) {
+    unsafe { kill(-(pid as i32), first) };
+    let until = std::time::Instant::now() + KILL_AFTER;
+    while std::time::Instant::now() < until {
+        if finished.load(Ordering::SeqCst) {
+            return;
+        }
+        thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if !finished.load(Ordering::SeqCst) {
+        unsafe { kill(-(pid as i32), SIGKILL) };
+    }
 }
 
 fn signal(body: &[u8], writer: &mut UnixStream) -> io::Result<()> {
