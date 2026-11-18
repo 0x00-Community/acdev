@@ -88,6 +88,12 @@ macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-em
   给它的进程组发 SIGHUP, 回退出码并关闭连接; 宿主先断开时给进程组发 SIGHUP, 3 s 后还没结束就发 SIGKILL.
   子进程在 `exec` 前把 SIGHUP 恢复成默认处理: 忽略的信号处理会跨 `exec` 继承 (Rust 标准库只重置 SIGPIPE), 启动 acdevd 的环境若忽略了 SIGHUP
   (如经 `nohup` 起), 外壳就收不到挂断.
+  `a_hangup_ends_the_shell` 曾在高负载并行时偶发等满 120 s (挂断没结束外壳), 主因待后测确认, 两个候选并列记着:
+  - 忽略 SIGHUP 被继承: 跑测试的环境忽略了 SIGHUP, 外壳与 sleep 照样忽略. 解释得了 120 s 和「SIGTERM 的同类测试照常过」, 解释不了只是偶发.
+  - 挂断早于子进程的 `setsid()`: 那时还没有号等于 pid 的进程组, `kill(-pid, SIGHUP)` 以 ESRCH 落空, 之后 sleep 一直跑. 高负载下 fork 到
+    `pre_exec` 的窗口变长, 和「偶发、只在高负载」对得上. 对照: 标准库的 `spawn` 要等 `exec` 成功 (经带 CLOEXEC 的管道) 才返回, 测试又等到
+    输出 `ready` 才挂断, 按代码读这个窗口在测试里不该出现; 后测时要留意.
+  `end_group` 3 s 后对进程组补发 SIGKILL, 两种情况都兜得住.
 - `K` 给整个进程组发 SIGTERM (或 SIGKILL); 进程组不存在时回错误.
 - 隧道 (`C`、`T`, `src/tunnel.rs`; 客户机调试通道 A1): 只在密钥验证过的连接上可用, 守护进程没有密钥或第一帧不是 `A` 时回
   `a tunnel needs a key`. 回 `O` 之后连接上不再有帧, 守护进程两边各一个线程拷贝字节, 任一方读到结束或出错就把两边都关掉.
