@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { cliEnv, cliFile, cliRuntime, findAcdert, requireAcdert } from '../launcher.mjs'
+import { cliEnv, cliFile, cliRuntime, findRuntime, requireRuntime } from '../launcher.mjs'
 import { cleanup, tmp, WINDOWS } from './helpers.ts'
 
 afterAll(cleanup)
@@ -17,7 +17,7 @@ function binary(path: string): string {
 
 function failure(): string | null {
   try {
-    requireAcdert()
+    requireRuntime()
     return null
   } catch (error) {
     return (error as Error).message
@@ -63,7 +63,7 @@ describe('launcher: where acdert comes from', () => {
   test('ACDEV_RUNTIME wins; one that does not exist is an error, not a silent fallback', () => {
     const mine = binary(join(tmp(), 'mine', `acdert${EXE}`))
     process.env['ACDEV_RUNTIME'] = mine
-    expect(requireAcdert()).toBe(mine)
+    expect(requireRuntime()).toBe(mine)
     process.env['ACDEV_RUNTIME'] = join(tmp(), 'gone')
     expect(failure()).toMatch(/^ACDEV_RUNTIME=.*gone: no such file/)
   })
@@ -72,7 +72,7 @@ describe('launcher: where acdert comes from', () => {
     const dir = tmp()
     binary(join(dir, `acdev${EXE}`))
     process.env['PATH'] = dir
-    expect(() => requireAcdert()).toThrow('acdev dev needs the Dopame runtime')
+    expect(() => requireRuntime()).toThrow('acdev dev needs the Dopame runtime')
   })
 
   test('an installed acdev takes the runtime the installer put in libexec; ACDEV_RUNTIME still wins', () => {
@@ -80,9 +80,9 @@ describe('launcher: where acdert comes from', () => {
     binary(join(root, '..', 'acde-api', 'package.json'))
     const beside = binary(join(root, '..', '..', 'libexec', `acdev${EXE}`))
     const env = { PATH: tmp(), PATHEXT: '.EXE' }
-    expect(requireAcdert(root, env)).toBe(beside)
+    expect(requireRuntime(root, env)).toBe(beside)
     const mine = binary(join(tmp(), `acdev${EXE}`))
-    expect(requireAcdert(root, { ...env, ACDEV_RUNTIME: mine })).toBe(mine)
+    expect(requireRuntime(root, { ...env, ACDEV_RUNTIME: mine })).toBe(mine)
   })
 
   test('nothing found: an English error names where the installer puts it and ACDEV_RUNTIME', () => {
@@ -94,7 +94,7 @@ describe('launcher: where acdert comes from', () => {
     binary(join(root, '..', 'acde-api', 'package.json'))
     let message = ''
     try {
-      requireAcdert(root, { PATH: '' })
+      requireRuntime(root, { PATH: '' })
     } catch (error) {
       message = (error as Error).message
     }
@@ -106,18 +106,18 @@ describe('launcher: where acdert comes from', () => {
     )
   })
 
-  test('findAcdert says where the runtime came from, and what is wrong when it found none', () => {
+  test('findRuntime says where the runtime came from, and what is wrong when it found none', () => {
     const { root } = install()
     binary(join(root, '..', 'acde-api', 'package.json'))
     const beside = binary(join(root, '..', '..', 'libexec', `acdev${EXE}`))
     const mine = binary(join(tmp(), `acdev${EXE}`))
-    expect(findAcdert(root, { ACDEV_RUNTIME: mine })).toEqual({ path: mine, from: 'ACDEV_RUNTIME' })
-    expect(findAcdert(root, {})).toEqual({ path: beside, from: 'install' })
-    const gone = findAcdert(root, { ACDEV_RUNTIME: join(tmp(), 'gone') })
+    expect(findRuntime(root, { ACDEV_RUNTIME: mine })).toEqual({ path: mine, from: 'ACDEV_RUNTIME' })
+    expect(findRuntime(root, {})).toEqual({ path: beside, from: 'install' })
+    const gone = findRuntime(root, { ACDEV_RUNTIME: join(tmp(), 'gone') })
     expect(gone.path).toBeNull()
     expect(gone.from).toBe('ACDEV_RUNTIME')
     expect(gone.problem).toMatch(/^ACDEV_RUNTIME=.*gone: no such file; point ACDEV_RUNTIME at the runtime binary, or unset it$/)
-    expect(findAcdert(checkout(), { PATH: '' })).toEqual({
+    expect(findRuntime(checkout(), { PATH: '' })).toEqual({
       path: null,
       from: null,
       problem: 'acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: '

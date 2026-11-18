@@ -123,7 +123,8 @@ describe('acdev doctor', () => {
     expect(ran.code).toBe(1)
     const report = JSON.parse(ran.stdout) as { ok: boolean; checks: Check[] }
     expect(report.ok).toBe(false)
-    expect(report.checks.map((check) => check.id)).toEqual(expect.arrayContaining(['acdev', 'acdert', 'contract', 'runtime.host', 'runtime.gpu', 'project']))
+    const ids = ['acdev', 'runtime.binary', 'contract', 'runtime.host', 'runtime.gpu', 'project']
+    expect(report.checks.map((check) => check.id)).toEqual(expect.arrayContaining(ids))
     expect(report.checks.find((check) => check.id === 'runtime.gpu')).toEqual({
       id: 'runtime.gpu', title: 'gpu', status: 'error', summary: 'no usable Metal driver was found', fix: 'update the GPU driver',
     })

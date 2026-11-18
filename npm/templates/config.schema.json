@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/dopame-org/acdert/web/packages/acde-api/config.schema.json",
+  "$id": "http://gitea.dopamine/AC/acdev/npm/templates/config.schema.json",
   "title": "acde.config.jsonc",
   "description": "An acde project's configuration: a window app (type app) or a desktop (type desktop); acdev build turns it into the package's package.json manifest",
   "oneOf": [
@@ -179,7 +179,7 @@
           },
           "minItems": 2,
           "maxItems": 2,
-          "description": "The window page's initial size [width, height] in logical pixels, without the frame; default 800x600. In single-app mode (acdert app) it is the initial size of the host window's content area (within the work area)"
+          "description": "The window page's initial size [width, height] in logical pixels, without the frame; default 800x600. In single-app mode (acdev runtime app) it is the initial size of the host window's content area (within the work area)"
         },
         "multiple": {
           "type": "boolean"
@@ -456,7 +456,7 @@
                 },
                 "minItems": 2,
                 "maxItems": 2,
-                "description": "The window page's initial size [width, height] in logical pixels, without the frame; default 800x600. In single-app mode (acdert app) it is the initial size of the host window's content area (within the work area)"
+                "description": "The window page's initial size [width, height] in logical pixels, without the frame; default 800x600. In single-app mode (acdev runtime app) it is the initial size of the host window's content area (within the work area)"
               },
               "multiple": {
                 "type": "boolean"

@@ -1,7 +1,7 @@
 name: test
 
 # Started by hand while the suite settles (see libacde's docs/dev/testing.md); it is meant to run on every push to main later.
-# acdert's web/ is gone (the page files are bundled from libacde/js into the runtime by build.rs, which needs bun): the web job and
+# The old runtime's web/ is gone (the page files are bundled from libacde/js into the runtime by build.rs, which needs bun): the web job and
 # acde-demo's ACDE_APP went with it (2026-11-18); WPT runs without --app (scripts/wpt/run.ts).
 on:
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
           set -eu
           w=libacde/scripts/wpt/wpt.sh
           $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
-          $w run --acdert "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
+          $w run --runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
       - name: check against scripts/wpt/expectations/linux
         run: libacde/scripts/wpt/wpt.sh expectations check "$LABEL" --platform linux --max 100
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -eu
           w=libacde/scripts/wpt/wpt.sh
-          args=(--acdert "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
+          args=(--runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
           if [ "$MODE" = full ]; then args+=(--skip-slow libacde/scripts/wpt/expectations/linux); fi
           $w run "${args[@]}"
       - name: check against scripts/wpt/expectations/linux
@@ -125,8 +125,8 @@ jobs:
           cp "$(ls shards/*/"$LABEL"/meta.json | head -1)" "$WPT_STATE/results/$LABEL/meta.json"
           $w expectations update "$LABEL" --dir "$WPT_STATE/first" > /dev/null
           $w expectations gate --dir "$WPT_STATE/first" --out "$WPT_STATE/gate.json"
-          $w run --acdert "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL-b" --tests "$WPT_STATE/gate.json"
-          $w run --acdert "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL-c" --tests "$WPT_STATE/gate.json"
+          $w run --runtime "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL-b" --tests "$WPT_STATE/gate.json"
+          $w run --runtime "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL-c" --tests "$WPT_STATE/gate.json"
           $w expectations update "$LABEL" "$LABEL-b" "$LABEL-c" --dir "$WPT_STATE/expectations/linux"
           $w report "$LABEL" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)

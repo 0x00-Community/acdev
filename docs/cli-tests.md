@@ -2,7 +2,7 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
-`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`doctor` (假 acdert 扮演有 / 没有 `acdev runtime doctor`、报 GPU 错误、
+`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`doctor` (假运行时 扮演有 / 没有 `acdev runtime doctor`、报 GPU 错误、
 给不出报告、另一个契约级别、起不来的 acdev runtime; 工程的几项; 跑着的 `acdev dev` 里等批准的应用; `acdev dev` 在 acdev runtime 提前退出时的提示; `--fix`:
 不问就修的 skill / `.gitignore` / 会话目录, 不在终端时跳过、`--yes` 才做的工程依赖, `--json`, 去重和拒绝; 重装运行时在 `dist` 里: 经 install.sh
 装好后删掉 acdev runtime, `--fix` 跳过, `--fix --yes` 跑安装器装回来)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
@@ -19,6 +19,6 @@ install.ps1 和 `bin/acdev`; 篡改、缺文件、没有本平台构建、没有
 它从安装目录定位安装器放进去的运行时和随包的 SDK。install.sh 的分发测试只在 macOS 和 Linux 上运行。开发会话测试使用替身运行时，真实启动和正常退出须单独用实际运行时验证。
 
 Windows 跳过 `install.sh`、Unix 会话权限与 Unix 域套接字文件清理、Node.js 后端文件系统套接字场景。
-应用后端的 Windows 运行时一侧见 `contract-with-acdert.md` 的「Windows 后端契约」（最初由 [acdert#4](http://gitea.dopamine/AC/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
+应用后端的 Windows 运行时一侧见 `contract-with-libacde.md` 的「Windows 后端契约」（最初由 [acdert#4](http://gitea.dopamine/AC/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
 Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试仍验证套接字 HTTP 响应，跳过对进程网络套接字的枚举。
 未安装对应工具时，测试会跳过 npm、pnpm 或 Unix Node.js 后端的相关场景。

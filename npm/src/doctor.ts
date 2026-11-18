@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { API_LEVEL } from './manifest/index.ts'
 import {
-  BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
+  BUN_MINIMUM, cliFile, cliRuntime, findRuntime, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundRuntime,
 } from 'acdev/launcher'
 import { Agents } from './agents.ts'
 import { Color, type Palette } from './color.ts'
@@ -80,7 +80,7 @@ interface RuntimeReport {
 
 type Available = Readonly<Record<'bun' | 'node', string | null>>
 
-const FROM: Readonly<Record<NonNullable<FoundAcdert['from']>, string>> = {
+const FROM: Readonly<Record<NonNullable<FoundRuntime['from']>, string>> = {
   ACDEV_RUNTIME: 'from ACDEV_RUNTIME',
   install: 'installed next to acdev',
 }
@@ -100,7 +100,7 @@ export class Doctor {
   static readonly STATUSES: readonly Status[] = ['ok', 'warn', 'error', 'skip']
 
   static async run(options: DoctorOptions = {}): Promise<Check[]> {
-    const found = findAcdert()
+    const found = findRuntime()
     const probe = found.path ? await DevSession.runtimeLevel(found.path) : null
     const runs = found.path !== null && probe !== null && probe.failed === null
     const available = runtimes()
@@ -109,7 +109,7 @@ export class Doctor {
       Doctor.acde(),
       Doctor.onPath(),
       Doctor.runtimes(available),
-      Doctor.acdert(found, probe, reinstall),
+      Doctor.runtime(found, probe, reinstall),
       runs ? Doctor.contract(probe, reinstall)
         : Doctor.skip('contract', 'contract level', 'needs an acdev runtime that runs'),
       ...(runs ? await Doctor.selfCheck(found.path!, probe, reinstall)
@@ -173,23 +173,23 @@ export class Doctor {
     return Doctor.ok('runtimes', 'Bun and Node.js', summary)
   }
 
-  static acdert(found: FoundAcdert, probe: RuntimeProbe | null, reinstall: Repair | null = null): Check {
+  static runtime(found: FoundRuntime, probe: RuntimeProbe | null, reinstall: Repair | null = null): Check {
     if (!found.path || !probe)
-      return Doctor.mend(Doctor.error('acdert', 'runtime', found.problem ?? 'not found', Doctor.acdertFix(found)),
+      return Doctor.mend(Doctor.error('runtime.binary', 'runtime', found.problem ?? 'not found', Doctor.runtimeFix(found)),
         reinstall)
     const where = `${found.path} (${FROM[found.from!]})`
     if (probe.failed) {
       const fix = Doctor.runFix(found, probe)
       const quarantine = process.platform === 'darwin' && fix.startsWith('macOS keeps it in quarantine')
-      const failing = Doctor.error('acdert', 'runtime', `${where} does not run: ${probe.failed}`, fix)
+      const failing = Doctor.error('runtime.binary', 'runtime', `${where} does not run: ${probe.failed}`, fix)
       return quarantine ? failing : Doctor.mend(failing, reinstall)
     }
     if (probe.level === 0) {
       const told = probe.said ? `says ${JSON.stringify(probe.said)}` : 'printed nothing'
       const summary = `${where}: --version ${told}, no contract level: it is older than contract levels`
-      return Doctor.mend(Doctor.error('acdert', 'runtime', summary, Doctor.acdertFix(found)), reinstall)
+      return Doctor.mend(Doctor.error('runtime.binary', 'runtime', summary, Doctor.runtimeFix(found)), reinstall)
     }
-    return Doctor.ok('acdert', 'runtime', `${probe.said.split(/\r?\n/)[0]} at ${where}`)
+    return Doctor.ok('runtime.binary', 'runtime', `${probe.said.split(/\r?\n/)[0]} at ${where}`)
   }
 
   static contract(probe: RuntimeProbe, reinstall: Repair | null = null): Check {
@@ -472,7 +472,7 @@ export class Doctor {
     return `run the installer again: curl -fsSL ${base}/install.sh | sh`
   }
 
-  static reinstallable(found: FoundAcdert): boolean {
+  static reinstallable(found: FoundRuntime): boolean {
     return installed(packageRoot()) && !Doctor.fromNpm() && found.from !== 'ACDEV_RUNTIME'
   }
 
@@ -606,7 +606,7 @@ export class Doctor {
     return installed(root) ? resolve(root, '..', '..') : root
   }
 
-  static acdertFix(found: FoundAcdert): string {
+  static runtimeFix(found: FoundRuntime): string {
     if (found.from === 'ACDEV_RUNTIME') return 'point ACDEV_RUNTIME at the runtime binary, or unset it'
     if (installed(packageRoot()))
       return `${Doctor.installer(process.env, Versions.acde())} ` +
@@ -621,12 +621,12 @@ export class Doctor {
     return `use the runtime ${sdk}: set ACDEV_RUNTIME to it`
   }
 
-  static runFix(found: FoundAcdert, probe: RuntimeProbe): string {
+  static runFix(found: FoundRuntime, probe: RuntimeProbe): string {
     const path = found.path!
     if (process.platform === 'darwin' && Doctor.quarantined(path)) return `macOS keeps it in quarantine: xattr -d com.apple.quarantine ${path}`
     if (/error while loading shared libraries|cannot open shared object file/.test(probe.stderr))
       return 'install the system library named above, which acdev runtime links against'
-    return Doctor.acdertFix(found)
+    return Doctor.runtimeFix(found)
   }
 
   static quarantined(path: string): boolean {

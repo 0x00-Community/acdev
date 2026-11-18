@@ -1,11 +1,11 @@
 ---
 name: acdev
-description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdev runtime (built on acdert). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acdev, acdert, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
+description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdev runtime (built on libacde). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acdev, libacde, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
 ---
 
 # acdev
 
-A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). `acdev runtime` is the runtime that draws the desktop and the apps (built on the acdert runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
+A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). `acdev runtime` is the runtime that draws the desktop and the apps (built on the libacde runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
 
 This skill ships inside acdev and describes the version it came with. When it and the CLI disagree, the CLI is right: `acdev --help` prints every command, and `acdev <command> --help` that command's options.
 
@@ -19,7 +19,7 @@ Run `acdev doctor`, in the project directory when there is one. It checks what f
 
 ## What is not like a browser
 
-acdert has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch`, and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
+The runtime has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch`, and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
 
 - **No modules from a CDN.** ES modules load only from the app's own files (`import('https://…')` fails): bundle every code dependency. Images, stylesheets and fonts can come from other hosts, as in a browser.
 - **Missing APIs**: Web Workers, Service Workers, `crypto.subtle`, WebGL, OffscreenCanvas, fullscreen, pointer lock. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.

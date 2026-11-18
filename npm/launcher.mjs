@@ -49,18 +49,18 @@ export function libexecBeside(name, root = ROOT) {
   return join(root, '..', '..', 'libexec', name)
 }
 
-export function acdertBeside(root = ROOT) {
+export function runtimeBeside(root = ROOT) {
   return libexecBeside(RUNTIME, root)
 }
 
-export function findAcdert(root = ROOT, env = process.env) {
+export function findRuntime(root = ROOT, env = process.env) {
   const set = env.ACDEV_RUNTIME
   if (set) {
     if (existsSync(set)) return { path: set, from: 'ACDEV_RUNTIME' }
     const problem = `ACDEV_RUNTIME=${set}: no such file; point ACDEV_RUNTIME at the runtime binary, or unset it`
     return { path: null, from: 'ACDEV_RUNTIME', problem }
   }
-  const beside = acdertBeside(root)
+  const beside = runtimeBeside(root)
   if (beside && existsSync(beside)) return { path: beside, from: 'install' }
   const missing = beside ? `no ${beside}, which the acdev installer puts there: run the installer again, or ` : ''
   return {
@@ -71,8 +71,8 @@ export function findAcdert(root = ROOT, env = process.env) {
   }
 }
 
-export function requireAcdert(root = ROOT, env = process.env) {
-  const found = findAcdert(root, env)
+export function requireRuntime(root = ROOT, env = process.env) {
+  const found = findRuntime(root, env)
   if (found.path) return found.path
   throw new Error(`${found.problem} (acdev doctor checks the whole setup)`)
 }
@@ -147,3 +147,7 @@ export function run(args, exe = cliRuntime()) {
     child.on('exit', (code, signal) => done(code ?? 128 + (constants.signals[signal] ?? 0)))
   })
 }
+
+export const acdertBeside = runtimeBeside
+export const findAcdert = findRuntime
+export const requireAcdert = requireRuntime

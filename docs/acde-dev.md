@@ -9,10 +9,10 @@
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdev runtime; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
 - acdev runtime 的 stderr: 默认经管道逐行转出, 只丢运行时自己的 info 及以下日志, 开发者的代码打的和关于应用的事都留下 (`DevSession.keeps`).
-  运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (acdert `src/log`). 留下: 不是这种格式的行 (panic、多行消息
+  运行时的日志行是 `<毫秒>.<3 位> <级别 E|W|I|D|T> <线程> <目标>: <消息>` (libacde `src/log`). 留下: 不是这种格式的行 (panic、多行消息
   的后续行)、任何目标的 `W` / `E`、目标 `js` 的任何级别 (页面的 `console.*`, 消息里没有页面名)、目标 `acde::child` / `acde::backends`
   里消息以 `[` 开头的 `I` 行 (后端和桌面服务进程的输出 `[<app>#backend] …` / `[<服务>] …`; 走 `spawnBackend` 的是 `acde::backends`,
-  走 `spawn` 的是 `acde::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by an acdert that is gone`)、目标 `acde_host` 的 `I` 行
+  走 `spawn` 的是 `acde::child`; 不带 `[` 的是运行时自己的, 如 `removed …, left by a runtime that is gone`)、目标 `acde_host` 的 `I` 行
   (宿主讲应用发生了什么: 后端 `started (pid …, port …)` / `stopped`、重载后的 `acdev dev: state restored`、页面的 `alert:`、`waits for the user
   to allow "camera"` 这类待答的批准、`color scheme: …`), 但不含每次都有的生命周期行 (`DevSession.LIFECYCLE`: `startup: …`、`broker started (…)`、
   `ended (…), exit N` / `session <kind>, exit N`). 其余目标的 `I` (GPU、监听地址、`acdev dev: reload <id>`, acdev dev 自己打 `rebuilt …, reloading`)
@@ -23,7 +23,7 @@
 - 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acdev dev` 和 `acdev test --headed`
   在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acdev dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdev runtime 只报
   `acde_shell registry … Connection reset by peer` 和 libseat 的错 (gitea acde#43). 不带 `--headless` 的 acdev runtime 非零退出 (不是信号, 码 < 128) 时
-  再补一行 `DevSession.WINDOW_HINT`. 测试的 `env()` 在没有显示的机器上补 `WAYLAND_DISPLAY=acde-test`, 假 acdert 照常起.
+  再补一行 `DevSession.WINDOW_HINT`. 测试的 `env()` 在没有显示的机器上补 `WAYLAND_DISPLAY=acde-test`, 假运行时 照常起.
 - 监听每个工程 (`TreeWatch.start`, `src/watch.ts`): macOS、Windows 用 `fs.watch(工程, {recursive: true})`; Linux 上递归监听挂在文件的 inode 上, 原子保存 (写临时文件再改名盖过去, vim、JetBrains、`sed -i`、`git checkout`、多数编码 agent 都这样) 之后新文件不再被监听 (acde#88), 所以改为每个目录一个 非递归 `fs.watch` (目录的监听按名字报子项, 不受换 inode 影响): 起步时遍历, 跳过名字在 `SKIPPED` 里的目录和 `--out`; 事件里出现的目录换了 inode 或新建时重新遍历挂上, 并把里面已有的文件当作改动报出; 删掉的目录摘掉. 再往下的过滤一样: 跳过路径里任何一段在 `SKIPPED` (`src/paths.ts`, 含 `__screenshots__` / `__snapshots__`) 的、e2e 测试文件、只是目录的事件、`--out` 目录和嵌在里面的别的工程 (acdev test 写基线时不能把应用重载掉); 150 ms 合并, 一次构建一个, 只重建改了的那个 (重读配置),
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
 - **热重载** (`src/changes.ts`, 运行时一侧见 libacde 的 `docs/dev/dev-ipc.md`「热重载」): 每次构建后给运行时加载的文件拍快照
@@ -109,4 +109,4 @@
   就提示 acdev runtime 太旧), 连上发 `{type: 'hello', role: 'dev'}` 再写会话文件, `reload` 走这条连接. 一行一个 JSON; 工具和 driver 各自直连 acdev runtime 发
   `{type: 'request', id, op, ...}`, 唯一的超时在 `DevClient` (30 s). `DevClient.close()` 立即让在途的请求失败
   (清掉它们的 30 s 定时器), `end()` 后销毁连接 (最多等 1 s) 并 `unref`: Windows 的命名管道没有半关闭, 只 `end()` 时 acdev runtime 收不到 EOF,
-  连接和在途请求的定时器会让进程一直不退 (gitea acde#50). op 见 acdert AGENTS.md 的「acdev dev」.
+  连接和在途请求的定时器会让进程一直不退 (gitea acde#50). op 见 libacde AGENTS.md 的「acdev dev」.

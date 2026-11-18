@@ -401,7 +401,7 @@ if (process.env['FAKE_ACDERT_LOGS']) {
     '14.386 I acde acde_host: [alpha#backend] started (pid 4242, port 3000)',
     '14.387 I acde-child-out acde::child: [alpha#backend] fake backend output',
     '14.388 I acde-child-out acde::backends: [alpha#backend] fake channel backend output',
-    '14.389 I acde acde::backends: removed /tmp/fake-sockets, left by an acdert that is gone',
+    '14.389 I acde acde::backends: removed /tmp/fake-sockets, left by a runtime that is gone',
     '14.390 I acde js: fake page log',
     'and its second line',
     '14.391 D acde js: fake page debug',

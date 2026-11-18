@@ -2,7 +2,7 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
-acdert 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.config.jsonc` 只在构建时读, 变成 `.acde/package.json` 的清单.
+libacde 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.config.jsonc` 只在构建时读, 变成 `.acde/package.json` 的清单.
 
 - **工程** (`AppPackage`): 有 `acde.config.jsonc` / `.json` 的是 `Project` (字段见 SDK 的 `AcdeConfig` / `config.schema.json`; `"type"` 是 `app` 或
   `desktop`; 后端默认按 `BACKENDS` 找 `server.ts` 等, port 3000); 没有配置、package.json 的 `acdev` 有 `apps` 的是手写的**包**; 都没有是默认 app
@@ -41,7 +41,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   成一样的, 带 `VITE_*`), 不注入 modulepreload, 子目录里的页面出成 `web/<文件名>`. 模块入口的应用: `<名字>.js`, 保留导出. 桌面服务: 单文件, 不压缩标识符.
 - 桌面服务里对 `acde:` 的导入 (静态、动态都算; 包括依赖里的) 两边一样拒绝 (`ServiceImports`, 插件 `acde-service`): 构建失败、不留
   `services/<名>.js`, 报 `service <名>: <文件> imports acde:<模块>, …: a service gets shell modules from ctx.import('acde:<name>'), …`
-  (文件相对工程, 排好序, 两边逐字相同). 依据是 acdert 的运行时: 服务在 Broker isolate 里经 `import(file URL)` 加载, 而 `acde:*` 只经
+  (文件相对工程, 排好序, 两边逐字相同). 依据是 libacde 的运行时: 服务在 Broker isolate 里经 `import(file URL)` 加载, 而 `acde:*` 只经
   `defineModule` 注入每个 web 的 isolate (`acde-host` 的 `worker.ts`), Broker isolate 没有, 静态导入在链接时就报 `is not given to`;
   服务只能经 `ctx.import('acde:<模块>')` 拿外壳模块 (桌面清单 `services` 项的 `modules` 授权). 所以不把 `acde:*` 设为外部.
   **配置里的授权**: 桌面配置的 `services` 每项是模块文件, 或 `{ "module": 文件, "modules": [外壳模块] }` (SDK 的 `ServiceConfig`,
@@ -70,7 +70,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 没有 `import` / `export` (内置模块经 `process.getBuiltinModule`), 既是 CJS 也是 ESM: `"type": "commonjs"` 的包里 (Next standalone) 也能 `--import`.
 - `Bun.serve` / `Bun.listen` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 换成 `<sockets>/P.sock` (`src/sockets.ts`: `ACDE_APP_SOCKETS`, 或
   `$XDG_RUNTIME_DIR/acde/apps/<ACDE_APP_ID>`; P 没给时 `BUN_PORT` / `PORT` / `NODE_PORT` / 3000); 指定端口的 UDP bind、在现成 fd 上 listen 抛 `EACCES`.
-- Windows 上的套接字模式 (bun 总是它, 见 `contract-with-acdert.md` 的「Windows 后端契约」): 同样换成 `<ACDE_APP_SOCKETS>\P.sock`, `Bun.serve` 照原样 bind (AF_UNIX),
+- Windows 上的套接字模式 (bun 总是它, 见 `contract-with-libacde.md` 的「Windows 后端契约」): 同样换成 `<ACDE_APP_SOCKETS>\P.sock`, `Bun.serve` 照原样 bind (AF_UNIX),
   `ACDE_APP_CHANNEL` 不看. 目录由运行时建好并设 ACL, 预加载只在缺目录时 `mkdir`, Windows 上不 `chmod`. 路径超过 107 字节 (AF_UNIX 的
   `sun_path` 上限) 时抛 `ENAMETOOLONG` 说清楚; Windows 上没有 `ACDE_APP_SOCKETS` 时要 `XDG_RUNTIME_DIR`, 不猜 `/run/user`.
   有 `ACDE_APP_CONTROL=fd` (且不是通道模式, `controlMode`) 时, 第一个换到套接字上的 server 起来后读 fd 3 的控制帧 (同一套
@@ -81,7 +81,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - Node 上 `export default {fetch}`: `acde.serve` 用 `node:http` 起服务, 请求换成 WHATWG `Request` (流式 body, 断开时 abort), `server` 只有
   `upgrade()` (false, 没有 WebSocket 升级)、`requestIP()` (null)、`port`、`hostname`; `Response` 流式写回; 抛错回 500.
 - 开发时: `bun --preload <acdev>/src/listen.ts server.ts`.
-- **通道模式** (`src/channel.ts`, Windows 上的 Node; 帧和信用见 `contract-with-acdert.md` 的「Windows 后端契约」): 只在 Node 上且 `ACDE_APP_CHANNEL=fd` 时
+- **通道模式** (`src/channel.ts`, Windows 上的 Node; 帧和信用见 `contract-with-libacde.md` 的「Windows 后端契约」): 只在 Node 上且 `ACDE_APP_CHANNEL=fd` 时
   (`channelMode`; bun 不看它, 照常走套接字). 这时 `listen(P)` 不真正监听: 把 server 登记到端口 P, 下一个 tick 发 `listening`,
   `address()` 给 P, `listening` 为真; `close()` 注销后照原型方法关 (回调不报 `ERR_SERVER_NOT_RUNNING`), `signal` 中止同样注销;
   同一端口第二次 listen 发 `EADDRINUSE`. 应用显式 `listen` 一个路径 (含命名管道 `\\.\pipe\…`) 照原样放行: 那是应用自己开的端点,

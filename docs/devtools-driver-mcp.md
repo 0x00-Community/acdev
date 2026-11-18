@@ -21,7 +21,7 @@
   `reloaded` 起: acdev dev 每次重建后、发 `reload` 之前用自己的连接问 `console` / `network {limit: 1}` 的 `next` (最多等 2 s, 问不到沿用上一次),
   写进会话文件 `reloaded: {console, network}`. 运行时的记录不随页面重载清空, 也不标重载 (同一窗口重载后 web 名不变, 不能按 web 名分), 所以只认
   acdev dev 发的重载, 页面自己的 `location.reload()` 不算; 还没重载过时是全部). 格式在 `src/driver/format.ts`. 出错 `acdev: <原因>`, 退出码 1; 动作名、`--level` 这类不用连会话就能查的参数先查, 错误一行, 末尾指向 `acdev <命令> --help`.
-- **批准的命令** (`src/approvals.ts` `Approvals`, CLI 和 MCP 共用; 运行时一侧见 acdert AGENTS.md 的「批准」): 第 1 级下要批准的必需能力
+- **批准的命令** (`src/approvals.ts` `Approvals`, CLI 和 MCP 共用; 运行时一侧见 libacde AGENTS.md 的「批准」): 第 1 级下要批准的必需能力
   (`terminal`、`network`、`camera`、`microphone`、`launch`、`slots`、`fs.roots` 里的公共位置) 没答之前应用不开窗口, macOS / Linux 的宿主窗口和 headless
   没有对话框, 只能经 dev IPC 答. `acdev permissions` 打两段 (`Format.permissions`): `pending:` 下每行 `<id>  <app>  <能力>  (<launch|request>)`,
   `decisions:` 下每行 `<app>  <能力>  <granted|denied>`, 空的一段是 `pending: none` / `decisions: none`. `acdev allow` / `acdev deny`
@@ -60,7 +60,7 @@
     `/json/list` 和目标的 `webSocketDebuggerUrl` 原样用. 还回 `token` 的旧 acdert 照旧: `/json/list` 带 `?token=` (另加
     `Authorization: Bearer`), WebSocket 地址没带 `?token=` 时补上 (DevTools 前端连 WebSocket 不能加请求头), 这时打印的地址含令牌,
     别贴进议题、日志或聊天.
-  - 测试: 假 acdert 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`; `FAKE_ACDERT_DEVTOOLS_TOKENLESS=1` 时只回端口、不查令牌);
+  - 测试: 假运行时 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`; `FAKE_ACDERT_DEVTOOLS_TOKENLESS=1` 时只回端口、不查令牌);
     命令行用例设 `ACDEV_BROWSER=none`; 启动浏览器的用例用假浏览器 (`test/fixtures/dev/fake-browser.ts`, `fakeBrowser()`): 它按
     `--user-data-dir` 写 `DevToolsActivePort`, 记下启动参数和收到的 CDP 调用, 闲 15 s 自己退出; 进程内的用例经 `launch` 注入只记录.
 - **driver** (`acdev/driver`, `src/driver/`, 只用 `node:` 模块; 公开的接口类型、`ACTIONS`、`ActError` 和 `LaunchError` 在 `types.ts`, `acde.ts` 原样再导出, 只放 `Acde` 类): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
@@ -85,7 +85,7 @@
   `close()` 之后还要等 10 s 才退出. 没解决的: acdev dev 在构建中被结束时, 构建工具的子进程不随它结束 (没有进程组; `acdev test` 里用进程组会让
   终端的 Ctrl+C 到不了 acdev dev 和 acdev runtime), 会留到它自己跑完.
   方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析;
-  `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 acdert: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
+  `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 libacde: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
   `{status, statusText, headers, contentType, body (文字或字节, 转 base64), json}` 或 `{abort}`; `unroute(id?)`; `clipboard()` / `setClipboard(text)`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `waitForRequest(url, {method, web})` 先取 `network` 的 `next` 再轮询到匹配的请求结束 (`done`), `waitForConsole(文字或 RegExp, {level, web})` 同理; 要在触发之前调用.
   **批准** (只剩摄像头 / 麦克风: 用户 2026-11-11 决定其余能力声明即授予, acdert#146; acde#16, op `permissions` / `answer` / `revoke`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
@@ -108,7 +108,7 @@
   (多个报错, 不猜), click / fill / type / selectOption 还等不 `disabled`, `ok: false` 重试到超时再抛 `ActError`. `getByLabel` 是名字匹配的表单角色
   (textbox、combobox、checkbox …); `getByPlaceholder` / `getByTitle` / `getByAltText` 用 `query` 的 `attributes` 读回属性再比. `check` / `uncheck` /
   `setChecked` 状态不对才点, 点完等状态变过去; `dragTo(目标)` 每次重新找两边, 发 `act drag`. `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
-  或多个时一直等; `toHaveAttribute` 在父元素下 `query('*')` 带属性找回自己. 语义树的限制在 acdert: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字,
+  或多个时一直等; `toHaveAttribute` 在父元素下 `query('*')` 带属性找回自己. 语义树的限制在 libacde: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字,
   `<select>` 下拉框是 `combobox` (值是选中项, 打开时下面有 `option`), 列表框是 `listbox` (看得见的行是 `option`); 选值用 `selectOption`
   (走 `act select`, 不经弹出的列表), `click()` 走真的输入, 会打开下拉列表.
   CSS 找到的元素 (`locator`、`getByTestId`、`getByPlaceholder` …) 带 `visible`, 看不见的也算匹配 (和 Playwright 一样): `toBeVisible` /
@@ -118,11 +118,11 @@
   断言还有 `toHaveClass` / `toHaveCSS(属性, 值)` (computed style) / `toHaveJSProperty` / `toBeEmpty` / `toBeEditable` / `toBeInViewport({ratio})`,
   都是在页面里求值再比, 同样重试.
   输入: `click` / `dblclick` / `hover` 收 `modifiers` (`Shift` / `Control` / `Alt` / `Meta` / `ControlOrMeta`), 变成 act 的 arg (`shift+ctrl`);
-  `ControlOrMeta` 在所有宿主上都是 `Control` (acdert 对页面呈现统一的 Linux 环境, 编辑快捷键是 Ctrl).
+  `ControlOrMeta` 在所有宿主上都是 `Control` (libacde 对页面呈现统一的 Linux 环境, 编辑快捷键是 Ctrl).
   `AppWindow.mouse` (`move(x, y, {steps})` / `down` / `up` / `click(x, y, {button, clickCount, modifiers})` / `dblclick` / `wheel(dx, dy)`, 记着位置)
   和 `keyboard` (`down` / `up` / `press("Control+a")` / `type` (有键的按键, 别的走 `text`) / `insertText`) 用页面的 CSS 坐标, 发 `input`.
   `AppWindow.clock` (`clock.ts`): `install({time})` / `pauseAt` / `fastForward` / `runFor` / `resume` / `setFixedTime` / `setSystemTime` / `state`,
-  时间是 ms、Date 或日期字符串, 时长是 ms 或 `"mm:ss"` / `"hh:mm:ss"` (语义见 acdert 的 `clock`). 对话框: `answerDialog({accept, text})`
+  时间是 ms、Date 或日期字符串, 时长是 ms 或 `"mm:ss"` / `"hh:mm:ss"` (语义见 libacde 的 `clock`). 对话框: `answerDialog({accept, text})`
   事先答复下一个, `waitForDialog({type})` (要在触发之前调用) / `dialogs()` 读 console 里的 `dialog` 条目. `addInitScript(code, {once})`
   (按应用 id 登记, 重开也在)、`reload()` (先在页面里放个记号, 等新页面没有它且 `readyState` 是 complete)、`resize(w, h)` (等 `innerWidth` /
   `innerHeight` 变过去)、`seedLocalStorage(键值)` (一次性的 init 脚本写进去再 reload; 不碰存储的文件格式).

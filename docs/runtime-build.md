@@ -20,7 +20,7 @@ target/debug/acdev doctor
 - `dev` (日常调试版): 只留行号级调试信息, 依赖包不带调试信息 (调试版二进制原来约 1.2 GB, 链接和推送都慢).
 - `guest` (进客户机的日常编译, `cargo build --profile guest`, 产物在 `<产物目录>/guest/`): 以 `release` 为底, 不做链接时
   优化 (Link-Time Optimization, LTO)、256 个代码生成单元、增量编译、只留行号级调试信息、不剥符号; 依赖包优化级别 2, 本工作区
-  自己的包 (acdert、根包、hostwin) 优化级别 0. 渲染和排版的热点 (vello、detour、blitz、stylo) 都在依赖包里, 照样优化; 改 acdert
+  自己的包 (libacde、根包、hostwin) 优化级别 0. 渲染和排版的热点 (vello、detour、blitz、stylo) 都在依赖包里, 照样优化; 改 libacde
   一个文件重编 10～14 秒 (全按级别 1 时是 1 分 14 秒);
   程序比正式发布版慢、体积大, 不能拿来量性能或冷启动. `acdev vm dev` 在项目有 `[profile.guest]` 时默认用它.
 - `release` / `dist`: 正式发布 (体积优先、链接时优化), 只在量性能、发版前用.

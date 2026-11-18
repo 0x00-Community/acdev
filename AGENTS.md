@@ -4,7 +4,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 (Linux KVM、Windows WHPX、macOS Hypervisor.framework) 跑装着 Dopame OS 的虚拟机, 开发者工具内置其中 (用户定 2026-11-17). 现在仓库里有:
 
 - 运行时库不在本仓库: [libacde](http://gitea.dopamine/AC/libacde) (原 AC/acdert, 2026-11-17 并进本仓库的 `acdert/`, 2026-11-18 连历史拆出),
-  和本仓库并排检出 (`../libacde`), 以 path 依赖链它 (Rust 包 `acdert`); 虚拟机里的 [acdes](http://gitea.dopamine/AC/acdes) 也这样链它. 跨仓契约
+  和本仓库并排检出 (`../libacde`), 以 path 依赖链它 (Rust 包 `libacde`, 代码里 `use acde::…`); 虚拟机里的 [acdes](http://gitea.dopamine/AC/acdes) 也这样链它. 跨仓契约
   (包清单与清单规则、SDK `@dopame/acde-api`、契约级别、`acde_*` 协议) 和运行时的文档都在 libacde, 见它的 AGENTS.md.
 - 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdev runtime` (宿主窗口); 朝模拟器演进.
 - `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
@@ -95,6 +95,6 @@ SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 liba
 | 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acdev test` | `docs/devtools-driver-mcp.md` |
 | 发版, 改 `.github/workflows/release.yml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
 | 改 `npm/skills/acdev/`、`acdev skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |
-| 改命令行和运行时之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-acdert.md` |
+| 改命令行和运行时之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-libacde.md` |
 | 跑或加命令行的测试, 在 Windows 上跑 `bun test` | `docs/cli-tests.md` |
 | 挑下一件命令行的事做, 或判断某个功能是不是已经计划过 | `docs/roadmap.md` |

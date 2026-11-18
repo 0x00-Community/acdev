@@ -1,6 +1,6 @@
 # Web compatibility
 
-acdert has its own renderer (it is not Chromium), and page JS runs in its embedded V8. The rule is that **standard APIs are fully browser-compatible**: behavior, signatures, events, and errors all follow the spec. Anything that can't be done that way is a gap; it is not filled with a look-alike proprietary version. Below are the things worth knowing.
+The runtime has its own renderer (it is not Chromium), and page JS runs in its embedded V8. The rule is that **standard APIs are fully browser-compatible**: behavior, signatures, events, and errors all follow the spec. Anything that can't be done that way is a gap; it is not filled with a look-alike proprietary version. Below are the things worth knowing.
 
 ## Origin
 
@@ -59,7 +59,7 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 ## Rendering and canvas
 
-Styles are computed by Stylo, the style engine of Firefox; layout and painting are acdert's own. What does not work yet:
+Styles are computed by Stylo, the style engine of Firefox; layout and painting are libacde's own. What does not work yet:
 
 - Canvas 2D: `drawImage()` draws only an `<img>` or a `<canvas>`; any other source (a `<video>`, an `ImageBitmap`) draws nothing and throws nothing. `createConicGradient()` does not draw a conic gradient. In 0.0.9, `ctx.filter` is accepted but not applied, and `drawImage()` of an `<img>` showing an SVG draws nothing; after 0.0.9, `ctx.filter` applies `blur()`, `brightness()`, `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and `drop-shadow()` (not `url()`), and SVG images are drawn.
 - SVG geometry: `getTotalLength()` and `getPointAtLength()` are estimates from the element's box, not its path; `isPointInFill()` and `isPointInStroke()` are always `false`.
@@ -89,6 +89,6 @@ Added after 0.0.9:
 
 - `alert()` is drawn inside the window; `confirm()` returns `false` and `prompt()` returns `null`.
 - There is no top layer: after 0.0.9, an open popover and a modal `<dialog>` get the highest `z-index` instead, so an ancestor's `transform`, `filter` or `contain` still clips them, and they have no `::backdrop`.
-- `navigator.userAgent` and `navigator.platform` say Linux on every system (`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acdert/<version>` and `Linux x86_64`), and editing shortcuts use Ctrl everywhere, so an app behaves the same on every host. To know the real system, read `platform` from [`acde:capabilities`](../guide/capabilities.md#acdecapabilities).
+- `navigator.userAgent` and `navigator.platform` say Linux on every system (`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acde/<version>` and `Linux x86_64`), and editing shortcuts use Ctrl everywhere, so an app behaves the same on every host. To know the real system, read `platform` from [`acde:capabilities`](../guide/capabilities.md#acdecapabilities).
 - In 0.0.9 there are no developer tools: use the [debugging tools](../guide/tools.md) and [MCP](../guide/mcp.md). After 0.0.9, `acdev dev` opens the DevTools of Chrome or Edge on a page (F12 in the window, or `acdev devtools`); see [acdev dev](../guide/dev.md#devtools).
 - Pages have no security sandbox (there is no syscall-level isolation yet): don't run code you don't trust.

@@ -38,7 +38,7 @@
   不崩. SDK 警告只在要写 `run <pm> install` 时才找包管理器 (`Sdk.warning` 收的是函数), 所以 `acdev sdk` / `check` / `dev` 平时不碰它;
   `Cli.follow` (打好的 `cli.js` 换运行时) 遇到它打这一行加 `: going on with <现在的运行时>`, 接着跑)、`gitignore` (在 git 仓库里
   且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
-- **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acdev 一律是重跑安装器 (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows
+- **修法的文字** (`Doctor.runtimeFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acdev 一律是重跑安装器 (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows
   `irm …/install.ps1 | iex`), 检出的 acdev 是编 acdev runtime 再设 `ACDEV_RUNTIME`; `ACDEV_RUNTIME` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
   `xattr -d com.apple.quarantine <路径>`; stderr 有 `error while loading shared libraries` 时是装那个库. 不替用户下载或批准任何东西.
 - **npm 装的 acdev** (`Doctor.fromNpm`: 包根是 `node_modules/@dopame/acde-<os>-<cpu>`, 布局和安装器的版本目录一样, `installed()` 照认):
@@ -49,7 +49,7 @@
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
 - **`--fix`** (用户 2026-11-11 定的范围: 直接修 acdev 自己的、可撤销的; 下载 / 安装 / 结束进程的先问; 用户该做的决定一律不碰): 能修的检查带一个
   可序列化的 `repair` `{action, target, ask, does}` (和给人看的 `fix` 文字分开, 修的时候只看 `repair`, 不解析文字; 不该修的检查根本没有 `repair`,
-  想修也修不了). `Doctor.repairs` 只取 `warn` / `error` 上的, 按 `action:target` 去重 (重装可能挂在 `acdert`、`contract`、`runtime.host` 几项上).
+  想修也修不了). `Doctor.repairs` 只取 `warn` / `error` 上的, 按 `action:target` 去重 (重装可能挂在 `runtime.binary`、`contract`、`runtime.host` 几项上).
   `Doctor.fix` 逐个做: `ask` 的先问 (`--yes` 不问; 终端里 @clack 的 confirm, 默认否; 不在终端也没 `--yes` 时跳过并说 `pass --yes to allow it`),
   打 `fixing:` / `fixed:` / `failed: …: <原因>` / `skipped:`; 有修成的就再跑一遍检查, 退出码看第二遍. 动作 (`Doctor.apply`):
   - `skill` (不问): 子进程跑 `acdev skills install` (`cliRuntime()` + `cliFile()`), 和用户敲的同一条路, 不在这里另装一份.
@@ -70,4 +70,4 @@
   (含 `@dopame/acde-api` 版本不对, 要改 package.json).
 - 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
   Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);
-  一个不可执行的 `ACDEV_RUNTIME`、退出码 127 加动态库报错的、启动就退出的假 acdert. 没在 Windows 上跑.
+  一个不可执行的 `ACDEV_RUNTIME`、退出码 127 加动态库报错的、启动就退出的假运行时. 没在 Windows 上跑.

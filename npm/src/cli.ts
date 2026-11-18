@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { findAcdert, requireAcdert, run, runtimes } from 'acdev/launcher'
+import { findRuntime, requireRuntime, run, runtimes } from 'acdev/launcher'
 import { ACTIONS } from './driver/types.ts'
 import { Color } from './color.ts'
 import { Help } from './help.ts'
@@ -122,7 +122,7 @@ class Cli {
   static async versions(): Promise<string[]> {
     const { API_LEVEL } = await import('./manifest/index.ts')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
-    const acdert = findAcdert().path
+    const acdert = findRuntime().path
     if (!acdert) return [...lines, 'acdev runtime: not found (ACDEV_RUNTIME, next to acdev, PATH)']
     const { said, failed } = await Runtime.level(acdert)
     if (failed) return [...lines, `acdev runtime does not run (${failed}): ${acdert}`]
@@ -222,7 +222,7 @@ class Cli {
         ...(flags.has('verbose') && { verbose: true }),
         ...(flags.has('force') && { force: true }),
         ...(process.env[Sessions.TEST_ENV] === '1' && { test: true }),
-        acdert: await requireAcdert(),
+        acdert: await requireRuntime(),
       })
       return await session.run()
     }

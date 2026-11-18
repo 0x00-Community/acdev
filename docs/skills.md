@@ -7,7 +7,7 @@
 `references/guide/files.md` → `/guide/files/`; 中文页在 www 里照英文翻译). 所以:
 
 - 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill**. 不去改 www 里生成的英文页
-  (那边的检查会拦). acdert 一侧的变化 (模块、平台差异、Web 兼容性) 也改在这里.
+  (那边的检查会拦). libacde 一侧的变化 (模块、平台差异、Web 兼容性) 也改在这里.
 - skill 只写对外的用法 (怎么用、会看到什么), 不写实现; 实现和取舍写在本仓 `docs/` 的对应文件.
 - skill 里引的输出要是工具真的打出来的, 按它出现的场合逐字引 (2026-11-11 对着 acdert 0.0.9 加当天宿主层的修复重跑过, macOS, headless): 拒绝必需能力时
   单应用的 `acdev dev` 日志是 `acdert app <id>: <名字>: "<能力>" is denied by the user; acdert app asks for it again the next time it runs`, 桌面里
@@ -18,22 +18,22 @@
   `import()` 以同样三句的 `TypeError` 拒绝 (前面是 `acde:<模块>: `), `load()` 只给 `null`.
   **摄像头和麦克风** (`reference/web.md`): 用运行时的假设备 `ACDE_CAPTURE=fake` 验的 (`Fake camera` / `Fake microphone`, `reference/env.md` 列了它):
   可选的由 `getUserMedia()` 自己触发提示 (先麦克风后摄像头), `permissions.query` 没答之前是 `prompt`, 拒绝或撤销后 `denied`. 「批准之后回答的是系统
-  自己对设备的权限」这半句照 acdert 的 `permits.ts` 写 (批准后转给原生的 `permission()`), 本机上假设备和真设备看到的都是 `granted`; macOS 系统自己的
+  自己对设备的权限」这半句照 libacde 的 `permits.ts` 写 (批准后转给原生的 `permission()`), 本机上假设备和真设备看到的都是 `granted`; macOS 系统自己的
   授权对话框没验. 撤销不会结束已经在跑的轨道 (实测 `readyState` 仍是 `live`), skill 没写这一条.
   **不能最小化的窗口**: 单应用会话的主窗口在 macOS 的宿主窗口和 headless 上验过 (`minimizable` 假、`minimize()` 409 `unavailable`、
   `act w1 minimize` 退出 1), skill 只写这两种; Linux 宿主和 Windows (宿主自己有控件) 没验, 没写.
   `inspect --find` 的窗口行是另一种格式 (`w1 notes "Notes":`, 桌面 `w0 desktop:`). `inspect --all` / `--find` 跳过的是窗口行标了
   `[minimized]` 的窗口, 即不在屏幕上的窗口: 状态是 `minimized` 的 (`act w1 minimize`、页面的 `minimize()`、桌面的 `requestState`), 和桌面
-  `windows.hide()` 藏起的. 判断在运行时 (acdert `inspect.ts` 的 `Inspect.#offScreen`), acdev 原样打它的文字: 窗口表里这样的窗口 `hidden` 为真
+  `windows.hide()` 藏起的. 判断在运行时 (libacde `inspect.ts` 的 `Inspect.#offScreen`), acdev 原样打它的文字: 窗口表里这样的窗口 `hidden` 为真
   (`state` 是运行时的状态), 点名它时树是空的加一行 `(minimized; act restore on it to see its elements)`, 对它的指针动作回
   `w1 is minimized; act restore on it first` (退出码 1), `query` 照样找它的元素但 `visible` 为假 (`Format.matches` 标 `[hidden]`), `act w1 restore`
   让它回来. 所以 driver 的 Locator 在最小化的窗口里一个元素都找不到 (按角色的走语义树, 按 CSS 的只留 `visible` 的), `restore()` 之后又有.
-  (2026-11-11 acdert 的 `fix(inspect): mark a window the runtime minimized` 之前运行时只看隐藏标记: 宿主窗口会话里 `act w1 minimize` 后窗口
+  (2026-11-11 libacde 的 `fix(inspect): mark a window the runtime minimized` 之前运行时只看隐藏标记: 宿主窗口会话里 `act w1 minimize` 后窗口
   没有标记, `--all` 照列, Locator 照样找得到.)
 - 窗口 ref 的 `fill` / `fullscreen` (acde#65, 运行时 acdert 0.0.9 起, 提交 0bfaafa): `ACTIONS`、帮助的 `WINDOW_ACTIONS`、MCP 的 act 说明、
   `AppWindow.fill()` / `fullscreen()` 都有; `restore` 把这两种状态设回 `normal`. 桌面和铺满宿主的窗口 (单应用会话) 由运行时拒绝, acdev 照转原因.
   `acdev check` 的错误里应用 id 有的带引号有的不带 (`app "notes":` / `app notes:`), 两种都出自 SDK (`Manifest.check` 带, `Manifest.app` 不带), 文档照实.
-  **Windows 上的后端**: skill 现在写「能跑」, 依据是两边的源码和说明 (`docs/contract-with-acdert.md` 的「Windows 后端契约」、acdert AGENTS.md 同名一节和它的验收脚本
+  **Windows 上的后端**: skill 现在写「能跑」, 依据是两边的源码和说明 (`docs/contract-with-libacde.md` 的「Windows 后端契约」、libacde AGENTS.md 同名一节和它的验收脚本
   `scripts/check-backends.sh`), 没有在 Windows 上重跑; `tools.md` 里 cmd 的引号写法 (`\"`) 也只是按 MSVC 的命令行规则写的, 没在 Windows 上试.
 
 **结构**
@@ -43,7 +43,7 @@ skills/acdev/SKILL.md                    入口: frontmatter (name、description
 skills/acdev/references/<组>/<页>.md     组是 start / guide / reference; 路径就是文档的地址
 ```
 
-- `SKILL.md` 的 `description` 决定 agent 什么时候载入它: 写「做什么」和「什么时候用」, 带上会出现的词 (acdev、acdert、Dopame OS、
+- `SKILL.md` 的 `description` 决定 agent 什么时候载入它: 写「做什么」和「什么时候用」, 带上会出现的词 (acdev、libacde、Dopame OS、
   `acde.config.jsonc`、`acde:` 模块). 正文是 agent 每次都读的, 只放: 先查环境 (acdev、运行时)、和浏览器不一样的地方、工作循环 (建、跑、看、测)、
   规则, 最后一节 `## References` 列出全部 references. 这一节里的顺序就是文档侧栏里的顺序. 细节一律放 references, 按需读.
 - 一个 reference 讲一件事, 单独读得懂 (agent 多半只读其中一个); 示例要是真能跑的命令和代码.

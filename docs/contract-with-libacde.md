@@ -1,4 +1,4 @@
-# CLI 和 acdert 的契约
+# CLI 和运行时 (libacde) 的契约
 
 > 路径相对 CLI 包根 `npm/`。
 
@@ -14,7 +14,7 @@
 - 命令行 `acdev runtime app <id>` / `acdev runtime desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`、`ACDE_RUNTIME`; dev IPC 见 `acde-dev.md`.
 - 后端: acdev runtime 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
   盘符路径不是合法的模块说明符). `acdev dev` 给 acdev runtime 设 `ACDE_RUNTIME` (`bun` / `node`, acdev 自己跑在哪个上), `node` 时 acdev runtime 先找 node. 没有 `acde-listen.js` 的旧包不起.
-- **Windows 后端契约** (2026-11-09 定, 和 acdert AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 预加载的通道模式
+- **Windows 后端契约** (2026-11-09 定, 和 libacde AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 预加载的通道模式
   和套接字模式已实现 (acde#4、#5, 见 `acde-build.md` 的「preload」), 两种模式的优雅停止也已实现 (acde#6); 运行时一侧见 acdert#23、#24、#25).
   不变量: 后端运行期间没有 TCP 监听、没有命名管道, 套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变.
   - **两种模式**: node 走**通道模式**, 环境 `ACDE_APP_CHANNEL=fd`, 不设 `ACDE_APP_SOCKETS` (Node 在 Windows 上不能用文件系统 AF_UNIX);
@@ -29,4 +29,4 @@
     `ACDE_APP_CONTROL=fd` 时读 fd 3 上的控制帧. 两种模式收到 SHUTDOWN 都停止接受新连接、让在途请求做完、关 server 后退出; 运行时等 3 秒后终止
     作业对象 (旧预加载不读控制帧, 就等满 3 秒). 预加载不改目录的 ACL. 支持通道的 `acde-listen.js` 含字符串 `acde-listen-channel/1`; 运行时起 node
     前查这个标记, 没有就不起, 打 warn `not started: acde-listen.js does not support the Windows channel (built by an older acde: acdev build it again)`.
-  - 套接字目录、作业对象、运行时一侧的连接与重试归 acdert, 见它的同一节.
+  - 套接字目录、作业对象、运行时一侧的连接与重试归 libacde, 见它的同一节.

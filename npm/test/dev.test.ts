@@ -750,7 +750,7 @@ describe('acdev dev with a stand-in acdert', () => {
       '22700.843 I acde acde_host: ended (signal), exit 0',
       '22700.844 I acde acde_host: session logout, exit 0',
       '15442.335 I acde-dev-conn acde_hostwin::dev: acdev dev: reload withapi',
-      '95.000 I acde acde::backends: removed /tmp/b/app, left by an acdert that is gone',
+      '95.000 I acde acde::backends: removed /tmp/b/app, left by a runtime that is gone',
       '19.236 D acde-warm acde_render::gpu: [vello] warm-up',
       '20.000 T acde acde_host: [app#1] traced',
     ]) expect([line, DevSession.keeps(line)]).toEqual([line, false])

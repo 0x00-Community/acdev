@@ -134,7 +134,7 @@ acdev: acdev runtime exited (1) before it was ready; acdev doctor checks the run
 {
   "ok": false,
   "checks": [
-    { "id": "acdert", "title": "acdev runtime", "status": "error", "summary": "…", "fix": "…" }
+    { "id": "runtime.binary", "title": "runtime", "status": "error", "summary": "…", "fix": "…" }
   ]
 }
 ```

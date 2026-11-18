@@ -1,7 +1,7 @@
 # 宿主窗口 (`crates/hostwin`)
 
 > 路径相对 `crates/hostwin/`。`src/host`、`src/model`、`src/render` 和不带出处的「章节」(「批准」「通知」「文件」「默认应用」
-> 「全局快捷键」「GPU 与性能」「WebGL」) 指 acdert 的源码和它的 AGENTS.md。
+> 「全局快捷键」「GPU 与性能」「WebGL」) 指 libacde 的源码和它的 AGENTS.md。
 
 `acde-hostwin` 是调试模式的「合成器」: **一个**宿主原生窗口, 里面按窗口表合成桌面、应用窗口和面板. 对 acde-host 的接口和会话一样
 (Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell`, 本仓 `src/hostnative.rs`; web 的 `claimSurface` 拿到 hostwin 的
