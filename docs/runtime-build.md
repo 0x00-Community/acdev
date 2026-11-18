@@ -28,3 +28,15 @@ target/debug/acdev doctor
 
 构建运行时库要有 bun: libacde 的 `build.rs` 把它的 `js/` 的页面包打进二进制 (`ACDEV_BUN` 指定 bun 的路径). 管理中枢 (broker.js) 随
 `web/` 删除 (acdert 91e7dd1e) 后没有取回, 原来进它的入口现在是单应用启动器 (`target/debug/acdev app <目录>`), 桌面起不来. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.
+
+## DXC 钉版本 (2026-11-18)
+
+Windows 目标经 wgpu-hal 的 `static-dxc` 依赖 `mach-dxcompiler-rs`, 它的 build.rs 在编译时从 GitHub 下预编译的 DXC.
+0.1.6 和 0.1.7 下载前先不带认证查 GitHub 的 releases API, 确认那个发布是「不可变发布」, 查不到 `"immutable": true` 就 panic,
+报 `Refusing to download a mutable GitHub release`. 匿名调用 API 每小时只有 60 次, 同一出口的几台执行机很快用完, 用完后的回应里
+没有这个字段, 也会报同样的错. 发版试跑 run 2542 的 Windows 构建就停在这里; 本机同时查 API 得到的是 rate limit, 所以推断原因是限流, 不是发布真的可变 (没在执行机上核实). 0.1.5 已撤回. 0.1.4 不查 API, 直接下载并按包里写死的
+SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxcompiler-rs = "=0.1.4"` (wgpu-hal 30 要求 `^0.1.4`, 合得上),
+把它钉住. acdev 不提交 `Cargo.lock`, CI 每次 `cargo update`, 不钉就会解析到最新的 0.1.7.
+
+解除条件 (任一): 上游新版不再在构建时匿名调用 GitHub API (或允许带令牌、允许跳过); 或预编译的 DXC 放进内网 gitea, 由环境变量指给它
+(也合「构建不从外网取东西」); 或改成提交 `Cargo.lock` 并让 CI 能稳定编过新版. 解除时删掉根 `Cargo.toml` 里这一项和本节.
