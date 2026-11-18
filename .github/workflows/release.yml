@@ -313,7 +313,7 @@ jobs:
           set -eu
           dist=acdev/target/${{ matrix.triple }}/dist
           exe=acdev${{ matrix.exe }}
-          mkdir -p out one symbols
+          mkdir -p out/symbols one
           cp "$dist/$exe" "one/$exe"
           chmod 755 "one/$exe"
           TZ=UTC touch -t 200001010000.00 "one/$exe"
@@ -324,21 +324,15 @@ jobs:
             tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | xz -9 -T1 -c > "out/acdev-runtime-${{ matrix.triple }}.tar.xz"
           fi
           for part in acdev.pdb acdev.dwp acdev.dSYM; do
-            if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" symbols/; fi
+            if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" out/symbols/; fi
           done
-          if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
-          ls -la out symbols
+          if [ -z "$(ls -A out/symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
+          ls -la out out/symbols
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         if: env.BUILD == 'true'
         with:
           name: runtime-${{ matrix.triple }}
           path: out
-          retention-days: 1
-      - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        if: env.BUILD == 'true'
-        with:
-          name: symbols-${{ matrix.triple }}
-          path: symbols
           retention-days: 30
           if-no-files-found: error
 
@@ -440,11 +434,7 @@ jobs:
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           path: in
-          pattern: runtime-*
-      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
-        with:
-          path: in
-          pattern: tool-*
+          pattern: '{runtime,tool}-*'
       - name: the builds of the planned targets, the guest daemons and the host tools, nothing else
         run: |
           set -eu

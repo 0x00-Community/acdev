@@ -18,7 +18,7 @@ acdev-relay、Linux 的 acdev-viewer)、SDK `acde-api-<版本>.tar.gz`、`acdev`
 - 改前 (2026-11-18 之前, 运行 2258): 总共 30 分 41 秒; `build` 四个目标各 9～14 分钟 (并行), `host` 1 分多, `pkgs` 2 分.
 - 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` libacde/js,
   设 `ACDEV_BUN`: libacde 的 build.rs 在宿主 Linux 上用 bun 把 libacde/js 打包进二进制, 三个交叉目标也用 Linux 版 bun; 小程序挪到 `tools`, 和主程序矩阵同时编、不等它, `pkgs` 只等两边;
-  `pkgs` 只下载要发的产物 (按名字 `runtime-*`、`tool-*`, 不下 30 天留存的调试信息); npm 包和命令行归档仍只在 `pkgs` 打一次.
+  `pkgs` 用一次下载取 `runtime-*`、`tool-*` 两类产物 (`pattern: '{runtime,tool}-*'`); 分离的调试信息放在 `runtime-<triple>` 产物的 `symbols/` 子目录里一起留存 30 天, `pkgs` 只拷要发的归档, 不会把它发出去; npm 包和命令行归档仍只在 `pkgs` 打一次.
   缓存: `build` 和 `tools` 都用 rust-cache (registry 和 target, 按目标或程序分 key), 另把 cargo-xwin 下载的 MSVC CRT 和 SDK
   (`~/.cache/cargo-xwin`) 放进同一份缓存; V8 的预编译库由 rusty_v8 的构建脚本下到 target 里, 随 rust-cache 的 target 缓存保留〔未核实:
   rust-cache 会清掉本工作区包的产物, 依赖的构建脚本输出一般留着, 要看试编的第二次是否还在下载〕. 不用 sccache (它会关掉增量编译, runner 上也没装).
@@ -146,3 +146,12 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `bin/acdev` 不经它. `requireAcdert()`: `ACDEV_RUNTIME` (设了找不到直接报错), 全局装时安装器放在旁边的
   `libexec/acdev[.exe]` (旧装法是 `bin/acdert[.exe]`; `runtimeBeside` (旧名 `acdertBeside` 留一版), 同一版本目录), 最后 PATH; 检出跑的 acdev 只认 `ACDEV_RUNTIME` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 libacde 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
+
+## 执行机上同一个远程 action 一个作业只用一次 (2026-11-18)
+
+ci-debian 执行机是 act_runner 0.6.1 的宿主模式 (不在容器里). run 2542 里, macOS aarch64 的构建编译、打包、上传 runtime 都成功了,
+同一作业第二次用 `gitea-upload-artifact` (上传调试信息) 时失败: `open /home/cicd/.cache/act/<作业>/act/actions/<hash>/.git/objects/pack/pack-*.idx:
+permission denied`; Windows 的作业收尾时也有同样的报错. 判断是宿主模式把远程 action 的 git 仓库拷进作业缓存, git 的 pack 和 idx 文件本来就是只读的,
+同一个 action 在一个作业里第二次准备时要覆盖它们, 就失败了. 没查到 act_runner 对此的说明或更正的版本 (只查到别处相同的现象: 拷贝或覆盖只读的 pack
+文件失败), 所以在工作流里绕开, 不动执行机: build 把 runtime 和调试信息放进一个产物、只上传一次; `pkgs` 用一个 `pattern` 下载两类产物.
+以后加步骤时, 同一个作业里同一个远程 action (`uses: http://...`) 只出现一次; 本仓库的本地 action (`./acdev/.github/actions/...`) 不受影响.

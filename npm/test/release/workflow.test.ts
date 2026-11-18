@@ -218,7 +218,7 @@ describe('release.yml', () => {
     expect(pkgs).toContain('cp "in/runtime-$t/$f" in/runtime/')
     expect(pkgs).toContain('pack "acdev-guest-$v.tar.gz" in/tool-acdevd-x86_64/acdevd-x86_64 in/tool-acdevd-aarch64/acdevd-aarch64')
     expect(jobs['pkgs']!.steps.filter((item) => item.uses?.includes('/gitea-download-artifact@')).map((item) => item.with?.['pattern']))
-      .toEqual(['runtime-*', 'tool-*'])
+      .toEqual(['{runtime,tool}-*'])
   })
 
   test('build has bun 1.4.4 and libacde/js installed before cargo: build.rs bundles libacde/js', () => {
