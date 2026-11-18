@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Acde } from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
+import { Mcp } from '../src/mcp.ts'
 import { cleanup, standIn, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -348,3 +349,14 @@ describe('acdev mcp', () => {
     }
   }, 60_000)
 })
+
+describe('the MCP clipboard tool', () => {
+  test('the session in the guest and a headless one use their own clipboard; a host window needs system: true', () => {
+    const windowed = { pid: 7, endpoint: '/run/x.sock', dirs: [], apps: [], desktop: null, started: 0 }
+    expect(Mcp.clipboardRefusal(Sessions.guest(), false)).toBeNull()
+    expect(Mcp.clipboardRefusal({ ...windowed, headless: true }, false)).toBeNull()
+    expect(Mcp.clipboardRefusal(windowed, true)).toBeNull()
+    expect(Mcp.clipboardRefusal(windowed, false)).toContain('ask the user, then call again with system: true')
+  })
+})
+

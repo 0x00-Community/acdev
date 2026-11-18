@@ -8,7 +8,7 @@ import { Approvals } from './approvals.ts'
 import { Doctor } from './doctor.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
-import { Sessions, type Pin } from './sessions.ts'
+import { Sessions, type Pin, type Session } from './sessions.ts'
 import { Format } from './driver/format.ts'
 import { PageTools } from './mcppage.ts'
 import { Versions } from './versions.ts'
@@ -652,23 +652,21 @@ export class Mcp {
       'clipboard',
       {
         description: 'Read the clipboard the pages see, or write text to it first. A headless session keeps a '
-          + 'clipboard of its own; with a window on screen it is the user\'s system clipboard, which may hold their '
-          + 'private data, so there it needs system: true (ask the user first).',
+          + 'clipboard of its own, and the session in the guest (--session vm) uses the guest\'s own clipboard; with a '
+          + 'window on screen it is the user\'s system clipboard, which may hold their private data, so there it needs '
+          + 'system: true (ask the user first).',
         inputSchema: z.object({
           text: z.string().optional().describe('write this first'),
           system: z.boolean().optional()
-            .describe('allow touching the user\'s system clipboard (sessions with a window)'),
+            .describe('allow touching the user\'s system clipboard (host sessions with a window; not needed headless or in the guest)'),
         }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       },
       (args) =>
         this.#safe(async () => {
           const acde = await this.#acde()
-          if (!acde.session.headless && args.system !== true) {
-            throw new Error(`clipboard: acdev dev ${acde.session.pid} has a window on screen, so its clipboard is the `
-              + 'user\'s system clipboard; ask the user, then call again with system: true (or use a session started '
-              + 'with headless: true)')
-          }
+          const refused = Mcp.clipboardRefusal(acde.session, args.system === true)
+          if (refused) throw new Error(refused)
           if (args.text !== undefined) await acde.setClipboard(args.text)
           return Mcp.#text(JSON.stringify(await acde.clipboard()))
         }),
@@ -877,6 +875,13 @@ export class Mcp {
       const text = error instanceof Error ? error.message : String(error)
       return { content: [{ type: 'text', text }], isError: true }
     }
+  }
+
+  static clipboardRefusal(session: Session, system: boolean): string | null {
+    if (system || session.headless || Sessions.isGuest(session)) return null
+    return `clipboard: acdev dev ${session.pid} has a window on screen, so its clipboard is the user's system clipboard; `
+      + 'ask the user, then call again with system: true (or use a session started with headless: true; the session in '
+      + 'the guest, --session vm, uses the guest\'s own clipboard)'
   }
 
   static async #webs(acde: Acde): Promise<string> {
