@@ -225,9 +225,9 @@ jobs:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
         run: |
           set -eu
-          case "${{ matrix.cross }}" in xwin) cargo="cargo xwin" ;; zigbuild) cargo="cargo zigbuild" ;; *) cargo=cargo ;; esac
-          $cargo build --locked --profile dist -p acdev --target ${{ matrix.triple }}
-          (cd crates/tool && $cargo build --locked --release --target ${{ matrix.triple }})
+          build() { case "${{ matrix.cross }}" in xwin) cargo xwin build "$@" ;; zigbuild) cargo zigbuild "$@" ;; *) cargo build "$@" ;; esac; }
+          build --locked --profile dist -p acdev --target ${{ matrix.triple }}
+          (cd crates/tool && build --locked --release --target ${{ matrix.triple }})
       - name: the archives (one program each, fixed times and owner) and the split debug information
         run: |
           set -eu

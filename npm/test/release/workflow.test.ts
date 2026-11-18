@@ -160,8 +160,9 @@ describe('release.yml', () => {
       'aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc',
     ])
     const build = runs('build')
-    expect(build).toContain('$cargo build --locked --profile dist -p acdev --target ${{ matrix.triple }}')
-    expect(build).toContain('(cd crates/tool && $cargo build --locked --release --target ${{ matrix.triple }})')
+    expect(build).toContain('xwin) cargo xwin build "$@" ;; zigbuild) cargo zigbuild "$@" ;; *) cargo build "$@" ;;')
+    expect(build).toContain('build --locked --profile dist -p acdev --target ${{ matrix.triple }}')
+    expect(build).toContain('(cd crates/tool && build --locked --release --target ${{ matrix.triple }})')
     expect(build).toContain('pack acdevrt "acdev/target/$t/dist/acdev$x" "acdev$x"')
     expect(build).toContain('pack acdevtools "acdev/crates/tool/target/$t/release/acdevtool$x" "acdevtool$x"')
     expect(jobs['build']!.steps.some((item) => item.uses === './acdev/.github/actions/libacde')).toBe(true)
