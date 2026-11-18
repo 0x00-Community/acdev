@@ -12,7 +12,7 @@ import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
 import { Forward } from '../src/vm/forward.ts'
-import { guestPassword, prepareGuest } from '../src/vm/guest.ts'
+import { guestPassword, prepareGuest, stageInGuest } from '../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
@@ -799,3 +799,47 @@ describe('acdev vm stop', () => {
     expect(none.tried).toEqual(['devd', 'agent', 'acpi', 'kill'])
   })
 })
+
+describe('drop in the guest session', () => {
+  const owner = Buffer.from('dopame\n/home/dopame\n1000\n')
+
+  test('the host files are pushed under the user runtime folder and handed to the user', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'notes.md'), '# hi')
+    const ran: string[][] = []
+    const pushed: string[] = []
+    const devd = {
+      run: async (argv: readonly string[], handlers: { stdout?: (chunk: Buffer) => void } = {}) => {
+        ran.push([...argv])
+        if (ran.length === 1) handlers.stdout?.(owner)
+        return 0
+      },
+      push: async (files: readonly { path: string }[]) => {
+        pushed.push(...files.map((f) => f.path))
+        return files.length
+      },
+    }
+    const placed = await stageInGuest(devd, [join(dir, 'notes.md')])
+    expect(placed).toHaveLength(1)
+    expect(placed[0]).toMatch(/^\/run\/user\/1000\/acdev-drop\/[0-9a-f]{12}\/notes\.md$/)
+    expect(pushed).toEqual(placed)
+    expect(ran[1]!.slice(3)).toEqual(['sh', 'dopame', '/run/user/1000/acdev-drop'])
+    expect(ran[1]![2]).toContain('chown -R')
+  })
+
+  test('a push that fails is an error, not a drop', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'a.txt'), 'a')
+    const devd = {
+      run: async (_argv: readonly string[], handlers: { stdout?: (chunk: Buffer) => void } = {}) => {
+        handlers.stdout?.(owner)
+        return 0
+      },
+      push: async () => {
+        throw new Error('acdevd: No space left on device')
+      },
+    }
+    await expect(stageInGuest(devd, [join(dir, 'a.txt')])).rejects.toThrow('drop: could not put the files into the guest: acdevd: No space left')
+  })
+})
+

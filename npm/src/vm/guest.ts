@@ -1,32 +1,44 @@
-import type { Devd } from './devd.ts'
+import { randomBytes } from 'node:crypto'
+import { basename, posix } from 'node:path'
+import { Devd } from './devd.ts'
 
 export interface GuestUser {
   readonly user: string
   readonly home: string
 }
 
+export interface GuestOwner extends GuestUser {
+  readonly uid: number
+}
+
 export const GUEST_PASSWORD = 'dopame-dev'
 export const GUEST_PASSWORD_ENV = 'ACDEV_VM_PASSWORD'
 
-const SETUP = [
+const WHO = [
   'set -e',
   'session=$(loginctl show-seat seat0 --property=ActiveSession --value)',
   '[ -n "$session" ] || { echo "no session is active on seat0: log in in the guest first" >&2; exit 3; }',
   'user=$(loginctl show-session "$session" --property=Name --value)',
   'home=$(getent passwd "$user" | cut -d: -f6)',
+]
+
+const SETUP = [
+  ...WHO,
   'printf \'%s:%s\\n\' "$user" "$1" | chpasswd',
   'faillock --user "$user" --reset',
   'printf \'%s\\n%s\\n\' "$user" "$home"',
 ].join('\n')
 
-export function guestPassword(env: NodeJS.ProcessEnv = process.env): string {
-  return env[GUEST_PASSWORD_ENV] || GUEST_PASSWORD
-}
+const OWNER = [...WHO, 'printf \'%s\\n%s\\n%s\\n\' "$user" "$home" "$(id -u "$user")"'].join('\n')
 
-export async function prepareGuest(devd: Pick<Devd, 'run'>, password: string): Promise<GuestUser> {
+const HAND_OVER = 'set -e; chown -R "$1:" "$2"; chmod 700 "$2"'
+
+type Runs = Pick<Devd, 'run'>
+
+async function script(devd: Runs, what: string, text: string, args: readonly string[]): Promise<string[]> {
   let out = ''
   let err = ''
-  const code = await devd.run(['/bin/sh', '-c', SETUP, 'sh', password], {
+  const code = await devd.run(['/bin/sh', '-c', text, 'sh', ...args], {
     stdout: (chunk) => {
       out += chunk.toString()
     },
@@ -34,10 +46,38 @@ export async function prepareGuest(devd: Pick<Devd, 'run'>, password: string): P
       err += chunk.toString()
     },
   })
-  const [user, home] = out.split('\n').map((line) => line.trim())
-  if (code !== 0 || !user || !home) {
-    const said = err.trim() || out.trim() || 'no output'
-    throw new Error(`acdev test --vm: setting up the session user in the guest failed (${code}): ${said}`)
-  }
+  const lines = out.split('\n').map((line) => line.trim())
+  if (code !== 0) throw new Error(`${what} failed in the guest (${code}): ${err.trim() || out.trim() || 'no output'}`)
+  return lines
+}
+
+export function guestPassword(env: NodeJS.ProcessEnv = process.env): string {
+  return env[GUEST_PASSWORD_ENV] || GUEST_PASSWORD
+}
+
+export async function prepareGuest(devd: Runs, password: string): Promise<GuestUser> {
+  const [user, home] = await script(devd, 'acdev test --vm: setting up the session user', SETUP, [password])
+  if (!user || !home) throw new Error('acdev test --vm: setting up the session user in the guest failed: it named no user')
   return { user, home }
+}
+
+export async function guestOwner(devd: Runs): Promise<GuestOwner> {
+  const [user, home, uid] = await script(devd, 'finding the session user', OWNER, [])
+  const id = Number(uid)
+  if (!user || !home || !Number.isInteger(id)) throw new Error('finding the session user in the guest failed: it named no user')
+  return { user, home, uid: id }
+}
+
+export async function stageInGuest(devd: Pick<Devd, 'run' | 'push'>, files: readonly string[]): Promise<string[]> {
+  const owner = await guestOwner(devd)
+  const root = posix.join('/run/user', String(owner.uid), 'acdev-drop')
+  const dir = posix.join(root, randomBytes(6).toString('hex'))
+  const placed = files.map((file) => posix.join(dir, basename(file)))
+  try {
+    await devd.push(files.flatMap((file, i) => Devd.files(file, placed[i]!)))
+    await script(devd, 'handing the files to the session user', HAND_OVER, [owner.user, root])
+  } catch (error) {
+    throw new Error(`drop: could not put the files into the guest: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return placed
 }

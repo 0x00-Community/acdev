@@ -432,21 +432,31 @@ export class Acde {
   }
 
   async drop(files: string | readonly string[], options: DropOptions = {}): Promise<Dropped> {
-    const list = (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
-    if (list.length === 0) throw new Error('drop: give at least one file')
+    const local = (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
+    if (local.length === 0) throw new Error('drop: give at least one file')
     if ((options.x === undefined) !== (options.y === undefined)) throw new Error('drop: give x and y together')
+    const list = this.guest ? await Acde.#stage(local) : local
     const args = {
       files: list,
       ...(options.web !== undefined && { web: options.web }),
       ...(options.x !== undefined && { x: options.x, y: options.y }),
     }
     return this.trace.step(`drop(${JSON.stringify(list)}${options.web ? `, ${options.web}` : ''})`, async () => {
-      const answer = (await this.#request('drop', args)) as Partial<Dropped> | null
-      if (typeof answer?.web !== 'string' || typeof answer.window !== 'number' || !Array.isArray(answer.files)) {
-        throw new Error(`acdev runtime answered drop with ${JSON.stringify(answer)}`)
-      }
-      return answer as Dropped
+      return Acde.dropped(await this.#request('drop', args), options.web ?? 'desktop')
     }, (dropped) => `onto ${dropped.web}`)
+  }
+
+  static dropped(answer: unknown, asked: string): Dropped {
+    const given = answer as Partial<Dropped> | null
+    if (typeof given?.window !== 'number' || !Array.isArray(given.files)) {
+      throw new Error(`drop: the session gave an unexpected answer: ${JSON.stringify(answer)}`)
+    }
+    return { web: typeof given.web === 'string' ? given.web : asked, window: given.window, files: given.files }
+  }
+
+  static async #stage(files: readonly string[]): Promise<string[]> {
+    const [{ Machine }, { stageInGuest }] = await Promise.all([import('../vm/machine.ts'), import('../vm/guest.ts')])
+    return await stageInGuest(new Machine().devd(), files)
   }
 
   async #prompting(): Promise<boolean> {

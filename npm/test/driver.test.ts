@@ -673,6 +673,13 @@ describe('--session vm', () => {
     }
   })
 
+  test('drop takes the guest answer {window, files, ms} and names the web it asked for', () => {
+    check(Acde.dropped({ window: 3, files: ['/run/user/1000/acdev-drop/x/a.md'], ms: 40 }, 'editor#1'))
+      .toEqual({ web: 'editor#1', window: 3, files: ['/run/user/1000/acdev-drop/x/a.md'] })
+    check(Acde.dropped({ web: 'notes#1', window: 1, files: ['/a'] }, 'notes')).toEqual({ web: 'notes#1', window: 1, files: ['/a'] })
+    check(() => Acde.dropped({ ok: true }, 'desktop')).toThrow('drop: the session gave an unexpected answer')
+  })
+
   test('a pin of vm picks the guest session and no local one', () => {
     const local = { pid: 42, endpoint: '/run/x.sock', dirs: [], apps: [], desktop: null, started: 0 }
     check(Sessions.pins('vm', Sessions.guest())).toBe(true)

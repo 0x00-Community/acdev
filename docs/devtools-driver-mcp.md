@@ -114,6 +114,12 @@
   `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdev runtime 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
   (如 `evaluate` 轮询或 `expect`), 不能以回答为准. 页面拿到的: 普通文件进 `dataTransfer.files` (`File`), 每项 `getAsFileSystemHandle()` 是只读句柄
   (文件夹是目录句柄); 扩展期 `items` 前面还有 `text/uri-list` / `text/plain` 两项字符串.
+  客户机会话 (`--session vm`) 里宿主的文件客户机里没有: `Acde.drop` 先经 acdevd 推进客户机 (`stageInGuest`, `src/vm/guest.ts`): 从 logind 取
+  活动会话的用户和 uid, 推到 `/run/user/<uid>/acdev-drop/<随机名>/<原文件名>` (文件夹整个推), 再 `chown -R <用户>:` 并 `chmod 700`
+  `acdev-drop`, 应用以用户身份才读得到; 然后用客户机里的路径 drop. 推不进去时报 `drop: could not put the files into the guest: …`, 不发 drop.
+  客户机管家回 `{window, files, ms}` (不带 web), `Acde.dropped` 两种回答都认, 没有 web 时用请求里的 (默认 desktop); 原来按宿主形状严格检查,
+  客户机的回答被当成坏回答报错 (`acdev runtime answered drop with …`, 退出码 1), 那就是「回了 answered 退出码却是 1」. 命令行和 driver 同经
+  `Acde.drop`; MCP 没有 drop 工具.
   **关窗口结束会话** (命令行、MCP、driver 共用 `Acde.act` 这一处): 单应用会话 (`acdev runtime app`, 会话文件 `desktop` 为 null) 里关掉应用的窗口,
   acdev runtime 按设计随之退出, 不回答这个 `act` (实测 acdert 0.0.9: 日志 `ended (close), exit 0`, 连接直接断). `act(窗口 ref, 'close')` 发出时连接还在、
   等回答时连接断了 (`DevClient.ended`, 在 socket 的 `close` 事件里同步置位, 先于在途请求被拒)、会话是单应用的、不是自己 `close()` 断的, 就算成功:
