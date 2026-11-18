@@ -264,3 +264,17 @@ describe('templates speak English and carry a small i18n setup', () => {
     ])
   })
 })
+
+describe('the package check of a desktop', () => {
+  test('finds a missing entry or lock page in the package folder', () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'desktop'), { recursive: true })
+    writeFileSync(join(dir, 'desktop', 'index.html'), '<!doctype html>')
+    const desktop = { id: 'dopame', name: 'Dopame', entry: 'desktop/index.html' }
+    const manifest = (lock?: string) => ({ apiLevel: API_LEVEL, desktops: [{ ...desktop, ...(lock && { lock }) }] }) as PackageManifest
+    expect(AppPackage.check(dir, manifest()).errors).toEqual([])
+    expect(AppPackage.check(dir, manifest('desktop/lock.html')).errors).toEqual(['desktop "dopame": no lock desktop/lock.html'])
+    writeFileSync(join(dir, 'desktop', 'lock.html'), '<!doctype html>')
+    expect(AppPackage.check(dir, manifest('desktop/lock.html')).errors).toEqual([])
+  })
+})
