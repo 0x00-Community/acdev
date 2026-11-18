@@ -8,7 +8,7 @@
 打在本仓库. 版本号不用先提交: 推的标签给出它, 否则用输入 `version`, 都没有时取 pkgs 的 `latest.json`、npm 上两个包和 `v*` 标签里最高的版本加一个
 补丁号; 各作业用 `scripts/set-version.sh <版本> acdev` 把它写进本仓库和旁边 libacde 的 `Cargo.toml` 的 `[workspace.package]`
 (crates/hostwin 跟本仓库的走, 运行时库跟 libacde 的走)、`npm/package.json` 和 SDK 的 `libacde/acde-api/package.json` (不提交).
-运行时库是并排检出的 libacde (`.github/actions/libacde`: 经令牌克隆, 带子模块 `vendor/blitz`; `plan` 读一次 libacde 的 main, 输出 `libacde`,
+运行时库是并排检出的 libacde (`cicd.yaml` 里锚点 `&libacde` 那一步, `build` 和 `pkgs` 用: 经令牌克隆, 带子模块 `vendor/blitz`; `plan` 读一次 libacde 的 main, 输出 `libacde`,
 `build` 和 `pkgs` 都检出这一个提交),
 页面资源和启动器已嵌进 acdev 二进制, 不再有 `acde-host` 包和 `libexec/app` (2026-11-18 起; 原 AC/acdert 已归档).
 
@@ -146,7 +146,8 @@ ci-debian 执行机是 act_runner 0.6.1 的宿主模式 (不在容器里). run 2
 permission denied`; Windows 的作业收尾时也有同样的报错. 判断是宿主模式把远程 action 的 git 仓库拷进作业缓存, git 的 pack 和 idx 文件本来就是只读的,
 同一个 action 在一个作业里第二次准备时要覆盖它们, 就失败了. 没查到 act_runner 对此的说明或更正的版本 (只查到别处相同的现象: 拷贝或覆盖只读的 pack
 文件失败), 所以在工作流里绕开, 不动执行机: build 把两个归档和调试信息放进一个产物、只上传一次; `pkgs` 用一个 `pattern` 下载全部产物.
-以后加步骤时, 同一个作业里同一个远程 action (`uses: http://...`) 只出现一次; 本仓库的本地 action (`./acdev/.github/actions/...`) 不受影响.
+以后加步骤时, 同一个作业里同一个远程 action (`uses: http://...`) 只出现一次. 没有本地 action (`.github/actions`, 用户定 2026-11-18: 只用标准的 `.github/workflows`):
+要复用的步骤在同一个文件里用 YAML 锚点 (`- &名字` 定义一次, 别的作业 `- *名字`), Gitea 认锚点.
 
 ## Windows 构建的 xwin 缓存按是否含 ATL 分开 (2026-11-18)
 
@@ -165,13 +166,13 @@ Windows 两格, Windows 那格的 rust-cache 收尾时清理共用的 `~/.cargo`
 - Rust 不再由作业装: 执行机的 ci-debian 里由 root 跑 `scripts/runner-rust.sh`, 把 rustup 的 stable 装进 `/opt/rust` (归 root, 作业只能读;
   目标: 两种架构的 linux-gnu 和 linux-musl、x86_64-pc-windows-msvc、两个 apple-darwin; 组件 clippy、rustfmt). 不用 Debian 的 rustc: trixie
   的 1.85 太旧 (`as_chunks` 要 1.88, 依赖只写主版本号, 跟最新), 也没有 msvc 和 darwin 的标准库. 升级: 执行机空闲时再跑一次这个脚本.
-- `.github/actions/toolchain` 是用 Rust 的作业 checkout 之后的第一步 (`build`、`guest`、wpt-setup): 查 `/opt/rust` 有作业要的目标,
+- 锚点 `&toolchain` 那一步 (`cicd.yaml` 的 `build`、`guest`, `test.yml` 的每个作业各一份, 作业的 `TARGETS` 给要的目标) 是用 Rust 的作业 checkout 之后的第一步: 查 `/opt/rust` 有作业要的目标,
   `RUNNER_HOME` 记下执行机自己的家目录, `HOME` 设到这个作业自己的 `$RUNNER_TEMP/home` (作业结束随工作目录删掉; bun 装在 `~/.bun` 等
   都是每个作业一份), `CARGO_HOME` 是 `$RUNNER_HOME/.cargo` (共用, 跨运行留着; cargo 下载时自己加锁, 没有 rust-cache 去清它, 两个作业同时用没事),
   `RUSTUP_HOME=/opt/rust/rustup`, 把 `/opt/rust/cargo/bin` 放进 `PATH`. cargo-xwin 的 `XWIN_CACHE_DIR` 和 `ZIG_GLOBAL_CACHE_DIR` 也在
   `$RUNNER_HOME/.cache` 下, 长期留着: 两个 Windows 格不会同时落在一台机器上 (release 有 concurrency), zig 的缓存本身支持并发.
 - apt 带 `-o DPkg::Lock::Timeout=600` (另一个作业可能正拿着 dpkg 的锁), 要的包都装了就不调 apt.
-- wpt-setup 的第一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
+- `test.yml` 的 `&cleanup` 那一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
   runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
   test 运行同时跑时才会).
 

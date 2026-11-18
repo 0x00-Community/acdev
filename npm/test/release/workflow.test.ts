@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pkgs } from '../../src/pkgs.ts'
 
-const TEXT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'workflows', 'cicd.yaml'), 'utf8')
+const GITHUB = join(import.meta.dir, '..', '..', '..', '.github')
+const TEXT = readFileSync(join(GITHUB, 'workflows', 'cicd.yaml'), 'utf8')
+const TEST = readFileSync(join(GITHUB, 'workflows', 'test.yml'), 'utf8')
 const CREDENTIALS = 'credentials for the role'
 const LOCK = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
 type Step = {
@@ -166,7 +168,8 @@ describe('cicd.yaml', () => {
     expect(build).toContain('(cd crates/tool && build --locked --release --target ${{ matrix.triple }})')
     expect(build).toContain('pack acdevrt "acdev/target/$t/dist/acdev$x" "acdev$x"')
     expect(build).toContain('pack acdevtools "acdev/crates/tool/target/$t/release/acdevtool$x" "acdevtool$x"')
-    expect(jobs['build']!.steps.some((item) => item.uses === './acdev/.github/actions/libacde')).toBe(true)
+    expect(jobs['build']!.steps.some((item) => item.name?.startsWith('libacde beside acdev'))).toBe(true)
+    expect(jobs['pkgs']!.steps.some((item) => item.name?.startsWith('libacde beside acdev'))).toBe(true)
     const guest = runs('guest')
     expect(guest).toContain('cargo build --locked --release --target $a-unknown-linux-musl')
     expect(guest).toContain('acdev-guest-${{ needs.plan.outputs.version }}.tar.gz')
@@ -256,27 +259,31 @@ describe('cicd.yaml', () => {
     }
   })
 
+  test('no .github/actions: the workflows say every step, the shared ones anchored once per file', () => {
+    expect(existsSync(join(GITHUB, 'actions'))).toBe(false)
+    expect(TEXT + TEST).not.toContain('.github/actions')
+    for (const anchor of ['&toolchain', '&libacde']) expect(TEXT.split(anchor).length - 1, anchor).toBe(1)
+    for (const anchor of ['&cleanup', '&toolchain', '&libacde', '&libraries', '&bun', '&fetch', '&runtime', '&wpt']) {
+      expect(TEST.split(anchor).length - 1, anchor).toBe(1)
+    }
+  })
+
   test('Rust jobs take the runner\'s read-only /opt/rust and a home of their own, first thing after the checkout', () => {
-    const ACTIONS = join(import.meta.dir, '..', '..', '..', '.github', 'actions')
-    const WPT = readFileSync(join(ACTIONS, 'wpt-setup', 'action.yml'), 'utf8')
-    expect(TEXT + WPT).not.toContain('rust-toolchain@')
-    const toolchain = readFileSync(join(ACTIONS, 'toolchain', 'action.yml'), 'utf8')
-    expect(toolchain).toContain('RUSTUP_HOME=/opt/rust/rustup')
-    expect(toolchain).toContain('h=$RUNNER_TEMP/home')
+    expect(TEXT + TEST).not.toContain('rust-toolchain@')
     for (const [job, targets] of [['build', '${{ matrix.triple }}'], ['guest', 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl']] as const) {
       const step = jobs[job]!.steps[1]!
-      expect(step.uses, job).toBe('./acdev/.github/actions/toolchain')
-      expect(step.with?.['targets'], job).toBe(targets)
+      expect(step.name, job).toStartWith("this job's home, the runner's Rust")
+      expect(step.run, job).toContain('RUSTUP_HOME=/opt/rust/rustup')
+      expect(step.run, job).toContain('h=$RUNNER_TEMP/home')
+      expect(jobs[job]!.env?.['TARGETS'], job).toBe(targets)
     }
-    expect(WPT.indexOf('./acdev/.github/actions/toolchain')).toBeLessThan(WPT.indexOf('cargo fetch --locked'))
-    expect(WPT).toContain('[ ! -d "${p%%/hostexecutor/*}" ]')
+    expect(TEST.indexOf('*toolchain')).toBeLessThan(TEST.lastIndexOf('*fetch'))
+    expect(TEST).toContain('[ ! -d "${p%%/hostexecutor/*}" ]')
   })
 
   test('no rust-cache (per-job paths never match a saved cache); xwin, zig and cargo keep to the runner\'s own home', () => {
-    const WPT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'actions', 'wpt-setup', 'action.yml'), 'utf8')
-    expect(TEXT + WPT).not.toContain('rust-cache@')
-    const toolchain = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'actions', 'toolchain', 'action.yml'), 'utf8')
-    expect(toolchain).toContain('"$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME"')
+    expect(TEXT + TEST).not.toContain('rust-cache@')
+    expect(runs('build')).toContain('"$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME"')
     expect(runs('build')).toContain('"$RUNNER_HOME/.cache/cargo-xwin-atl"')
     expect(runs('build')).toContain('ZIG_GLOBAL_CACHE_DIR=%s')
     expect(runs('build')).toContain('"$RUNNER_HOME/.cache/zig"')

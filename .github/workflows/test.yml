@@ -24,6 +24,7 @@ env:
   ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdev
 
 jobs:
+  # the setup steps (anchored here, reused by the other jobs): runtime built, libacde beside it, WPT ready
   gate:
     if: github.event.inputs.wpt == 'gate'
     runs-on: x86_64-debian
@@ -33,10 +34,108 @@ jobs:
         with:
           path: acdev
           persist-credentials: false
-      - uses: ./acdev/.github/actions/wpt-setup
+      - &cleanup
+        name: end what an earlier test job left running (a cancelled job's wptserve group and runtime sessions outlive it)
+        run: |
+          # only processes whose job directory is gone: the other job on this runner may be running its own
+          gone() {
+            for p in "$(readlink "/proc/$1/cwd" 2>/dev/null)" $(tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null); do
+              case $p in */.cache/act/*/hostexecutor/*) [ ! -d "${p%%/hostexecutor/*}" ]; return ;; esac
+            done
+            return 1
+          }
+          serve='/hostexecutor/libacde/scripts/wpt/serve\.py'
+          ours='/hostexecutor/acdev/target/release/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
+          ports=$(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
+          left=""
+          for pid in $(pgrep -f "$ours|$serve" || true) $ports; do gone "$pid" && left="$left $pid"; done
+          [ -n "$left" ] || exit 0
+          for pid in $left; do
+            if grep -qa 'scripts/wpt/serve\.py' "/proc/$pid/cmdline" 2>/dev/null; then
+              pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
+              [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null || true
+            else
+              kill -TERM "$pid" 2>/dev/null || true
+            fi
+          done
+          for i in $(seq 1 30); do
+            alive=""; for pid in $left; do kill -0 "$pid" 2>/dev/null && alive=1; done
+            [ -n "$alive" ] || break
+            sleep 1
+          done
+          for pid in $left; do kill -KILL "$pid" 2>/dev/null || true; done
+      - &commit
+        name: acdev's commit
+        run: echo "acdev $(git -C acdev rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - &toolchain
+        name: this job's home, the runner's Rust (the job's TARGETS installed)
+        run: |
+          set -eu
+          export RUSTUP_HOME=/opt/rust/rustup
+          r=/opt/rust/cargo/bin
+          [ -x "$r/rustc" ] || { echo "::error::this runner has no Rust in /opt/rust (scripts/runner-rust.sh puts it there)"; exit 1; }
+          have=$("$r/rustup" target list --installed)
+          for t in $(echo "${TARGETS:-}" | tr ',' ' '); do
+            echo "$have" | grep -qx "$t" || { echo "::error::/opt/rust has no $t (scripts/runner-rust.sh)"; exit 1; }
+          done
+          h=$RUNNER_TEMP/home
+          mkdir -p "$h"
+          printf 'RUNNER_HOME=%s\nHOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' \
+            "$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
+          echo "$r" >> "$GITHUB_PATH"
+          "$r/rustc" -V
+      - &libacde
+        name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
+          REF: ''
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -eu
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
+          rm -rf libacde
+          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
+          if [ -n "$REF" ] && [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
+            g -C libacde fetch --quiet --depth 1 origin "$REF"
+            git -C libacde checkout --quiet --detach "$REF"
+          fi
+          g -C libacde submodule update --init --depth 1
+          echo "libacde $(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - &libraries
+        name: system libraries to build and to run headless (Mesa's software Vulkan, fonts), python3 for wptserve
+        run: |
+          p="clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev libwayland-dev
+            libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xz-utils
+            mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk python3 python3-venv git"
+          # the other job on this runner may hold dpkg's lock
+          s=$(command -v sudo || true) a="-o DPkg::Lock::Timeout=600"
+          dpkg -s $p > /dev/null 2>&1 || { $s apt-get $a update && $s apt-get $a install -y --no-install-recommends $p; }
+      - &bun
+        uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          workers: ${{ github.event.inputs.workers }}
+          bun-version: 1.4.4
+      - &fetch
+        name: download the crates Cargo.lock names (the only step with the registry token)
+        env:
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
+        run: cd acdev && cargo fetch --locked
+      - &runtime
+        name: build acdev runtime (release, offline, no token; build.rs bundles libacde/js with bun); link the acdev CLI
+        run: |
+          set -eu
+          (cd libacde/js && bun install --frozen-lockfile)
+          (cd acdev && ACDEV_BUN="$(command -v bun)" cargo build --release --offline --locked -p acdev)
+          (cd acdev/npm && bun install --frozen-lockfile && bun link)
+          (cd libacde/scripts/wpt && bun install --frozen-lockfile)
+      - &wpt
+        name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -eu
+          libacde/scripts/wpt/wpt.sh fetch
+          libacde/scripts/wpt/wpt.sh prepare --workers ${{ github.event.inputs.workers }}
       - name: run the gate and check it against expectations/linux
         shell: bash
         run: |
@@ -67,10 +166,15 @@ jobs:
         with:
           path: acdev
           persist-credentials: false
-      - uses: ./acdev/.github/actions/wpt-setup
-        with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          workers: ${{ github.event.inputs.workers }}
+      - *cleanup
+      - *commit
+      - *toolchain
+      - *libacde
+      - *libraries
+      - *bun
+      - *fetch
+      - *runtime
+      - *wpt
       - name: run shard ${{ matrix.shard }} of 4
         shell: bash
         env:
@@ -100,10 +204,15 @@ jobs:
         with:
           path: acdev
           persist-credentials: false
-      - uses: ./acdev/.github/actions/wpt-setup
-        with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          workers: ${{ github.event.inputs.workers }}
+      - *cleanup
+      - *commit
+      - *toolchain
+      - *libacde
+      - *libraries
+      - *bun
+      - *fetch
+      - *runtime
+      - *wpt
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           pattern: wpt-shard-*
@@ -143,10 +252,14 @@ jobs:
         with:
           path: acdev
           persist-credentials: false
-      - uses: ./acdev/.github/actions/wpt-setup
-        with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          wpt: 'false'
+      - *cleanup
+      - *commit
+      - *toolchain
+      - *libacde
+      - *libraries
+      - *bun
+      - *fetch
+      - *runtime
       - name: acde-demo beside acdev, its e2e
         shell: bash
         env:

@@ -150,6 +150,8 @@ jobs:
           - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, runner: x86_64-debian }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    env:
+      TARGETS: ${{ matrix.triple }}
     if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -157,13 +159,43 @@ jobs:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - uses: ./acdev/.github/actions/toolchain
-        with:
-          targets: ${{ matrix.triple }}
-      - uses: ./acdev/.github/actions/libacde
-        with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          ref: ${{ needs.plan.outputs.libacde }}
+      # Rust: the runner's read-only /opt/rust (scripts/runner-rust.sh). HOME is this job's own (two jobs share a runner's
+      # user); RUNNER_HOME is the runner's, where cargo's downloads and the MSVC and zig caches last.
+      - &toolchain
+        name: this job's home, the runner's Rust (the job's TARGETS installed)
+        run: |
+          set -eu
+          export RUSTUP_HOME=/opt/rust/rustup
+          r=/opt/rust/cargo/bin
+          [ -x "$r/rustc" ] || { echo "::error::this runner has no Rust in /opt/rust (scripts/runner-rust.sh puts it there)"; exit 1; }
+          have=$("$r/rustup" target list --installed)
+          for t in $(echo "${TARGETS:-}" | tr ',' ' '); do
+            echo "$have" | grep -qx "$t" || { echo "::error::/opt/rust has no $t (scripts/runner-rust.sh)"; exit 1; }
+          done
+          h=$RUNNER_TEMP/home
+          mkdir -p "$h"
+          printf 'RUNNER_HOME=%s\nHOME=%s\nCARGO_HOME=%s\nRUSTUP_HOME=%s\nCARGO_INCREMENTAL=0\nCARGO_TERM_COLOR=always\n' \
+            "$HOME" "$h" "$HOME/.cargo" "$RUSTUP_HOME" >> "$GITHUB_ENV"
+          echo "$r" >> "$GITHUB_PATH"
+          "$r/rustc" -V
+      - &libacde
+        name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
+          REF: ${{ needs.plan.outputs.libacde }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -eu
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
+          rm -rf libacde
+          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
+          if [ -n "$REF" ] && [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
+            g -C libacde fetch --quiet --depth 1 origin "$REF"
+            git -C libacde checkout --quiet --detach "$REF"
+          fi
+          g -C libacde submodule update --init --depth 1
+          echo "libacde $(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: system libraries (Linux) or clang and LLVM (cross)
         run: |
           if [ -z "${{ matrix.cross }}" ]; then
@@ -257,15 +289,15 @@ jobs:
     needs: plan
     runs-on: x86_64-debian
     timeout-minutes: 30
+    env:
+      TARGETS: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - uses: ./acdev/.github/actions/toolchain
-        with:
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+      - *toolchain
       - name: acdevd-x86_64 and acdevd-aarch64
         working-directory: acdev/crates/devd
         run: |
@@ -306,10 +338,7 @@ jobs:
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - uses: ./acdev/.github/actions/libacde
-        with:
-          token: ${{ secrets.ACKERNEL_TOKEN }}
-          ref: ${{ needs.plan.outputs.libacde }}
+      - *libacde
       - name: dist (the CLI archive, the SDK from libacde/acde-api, the built archives beside them) and latest.json
         working-directory: acdev/npm
         run: |
