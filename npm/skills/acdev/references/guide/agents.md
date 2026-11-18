@@ -7,7 +7,7 @@ acdev ships a **skill**: instructions and reference files that teach a coding ag
 Paste this into your agent:
 
 ```text
-Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acdev on this machine.
+Read https://pkgs.dopame.ai/acdev/install.md and follow it to set up acdev on this machine.
 ```
 
 It installs acdev, installs the skill for the agent, and reports what is ready and what is missing.

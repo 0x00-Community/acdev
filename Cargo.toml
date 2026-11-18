@@ -4,7 +4,7 @@ resolver = "3"
 # a path dependency outside the workspace, so a workspace of its own
 members = ["crates/*"]
 # npm/: the acde CLI (bun), not built as a member
-exclude = ["npm", "crates/devd", "crates/viewer", "crates/relay"]
+exclude = ["npm", "crates/devd", "crates/tool"]
 
 [workspace.package]
 version = "0.1.0"

@@ -2,7 +2,7 @@
 
 You are a coding agent, and the user asked you to set up acdev on this machine. acdev is the command line tool for building apps and desktops for Dopame OS. Do the steps below in order and run the commands yourself. Ask the user only where a step says to. End with the report in the last step.
 
-Everything you need comes from `https://pkgs.dopame.ai/acde/`. Do not fetch installers for acdev from anywhere else.
+Everything you need comes from `https://pkgs.dopame.ai/acdev/`. Do not fetch installers for acdev from anywhere else.
 
 ## 1. A JavaScript runtime
 
@@ -20,16 +20,16 @@ If neither is new enough, ask the user whether to install Bun (https://bun.sh) o
 macOS and Linux:
 
 ```sh
-curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
+curl -fsSL https://pkgs.dopame.ai/acdev/install.sh | sh
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-irm https://pkgs.dopame.ai/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acdev/install.ps1 | iex
 ```
 
-Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDEV_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDEV_NO_MODIFY_PATH=1`), and another install directory (`ACDEV_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
+Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDEV_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDEV_NO_MODIFY_PATH=1`), and another install directory (`ACDEV_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acdev/install.ps1))) -Version X.Y.Z -NoModifyPath`.
 
 If the user asked for npm, or the machine installs its tools with npm (a CI image, a container), run `npm install -g @dopame/acdev` instead (Node.js 22.3 or later; add `@X.Y.Z` for a version). It installs acdev with the runtime for this platform, acdev runtime, next to it, puts `acdev` where npm puts global commands (`npm prefix -g`), and changes no shell startup file; the steps below are the same.
 

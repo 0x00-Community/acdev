@@ -31,13 +31,11 @@ if (targets.length === 0) fail('--targets: the triples this release ships, comma
 for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: unknown target ${target} (one of ${TARGETS.join(', ')})`)
 const archives = [`acdev-${version}.tar.gz`]
 const windows = (target: string) => target.endsWith('-windows-msvc')
-const runtimes = targets.map((target) => `acdev-runtime-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`)
+const archive = (name: string, target: string) => `${name}-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`
+const exe = (name: string, target: string) => (windows(target) ? `${name}.exe` : name)
+const runtimes = targets.map((target) => archive('acdevrt', target))
 const guest = `acdev-guest-${version}.tar.gz`
-const TOOLS: Readonly<Record<string, { file: string; programs: string[] }>> = {
-  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', programs: ['acdev-relay.exe'] },
-  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', programs: ['acdev-viewer'] },
-}
-const tools = targets.flatMap((target) => (TOOLS[target] ? [TOOLS[target]] : []))
+const tools = targets.map((target) => ({ file: archive('acdevtools', target), programs: [exe('acdevtool', target)] }))
 const sdk = `acde-api-${version}.tar.gz`
 const checked = [...archives, ...runtimes, guest, ...tools.map((tool) => tool.file), sdk]
 const allowed = new Set([
@@ -98,7 +96,7 @@ if (problems.length === 0) {
       problems.push(`${archive}: not exactly the files ${wanted.join(', ')}`)
     }
   }
-  for (const [index, runtime] of runtimes.entries()) programs(runtime, [windows(targets[index]!) ? 'acdev.exe' : 'acdev'])
+  for (const [index, runtime] of runtimes.entries()) programs(runtime, [exe('acdev', targets[index]!)])
   programs(guest, ['acdevd-x86_64', 'acdevd-aarch64'])
   for (const tool of tools) programs(tool.file, tool.programs)
   const sdkNames = systemTar(['-tzf', join(dir, version, sdk)])
@@ -148,6 +146,6 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the CLI archive, the acdev runtime builds, the guest daemons, the host tools, the SDK, SHA256SUMS, '
+console.log('release guard: the CLI archive, the acdev runtime builds, the guest daemons, acdevtool, the SDK, SHA256SUMS, '
   + 'latest, latest.json, '
   + 'the installers and install.md are listed')

@@ -9,20 +9,17 @@ use std::sync::{Arc, Mutex};
 
 use winit::event_loop::EventLoop;
 
-const USAGE: &str = "usage: acdev-viewer --qmp QMP_SOCKET [--title TITLE]   (show a QEMU guest started with -display dbus,p2p=yes)
-       acdev-viewer --qmp QMP_SOCKET --outputs N        (no window: switch the guest's displays 1 to N-1 on, then exit)";
-
 struct Stderr;
 
 impl log::Log for Stderr {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        let ours = metadata.target().starts_with("acdev_viewer");
+        let ours = metadata.target().starts_with("acdevtool");
         metadata.level() <= if ours { log::max_level() } else { log::LevelFilter::Warn }
     }
 
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            eprintln!("acdev-viewer: [{}] {}", record.target(), record.args());
+            eprintln!("acdevtool view: [{}] {}", record.target(), record.args());
         }
     }
 
@@ -43,20 +40,20 @@ struct Args {
     outputs: Option<u32>,
 }
 
-fn args() -> Result<Args, String> {
+fn parse(args: &[String]) -> Result<Args, String> {
     let mut qmp = None;
     let mut title = String::from("acdev");
     let mut outputs = None;
-    let mut given = std::env::args().skip(1);
+    let mut given = args.iter().cloned();
     while let Some(flag) = given.next() {
         match (flag.as_str(), given.next()) {
             ("--qmp", Some(path)) => qmp = Some(PathBuf::from(path)),
             ("--title", Some(text)) => title = text,
-            ("--outputs", Some(count)) => outputs = Some(count.parse().map_err(|_| format!("acdev-viewer: --outputs {count}: a count"))?),
-            _ => return Err(USAGE.into()),
+            ("--outputs", Some(count)) => outputs = Some(count.parse().map_err(|_| format!("acdevtool view: --outputs {count}: a count"))?),
+            _ => return Err(crate::USAGE.into()),
         }
     }
-    Ok(Args { qmp: qmp.ok_or(USAGE)?, title, outputs })
+    Ok(Args { qmp: qmp.ok_or(crate::USAGE)?, title, outputs })
 }
 
 #[cfg(target_os = "linux")]
@@ -66,12 +63,12 @@ fn on_wslg() -> bool {
 }
 
 fn switch_on(args: &Args, outputs: u32) -> Result<(), String> {
-    let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
-    display::switch_on(stream, outputs).map_err(|e| format!("acdev-viewer: D-Bus display: {e}"))
+    let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdevtool view: {}: {e}", args.qmp.display()))?;
+    display::switch_on(stream, outputs).map_err(|e| format!("acdevtool view: D-Bus display: {e}"))
 }
 
-fn run() -> Result<(), String> {
-    let args = args()?;
+fn run(args: &[String]) -> Result<(), String> {
+    let args = parse(args)?;
     if let Some(outputs) = args.outputs {
         return switch_on(&args, outputs);
     }
@@ -81,19 +78,19 @@ fn run() -> Result<(), String> {
         log::info!("WSLg: using X11 (its Wayland compositor crashes on this window; ACDEV_VIEWER_WAYLAND=1 to try Wayland)");
         winit::platform::x11::EventLoopBuilderExtX11::with_x11(&mut builder);
     }
-    let event_loop = builder.build().map_err(|e| format!("acdev-viewer: event loop: {e}"))?;
-    let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdev-viewer: {}: {e}", args.qmp.display()))?;
+    let event_loop = builder.build().map_err(|e| format!("acdevtool view: event loop: {e}"))?;
+    let stream = qmp::open_display(&args.qmp).map_err(|e| format!("acdevtool view: {}: {e}", args.qmp.display()))?;
     let frame = Arc::new(Mutex::new(display::Frame::default()));
-    let display = display::connect(stream, frame.clone(), event_loop.create_proxy()).map_err(|e| format!("acdev-viewer: D-Bus display: {e}"))?;
+    let display = display::connect(stream, frame.clone(), event_loop.create_proxy()).map_err(|e| format!("acdevtool view: D-Bus display: {e}"))?;
     let mut viewer = window::Viewer::new(args.title, frame, display.inputs.clone());
-    event_loop.run_app(&mut viewer).map_err(|e| format!("acdev-viewer: {e}"))?;
+    event_loop.run_app(&mut viewer).map_err(|e| format!("acdevtool view: {e}"))?;
     drop(display);
     Ok(())
 }
 
-fn main() -> ExitCode {
+pub fn main(args: &[String]) -> ExitCode {
     start_logging();
-    match run() {
+    match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("{message}");

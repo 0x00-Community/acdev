@@ -37,12 +37,12 @@ const BUILDS = [
 type RuntimeOptions = { builds?: readonly string[]; member?: string }
 
 function runtimeFile(build: string): string {
-  return `acdev-runtime-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
+  return `acdevrt-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
 }
 
-const TOOLS: Readonly<Record<string, { file: string; program: string }>> = {
-  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', program: 'acdev-relay.exe' },
-  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdev-viewer' },
+function toolFile(build: string): { file: string; program: string } {
+  const windows = build.endsWith('-windows-msvc')
+  return { file: `acdevtools-${build}${windows ? '.tar.gz' : '.tar.xz'}`, program: windows ? 'acdevtool.exe' : 'acdevtool' }
 }
 
 function packed(at: string, file: string, programs: Record<string, string>): void {
@@ -65,13 +65,13 @@ function runtimeFiles(at: string, version: string, options: RuntimeOptions = {})
     const windows = build.endsWith('-windows-msvc')
     const member = options.member ?? (windows ? 'acdev.exe' : 'acdev')
     packed(at, runtimeFile(build), { [member]: `#!/bin/sh\necho "acdev runtime ${version} (${build})"\n` })
-    const tool = TOOLS[build]
-    if (tool) packed(at, tool.file, { [tool.program]: `#!/bin/sh\necho "${tool.program} ${version}"\n` })
+    const tool = toolFile(build)
+    packed(at, tool.file, { [tool.program]: `#!/bin/sh\necho "${tool.program} ${version}"\n` })
   }
 }
 
 function releaseFiles(version: string): string[] {
-  return [`acdev-guest-${version}.tar.gz`, ...BUILDS.map((b) => runtimeFile(b)), ...Object.values(TOOLS).map((tool) => tool.file)]
+  return [`acdev-guest-${version}.tar.gz`, ...BUILDS.map((b) => runtimeFile(b)), ...BUILDS.map((b) => toolFile(b).file)]
 }
 
 function sums(at: string): void {
@@ -182,7 +182,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     for (const arch of ['x86_64', 'aarch64']) {
       expect((await run(['sh', join(libexec, `acdevd-${arch}`)], {})).stdout).toBe(`acdevd 0.0.2 (${arch})\n`)
     }
-    if (process.platform === 'linux' && process.arch === 'x64') expect(existsSync(join(libexec, 'acdev-viewer'))).toBe(true)
+    expect(existsSync(join(libexec, 'acdevtool'))).toBe(true)
     expect(existsSync(join(libexec, 'app'))).toBe(false)
     expect(readlinkSync(join(home, '.acdev', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acdev', 'bin'))).toBe('current/bin')
@@ -254,7 +254,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   test('install.sh: a progress bar in a terminal, none when captured, a line per checked file either way', async () => {
     const captured = await install(tmp(), ['--no-modify-path'])
     expect(captured.code, captured.out).toBe(0)
-    expect(captured.out).toMatch(/: acdev-runtime-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
+    expect(captured.out).toMatch(/: acdevrt-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
     expect(captured.out).toMatch(/: acdev-guest-0\.0\.2\.tar\.gz: \d+ KB, SHA-256 matches\n/)
     expect(captured.out).not.toContain('%')
     const home = tmp()
@@ -446,9 +446,9 @@ describe('the release archive and the installed CLI', () => {
       const result = await installPs1(home, 'release', { ACDEV_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
       expect(result.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
-      expect(result.out).toMatch(/acdev: acdev-runtime-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
+      expect(result.out).toMatch(/acdev: acdevrt-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
       expect(result.out).toContain('acdev: acdev-guest-0.0.2.tar.gz: ')
-      expect(result.out).toContain('acdev: acdev-tools-x86_64-pc-windows-msvc.tar.gz: ')
+      expect(result.out).toContain('acdev: acdevtools-x86_64-pc-windows-msvc.tar.gz: ')
       const bin = join(home, 'current', 'bin')
       expect(result.stdout.trimEnd().split(/\r?\n/).at(-1)).toBe(`  $env:Path = "${bin};$env:Path"`)
     } finally {
@@ -460,7 +460,7 @@ describe('the release archive and the installed CLI', () => {
     expect(readFileSync(join(current, 'libexec', 'acdev.exe'), 'utf8')).toBe(
       '#!/bin/sh\necho "acdev runtime 0.0.2 (x86_64-pc-windows-msvc)"\n',
     )
-    for (const name of ['acdevd-x86_64', 'acdevd-aarch64', 'acdev-relay.exe']) expect(existsSync(join(current, 'libexec', name))).toBe(true)
+    for (const name of ['acdevd-x86_64', 'acdevd-aarch64', 'acdevtool.exe']) expect(existsSync(join(current, 'libexec', name))).toBe(true)
     expect(existsSync(join(current, 'libexec', 'app'))).toBe(false)
     expect(existsSync(join(current, 'lib', 'acdev', 'src'))).toBe(false)
     expect(readFileSync(join(current, 'LICENSE'), 'utf8')).toBe(readFileSync(join(ROOT, 'LICENSE'), 'utf8'))
@@ -499,7 +499,7 @@ describe('the release archive and the installed CLI', () => {
       devDependencies?: Record<string, string>
     }
     const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
-    expect(api).toBe(`${Pkgs.ACDE}/${SDK}/acde-api-${SDK}.tar.gz`)
+    expect(api).toBe(`${Pkgs.ACDEV}/${SDK}/acde-api-${SDK}.tar.gz`)
     expect(api).not.toContain(home)
   }, 300_000)
 
@@ -532,8 +532,8 @@ describe('the release archive and the installed CLI', () => {
       const before = readFileSync(join(home, 'current', 'libexec', 'acdev.exe'))
       writeFileSync(join(home, 'current', 'marker'), 'kept')
       const failing: [string, string][] = [
-        ['tampered', 'checksum mismatch for acdev-runtime-x86_64-pc-windows-msvc.tar.gz'],
-        ['hollow', 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz does not hold acdev.exe'],
+        ['tampered', 'checksum mismatch for acdevrt-x86_64-pc-windows-msvc.tar.gz'],
+        ['hollow', 'acdevrt-x86_64-pc-windows-msvc.tar.gz does not hold acdev.exe'],
         ['missing', `could not download ${server.url.origin}/missing/0.0.2/acdev-guest-0.0.2.tar.gz`],
         ['elsewhere', 'acdev 0.0.2 has no acdev runtime for this platform (x86_64-pc-windows-msvc); ' +
           'it is built for: aarch64-apple-darwin x86_64-unknown-linux-gnu'],

@@ -13,6 +13,8 @@ export interface CrateBinary {
   readonly installed?: string
 }
 
+export const TOOL: CrateBinary = { crate: 'tool', name: 'acdevtool', variable: 'ACDEVTOOL' }
+
 export type Beside = (name: string) => string | null
 
 function sharedTargets(root: string, shared: string): string[] {

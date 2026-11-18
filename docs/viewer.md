@@ -1,4 +1,4 @@
-# acdev 自己的窗口: QEMU 的 D-Bus 显示 (`crates/viewer`)
+# acdev 自己的窗口: QEMU 的 D-Bus 显示 (`crates/tool`)
 
 > 路径相对仓库根。
 
@@ -6,7 +6,7 @@
 不再用 QEMU 自带的 GTK 窗口. 依据总仓 `.scratch/roadmap/research/05-emulator.md` 第四节 (推荐 D-Bus 显示, VNC 作退路). 先做 Linux;
 Windows (`Listener.Win32.Map`、`get-win32-socket`) 和 macOS (按键码表) 随工作项 02、03.
 
-`crates/viewer` 是独立的 Cargo 工作区 (根工作区 `exclude` 掉, 同 `crates/devd`), 出一个程序 `acdev-viewer`. 不依赖运行时库:
+`crates/tool` 是独立的 Cargo 工作区 (根工作区 `exclude` 掉, 同 `crates/devd`), 出一个程序 `acdevtool`, 窗口是它的子命令 `view` (`src/view/`; 另一个子命令 `relay` 见 `vm.md`). `view` 只在 unix 上编进去. 不依赖运行时库:
 窗口用 winit, 画面用 softbuffer (CPU 拷贝到窗口, 不要 GPU), D-Bus 用 zbus, 传描述符用 rustix. 没有用 `qemu-display` crate: 它连带
 usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方法; 接口语义照它和 QEMU 的 `ui/dbus-display1.xml`.
 
@@ -14,16 +14,16 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 
 1. `acdev vm start --viewer` 给 QEMU `-display dbus,p2p=yes` (不注册到任何总线, 只接受经 QMP 交来的连接). 本机 Ubuntu 的 QEMU 8.2.2
    带这个后端 (`qemu-system-x86_64 -display help` 里有 `dbus`, 模块 `ui-dbus.so`).
-2. QEMU 起来后 acdev 在后台 (`setsid`) 起 `acdev-viewer --qmp <run/qmp.sock> --title …`, 输出写 `logs/viewer.log`. 关掉窗口只结束
+2. QEMU 起来后 acdev 在后台 (`setsid`) 起 `acdevtool view --qmp <run/qmp.sock> --title …`, 输出写 `logs/viewer.log`. 关掉窗口只结束
    viewer, 客户机照跑; `acdev vm view` 再开一个.
 3. viewer 连 QMP: 读问候、`qmp_capabilities`; 建一对 Unix 套接字, 一端经 `getfd` 交给 QEMU (描述符走 `SCM_RIGHTS`, QMP 文字里只有名字
-   `acdev-viewer`), 再 `add_client` (`protocol` 是 `@dbus-display`). 之后关掉 QMP 连接 (QMP 套接字一次只接一个客户端, 不能占着).
+   `acdevtool`), 再 `add_client` (`protocol` 是 `@dbus-display`). 之后关掉 QMP 连接 (QMP 套接字一次只接一个客户端, 不能占着).
 4. 在自己那一端上建点对点 D-Bus 连接 (客户端一方), 对 `/org/qemu/Display1/Console_0` 调 `Console.RegisterListener`, 交另一对套接字的
    一端; 调用返回后在自己那一端上提供 `/org/qemu/Display1/Listener`. 顺序照 qemu-display (先注册, 再建连接).
 
 ## 只打开输出, 不开窗口
 
-`acdev-viewer --qmp … --outputs N`: 同样连上 D-Bus 显示, 对 `Console_1`…`Console_{N-1}` 调 `Console.SetUIInfo` (1280×800, 横向依次
+`acdevtool view --qmp … --outputs N`: 同样连上 D-Bus 显示, 对 `Console_1`…`Console_{N-1}` 调 `Console.SetUIInfo` (1280×800, 横向依次
 排开) 让 virtio-gpu 把这些输出标成已连接, 然后退出. `acdev vm start --headless --outputs N` 用它 (见 `docs/vm.md`「多个显示输出」).
 
 ## 画面
@@ -50,7 +50,7 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 
 ## 日志
 
-诊断用 `log` 的宏, `main.rs` 里的小记录器写到标准错误 (`acdev-viewer: [目标] …`): 自己的记录写信息级 (`ACDEV_VIEWER_DEBUG=1` 时也写
+诊断用 `log` 的宏, `main.rs` 里的小记录器写到标准错误 (`acdevtool view: [目标] …`): 自己的记录写信息级 (`ACDEV_VIEWER_DEBUG=1` 时也写
 调试级, 比如没有键号的键), 依赖库 (winit、softbuffer、zbus) 的写警告及以上, 窗口一侧出错时能看到原因.
 
 ## 已知问题
@@ -58,7 +58,7 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 - WSLg 的 Wayland 合成器会崩 (2026-11-18): acdev-test 复测时 `acdev vm view` 重开失败 (`Io error: Connection reset by peer`、winit 的
   `Exit Failure: 1`), 走 X11 (`env -u WAYLAND_DISPLAY`) 两次都正常. 原因不在 QEMU, 也不在窗框配色: WSLg 的 `/mnt/wslg/stderr.log` 里,
   每次都是 weston 本身段错误 (`pid … terminated with signal 11, /usr/bin/weston --backend=rdp-backend.so … --shell=rdprail-shell.so`),
-  时间紧跟在 acdev-viewer 的窗口出现之后 (`/mnt/wslg/weston.log` 的 `ClientGetAppidReq: … appId:acdev-viewer` 后 8～70 秒: 01:54:51 →
+  时间紧跟在当时 acdev-viewer 的窗口出现之后 (`/mnt/wslg/weston.log` 的 `ClientGetAppidReq: … appId:acdev-viewer` 后 8～70 秒: 01:54:51 →
   01:56:05, 02:28:22 → 02:28:53, 02:29:17 → 02:29:25); 合成器一崩, 所有 Wayland 客户端的连接都被重置, 连 Xwayland 也断 (`failed to read
   Wayland events: Broken pipe`). 第一次开窗也会崩, 只是晚一些 (关窗时). `XDG Settings Portal did not return response in time` 只是 sctk-adwaita
   取配色时 `dbus-send` 等 100 ms 没等到, 不相干. weston 9 (WSLg 的 rdprail 外壳) 为什么崩, 我们查不到它的崩溃现场; 这个窗口在
@@ -69,8 +69,8 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 
 ## 测试
 
-`cargo test` (在 `crates/viewer`): 键号换算、`Scanout` / `Update` 落到像素、缩放. 命令行一侧 `test/vm.test.ts`: `--viewer` 的 QEMU 参数、
-`ACDEV_VIEWER`、`view` 和参数冲突的报错. 窗口本身要在有图形环境的机器上起一台客户机看 (见总仓工作项 11 的验收).
+`cargo test` (在 `crates/tool`, 含 relay 的套接字往返): 键号换算、`Scanout` / `Update` 落到像素、缩放. 命令行一侧 `test/vm.test.ts`: `--viewer` 的 QEMU 参数、
+`ACDEVTOOL`、`view` 和参数冲突的报错. 窗口本身要在有图形环境的机器上起一台客户机看 (见总仓工作项 11 的验收).
 
 ## 构建依赖的代价
 

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg};
 
-const FD_NAME: &str = "acdev-viewer";
+const FD_NAME: &str = "acdevtool";
 
 pub fn open_display(qmp: &Path) -> io::Result<UnixStream> {
     let stream = UnixStream::connect(qmp)?;

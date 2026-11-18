@@ -8,8 +8,6 @@ use std::os::unix::net::UnixStream;
 #[cfg(windows)]
 use uds_windows::UnixStream;
 
-const USAGE: &str = "usage: acdev-relay SOCKET   (join stdin and stdout to the Unix socket SOCKET)";
-
 fn copy(mut from: impl Read, mut to: impl Write) -> io::Result<()> {
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -34,17 +32,16 @@ fn pump(stream: UnixStream, input: impl Read + Send + 'static, output: impl Writ
     done
 }
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [path] = args.as_slice() else {
-        eprintln!("{USAGE}");
+pub fn main(args: &[String]) -> ExitCode {
+    let [path] = args else {
+        eprintln!("{}", crate::USAGE);
         return ExitCode::from(2);
     };
     let done = UnixStream::connect(path).and_then(|stream| pump(stream, io::stdin(), io::stdout()));
     match done {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("acdev-relay: {path}: {e}");
+            eprintln!("acdevtool relay: {path}: {e}");
             ExitCode::from(1)
         }
     }
@@ -58,7 +55,7 @@ mod tests {
 
     #[test]
     fn bytes_go_to_the_socket_and_its_answer_comes_back() {
-        let dir = std::env::temp_dir().join(format!("acdev-relay-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("acdevtool-relay-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("echo.sock");
         let listener = UnixListener::bind(&path).unwrap();

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ACDEV_DIST=${ACDEV_DIST:-https://pkgs.dopame.ai/acde}
+ACDEV_DIST=${ACDEV_DIST:-https://pkgs.dopame.ai/acdev}
 ACDEV_DIST=${ACDEV_DIST%/}
 
 say() {
@@ -231,7 +231,7 @@ main() {
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acdev $version is not in its SHA256SUMS ($file)"
   download "$ACDEV_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDEV_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
-  binary=acdev-runtime-$triple
+  binary=acdevrt-$triple
   if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
     binary=$binary.tar.xz
     tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
@@ -239,8 +239,8 @@ main() {
   elif [ -n "$(listed "$tmp/SHA256SUMS" "acdert-version")" ]; then
     die "acdev $version comes from before acdev and its runtime were released together: leave out --version for the latest"
   else
-    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdev-runtime-/) {
-      sub(/^acdev-runtime-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
+    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdevrt-/) {
+      sub(/^acdevrt-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
     die "acdev $version has no acdev runtime for this platform ($triple); it is built for: ${supported% }"
   fi
@@ -248,7 +248,7 @@ main() {
   download "$ACDEV_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDEV_DIST/$version/$binary"
   got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
   extras=
-  for extra in "acdev-guest-$version.tar.gz" "acdev-tools-$triple.tar.xz" "acde-host-$version.tar.gz"; do
+  for extra in "acdev-guest-$version.tar.gz" "acdevtools-$triple.tar.xz" "acde-host-$version.tar.gz"; do
     [ -n "$(listed "$tmp/SHA256SUMS" "$extra")" ] || continue
     download "$ACDEV_DIST/$version/$extra" "$tmp/$extra" "$extra" || die "could not download $ACDEV_DIST/$version/$extra"
     got "$tmp/SHA256SUMS" "$extra" "$tmp/$extra"

@@ -58,7 +58,7 @@ No runtime:
 
 ```text
 error  runtime: acdev dev needs the Dopame runtime (acdev runtime) and found none: no /Users/me/.acdev/versions/0.0.10/libexec/acdev, which the acdev installer puts there: run the installer again, set ACDEV_RUNTIME to an acdev runtime binary, or put acdev runtime on PATH
-       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh (it puts the acdev runtime that pairs with acdev next to it)
+       fix: run the installer again: curl -fsSL https://pkgs.dopame.ai/acdev/install.sh | sh (it puts the acdev runtime that pairs with acdev next to it)
 ```
 
 A runtime that does not start reports why: a missing system library (`it exited with code 127: … error while loading shared libraries: …`), a file that is not executable (`EACCES`), or on macOS a binary that a download left in quarantine, with `xattr -d com.apple.quarantine <path>` as the fix.

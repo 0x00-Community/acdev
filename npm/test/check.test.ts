@@ -12,7 +12,7 @@ function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
   return collect([process.execPath, CLI, ...args], { cwd, env: env(extra) })
 }
 
-const OLD = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
+const OLD = `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`
 
 function oldProject(dir = tmp(), fields: Record<string, unknown> = {}): string {
   mkdirSync(dir, { recursive: true })
@@ -62,7 +62,7 @@ describe('acdev check on a project', () => {
         name: 'portable',
         devDependencies: { '@dopame/acde-api': spec },
       }))
-    for (const spec of ['file:/Users/me/acdev/npm/acde-api', `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`]) {
+    for (const spec of ['file:/Users/me/acdev/npm/acde-api', `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`]) {
       write(spec)
       const checked = await cli(['check'], dir)
       expect(checked.code).toBe(0)
@@ -111,7 +111,7 @@ describe('acdev check on a project', () => {
 
   test('a failing acdev sdk update puts package.json, the lockfile and .npmrc back and says so', async () => {
     const broken = brokenSdk()
-    const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
+    const old = `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`
     const project = (pm: string) => {
       const dir = tmp()
       writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
@@ -282,7 +282,7 @@ describe('acdev check on a project', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
-    const old = `${Pkgs.ACDE}/0.0.7/acde-api-0.0.7.tar.gz`
+    const old = `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
       name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
     }, null, 2))

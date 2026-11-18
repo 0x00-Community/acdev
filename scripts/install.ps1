@@ -17,7 +17,7 @@ function Install-Acde {
     $progress = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
 
-    $dist = if ($env:ACDEV_DIST) { $env:ACDEV_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
+    $dist = if ($env:ACDEV_DIST) { $env:ACDEV_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acdev' }
     $install = if ($env:ACDEV_INSTALL) { $env:ACDEV_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acdev' }
 
     $shell = $PSVersionTable.PSVersion
@@ -220,7 +220,7 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$name.tar.gz" $tarball -Shown
 
         Confirm-Download $sums "$name.tar.gz" $tarball
-        $binary = "acdev-runtime-$triple.tar.gz"
+        $binary = "acdevrt-$triple.tar.gz"
         if (-not (Get-Listed $sums $binary)) {
             if (Get-Listed $sums 'acdert-version') {
                 throw ("acdev: acdev $Version comes from before acdev and its runtime were released together: " +
@@ -229,8 +229,8 @@ function Install-Acde {
             $supported = @(Get-Content -LiteralPath $sums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
-            } | Where-Object { $_ -like 'acdev-runtime-*' } | ForEach-Object {
-                ($_ -replace '^acdev-runtime-', '') -replace '\.tar\.[gx]z$', ''
+            } | Where-Object { $_ -like 'acdevrt-*' } | ForEach-Object {
+                ($_ -replace '^acdevrt-', '') -replace '\.tar\.[gx]z$', ''
             } | Sort-Object -Unique)
             throw ("acdev: acdev $Version has no acdev runtime for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
@@ -240,7 +240,7 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$binary" $binaryFile -Shown
         Confirm-Download $sums $binary $binaryFile
         $extras = @()
-        foreach ($extra in "acdev-guest-$Version.tar.gz", "acdev-tools-$triple.tar.gz", "acde-host-$Version.tar.gz") {
+        foreach ($extra in "acdev-guest-$Version.tar.gz", "acdevtools-$triple.tar.gz", "acde-host-$Version.tar.gz") {
             if (-not (Get-Listed $sums $extra)) { continue }
             $extraFile = Join-Path -Path $work -ChildPath $extra
             Save-Remote "$dist/$Version/$extra" $extraFile -Shown

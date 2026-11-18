@@ -19,7 +19,7 @@
 运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdev runtime 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
 `acdev dev sessions` (`sessions`: 会话目录有问题是错误; 列出在跑的; 每个会话连上去问 `permissions`, 3 s 不答是警告) 和每个待答提示一条 `approval` 警告
 (应用答之前不开窗口, fix 说批准是用户的决定) → 工程 (见下) → `agent skill` (`skill`: 没装、`outdated` / `broken` 是警告) → `--online` 时 `latest release`
-(`latest`: GET `$ACDEV_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
+(`latest`: GET `$ACDEV_DIST/latest` (默认 `https://pkgs.dopame.ai/acdev`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
 有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
 `acdev doctor: N errors, M warnings` / `no errors, M warnings` / `everything acdev needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
 

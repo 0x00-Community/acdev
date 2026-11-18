@@ -29,8 +29,8 @@ function pack(root: string, file: string, members: readonly string[], text: stri
 }
 
 const TOOLS: Readonly<Record<string, { file: string; program: string; flag: string }>> = {
-  'x86_64-unknown-linux-gnu': { file: 'acdev-tools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdev-viewer', flag: '-cJf' },
-  'x86_64-pc-windows-msvc': { file: 'acdev-tools-x86_64-pc-windows-msvc.tar.gz', program: 'acdev-relay.exe', flag: '-czf' },
+  'x86_64-unknown-linux-gnu': { file: 'acdevtools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdevtool', flag: '-cJf' },
+  'x86_64-pc-windows-msvc': { file: 'acdevtools-x86_64-pc-windows-msvc.tar.gz', program: 'acdevtool.exe', flag: '-czf' },
 }
 
 function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): string {
@@ -41,7 +41,7 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   const lines: string[] = []
   for (const target of TARGETS) {
     const windows = target.endsWith('-windows-msvc')
-    const file = `acdev-runtime-${target}${windows ? '.tar.gz' : '.tar.xz'}`
+    const file = `acdevrt-${target}${windows ? '.tar.gz' : '.tar.xz'}`
     pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev')], 'binary', windows ? '-czf' : '-cJf')
     lines.push(`${sha(join(version, file))}  ${file}`)
     const tool = TOOLS[target]!
@@ -119,13 +119,13 @@ describe('release guard', () => {
   test('fails when a build holds anything but the acdev runtime, or a target or the guest daemons are missing', () => {
     const wrong = guard(release([], false, 'acdert'))
     expect(wrong.code).toBe(1)
-    expect(wrong.out).toContain('acdev-runtime-x86_64-unknown-linux-gnu.tar.xz: not exactly the files acdev')
+    expect(wrong.out).toContain('acdevrt-x86_64-unknown-linux-gnu.tar.xz: not exactly the files acdev')
     const guestless = release()
     rmSync(join(guestless, VERSION, `acdev-guest-${VERSION}.tar.gz`))
     expect(guard(guestless).out).toContain(`${VERSION}/acdev-guest-${VERSION}.tar.gz: missing from the release`)
     const out = release()
-    rmSync(join(out, VERSION, 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz'))
-    expect(guard(out).out).toContain(`${VERSION}/acdev-runtime-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
+    rmSync(join(out, VERSION, 'acdevrt-x86_64-pc-windows-msvc.tar.gz'))
+    expect(guard(out).out).toContain(`${VERSION}/acdevrt-x86_64-pc-windows-msvc.tar.gz: missing from the release`)
   }, 180_000)
 
   test('fails on an archive whose checksum no longer matches', () => {

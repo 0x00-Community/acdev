@@ -24,7 +24,7 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   (`-accel whpx -cpu max`), macOS 上 HVF (`-accel hvf -cpu host`). WHPX / HVF 起不来 (QEMU 马上退出, 输出里提到它) 时说一句原因,
   退回 TCG 重起一次; 慢得多. `start` 和 `status` 会说.
 - QEMU 进程用分离的子进程起 (Node 的 `detached`: POSIX 上是新会话, Windows 上不挂在当前控制台), 不随 `acdev` 退出, 不再要 `setsid`.
-- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdev-viewer`, 取 `ACDEV_VIEWER`, 否则检出里 `crates/viewer` 编出的,
+- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdevtool view`, 取 `ACDEVTOOL`, 否则检出里 `crates/tool` 编出的,
   目前只有 Linux); 没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
 
 ## Windows (WHPX)
@@ -43,9 +43,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   108 字节, 失败的路径比能用的 `C:\Users\…\acdevc` 长不了多少), `%TEMP%` 本身也在 `%LOCALAPPDATA%` 下却能用.
   连接时遇到 10022 (或 `EINVAL`) 不再等满 `--wait` 的 300 秒: guest agent 的等待 (`GuestAgent.ping`) 直接报错, 说是哪个套接字.
   Windows 从 10 1803 起支持 AF_UNIX (微软 https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/ ), 而 WHPX 本来就要 2004.
-  Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 AF_UNIX (Node 文档 net「IPC support」), 所以每次连接起一个 `acdev-relay`
-  (`crates/relay`, 只用 std 加 `uds_windows`), 它把标准输入输出接到这个套接字上, 做法同 `acdevd connect`; 找它用 `ACDEV_RELAY`, 否则
-  检出里 `crates/relay` 编出的. 它出错时 (连不上) 把标准错误的那行当错误交给调用方, acdev 不退出. Linux、macOS 照旧直接连.
+  Node 在 Windows 上把 `connect(path)` 当命名管道, 连不了 AF_UNIX (Node 文档 net「IPC support」), 所以每次连接起一个 `acdevtool relay`
+  (`crates/tool`, 只用 std 加 `uds_windows`), 它把标准输入输出接到这个套接字上, 做法同 `acdevd connect`; 找它用 `ACDEVTOOL`, 否则
+  检出里 `crates/tool` 编出的. 它出错时 (连不上) 把标准错误的那行当错误交给调用方, acdev 不退出. Linux、macOS 照旧直接连.
   - 不用 TCP: QMP 能关机、截屏、注入按键, guest agent 能以 root 在客户机里跑任何命令, 开在本机端口上等于给本机所有进程客户机的 root;
     不用 QEMU 的命名管道 (`-chardev pipe`): 8.2.2 的 `chardev/char-pipe.c` 只开一个实例, 初始化时阻塞到第一个客户端连上
     (`GetOverlappedResult(…, TRUE)`), 断开后不再接新连接; 不用 TLS 预共享密钥: Bun 1.4.4 的 `tls.connect` 不支持 `pskCallback`
@@ -54,7 +54,7 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - acdevd 要的是客户机 (Linux x86_64) 的程序, Windows、macOS 上既跑不了也编不出它: 不是 Linux 的宿主必须设 `ACDEV_DEVD` 指向一个在 Linux
   上编好的 acdevd (`crates/devd` 里 `cargo build --release`, 或 `--target x86_64-unknown-linux-musl`), 否则 `start` 一开始就报错. 宿主上
   跑不了 `acdevd --version`, 所以版本改在装进客户机后核对: 客户机里的 acdevd 回答的版本和 `crates/devd/Cargo.toml` 不同就报错 (所有平台).
-- 没有 9p: `--share` 直接报错, 用 `acdev vm push`. 没有 acdev-viewer: `--viewer`、`--headless --outputs N` 报错.
+- 没有 9p: `--share` 直接报错, 用 `acdev vm push`. 没有 acdevtool view: `--viewer`、`--headless --outputs N` 报错.
 - `fetch` 不建 `latest.qcow2` 符号链接 (Windows 上要管理员或开发者模式), 最新镜像的名字写在 `images/latest` (所有平台都写).
 
 ### CPU 特性
@@ -85,7 +85,7 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 - 加速: `-accel hvf -cpu host` (QEMU 的 `host` 型号在 HVF 下注册). 起不来 (比如 `sysctl kern.hv_support` 是 0) 时说原因、退回 TCG.
   QEMU 要带 `com.apple.security.hypervisor` 权利 (苹果 Hypervisor 文档); Homebrew 的 QEMU 编的时候 QEMU 的构建会签上〔未核实〕.
 - 窗口: Homebrew 的 QEMU 没有 GTK, 所以 macOS 上 QEMU 自己的窗口是 `-display cocoa`; `--gl` (GTK 加 virgl) 只在 Linux 上有.
-  `--viewer` 和 `--headless --outputs N` 要 acdev-viewer, 目前只有 Linux.
+  `--viewer` 和 `--headless --outputs N` 要 acdevtool view, 目前只有 Linux.
 - 调试通道默认走 `127.0.0.1` 的 TCP 端口转发加密钥 (`hostfwd=unix` 要较新的 QEMU, 见「调试通道」); QMP 和 guest agent 照旧是 `run/` 下的
   Unix 套接字 (macOS 的 Unix 套接字路径上限 104 字节, `ACDEV_VM_DIR` 别放太深〔推论〕). 9p `--share` 可用.
 - QEMU 用分离的子进程起 (macOS 没有 `setsid` 命令, 用 Node 的 `detached`).
@@ -135,8 +135,8 @@ os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` �
 acdev vm fetch                                  # 下载并校验最新镜像
 acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 和 acdevd 应答 (--wait 秒, 默认 300; 0 不等)
 acdev vm start --headless --share ~/winman/target/release
-acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdev-viewer, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
-acdev vm view                                   # 关掉之后再开一个 acdev-viewer
+acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdevtool view, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
+acdev vm view                                   # 关掉之后再开一个 acdevtool view
 acdev vm start --outputs 2                      # 两个显示输出 (多屏验收), QEMU 窗口里每个输出一个标签页
 acdev vm screenshot second.png --output 1       # 取第二个输出
 acdev vm status                                 # 目录、镜像、KVM、客户机在不在跑、是否就绪
@@ -181,10 +181,10 @@ acdev vm stop                                   # ACPI 关机, 60 s 不关就杀
     `enabled_output_bitmask = 1`), 其余要等前端经 `dpy_set_ui_info` 报一个非零大小 (`virtio_gpu_ui_info`). GTK 窗口为每个输出建一个标签页
     并报大小, 所以都连上; `-display none` 不报, 第二个输出一直是 disconnected (2026-11-18 winman-test 实测).
   - 所以 `--headless --outputs N` (N ≥ 2) 不用 `-display none`, 改用 `-display dbus,p2p=yes` (不开窗口), 起来后 acdev 跑一次
-    `acdev-viewer --qmp … --outputs N`: 经 D-Bus 对 `Console_1`…`Console_{N-1}` 调 `SetUIInfo` (1280×800, 依次向右排), 就是 GTK 做的那件事
-    (`ui/dbus-console.c` `dbus_console_set_ui_info` → `dpy_set_ui_info`), 然后退出; 打开的状态留在显卡里. 要 acdev-viewer (同 `--viewer`).
+    `acdevtool view --qmp … --outputs N`: 经 D-Bus 对 `Console_1`…`Console_{N-1}` 调 `SetUIInfo` (1280×800, 依次向右排), 就是 GTK 做的那件事
+    (`ui/dbus-console.c` `dbus_console_set_ui_info` → `dpy_set_ui_info`), 然后退出; 打开的状态留在显卡里. 要 acdevtool view (同 `--viewer`).
     `egl-headless` 不报大小 (`ui/egl-headless.c` 不调 `dpy_set_ui_info`), 不能用.
-  - `--vnc` 和 `--viewer` 只显示第一个输出 (VNC 服务端绑一个控制台〔未核实〕, acdev-viewer 只接 `Console_0`), 和 `--outputs` 2 以上
+  - `--vnc` 和 `--viewer` 只显示第一个输出 (VNC 服务端绑一个控制台〔未核实〕, acdevtool view 只接 `Console_0`), 和 `--outputs` 2 以上
     一起用时直接报错.
 - 热插拔: q35 的根总线 `pcie.0` 不能热插拔 (`device_add` 报 `Bus 'pcie.0' does not support hotplugging`), 所以 `start` 预留两个
   PCIe 根端口 `rp1`、`rp2` (`chassis` / `slot` 11、12). 热插拔时 `device_add` 带 `bus=rp1` 或 `bus=rp2`, 一个端口挂一个设备.

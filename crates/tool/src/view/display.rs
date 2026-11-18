@@ -103,6 +103,7 @@ impl Listener {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn update(&self, x: i32, y: i32, width: i32, height: i32, stride: u32, pixman_format: u32, data: ByteBuf) {
         let place = [x, y, width, height].map(|n| u32::try_from(n).unwrap_or(0));
         if readable(pixman_format) {
@@ -121,7 +122,7 @@ impl Listener {
 
     async fn cursor_define(&self, width: i32, height: i32, hot_x: i32, hot_y: i32, data: ByteBuf) {
         let size = [width, height, hot_x, hot_y].map(|n| u16::try_from(n).unwrap_or(0));
-        let rgba = data.chunks_exact(4).flat_map(|px| [px[2], px[1], px[0], px[3]]).collect();
+        let rgba = data.as_chunks::<4>().0.iter().flat_map(|px| [px[2], px[1], px[0], px[3]]).collect();
         self.send(Event::Cursor { width: size[0], height: size[1], hot_x: size[2], hot_y: size[3], rgba });
     }
 

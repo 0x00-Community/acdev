@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import { Duplex } from 'node:stream'
-import { CHECKOUT, crateBinary } from './binary.ts'
+import { CHECKOUT, TOOL, crateBinary } from './binary.ts'
 
 type Reply = { return?: unknown; error?: { class?: string; desc?: string }; event?: string }
 
 export function relayed(path: string, env: NodeJS.ProcessEnv = process.env): Duplex {
-  const binary = crateBinary(CHECKOUT, { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }, env)
-  const child = spawn(binary, [path], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  const binary = crateBinary(CHECKOUT, TOOL, env)
+  const child = spawn(binary, ['relay', path], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   let failed = ''
   const stream = new Duplex({
     read() {},
@@ -31,7 +31,7 @@ export function relayed(path: string, env: NodeJS.ProcessEnv = process.env): Dup
   child.stdin.on('error', () => {})
   child.on('error', (error) => stream.destroy(error))
   child.on('exit', (code) => {
-    if (code !== 0) stream.destroy(new Error(failed.trim() || `acdev-relay exited with ${code}`))
+    if (code !== 0) stream.destroy(new Error(failed.trim() || `acdevtool relay exited with ${code}`))
   })
   return stream
 }

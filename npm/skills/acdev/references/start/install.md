@@ -7,7 +7,7 @@ The installer sets up acdev (the CLI, the project templates, and the SDK) togeth
 Give your agent this prompt:
 
 ```text
-Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acdev on this machine.
+Read https://pkgs.dopame.ai/acdev/install.md and follow it to set up acdev on this machine.
 ```
 
 The page it reads tells it to check for Bun or Node.js, run the installer below, install the acdev skill for itself, and report what is ready. See [Coding agents](../guide/agents.md).
@@ -36,7 +36,7 @@ acdev itself is JavaScript; these are the platforms the runtime is built for (`a
 ## macOS / Linux
 
 ```sh
-curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
+curl -fsSL https://pkgs.dopame.ai/acdev/install.sh | sh
 ```
 
 This installs into `~/.acdev` (change it with `ACDEV_INSTALL`) and adds `~/.acdev/bin` to PATH in the startup files of every shell on the machine, once each, and lists them: `~/.profile` (sh, dash, ksh and login shells), `~/.bashrc` and an existing `~/.bash_profile` or `~/.bash_login` (bash), `~/.zshrc` and `~/.zprofile` (zsh), `~/.config/fish/conf.d/acdev.fish` (fish), `~/.cshrc` and an existing `~/.tcshrc` (csh, tcsh), and nushell's `env.nu`. In the sh-family files the line adds `~/.acdev/bin` only when PATH doesn't have it yet, so a shell that reads several of them (a login zsh reads `.zprofile` and `.zshrc`) has it once; an unguarded line from an earlier install is replaced in place. Before each download it prints the file's name and size; in a terminal it shows a progress bar; after each one, and also when its output is captured (a coding agent, CI), it prints the file's size and that its SHA-256 matches. A download that stalls (under 1 KB/s for 30 seconds) is retried twice, then the installer stops and installs nothing.
@@ -44,7 +44,7 @@ This installs into `~/.acdev` (change it with `ACDEV_INSTALL`) and adds `~/.acde
 To leave your startup files alone:
 
 ```sh
-curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
+curl -fsSL https://pkgs.dopame.ai/acdev/install.sh | sh -s -- --no-modify-path
 ```
 
 To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on the download site is 0.0.9.
@@ -54,7 +54,7 @@ To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on
 In PowerShell:
 
 ```powershell
-irm https://pkgs.dopame.ai/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acdev/install.ps1 | iex
 ```
 
 This installs into `%USERPROFILE%\.acdev` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
@@ -65,9 +65,9 @@ After 0.0.9, in the classic Windows console (powershell.exe or cmd.exe started o
 
 ```powershell
 $env:ACDEV_VERSION = '0.0.9'; $env:ACDEV_NO_MODIFY_PATH = '1'
-irm https://pkgs.dopame.ai/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acdev/install.ps1 | iex
 
-& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.0.9 -NoModifyPath
+& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acdev/install.ps1))) -Version 0.0.9 -NoModifyPath
 ```
 
 ## With npm
@@ -126,14 +126,14 @@ The runtime renders pages on the GPU and wants a working one (Metal on macOS, Di
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdev runtime` binary with its `app/` directory next to it; set `ACDEV_RUNTIME` to the path of that binary (`~/.acdebin-dbg/acdebin-dbg` in the commands below). The runtime is released together with acdev, in `https://pkgs.dopame.ai/acde/<version>/`, and `https://pkgs.dopame.ai/acde/latest` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdev runtime` binary with its `app/` directory next to it; set `ACDEV_RUNTIME` to the path of that binary (`~/.acdebin-dbg/acdebin-dbg` in the commands below). The runtime is released together with acdev, in `https://pkgs.dopame.ai/acdev/<version>/`, and `https://pkgs.dopame.ai/acdev/latest` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
-| `acdev-runtime-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
-| `acdev-runtime-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
-| `acdev-runtime-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
-| `acdev-runtime-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
+| `acdevrt-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
+| `acdevrt-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
+| `acdevrt-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
+| `acdevrt-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
 | `acde-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory) and its license, the same on every platform |
 | `acde-<version>.tar.gz` | acdev itself (what the installer puts in `~/.acdev`) |
 | `acde-api-<version>.tar.gz` | The SDK, `@dopame/acde-api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
@@ -148,12 +148,12 @@ On macOS or Linux, paste the lines below, with `target` set for your platform (t
 ```sh
 (
 target=aarch64-apple-darwin
-base=https://pkgs.dopame.ai/acde
+base=https://pkgs.dopame.ai/acdev
 version=$(curl -fsSL "$base/latest" | tr -d ' \r\n')
 mkdir -p ~/.acdebin-dbg && cd ~/.acdebin-dbg
-curl -fsSLO "$base/$version/acdev-runtime-$target.tar.xz" -O "$base/$version/acde-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
-grep -E " (acdev-runtime-$target\.tar\.xz|acde-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
-  rm -rf app && tar -xzf "acde-host-$version.tar.gz" && tar -xJf "acdev-runtime-$target.tar.xz"
+curl -fsSLO "$base/$version/acdevrt-$target.tar.xz" -O "$base/$version/acde-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
+grep -E " (acdevrt-$target\.tar\.xz|acde-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
+  rm -rf app && tar -xzf "acde-host-$version.tar.gz" && tar -xJf "acdevrt-$target.tar.xz"
 )
 ```
 
@@ -170,11 +170,11 @@ On Windows, in PowerShell:
 ```powershell
 & {
   $ProgressPreference = 'SilentlyContinue'
-  $base = 'https://pkgs.dopame.ai/acde'
+  $base = 'https://pkgs.dopame.ai/acdev'
   $version = (Invoke-RestMethod "$base/latest").Trim()
   $dir = "$env:USERPROFILE\.acdebin-dbg"
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $files = 'acdev-runtime-x86_64-pc-windows-msvc.tar.gz', "acde-host-$version.tar.gz"
+  $files = 'acdevrt-x86_64-pc-windows-msvc.tar.gz', "acde-host-$version.tar.gz"
   foreach ($f in $files + 'SHA256SUMS') { Invoke-WebRequest "$base/$version/$f" -OutFile "$dir\$f" }
   $sums = Get-Content "$dir\SHA256SUMS"
   foreach ($f in $files) {
@@ -183,7 +183,7 @@ On Windows, in PowerShell:
   }
   Remove-Item -Recurse -Force "$dir\app" -ErrorAction SilentlyContinue
   tar -xzf "$dir\acde-host-$version.tar.gz" -C $dir
-  tar -xzf "$dir\acdev-runtime-x86_64-pc-windows-msvc.tar.gz" -C $dir
+  tar -xzf "$dir\acdevrt-x86_64-pc-windows-msvc.tar.gz" -C $dir
   [Environment]::SetEnvironmentVariable('ACDEV_RUNTIME', "$dir\acdev.exe", 'User')
   $env:ACDEV_RUNTIME = "$dir\acdev.exe"
 }

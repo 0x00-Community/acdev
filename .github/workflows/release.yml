@@ -1,27 +1,8 @@
 name: release
 
-# Run by hand on Gitea (AC/acdev → Actions → release → Run workflow): build, check and preview.
-# Publish: the same with publish ticked and commit=<sha>, or push a tag v<x.y.z>. The version counts up by itself: one patch
-# past the highest of pkgs' latest.json, npm (@dopame/acdev, @dopame/acde-api) and the v* tags (a pushed tag gives its own);
-# scripts/set-version.sh writes it into acdev's and libacde's Cargo.toml and package.json in each job, uncommitted. One release,
-# one version: the acdev runtime builds, the guest daemons and host tools, the SDK, the acdev CLI (npm/) and the installers, all in
-# pkgs.dopame.ai/acde/<version>/ under one SHA256SUMS, and on npm (job npm, secret NPM_TOKEN). The runtime library and the SDK are
-# libacde, checked out beside acdev at the commit plan read from its main (it, its vendor/blitz submodule and the cargo registry ac
-# need ACKERNEL_TOKEN); the page files are inside the
-# acdev runtime binary. The small programs (acdevd for the guests, acdev-relay for Windows, acdev-viewer for Linux) build in the
-# job tools, beside the build matrix and without waiting for it.
-# The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
-# Every job runs on the runner itself (the ci-debian runners have no Docker; their node 20 and npm 9 are enough for the
-# node -p / npm steps, and the CLI smoke test runs with bun): a tool one lacks (awscli) comes from apt with sudo.
-# Gitea reads .github/workflows; the same file also runs on GitHub.
-# Every target builds on the x86_64-debian runners: Linux natively, Windows with cargo-xwin,
-# macOS with cargo-zigbuild and the MacOSX15.5 SDK; no macOS or Windows machine is needed.
-# Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
-# the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
-# GitHub gives the string 'true'; in an environment variable both are the text true. Artifacts go through the
-# christopherhx/gitea-*-artifact forks: the official actions/*-artifact v4+ refuse any server but github.com.
+# By hand on Gitea: build, check and preview. Publish: tick publish and give commit=<sha>, or push a tag v<x.y.z>.
+# What ships, where and in which order: docs/release-distribution.md.
 on:
-  # pushing the tag v<version> (on a commit of main whose npm/package.json and Cargo.toml say <version>) publishes it
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -59,7 +40,7 @@ env:
   AWS_REGION: ap-southeast-1
   ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
   BUCKET: dopame-pkgs
-  PREFIX: acde
+  PREFIX: acdev
   CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
 
 jobs:
@@ -78,37 +59,29 @@ jobs:
           path: acdev
           fetch-depth: 0
           persist-credentials: false
-      - name: the commit is a full SHA on origin/main, and package.json gives the version
+      - name: the commit is a full SHA on origin/main, and the version
         id: version
-        working-directory: acdev/npm
+        working-directory: acdev
         env:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
           VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           set -eu
+          # Gitea gives inputs.publish as false even when ticked; in the environment it is the text true
           if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
           PUSHED_TAG=
           case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
             push:refs/tags/v*) PUBLISH=true; COMMIT=$GITHUB_SHA; PUSHED_TAG=${GITHUB_REF#refs/tags/} ;;
           esac
           if [ -z "$COMMIT" ]; then
-            if [ "$PUBLISH" = true ]; then
-              echo "::error::a publish needs a commit: run it with -f commit=<sha>"
-              exit 1
-            fi
+            [ "$PUBLISH" = true ] && { echo "::error::a publish needs a commit: run it with -f commit=<sha>"; exit 1; }
             sha=$GITHUB_SHA
           else
-            sha=$(git rev-parse --verify --quiet "$COMMIT^{commit}") || {
-              echo "::error::$COMMIT is not a commit in this repository"
-              exit 1
-            }
+            sha=$(git rev-parse --verify --quiet "$COMMIT^{commit}") || { echo "::error::$COMMIT is not a commit in this repository"; exit 1; }
           fi
           if [ "$PUBLISH" = true ] || [ -n "$COMMIT" ]; then
-            if ! git merge-base --is-ancestor "$sha" origin/main; then
-              echo "::error::$sha is neither origin/main nor one of its ancestors"
-              exit 1
-            fi
+            git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is neither origin/main nor one of its ancestors"; exit 1; }
           fi
           if [ "$PUBLISH" = true ] && [ -z "$PUSHED_TAG" ] && [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::a release is published from main only; this run is on $GITHUB_REF"
@@ -120,37 +93,31 @@ jobs:
           elif [ -n "${VERSION_INPUT:-}" ]; then
             v=${VERSION_INPUT#v}
           else
-            # the next patch after the highest version released anywhere: pkgs' latest.json, npm, and the v* tags
+            # one patch past the highest version released anywhere: pkgs' latest.json, npm, and the v* tags
             seen=$( {
               curl -fsSL "$PKGS/$PREFIX/latest.json" 2>/dev/null | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version' 2>/dev/null || true
               for pkg in @dopame/acdev @dopame/acde-api; do npm view "$pkg" versions --json 2>/dev/null | node -p 'const v=JSON.parse(require("fs").readFileSync(0,"utf8"));(Array.isArray(v)?v:[v]).join("\n")' 2>/dev/null || true; done
               git tag --list 'v*' | sed 's/^v//'
             } | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-            seen=${seen:-0.0.0}
-            v=$(echo "$seen" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
-            echo "highest released: $seen; this release: $v"
+            v=$(echo "${seen:-0.0.0}" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
           fi
-          case $v in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::version $v is not x.y.z"; exit 1 ;;
-          esac
-          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "tag=v$v" >> "$GITHUB_OUTPUT"
-          echo "commit $sha, acdev $v, publish=$PUBLISH"
+          case $v in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::version $v is not x.y.z"; exit 1 ;; esac
+          if [ "$PUBLISH" = true ] && tagged=$(git rev-parse --verify --quiet "refs/tags/v$v^{commit}") && [ "$tagged" != "$sha" ]; then
+            echo "::error::v$v already exists and points at $tagged, not at $sha"
+            exit 1
+          fi
+          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\n' "$PUBLISH" "$sha" "$v" "$v" | tee -a "$GITHUB_OUTPUT"
       - name: libacde's main, the one commit every job builds
         id: libacde
         env:
-          TOKEN: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
           GIT_TERMINAL_PROMPT: '0'
         run: |
           set -eu
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           sha=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
           [ -n "$sha" ] || { echo "::error::no main in AC/libacde"; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "libacde $sha"
+          echo "sha=$sha" | tee -a "$GITHUB_OUTPUT"
       - name: the targets to build
         id: targets
         env:
@@ -158,33 +125,16 @@ jobs:
         run: |
           set -eu
           all="x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc"
-          case "${SKIP:-}" in *[[:space:]]*) echo "::error::skip_targets takes triples separated by commas, without spaces"; exit 1 ;; esac
+          left=
           for s in $(echo "${SKIP:-}" | tr , ' '); do
             case " $all " in *" $s "*) ;; *) echo "::error::unknown target to skip: $s (one of $all)"; exit 1 ;; esac
           done
-          left=
           for t in $all; do case ",${SKIP:-}," in *",$t,"*) ;; *) left="$left,$t" ;; esac; done
-          left=${left#,}
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
-          echo "targets=$left" | tee -a "$GITHUB_OUTPUT"
-      - name: the tag is free, or already points at this commit
-        if: steps.version.outputs.publish == 'true'
-        working-directory: acdev/npm
-        env:
-          SHA: ${{ steps.version.outputs.sha }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          set -eu
-          if tagged=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"); then
-            if [ "$tagged" != "$SHA" ]; then
-              echo "::error::$TAG already exists and points at $tagged, not at $SHA"
-              exit 1
-            fi
-            echo "$TAG already points at $SHA: a rerun continues"
-          else
-            echo "$TAG is free"
-          fi
+          echo "targets=${left#,}" | tee -a "$GITHUB_OUTPUT"
 
+  # per target on the Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
+  # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK
   build:
     needs: plan
     strategy:
@@ -197,25 +147,18 @@ jobs:
           - { triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe }
     runs-on: x86_64-debian
     timeout-minutes: 120
-    env:
-      BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
+    if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
     steps:
-      - name: skipped target
-        if: env.BUILD != 'true'
-        run: echo "${{ matrix.triple }} is in skip_targets; nothing to build"
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: env.BUILD == 'true'
         with:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - uses: ./acdev/.github/actions/libacde
-        if: env.BUILD == 'true'
         with:
-          token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          token: ${{ secrets.ACKERNEL_TOKEN }}
           ref: ${{ needs.plan.outputs.libacde }}
-      - name: system libraries (Linux), clang and LLVM's linker and archiver (cross), NASM for aws-lc-sys on Windows
-        if: env.BUILD == 'true'
+      - name: system libraries (Linux) or clang, LLVM and NASM (cross)
         run: |
           s=$(command -v sudo || true); $s apt-get update
           if [ -z "${{ matrix.cross }}" ]; then
@@ -225,9 +168,8 @@ jobs:
           else
             $s apt-get install -y --no-install-recommends clang lld llvm python3 perl make xz-utils nasm
           fi
-      - name: cargo-xwin (Windows from Linux; the MSVC CRT and SDK with ATL)
-        if: env.BUILD == 'true' && matrix.cross == 'xwin'
-        shell: bash
+      - name: cargo-xwin (the MSVC CRT and SDK with ATL)
+        if: matrix.cross == 'xwin'
         run: |
           set -eu
           f=cargo-xwin-v0.23.1.x86_64-unknown-linux-musl.tar.gz
@@ -235,11 +177,9 @@ jobs:
           echo "c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360  $RUNNER_TEMP/$f" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          echo "XWIN_INCLUDE_ATL=true" >> "$GITHUB_ENV"
-          echo "XWIN_CACHE_DIR=$HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
-      - name: cargo-zigbuild, zig and the macOS SDK (macOS from Linux)
-        if: env.BUILD == 'true' && matrix.cross == 'zigbuild'
-        shell: bash
+          printf 'XWIN_INCLUDE_ATL=true\nXWIN_CACHE_DIR=%s\n' "$HOME/.cache/cargo-xwin-atl" >> "$GITHUB_ENV"
+      - name: cargo-zigbuild, zig and the macOS SDK
+        if: matrix.cross == 'zigbuild'
         run: |
           set -eu
           cd "$RUNNER_TEMP"
@@ -256,177 +196,107 @@ jobs:
           echo "c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd  $sdk" | sha256sum -c -
           mkdir -p sdk && tar -xJf "$sdk" -C sdk
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          echo "SDKROOT=$RUNNER_TEMP/sdk/MacOSX15.5.sdk" >> "$GITHUB_ENV"
-          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          printf 'SDKROOT=%s\nMACOSX_DEPLOYMENT_TARGET=11.0\n' "$RUNNER_TEMP/sdk/MacOSX15.5.sdk" >> "$GITHUB_ENV"
       - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
-        if: env.BUILD == 'true'
         with:
           targets: ${{ matrix.triple }}
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: env.BUILD == 'true'
         with:
           bun-version: 1.4.4
-      - name: "bun for libacde's build.rs (it bundles libacde/js into the binary on this Linux host, for every target)"
-        if: env.BUILD == 'true'
-        shell: bash
+      - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: dist-${{ matrix.triple }}
+          workspaces: |
+            acdev -> target
+            acdev/crates/tool -> target
+          cache-directories: ~/.cache/cargo-xwin-atl
+      - name: bun for libacde's build.rs, the release version (not committed), rustc flags
         run: |
           set -eu
           bun install --frozen-lockfile --cwd libacde/js
-          echo "ACDEV_BUN=$(command -v bun)" >> "$GITHUB_ENV"
-      - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: env.BUILD == 'true'
-        with:
-          key: dist-${{ matrix.triple }}
-          workspaces: acdev -> target
-          cache-directories: ~/.cache/cargo-xwin-atl
-      - name: the release version into Cargo.toml and package.json (not committed)
-        if: env.BUILD == 'true'
-        run: sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev
-      - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
-        if: env.BUILD == 'true'
-        shell: bash
-        run: |
-          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-          sysroot=$(rustc --print sysroot)
-          flags=""
-          case "${{ matrix.triple }}" in
-            *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%" ;;
-          esac
-          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$GITHUB_WORKSPACE/acdev=/src"
-          flags="$flags --remap-path-prefix=$GITHUB_WORKSPACE/libacde=/libacde"
-          echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
-      - name: "acdev runtime (dist profile: release build, split debug information)"
-        if: env.BUILD == 'true'
-        shell: bash
+          sh acdev/scripts/set-version.sh "${{ needs.plan.outputs.version }}" acdev
+          flags="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)=/rustc"
+          flags="$flags --remap-path-prefix=$GITHUB_WORKSPACE/acdev=/src --remap-path-prefix=$GITHUB_WORKSPACE/libacde=/libacde"
+          case "${{ matrix.triple }}" in *-windows-msvc) flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB% $flags" ;; esac
+          printf 'ACDEV_BUN=%s\nRUSTFLAGS=%s\n' "$(command -v bun)" "$flags" >> "$GITHUB_ENV"
+      - name: acdev (dist profile, split debug information) and acdevtool
         working-directory: acdev
         env:
-          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN || github.token }}
-        run: |
-          case "${{ matrix.cross }}" in
-            xwin) cargo xwin build --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
-            zigbuild) cargo zigbuild --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
-            *) cargo build --locked --profile dist -p acdev --target ${{ matrix.triple }} ;;
-          esac
-      - name: archive the binary (one file, fixed times and owner) and keep the split debug information
-        if: env.BUILD == 'true'
-        shell: bash
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
         run: |
           set -eu
-          dist=acdev/target/${{ matrix.triple }}/dist
-          exe=acdev${{ matrix.exe }}
-          mkdir -p out/symbols one
-          cp "$dist/$exe" "one/$exe"
-          chmod 755 "one/$exe"
-          TZ=UTC touch -t 200001010000.00 "one/$exe"
-          if tar --version 2>/dev/null | grep -q 'GNU tar'; then owner="--owner=0 --group=0"; else owner="--uid 0 --gid 0"; fi
-          if [ -n "${{ matrix.exe }}" ]; then
-            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | gzip -9 -n > "out/acdev-runtime-${{ matrix.triple }}.tar.gz"
-          else
-            tar -C one --format=ustar $owner --numeric-owner -cf - "$exe" | xz -9 -T1 -c > "out/acdev-runtime-${{ matrix.triple }}.tar.xz"
-          fi
-          for part in acdev.pdb acdev.dwp acdev.dSYM; do
-            if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" out/symbols/; fi
-          done
-          if [ -z "$(ls -A out/symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
+          case "${{ matrix.cross }}" in xwin) cargo="cargo xwin" ;; zigbuild) cargo="cargo zigbuild" ;; *) cargo=cargo ;; esac
+          $cargo build --locked --profile dist -p acdev --target ${{ matrix.triple }}
+          (cd crates/tool && $cargo build --locked --release --target ${{ matrix.triple }})
+      - name: the archives (one program each, fixed times and owner) and the split debug information
+        run: |
+          set -eu
+          t=${{ matrix.triple }} x=${{ matrix.exe }}
+          mkdir -p out/symbols
+          pack() {
+            rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3" && TZ=UTC touch -t 200001010000.00 "one/$3"
+            tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" > one.tar
+            if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$t.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$t.tar.xz"; fi
+          }
+          pack acdevrt "acdev/target/$t/dist/acdev$x" "acdev$x"
+          pack acdevtools "acdev/crates/tool/target/$t/release/acdevtool$x" "acdevtool$x"
+          for part in acdev.pdb acdev.dwp acdev.dSYM; do [ -e "acdev/target/$t/dist/$part" ] && cp -RL "acdev/target/$t/dist/$part" out/symbols/; done
+          [ -n "$(ls -A out/symbols)" ] || { echo "::error::no split debug information was produced"; exit 1; }
           ls -la out out/symbols
+      # one upload per job: act_runner fails a remote action prepared twice in one job (docs/release-distribution.md)
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        if: env.BUILD == 'true'
         with:
-          name: runtime-${{ matrix.triple }}
+          name: build-${{ matrix.triple }}
           path: out
           retention-days: 30
           if-no-files-found: error
 
-  tools:
-    # the small programs, each in its own Cargo workspace, beside the build matrix: acdevd for the guests (static musl, linked
-    # by rust-lld, crates/devd/.cargo/config.toml, so cargo runs in crates/devd), acdev-relay for Windows (QMP and the guest
-    # agent are Unix sockets there; Node reaches them through it), acdev-viewer for Linux (the CLI refuses --viewer elsewhere)
+  # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
+  guest:
     needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { name: acdevd-x86_64, crate: devd, bin: acdevd, triple: x86_64-unknown-linux-musl, cross: '', ships: all }
-          - { name: acdevd-aarch64, crate: devd, bin: acdevd, triple: aarch64-unknown-linux-musl, cross: '', ships: all }
-          - { name: acdev-relay, crate: relay, bin: acdev-relay, triple: x86_64-pc-windows-msvc, cross: xwin, exe: .exe, ships: x86_64-pc-windows-msvc }
-          - { name: acdev-viewer, crate: viewer, bin: acdev-viewer, triple: x86_64-unknown-linux-gnu, cross: '', ships: x86_64-unknown-linux-gnu }
     runs-on: x86_64-debian
     timeout-minutes: 30
-    env:
-      BUILD: ${{ matrix.ships == 'all' || contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.ships)) }}
     steps:
-      - name: skipped
-        if: env.BUILD != 'true'
-        run: echo "${{ matrix.name }} is for ${{ matrix.ships }}, which is in skip_targets"
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: env.BUILD == 'true'
         with:
           path: acdev
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - name: clang and LLVM's linker (acdev-relay through cargo-xwin), pkg-config (acdev-viewer)
-        if: env.BUILD == 'true' && matrix.crate != 'devd'
-        run: |
-          s=$(command -v sudo || true); $s apt-get update
-          $s apt-get install -y --no-install-recommends clang lld llvm pkg-config
-      - name: cargo-xwin (Windows from Linux)
-        if: env.BUILD == 'true' && matrix.cross == 'xwin'
-        shell: bash
-        run: |
-          set -eu
-          f=cargo-xwin-v0.23.1.x86_64-unknown-linux-musl.tar.gz
-          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/rust-cross/cargo-xwin/releases/download/v0.23.1/$f"
-          echo "c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360  $RUNNER_TEMP/$f" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - uses: http://gitea.dopamine/mirror/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # v1 (its stable branch)
-        if: env.BUILD == 'true'
         with:
-          targets: ${{ matrix.triple }}
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: http://gitea.dopamine/mirror/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: env.BUILD == 'true'
         with:
-          key: tools-${{ matrix.name }}
-          workspaces: acdev/crates/${{ matrix.crate }} -> target
-          cache-directories: ~/.cache/cargo-xwin
-      - name: ${{ matrix.name }}
-        if: env.BUILD == 'true'
-        shell: bash
-        working-directory: acdev/crates/${{ matrix.crate }}
+          key: guest
+          workspaces: acdev/crates/devd -> target
+      - name: acdevd-x86_64 and acdevd-aarch64
+        working-directory: acdev/crates/devd
         run: |
           set -eu
-          case "${{ matrix.cross }}" in
-            xwin) RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --locked --release --target ${{ matrix.triple }} ;;
-            *) cargo build --locked --release --target ${{ matrix.triple }} ;;
-          esac
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "target/${{ matrix.triple }}/release/${{ matrix.bin }}${{ matrix.exe }}" "$GITHUB_WORKSPACE/out/${{ matrix.name }}${{ matrix.exe }}"
-          ls -la "$GITHUB_WORKSPACE/out"
+          rm -rf "$GITHUB_WORKSPACE/stage" && mkdir -p "$GITHUB_WORKSPACE/stage" "$GITHUB_WORKSPACE/out"
+          for a in x86_64 aarch64; do
+            cargo build --locked --release --target $a-unknown-linux-musl
+            cp "target/$a-unknown-linux-musl/release/acdevd" "$GITHUB_WORKSPACE/stage/acdevd-$a"
+          done
+          cd "$GITHUB_WORKSPACE/stage"
+          chmod 755 * && TZ=UTC touch -t 200001010000.00 *
+          tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64 | gzip -9 -n \
+            > "$GITHUB_WORKSPACE/out/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
-        if: env.BUILD == 'true'
         with:
-          name: tool-${{ matrix.name }}
+          name: guest
           path: out
           retention-days: 1
           if-no-files-found: error
 
   pkgs:
-    needs: [plan, build, tools]
+    needs: [plan, build, guest]
+    if: ${{ !cancelled() && needs.guest.result == 'success' && needs.build.result != 'failure' }}
     runs-on: x86_64-debian
     env:
-      TAG: ${{ needs.plan.outputs.tag }}
+      V: ${{ needs.plan.outputs.version }}
       SHA: ${{ needs.plan.outputs.sha }}
-      SDK_VERSION: ${{ needs.plan.outputs.version }}
-      TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
-      - name: tools the runner lacks (sudo apt; skipped when installed)
-        run: |
-          miss=; for p in jq xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
-          if [ -n "$miss" ]; then
-            s=$(command -v sudo || true)
-            $s apt-get update -qq
-            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
-          fi
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
@@ -435,81 +305,31 @@ jobs:
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           path: in
-          pattern: '{runtime,tool}-*'
-      - name: the builds of the planned targets, the guest daemons and the host tools, nothing else
-        run: |
-          set -eu
-          v=${TAG#v}
-          mkdir -p in/runtime stage
-          if tar --version 2>/dev/null | grep -q 'GNU tar'; then owner="--owner=0 --group=0"; else owner="--uid 0 --gid 0"; fi
-          # one archive per set of programs, fixed times and owner like the runtime archives of the build job
-          pack() {
-            out=$1; shift
-            rm -rf stage && mkdir stage
-            for f in "$@"; do cp "$f" stage/ && chmod 755 "stage/${f##*/}" && TZ=UTC touch -t 200001010000.00 "stage/${f##*/}"; done
-            names=$(cd stage && ls)
-            case $out in
-              *.tar.xz) tar -C stage --format=ustar $owner --numeric-owner -cf - $names | xz -9 -T0 -c > "in/runtime/$out" ;;
-              *) tar -C stage --format=ustar $owner --numeric-owner -cf - $names | gzip -9 -n > "in/runtime/$out" ;;
-            esac
-          }
-          for t in $(echo "$TARGETS" | tr , ' '); do
-            case $t in *-windows-msvc) f="acdev-runtime-$t.tar.gz" ;; *) f="acdev-runtime-$t.tar.xz" ;; esac
-            test -f "in/runtime-$t/$f" || { echo "::error::no $f from the build of $t"; exit 1; }
-            cp "in/runtime-$t/$f" in/runtime/
-          done
-          for g in x86_64 aarch64; do test -f "in/tool-acdevd-$g/acdevd-$g" || { echo "::error::no acdevd-$g from the job tools"; exit 1; }; done
-          pack "acdev-guest-$v.tar.gz" in/tool-acdevd-x86_64/acdevd-x86_64 in/tool-acdevd-aarch64/acdevd-aarch64
-          case ",$TARGETS," in *,x86_64-pc-windows-msvc,*)
-            test -f in/tool-acdev-relay/acdev-relay.exe || { echo "::error::no acdev-relay.exe from the job tools"; exit 1; }
-            pack acdev-tools-x86_64-pc-windows-msvc.tar.gz in/tool-acdev-relay/acdev-relay.exe ;;
-          esac
-          case ",$TARGETS," in *,x86_64-unknown-linux-gnu,*)
-            test -f in/tool-acdev-viewer/acdev-viewer || { echo "::error::no acdev-viewer from the job tools"; exit 1; }
-            pack acdev-tools-x86_64-unknown-linux-gnu.tar.xz in/tool-acdev-viewer/acdev-viewer ;;
-          esac
-          ls -la in/runtime
+          pattern: '{build-*,guest}'
       - uses: http://gitea.dopamine/mirror/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - uses: ./acdev/.github/actions/libacde
         with:
-          token: ${{ secrets.ACKERNEL_TOKEN || github.token }}
+          token: ${{ secrets.ACKERNEL_TOKEN }}
           ref: ${{ needs.plan.outputs.libacde }}
-      - name: install
-        run: bun install --frozen-lockfile --cwd acdev/npm
-      - name: the release version into acdev's and libacde's Cargo.toml, package.json and the SDK's package.json (not committed)
-        run: sh acdev/scripts/set-version.sh "$SDK_VERSION" acdev
-      - name: dist (the SDK is libacde/acde-api, type declarations only)
+      - name: dist (the CLI archive, the SDK from libacde/acde-api, the built archives beside them) and latest.json
         working-directory: acdev/npm
         run: |
-          v=${TAG#v}
-          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$SDK_VERSION" \
-            --version "$v" --out "$GITHUB_WORKSPACE/out" --runtime "$GITHUB_WORKSPACE/in/runtime"
-      - name: latest.json
-        run: |
-          v=${TAG#v}
-          files=$(cd "$GITHUB_WORKSPACE/out/$v" && ls | jq -R . | jq -sc .)
-          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$SHA" --arg sdk "$SDK_VERSION" \
-            --argjson files "$files" \
-            '{version: $version, tag: $tag, commit: $commit, sdk: $sdk, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
-            > "$GITHUB_WORKSPACE/out/latest.json"
-          cat "$GITHUB_WORKSPACE/out/latest.json"
-      - name: the archive starts the CLI
-        run: |
           set -eu
-          v=${TAG#v}
-          mkdir -p smoke
-          tar -xzf "$GITHUB_WORKSPACE/out/$v/acdev-$v.tar.gz" -C smoke
-          out=$("smoke/acdev-$v/bin/acdev" --help 2>&1 || true)
-          case $out in
-            *'Usage: acdev <command>'*) echo "shim ok" ;;
-            *)
-              printf '%s\n' "$out"
-              echo "::error::bin/acdev does not start the CLI"
-              exit 1
-              ;;
-          esac
+          dpkg -s jq > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq xz-utils; }
+          mkdir -p "$GITHUB_WORKSPACE/shipped" && cp "$GITHUB_WORKSPACE"/in/*/*.tar.* "$GITHUB_WORKSPACE/shipped/"
+          bun install --frozen-lockfile
+          sh ../scripts/set-version.sh "$V" ..
+          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/libacde/acde-api" --sdk "$V" --version "$V" \
+            --out "$GITHUB_WORKSPACE/out" --runtime "$GITHUB_WORKSPACE/shipped"
+          cd "$GITHUB_WORKSPACE/out"
+          jq -n --arg version "$V" --arg commit "$SHA" --argjson files "$(ls "$V" | jq -R . | jq -sc .)" \
+            '{version: $version, tag: "v\($version)", commit: $commit, sdk: $version, base: "https://pkgs.dopame.ai/acdev/\($version)/", files: $files}' \
+            | tee latest.json
+          mkdir smoke && tar -xzf "$V/acdev-$V.tar.gz" -C smoke
+          "smoke/acdev-$V/bin/acdev" --help 2>&1 | grep -q 'Usage: acdev <command>' || { echo "::error::bin/acdev does not start the CLI"; exit 1; }
+          rm -rf smoke
       - uses: http://gitea.dopamine/mirror/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7 (official v7.0.2 + isGhes false)
         with:
           name: acdev-release
@@ -520,9 +340,6 @@ jobs:
   guard:
     needs: [plan, pkgs]
     runs-on: x86_64-debian
-    env:
-      TAG: ${{ needs.plan.outputs.tag }}
-      TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -537,161 +354,72 @@ jobs:
       - name: the release is exactly the allow-list and the shipped content is clean
         working-directory: acdev/npm
         run: |
-          set -eu
-          v=$(cat "$GITHUB_WORKSPACE/out/latest")
-          if [ "v$v" != "$TAG" ]; then
-            echo "::error::the release is $v but the tag is $TAG"
-            exit 1
-          fi
-          miss=; for p in xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
-          if [ -n "$miss" ]; then
-            s=$(command -v sudo || true)
-            $s apt-get update -qq
-            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
-          fi
-          bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v" --targets "$TARGETS"
+          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xz-utils; }
+          bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "${{ needs.plan.outputs.version }}" \
+            --targets "${{ needs.plan.outputs.targets }}"
       - name: a preview stops here
         if: needs.plan.outputs.publish != 'true'
-        run: |
-          echo "preview only: the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
 
   upload:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'
     runs-on: x86_64-debian
-    permissions:
-      contents: read
-      id-token: write
     env:
-      TAG: ${{ needs.plan.outputs.tag }}
-      TARGETS: ${{ needs.plan.outputs.targets }}
+      V: ${{ needs.plan.outputs.version }}
     steps:
-      - name: tools the runner lacks (sudo apt; skipped when installed)
-        run: |
-          miss=; for p in jq awscli; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
-          if [ -n "$miss" ]; then
-            s=$(command -v sudo || true)
-            $s apt-get update -qq
-            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
-          fi
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acdev-release
           path: out
-      - name: check the allow-list and the checksums once more
-        run: |
-          set -eu
-          v=$(cat out/latest)
-          case $v in *[!0-9A-Za-z.-]*|'') echo "::error::bad version"; exit 1 ;; esac
-          if [ "v$v" != "$TAG" ]; then
-            echo "::error::the release is $v but the tag is $TAG"
-            exit 1
-          fi
-          expected=$(mktemp)
-          {
-            echo install.md
-            echo install.ps1
-            echo install.sh
-            echo latest
-            echo latest.json
-            echo "$v/SHA256SUMS"
-            echo "$v/acdev-$v.tar.gz"
-            echo "$v/acde-api-$v.tar.gz"
-            echo "$v/acdev-guest-$v.tar.gz"
-            for t in $(echo "$TARGETS" | tr , ' '); do
-              case $t in *-windows-msvc) echo "$v/acdev-runtime-$t.tar.gz" ;; *) echo "$v/acdev-runtime-$t.tar.xz" ;; esac
-              case $t in
-                x86_64-pc-windows-msvc) echo "$v/acdev-tools-$t.tar.gz" ;;
-                x86_64-unknown-linux-gnu) echo "$v/acdev-tools-$t.tar.xz" ;;
-              esac
-            done
-          } | sort > "$expected"
-          (cd out && find . -type f | sed 's|^\./||' | sort) > actual
-          if ! diff "$expected" actual; then
-            echo "::error::the release is not exactly the allow-list"
-            exit 1
-          fi
-          (cd "out/$v" && sha256sum -c SHA256SUMS)
-      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
+      - name: credentials for the role
         env:
           KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          if [ -n "${KEY_ID:-}" ]; then
-            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
-              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
-          else
-            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
-            echo "::add-mask::$token"
-            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
-              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
-              --duration-seconds 3600 --query Credentials --output json)
-          fi
-          key=$(printf '%s' "$creds" | jq -r .AccessKeyId)
-          secret=$(printf '%s' "$creds" | jq -r .SecretAccessKey)
-          session=$(printf '%s' "$creds" | jq -r .SessionToken)
-          echo "::add-mask::$key"
-          echo "::add-mask::$secret"
-          echo "::add-mask::$session"
-          {
-            echo "AWS_ACCESS_KEY_ID=$key"
-            echo "AWS_SECRET_ACCESS_KEY=$secret"
-            echo "AWS_SESSION_TOKEN=$session"
-          } >> "$GITHUB_ENV"
-      - name: upload the versioned files, then read them back
+          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq awscli; }
+          creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+            --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
+          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
+          printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
+      - name: upload every file SHA256SUMS lists, then SHA256SUMS, each read back
+        working-directory: out/${{ needs.plan.outputs.version }}
         run: |
           set -eu
-          v=$(cat out/latest)
-          immutable='public, max-age=31536000, immutable'
-          text='text/plain; charset=utf-8'
-          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          [ "$(cat ../latest)" = "$V" ] || { echo "::error::the release is $(cat ../latest), not $V"; exit 1; }
+          sha256sum -c SHA256SUMS
           # a published version is identical or refused, never overwritten; a rerun skips the identical files
           publish_once() {
-            key="$PREFIX/$2"
+            case $1 in *.tar.gz) type=application/gzip ;; *.tar.xz) type=application/x-xz ;; *) type='text/plain; charset=utf-8' ;; esac
+            key="$PREFIX/$V/$1"
             if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> head.err; then
-              aws s3 cp "s3://$BUCKET/$key" published.tmp --only-show-errors
-              if cmp -s published.tmp "$1"; then
-                echo "already published, identical: $2"
-              else
-                echo "::error::$2 is already published with different content: a version is never overwritten"
-                exit 1
-              fi
+              aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/published" --only-show-errors
+              cmp -s "$RUNNER_TEMP/published" "$1" || { echo "::error::$1 is already published with different content: a version is never overwritten"; exit 1; }
+              echo "already published, identical: $1"
             elif grep -qE 'Not Found|NotFound|404' head.err; then
-              put "$1" "$2" "$3" "$4"
+              aws s3 cp "$1" "s3://$BUCKET/$key" --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
             else
-              echo "::error::cannot check $2: $(cat head.err)"
-              exit 1
+              echo "::error::cannot check $1: $(cat head.err)"; exit 1
             fi
-            aws s3 cp "s3://$BUCKET/$key" readback.tmp --only-show-errors
-            cmp -s readback.tmp "$1" || { echo "::error::$2 does not read back as uploaded"; exit 1; }
+            aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/readback" --only-show-errors
+            cmp -s "$RUNNER_TEMP/readback" "$1" || { echo "::error::$1 does not read back as uploaded"; exit 1; }
           }
-          publish_once "out/$v/acdev-$v.tar.gz" "$v/acdev-$v.tar.gz" application/gzip "$immutable"
-          publish_once "out/$v/acde-api-$v.tar.gz" "$v/acde-api-$v.tar.gz" application/gzip "$immutable"
-          publish_once "out/$v/acdev-guest-$v.tar.gz" "$v/acdev-guest-$v.tar.gz" application/gzip "$immutable"
-          for t in $(echo "$TARGETS" | tr , ' '); do
-            case $t in
-              *-windows-msvc) publish_once "out/$v/acdev-runtime-$t.tar.gz" "$v/acdev-runtime-$t.tar.gz" application/gzip "$immutable" ;;
-              *) publish_once "out/$v/acdev-runtime-$t.tar.xz" "$v/acdev-runtime-$t.tar.xz" application/x-xz "$immutable" ;;
-            esac
-            case $t in
-              x86_64-pc-windows-msvc) publish_once "out/$v/acdev-tools-$t.tar.gz" "$v/acdev-tools-$t.tar.gz" application/gzip "$immutable" ;;
-              x86_64-unknown-linux-gnu) publish_once "out/$v/acdev-tools-$t.tar.xz" "$v/acdev-tools-$t.tar.xz" application/x-xz "$immutable" ;;
-            esac
+          rm -f head.err
+          for f in $(awk '{ sub(/^\*/, "", $2); print $2 }' SHA256SUMS); do
+            case $f in *[!A-Za-z0-9._-]*) echo "::error::bad file name $f"; exit 1 ;; esac
+            publish_once "$f"
           done
-          publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
+          rm -f head.err
+          publish_once SHA256SUMS
 
   npm:
-    # npm: @dopame/acdev (one line of JS that starts its platform package) and @dopame/acdev-<os>-<cpu> (the binaries, the
-    # built CLI, the guest daemons and the host tools, laid out as an install); a version already there is skipped. The SDK
-    # @dopame/acde-api is private and not on npm: projects take acde-api-<version>.tar.gz from pkgs by a file: or URL reference
+    # @dopame/acdev (starts its platform package) and @dopame/acdev-<os>-<cpu> (laid out as an install); the SDK is not on npm
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true'
     runs-on: x86_64-debian
     env:
       V: ${{ needs.plan.outputs.version }}
-      TARGETS: ${{ needs.plan.outputs.targets }}
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
@@ -701,41 +429,21 @@ jobs:
       - name: the packages
         run: |
           set -eu
-          miss=; for p in xz-utils; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
-          if [ -n "$miss" ]; then
-            s=$(command -v sudo || true)
-            $s apt-get update -qq
-            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
-          fi
+          dpkg -s xz-utils > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xz-utils; }
           rel="$GITHUB_WORKSPACE/out/$V"
-          mkdir -p npm
           deps=
-          for t in $(echo "$TARGETS" | tr , ' '); do
+          for t in $(echo "${{ needs.plan.outputs.targets }}" | tr , ' '); do
             case $t in
-              x86_64-unknown-linux-gnu) os=linux cpu=x64 exe= ;;
-              aarch64-apple-darwin) os=darwin cpu=arm64 exe= ;;
-              x86_64-apple-darwin) os=darwin cpu=x64 exe= ;;
-              x86_64-pc-windows-msvc) os=win32 cpu=x64 exe=.exe ;;
-              *) echo "::error::no npm platform for $t"; exit 1 ;;
+              x86_64-unknown-linux-gnu) os=linux cpu=x64 ;;
+              aarch64-apple-darwin) os=darwin cpu=arm64 ;;
+              x86_64-apple-darwin) os=darwin cpu=x64 ;;
+              x86_64-pc-windows-msvc) os=win32 cpu=x64 ;;
             esac
-            name="@dopame/acdev-$os-$cpu"
-            dir="npm/acdev-$os-$cpu"
-            mkdir -p "$dir.stage" "$dir"
-            tar -xzf "$rel/acdev-$V.tar.gz" -C "$dir.stage"
-            cp -a "$dir.stage/acdev-$V/." "$dir/"
-            mkdir -p "$dir/libexec"
-            case $t in
-              *-windows-msvc) tar -xzf "$rel/acdev-runtime-$t.tar.gz" -C "$dir/libexec" ;;
-              *) tar -xJf "$rel/acdev-runtime-$t.tar.xz" -C "$dir/libexec" ;;
-            esac
-            test -f "$dir/libexec/acdev$exe"
-            tar -xzf "$rel/acdev-guest-$V.tar.gz" -C "$dir/libexec"
-            case $t in
-              x86_64-pc-windows-msvc) tar -xzf "$rel/acdev-tools-$t.tar.gz" -C "$dir/libexec" ;;
-              x86_64-unknown-linux-gnu) tar -xJf "$rel/acdev-tools-$t.tar.xz" -C "$dir/libexec" ;;
-            esac
-            rm -rf "$dir.stage"
-            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime, the acdev CLI, the guest daemons and the host tools`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
+            name="@dopame/acdev-$os-$cpu" dir="npm/acdev-$os-$cpu"
+            mkdir -p "$dir.stage" "$dir/libexec"
+            tar -xzf "$rel/acdev-$V.tar.gz" -C "$dir.stage" && cp -a "$dir.stage/acdev-$V/." "$dir/" && rm -rf "$dir.stage"
+            for f in "$rel/acdevrt-$t".tar.* "$rel/acdevtools-$t".tar.* "$rel/acdev-guest-$V.tar.gz"; do tar -xf "$f" -C "$dir/libexec"; done
+            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime, the acdev CLI, the guest daemons and acdevtool`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
               "$name" "$V" "$os" "$cpu" > "$dir/package.json"
             deps="$deps\"$name\": \"$V\","
           done
@@ -745,29 +453,17 @@ jobs:
             > npm/acdev/acdev.mjs
           node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
             "$V" "$deps" > npm/acdev/package.json
-          cat npm/acdev/package.json npm/acdev/acdev.mjs
           du -sh npm/*
       - name: publish (platforms, then @dopame/acdev)
         run: |
           set -eu
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::warning::no NPM_TOKEN secret: nothing published to npm"
-            exit 0
-          fi
+          [ -n "$NPM_TOKEN" ] || { echo "::warning::no NPM_TOKEN secret: nothing published to npm"; exit 0; }
           printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"
           export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
-          npm whoami
           for dir in npm/acdev-*-* npm/acdev; do
-            [ -d "$dir" ] || continue
-            case $dir in *.stage) continue ;; esac
             name=$(node -p "require('./$dir/package.json').name")
-            ver=$(node -p "require('./$dir/package.json').version")
-            if npm view "$name@$ver" version > /dev/null 2>&1; then
-              echo "$name@$ver is already on npm"
-              continue
-            fi
-            (cd "$dir" && npm publish --access public)
-            echo "published $name@$ver"
+            if npm view "$name@$V" version > /dev/null 2>&1; then echo "$name@$V is already on npm"; continue; fi
+            (cd "$dir" && npm publish --access public) && echo "published $name@$V"
           done
 
   tag:
@@ -786,111 +482,54 @@ jobs:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: true
       - name: the annotated tag points at the commit, or already does
-        working-directory: acdev/npm
+        working-directory: acdev
         run: |
           set -eu
           test "$(git rev-parse HEAD)" = "$SHA"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
             peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
-            if [ -z "$peeled" ]; then
-              peeled=$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)
-            fi
-            if [ "$peeled" != "$SHA" ]; then
-              echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version in package.json"
-              exit 1
-            fi
+            peeled=${peeled:-$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)}
+            [ "$peeled" = "$SHA" ] || { echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version"; exit 1; }
             echo "$TAG already points at $SHA: a rerun continues"
           else
-            git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
-              tag -a "$TAG" -m "acdev $TAG" "$SHA"
+            git -c user.name=gitea-actions -c user.email=gitea-actions@gitea.dopamine tag -a "$TAG" -m "acdev $TAG" "$SHA"
             git push origin "refs/tags/$TAG"
-            echo "pushed $TAG at $SHA"
           fi
 
   latest:
     needs: [plan, guard, tag]
     if: needs.plan.outputs.publish == 'true' && needs.tag.result == 'success'
     runs-on: x86_64-debian
-    permissions:
-      contents: read
-      id-token: write
     env:
-      TAG: ${{ needs.plan.outputs.tag }}
+      V: ${{ needs.plan.outputs.version }}
     steps:
-      - name: tools the runner lacks (sudo apt; skipped when installed)
-        run: |
-          miss=; for p in jq awscli; do dpkg -s "$p" > /dev/null 2>&1 || miss="$miss $p"; done
-          if [ -n "$miss" ]; then
-            s=$(command -v sudo || true)
-            $s apt-get update -qq
-            $s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $miss > /dev/null
-          fi
       - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acdev-release
           path: out
-      - name: check the allow-list and the checksums once more
-        run: |
-          set -eu
-          v=$(cat out/latest)
-          case $v in *[!0-9A-Za-z.-]*|'') echo "::error::bad version"; exit 1 ;; esac
-          if [ "v$v" != "$TAG" ]; then
-            echo "::error::the release is $v but the tag is $TAG"
-            exit 1
-          fi
-          (cd "out/$v" && sha256sum -c SHA256SUMS)
-      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
+      - name: credentials for the role
         env:
           KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          if [ -n "${KEY_ID:-}" ]; then
-            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
-              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
-          else
-            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
-            echo "::add-mask::$token"
-            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
-              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
-              --duration-seconds 3600 --query Credentials --output json)
-          fi
-          key=$(printf '%s' "$creds" | jq -r .AccessKeyId)
-          secret=$(printf '%s' "$creds" | jq -r .SecretAccessKey)
-          session=$(printf '%s' "$creds" | jq -r .SessionToken)
-          echo "::add-mask::$key"
-          echo "::add-mask::$secret"
-          echo "::add-mask::$session"
-          {
-            echo "AWS_ACCESS_KEY_ID=$key"
-            echo "AWS_SECRET_ACCESS_KEY=$secret"
-            echo "AWS_SESSION_TOKEN=$session"
-          } >> "$GITHUB_ENV"
-      - name: update the pointers, latest.json last
+          dpkg -s jq awscli > /dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq awscli; }
+          creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+            --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
+          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
+          printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
+      - name: the pointers, latest.json last, then the CDN
+        working-directory: out
         run: |
           set -eu
-          v=$(cat out/latest)
-          fresh='public, max-age=0, must-revalidate'
-          text='text/plain; charset=utf-8'
-          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
-          put out/install.sh install.sh "$text" "$fresh"
-          put out/install.ps1 install.ps1 "$text" "$fresh"
-          put out/install.md install.md 'text/markdown; charset=utf-8' "$fresh"
-          put out/latest latest "$text" "$fresh"
-          put out/latest.json latest.json application/json "$fresh"
-      - name: invalidate
-        run: |
-          set -eu
-          v=$(cat out/latest)
-          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
-            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 /acde/install.md \
-            "/acde/$v/*" --query Invalidation.Id --output text
-      - run: |
-          {
-            echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
-            echo
-            echo "irm https://pkgs.dopame.ai/acde/install.ps1 | iex"
-            echo
-            echo "Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine."
-          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$(cat latest)" = "$V" ] || { echo "::error::the release is $(cat latest), not $V"; exit 1; }
+          (cd "$V" && sha256sum -c SHA256SUMS)
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$1" --only-show-errors --content-type "$2" --cache-control 'public, max-age=0, must-revalidate'; }
+          put install.sh 'text/plain; charset=utf-8'
+          put install.ps1 'text/plain; charset=utf-8'
+          put install.md 'text/markdown; charset=utf-8'
+          put latest 'text/plain; charset=utf-8'
+          put latest.json application/json
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" --query Invalidation.Id --output text \
+            --paths /$PREFIX/latest /$PREFIX/latest.json /$PREFIX/install.sh /$PREFIX/install.ps1 /$PREFIX/install.md "/$PREFIX/$V/*"
+          printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"

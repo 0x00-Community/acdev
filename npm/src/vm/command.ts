@@ -69,7 +69,7 @@ async function afterStart(machine: Machine, options: StartOptions, wait: number)
     await machine.switchOnOutputs()
     say(`displays 1 to ${outputs - 1} are switched on (QEMU's D-Bus display, no window)`)
   }
-  if (options.display === 'viewer') say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
+  if (options.display === 'viewer') say(`acdevtool view shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
   if (wait === 0) return 0
   if (await machine.ready(wait)) {
     await machine.checkCpu()
@@ -221,7 +221,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   },
   async view(machine, rest) {
     count('view', rest, 0, 0, 'no arguments')
-    say(`acdev-viewer shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
+    say(`acdevtool view shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
     return 0
   },
   async mount(machine, rest) {

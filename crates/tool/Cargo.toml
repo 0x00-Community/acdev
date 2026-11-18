@@ -1,19 +1,24 @@
 [package]
-name = "acdev-viewer"
+name = "acdevtool"
 version = "0.1.0"
 edition = "2024"
-description = "The acdev emulator's own window on a QEMU guest: QEMU's D-Bus display, peer to peer over QMP"
+description = "acdev's host helper: relay (stdin and stdout to a Unix socket, for Windows where Node cannot reach one) and view (the window on a QEMU guest's D-Bus display)"
 publish = false
 
 [workspace]
 
 [dependencies]
 log = "0.4"
+
+[target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["net"] }
 serde_bytes = "0.11"
 softbuffer = "0.4"
 winit = "0.30"
 zbus = { version = "5", features = ["p2p", "serde_bytes"] }
+
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1"
 
 [profile.release]
 opt-level = "s"

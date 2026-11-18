@@ -14,7 +14,7 @@ import {
   accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
   type Accel, type Guest, type Host, type Qemu,
 } from './host.ts'
-import { CHECKOUT, crateBinary, crateVersion } from './binary.ts'
+import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 
 export interface StartOptions {
@@ -315,7 +315,7 @@ export class Machine {
     }
     if (this.host.platform === 'win32' && options.share) throw new Error('vm: --share needs 9p, which QEMU on Windows does not have; use acdev vm push')
     const viewer = options.display === 'viewer' || (options.display === 'none' && (options.outputs ?? 1) > 1)
-    if (this.host.platform !== 'linux' && viewer) throw new Error('vm: acdev-viewer (--viewer, or --headless with --outputs) is Linux only for now')
+    if (this.host.platform !== 'linux' && viewer) throw new Error('vm: acdevtool view (--viewer, or --headless with --outputs) is Linux only for now')
   }
 
   async start(options: StartOptions, say: (line: string) => void): Promise<number> {
@@ -388,7 +388,7 @@ export class Machine {
   }
 
   #viewer(): string {
-    return crateBinary(Machine.ROOT, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, this.env)
+    return crateBinary(Machine.ROOT, TOOL, this.env)
   }
 
   async switchOnOutputs(): Promise<void> {
@@ -397,7 +397,7 @@ export class Machine {
     const viewer = this.#viewer()
     let failed = ''
     for (let attempt = 0; attempt < 20; attempt++) {
-      const ran = spawnSync(viewer, ['--qmp', this.qmp, '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
+      const ran = spawnSync(viewer, ['view', '--qmp', this.qmp, '--outputs', String(outputs)], { encoding: 'utf8', env: this.env, timeout: 30_000 })
       if (ran.status === 0) return
       failed = (ran.stderr || ran.error?.message || `exit ${ran.status}`).trim()
       await new Promise((done) => setTimeout(done, 500))
@@ -414,7 +414,7 @@ export class Machine {
     const viewer = this.#viewer()
     const log = openSync(join(this.logs, 'viewer.log'), 'a')
     const title = `acdev: ${basename(this.dir)}`
-    return spawnDetached([viewer, '--qmp', this.qmp, '--title', title], log, this.env).pid
+    return spawnDetached([viewer, 'view', '--qmp', this.qmp, '--title', title], log, this.env).pid
   }
 
   async ready(seconds: number): Promise<boolean> {

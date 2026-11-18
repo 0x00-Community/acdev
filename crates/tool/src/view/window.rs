@@ -12,8 +12,8 @@ use winit::keyboard::PhysicalKey;
 use winit::platform::scancode::PhysicalKeyExtScancode;
 use winit::window::{CustomCursor, Window, WindowId};
 
-use crate::display::{Event, Frame, Input};
-use crate::keys;
+use super::display::{Event, Frame, Input};
+use super::keys;
 
 const WHEEL_UP: u32 = 3;
 const WHEEL_DOWN: u32 = 4;

@@ -62,7 +62,7 @@ describe('the skill', () => {
     const used = code.flatMap((line) => /^acdev ([a-z]+)\b/.exec(line)?.[1] ?? [])
     expect(used.length).toBeGreaterThan(8)
     expect(used.filter((command) => !commands.has(command))).toEqual([])
-    const prompt = `Read ${Pkgs.ACDE}/install.md and follow it to set up acdev on this machine.`
+    const prompt = `Read ${Pkgs.ACDEV}/install.md and follow it to set up acdev on this machine.`
     for (const page of ['start/install.md', 'guide/agents.md']) {
       expect(readFileSync(join(SKILL, 'references', page), 'utf8')).toContain(prompt)
     }

@@ -86,7 +86,7 @@ const FROM: Readonly<Record<NonNullable<FoundRuntime['from']>, string>> = {
 }
 
 export class Doctor {
-  static readonly DIST = Pkgs.ACDE
+  static readonly DIST = Pkgs.ACDEV
   static readonly HELP_MS = 10_000
   static readonly RUNTIME_MS = 60_000
   static readonly SESSION_MS = 3_000

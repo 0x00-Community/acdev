@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { GuestAgent, monitor, relayed } from '../src/vm/channel.ts'
 import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport } from '../src/vm/devd.ts'
-import { crateBinary, crateVersion } from '../src/vm/binary.ts'
+import { TOOL, crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
@@ -308,12 +308,11 @@ describe('the QEMU command line', () => {
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
   })
 
-  test('--viewer gives QEMU a peer-to-peer D-Bus display; the viewer binary comes from ACDEV_VIEWER', () => {
+  test('--viewer gives QEMU a peer-to-peer D-Bus display; acdevtool comes from ACDEVTOOL', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
     expect(machine.args({ display: 'viewer' }, 'kvm').join(' ')).toContain('-display dbus,p2p=yes')
-    const wanted = { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }
-    expect(crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: CLI })).toBe(CLI)
-    expect(() => crateBinary(Machine.ROOT, wanted, { ACDEV_VIEWER: '/no/such/viewer' })).toThrow('ACDEV_VIEWER=/no/such/viewer: no such file')
+    expect(crateBinary(Machine.ROOT, TOOL, { ACDEVTOOL: CLI })).toBe(CLI)
+    expect(() => crateBinary(Machine.ROOT, TOOL, { ACDEVTOOL: '/no/such/tool' })).toThrow('ACDEVTOOL=/no/such/tool: no such file')
   })
 
   test('--outputs N gives the display device N heads; one is the default', () => {
@@ -352,19 +351,20 @@ describe('the QEMU command line', () => {
     expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEV_DEVD: own })).toBe(own)
   })
 
-  test('an install\'s libexec comes right after the variable: acdevd-<guest arch>, acdev-relay, acdev-viewer', () => {
+  test('an install\'s libexec comes right after the variable: acdevd-<guest arch>, acdevtool', () => {
     const base = tmp()
     const root = join(base, 'repo', 'npm')
     const libexec = join(base, 'install', 'libexec')
     mkdirSync(libexec, { recursive: true })
-    for (const name of ['acdevd-aarch64', 'acdev-viewer']) writeFileSync(join(libexec, name), '')
+    for (const name of ['acdevd-aarch64', 'acdevtool']) writeFileSync(join(libexec, name), '')
     const beside = (name: string) => join(libexec, name)
     const devd = { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', installed: Devd.shipped('aarch64') }
     expect(Devd.shipped('x86_64')).toBe('acdevd-x86_64')
     expect(crateBinary(root, devd, {}, beside)).toBe(join(libexec, 'acdevd-aarch64'))
     expect(crateBinary(root, devd, { ACDEV_DEVD: CLI }, beside)).toBe(CLI)
-    expect(crateBinary(root, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, {}, beside)).toBe(join(libexec, 'acdev-viewer'))
-    expect(() => crateBinary(root, { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }, {}, beside)).toThrow('vm: no acdev-relay')
+    expect(crateBinary(root, TOOL, {}, beside)).toBe(join(libexec, 'acdevtool'))
+    rmSync(join(libexec, 'acdevtool'))
+    expect(() => crateBinary(root, TOOL, {}, beside)).toThrow('vm: no acdevtool')
   })
 
   test('an acdevd of another version is refused before it goes into the guest', () => {
@@ -390,11 +390,11 @@ describe('the QEMU command line', () => {
     const vm = join(dir, 'vm')
     const started = await collect([process.execPath, CLI, 'vm', 'start', '--viewer', '--wait', '0', '--image', join(dir, 'image.qcow2')], {
       cwd: dir,
-      env: env({ ACDEV_VM_DIR: vm, ACDEV_VIEWER: join(dir, 'no-viewer'), PATH: `${bin}:${process.env['PATH']}`,
+      env: env({ ACDEV_VM_DIR: vm, ACDEVTOOL: join(dir, 'no-tool'), PATH: `${bin}:${process.env['PATH']}`,
         OVMF_CODE: join(dir, 'image.qcow2'), OVMF_VARS: join(dir, 'image.qcow2') }),
     })
     expect(started.code, started.out).toBe(1)
-    expect(started.stderr).toContain('ACDEV_VIEWER=')
+    expect(started.stderr).toContain('ACDEVTOOL=')
     expect(started.stderr).toMatch(/stopped qemu \(pid (\d+)\): the start did not finish/)
     const pid = Number(/stopped qemu \(pid (\d+)\)/.exec(started.stderr)![1])
     await new Promise((done) => setTimeout(done, 200))
@@ -592,25 +592,25 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(() => machine.devdBinary()).toThrow('no acdevd for the guest (Linux x86_64)')
   })
 
-  test('acdev-relay: ACDEV_RELAY, then CARGO_TARGET_DIR, then the crate\'s target; its failure ends the stream, not acdev', async () => {
+  test('acdevtool relay: ACDEVTOOL, then CARGO_TARGET_DIR, then the crate\'s target; its failure ends the stream, not acdev', async () => {
     const base = tmp()
     const root = join(base, 'repo', 'npm')
-    const wanted = { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }
+    const wanted = TOOL
     const place = (dir: string) => {
       mkdirSync(join(dir, 'release'), { recursive: true })
-      writeFileSync(join(dir, 'release', 'acdev-relay'), '')
-      return join(dir, 'release', 'acdev-relay')
+      writeFileSync(join(dir, 'release', 'acdevtool'), '')
+      return join(dir, 'release', 'acdevtool')
     }
-    const own = place(join(base, 'repo', 'crates', 'relay', 'target'))
+    const own = place(join(base, 'repo', 'crates', 'tool', 'target'))
     expect(crateBinary(root, wanted, {})).toBe(own)
     const configured = place(join(base, 'elsewhere'))
     expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere') })).toBe(configured)
-    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEV_RELAY: own })).toBe(own)
+    expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEVTOOL: own })).toBe(own)
     const failing = join(base, 'failing-relay')
-    writeFileSync(failing, '#!/bin/sh\necho "acdev-relay: $1: connection refused" >&2\nexit 1\n', { mode: 0o755 })
-    const stream = relayed('/no/such.sock', { ACDEV_RELAY: failing })
+    writeFileSync(failing, '#!/bin/sh\n[ "$1" = relay ] && echo "acdevtool relay: $2: connection refused" >&2\nexit 1\n', { mode: 0o755 })
+    const stream = relayed('/no/such.sock', { ACDEVTOOL: failing })
     const error = await new Promise<Error>((done) => stream.once('error', done))
-    expect(error.message).toBe('acdev-relay: /no/such.sock: connection refused')
+    expect(error.message).toBe('acdevtool relay: /no/such.sock: connection refused')
   })
 
   test('on an Intel Mac: HVF with the host CPU, QEMU\'s Cocoa window, a forwarded TCP port; Apple silicon refuses an x86_64 guest', async () => {
