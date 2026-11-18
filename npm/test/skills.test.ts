@@ -43,7 +43,8 @@ describe('the skill', () => {
     const usage = (await cli(['--help'], tmp())).stdout
     const commands = [...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!)
     const helps = await Promise.all(commands.map(async (command) => (await cli([command, '--help'], tmp())).stdout))
-    const named = (help: string) => [...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0])
+    const beforeExamples = (help: string) => help.split('\nExamples:')[0]!
+    const named = (help: string) => [...beforeExamples(help).matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0])
     const flags = [...new Set(helps.flatMap(named))]
     expect(commands).toContain('skills')
     expect(flags).toContain('--headless')

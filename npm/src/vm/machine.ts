@@ -360,7 +360,19 @@ export class Machine {
       if (child.exited()) break
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
+    if (!child.exited()) Machine.#end(child.pid)
     return { pid: null, log: readFileSync(logFile, 'utf8').trim() }
+  }
+
+  static #end(pid: number): void {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {}
+  }
+
+  abandon(pid: number): void {
+    Machine.#end(pid)
+    rmSync(join(this.run, 'qemu.pid'), { force: true })
   }
 
   async stop(seconds = 60): Promise<'off' | 'killed' | 'not running'> {
