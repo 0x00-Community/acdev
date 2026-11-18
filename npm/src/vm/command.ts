@@ -1,6 +1,6 @@
 import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
-import { Machine, type StartOptions } from './machine.ts'
+import { Machine, type StartOptions, type Stopped } from './machine.ts'
 
 type Flags = ReadonlyMap<string, string>
 type Handler = (machine: Machine, rest: readonly string[], flags: Flags) => Promise<number>
@@ -155,7 +155,13 @@ async function dev(machine: Machine, rest: readonly string[], flags: Flags): Pro
   return 0
 }
 
-const STOPPED = { 'not running': 'not running', off: 'powered off', killed: 'no power-off in 60 s: killed qemu' }
+const STOPPED: Readonly<Record<Stopped, string>> = {
+  'not running': 'not running',
+  devd: 'powered off: acdevd ran systemctl poweroff',
+  agent: 'powered off by the guest agent (acdevd did not answer or could not run systemctl poweroff)',
+  acpi: 'powered off by the ACPI power button (neither acdevd nor the guest agent did it)',
+  killed: 'the guest did not power off: killed qemu (SIGTERM)',
+}
 
 const HANDLERS: Readonly<Record<string, Handler>> = {
   async fetch(machine, rest) {

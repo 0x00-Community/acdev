@@ -26,6 +26,16 @@ export interface StartOptions {
   readonly outputs?: number
 }
 
+export type Stopped = 'devd' | 'agent' | 'acpi' | 'killed' | 'not running'
+
+export interface StopWays {
+  readonly devd: () => Promise<boolean>
+  readonly agent: () => Promise<boolean>
+  readonly acpi: () => Promise<boolean>
+  readonly exited: (seconds: number) => Promise<boolean>
+  readonly kill: () => void
+}
+
 export type Link = { readonly kind: 'vsock' } | { readonly kind: 'unix'; readonly path: string } | { readonly kind: 'tcp'; readonly port: number }
 
 const LINKS = ['vsock', 'unix', 'tcp'] as const
@@ -375,16 +385,56 @@ export class Machine {
     rmSync(join(this.run, 'qemu.pid'), { force: true })
   }
 
-  async stop(seconds = 60): Promise<'off' | 'killed' | 'not running'> {
+  static readonly ORDERLY_SECONDS = 30
+  static readonly ACPI_SECONDS = 10
+  static readonly POWEROFF = ['systemctl', 'poweroff', '--check-inhibitors=no']
+
+  async stop(): Promise<Stopped> {
     const pid = this.pid()
     if (pid === null) return 'not running'
-    await monitor(this.qmp, 'system_powerdown').catch(() => undefined)
-    for (let i = 0; i < seconds * 2; i++) {
-      if (this.pid() === null) return 'off'
-      await new Promise((resolve) => setTimeout(resolve, 500))
+    return await Machine.shutdown(this.#stopWays(pid))
+  }
+
+  static async shutdown(ways: StopWays): Promise<Stopped> {
+    const steps: readonly [Stopped, () => Promise<boolean>, number][] = [
+      ['devd', ways.devd, Machine.ORDERLY_SECONDS],
+      ['agent', ways.agent, Machine.ORDERLY_SECONDS],
+      ['acpi', ways.acpi, Machine.ACPI_SECONDS],
+    ]
+    for (const [how, ask, seconds] of steps) {
+      if (!(await ask().catch(() => false))) continue
+      if (await ways.exited(seconds)) return how
     }
-    process.kill(pid, 'SIGTERM')
+    ways.kill()
     return 'killed'
+  }
+
+  #stopWays(pid: number): StopWays {
+    return {
+      devd: async () => {
+        const devd = this.devd()
+        await devd.version()
+        const code = await devd.run(Machine.POWEROFF).catch(() => 0)
+        return code === 0
+      },
+      agent: async () => {
+        const agent = await GuestAgent.open(this.qga, 5_000)
+        await agent.shutdown()
+        return true
+      },
+      acpi: async () => {
+        await monitor(this.qmp, 'system_powerdown')
+        return true
+      },
+      exited: async (seconds) => {
+        for (const until = Date.now() + seconds * 1000; Date.now() < until;) {
+          if (this.pid() === null) return true
+          await new Promise((resolve) => setTimeout(resolve, 500))
+        }
+        return this.pid() === null
+      },
+      kill: () => process.kill(pid, 'SIGTERM'),
+    }
   }
 
   #viewer(): string {

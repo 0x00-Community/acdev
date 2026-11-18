@@ -104,7 +104,15 @@ export class Channel {
   }
 
   send(command: string, args?: unknown): void {
-    this.#socket.write(`${JSON.stringify(args === undefined ? { execute: command } : { execute: command, arguments: args })}\n`)
+    this.#socket.write(Channel.#line(command, args))
+  }
+
+  finish(command: string, args?: unknown): Promise<void> {
+    return new Promise((done) => this.#socket.end(Channel.#line(command, args), () => done()))
+  }
+
+  static #line(command: string, args: unknown): string {
+    return `${JSON.stringify(args === undefined ? { execute: command } : { execute: command, arguments: args })}\n`
   }
 
   async reply(timeoutMs: number): Promise<unknown> {
@@ -219,6 +227,10 @@ export class GuestAgent {
     } finally {
       await this.#channel.call('guest-file-close', { handle })
     }
+  }
+
+  shutdown(): Promise<void> {
+    return this.#channel.finish('guest-shutdown', { mode: 'powerdown' })
   }
 
   close(): void {

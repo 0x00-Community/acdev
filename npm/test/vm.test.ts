@@ -751,3 +751,51 @@ describe('acdev test --vm and DevTools in the guest, host side', () => {
   })
 })
 
+describe('acdev vm stop', () => {
+  const ways = (answers: { devd?: boolean | Error; agent?: boolean | Error; acpi?: boolean | Error }, exitsAfter: string | null) => {
+    const tried: string[] = []
+    let last = ''
+    const ask = (name: 'devd' | 'agent' | 'acpi') => async () => {
+      tried.push(name)
+      last = name
+      const answer = answers[name] ?? false
+      if (answer instanceof Error) throw answer
+      return answer
+    }
+    return {
+      tried,
+      ways: {
+        devd: ask('devd'),
+        agent: ask('agent'),
+        acpi: ask('acpi'),
+        exited: async (seconds: number) => {
+          tried.push(`wait ${seconds}`)
+          return last === exitsAfter
+        },
+        kill: () => void tried.push('kill'),
+      },
+    }
+  }
+
+  test('acdevd powers the guest off first and the others are not tried', async () => {
+    const { tried, ways: given } = ways({ devd: true }, 'devd')
+    expect(await Machine.shutdown(given)).toBe('devd')
+    expect(tried).toEqual(['devd', `wait ${Machine.ORDERLY_SECONDS}`])
+  })
+
+  test('without acdevd the guest agent shuts it down', async () => {
+    const { tried, ways: given } = ways({ devd: new Error('connect ENOENT'), agent: true }, 'agent')
+    expect(await Machine.shutdown(given)).toBe('agent')
+    expect(tried).toEqual(['devd', 'agent', `wait ${Machine.ORDERLY_SECONDS}`])
+  })
+
+  test('a guest that ignores both gets the ACPI button, then SIGTERM', async () => {
+    const acpi = ways({ devd: true, agent: true, acpi: true }, 'acpi')
+    expect(await Machine.shutdown(acpi.ways)).toBe('acpi')
+    const orderly = `wait ${Machine.ORDERLY_SECONDS}`
+    expect(acpi.tried).toEqual(['devd', orderly, 'agent', orderly, 'acpi', `wait ${Machine.ACPI_SECONDS}`])
+    const none = ways({ devd: false, agent: new Error('no agent'), acpi: new Error('no qmp') }, null)
+    expect(await Machine.shutdown(none.ways)).toBe('killed')
+    expect(none.tried).toEqual(['devd', 'agent', 'acpi', 'kill'])
+  })
+})

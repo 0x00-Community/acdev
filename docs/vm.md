@@ -148,8 +148,16 @@ acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目�
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
 acdev vm console                                # 客户机内核日志从下次启动起进串口
-acdev vm stop                                   # ACPI 关机, 60 s 不关就杀掉 QEMU
+acdev vm stop                                   # 让客户机自己关机 (acdevd → guest agent → ACPI), 都不行才杀掉 QEMU
 ```
+
+- `acdev vm stop` (`Machine.stop` / `Machine.shutdown`) 按四级依次退, 输出写明是哪一级关掉的, 一眼看出是不是退到了强杀:
+  1. acdevd 在场 (先 `version` 探一下) 时经它以 root 跑 `systemctl poweroff --check-inhibitors=no`: 不让会话里的抑制锁拦住, 也不经桌面
+     (Dopame 的电源键默认是「问我要做什么」, 只按 ACPI 电源键时客户机只弹出询问, 原来要等满 60 s 再杀). 关机会把 acdevd 自己停掉,
+     所以连接断开、拿不到退出码都算已发出; 退出码不是 0 才算失败. 之后等 QEMU 进程退出, 最多 30 s.
+  2. acdevd 不在场或跑失败时, guest agent 的 `guest-shutdown` (`mode: powerdown`; 成功时它不回答, 发完就关连接), 同样最多等 30 s.
+  3. 再不行发 QMP `system_powerdown` (ACPI 电源键), 等 10 s.
+  4. 最后给 QEMU 发 SIGTERM.
 
 - 设备: q35、virtio-blk 系统盘、`virtio-vga` (客户机用 CPU 软件渲染, 不用 Mesa; 以后由 detour 做虚拟显卡转发, 用户 2026-11-17 定.
   `--gl` 换成 `virtio-vga-gl` 加 gtk 的 OpenGL 即 virgl, 只是留着的选项, 不在路线上)、`virtio-keyboard-pci`、`virtio-tablet-pci`
