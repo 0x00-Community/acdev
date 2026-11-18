@@ -1,4 +1,6 @@
 mod app;
+#[cfg(not(windows))]
+mod clipimage;
 mod dev;
 mod keys;
 mod output;
@@ -77,11 +79,11 @@ static OPENED: Answers<Vec<std::path::PathBuf>> = Answers::new();
 static SAVED: Answers<std::path::PathBuf> = Answers::new();
 
 pub fn clipboard_text() -> String {
-    platform::clipboard_get()
+    platform::clipboard_read(acde::render::ClipboardEntry::TEXT).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default()
 }
 
 pub fn set_clipboard_text(text: String) {
-    platform::clipboard_set(text);
+    platform::clipboard_set(vec![acde::render::ClipboardEntry::text(text)]);
 }
 
 pub fn answer_folder(answer: Option<std::path::PathBuf>) {

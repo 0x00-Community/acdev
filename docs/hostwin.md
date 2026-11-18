@@ -123,6 +123,15 @@
   (不碰系统剪贴板), 选文件夹、打开和保存文件没有事先的答复 (`choose`) 时回错 (Linux 的 headless 也不问 portal), 系统通知只写一行 info 日志 (不弹出), 标题和输入法区域不做. 网页的画法和有窗口时一样 (libacde 的
   `docs/graphics/render-gpu.md`「GPU 与性能」: 优先 GPU, 没有时回退 CPU 类型的设备 lavapipe, 排最后, 慢): 能在有 Metal 的 macOS 机器 (含 GitHub 的
   macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑; 没有 GPU 的 Linux CI 装了 lavapipe (Mesa 的 Vulkan 驱动包) 也能跑, 只是慢. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
+- **剪贴板** (libacde 单子 11, 接口见 libacde `docs/web/web-apps.md`「剪贴板」): 宿主按网页 MIME 类型收发 (`platform.rs` 的 `clipboard_set` /
+  `clipboard_types` / `clipboard_read`, `output/surface.rs` 接 `SetClipboard` / `ClipboardTypes` / `ReadClipboard`).
+  - Linux、macOS (`platform/host_winit.rs`, arboard 加 `image-data`): 认 `text/plain` 和 `image/png`; arboard 的图片是 RGBA, 和 PNG 之间由
+    `clipimage.rs` (png crate) 换. **限制**: arboard 一次只能放一种类型, 写入时优先图片, 所以同时复制图片和文字时文字丢掉; `text/uri-list` 不写.
+    读自己放进去的内容也经 arboard: 它在自己的线程上应答, 不会自己等自己.
+  - Windows (`platform/win32.rs`): `text/plain` 是 `CF_UNICODETEXT`, `image/png` 是注册格式 `PNG`, 两种可以同时放; `text/uri-list` 不写. 〔未在
+    Windows 上测〕
+  - headless (`platform/headless.rs`): 进程里一张条目表, 读和列类型直接查它; 开发通道的 `clipboard` (`acde_hostwin::clipboard_text` /
+    `set_clipboard_text`) 用的是同一张表 (只看 `text/plain`), 没有第二份.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal)、macOS (`NSOpenPanel` / `NSSavePanel`) 和 Windows (Common Item Dialog, `platform/win32/dialog.rs`) 有; 应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
   WebGPU 只在 Linux (WebGL 到处都有, 见「WebGL」). TLS 用 rustls (加密底层 ring, 三个平台一样; 2026-11-18 先定 aws-lc-rs (总仓 `.scratch/system/issues/14-openssl.md`), 同日为省掉 Windows 的 NASM 和 aws-lc 的 C 构建改成 ring, 用户定; ring 没有后量子混合密钥交换),
   证书校验交给 rustls-platform-verifier (runtime `http.rs` 的 `tls()`): Linux 读系统证书库 (发行版的 ca-certificates), macOS 用

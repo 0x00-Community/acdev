@@ -11,6 +11,7 @@ use winit::window::{Window, WindowId};
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
+use acde::render::ClipboardEntry;
 
 #[derive(Clone)]
 pub(crate) struct Proxy(EventLoopProxy<Cmd>);
@@ -71,14 +72,33 @@ impl super::Host for Host {
     }
 }
 
-pub(crate) fn clipboard_set(text: String) {
-    if let Err(e) = arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
+pub(crate) fn clipboard_set(entries: Vec<ClipboardEntry>) {
+    let image = ClipboardEntry::find(&entries, ClipboardEntry::PNG).and_then(|entry| crate::clipimage::decode(&entry.data));
+    let text = ClipboardEntry::find(&entries, ClipboardEntry::TEXT).map(|entry| String::from_utf8_lossy(&entry.data).into_owned());
+    let done = arboard::Clipboard::new().and_then(|mut clipboard| match (image, text) {
+        (Some((width, height, bytes)), _) => clipboard.set_image(arboard::ImageData { width, height, bytes: bytes.into() }),
+        (None, Some(text)) => clipboard.set_text(text),
+        (None, None) => clipboard.clear(),
+    });
+    if let Err(e) = done {
         log::warn!("clipboard: {e}");
     }
 }
 
-pub(crate) fn clipboard_get() -> String {
-    arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default()
+pub(crate) fn clipboard_types() -> Vec<String> {
+    let Ok(mut clipboard) = arboard::Clipboard::new() else { return Vec::new() };
+    let image = clipboard.get_image().is_ok();
+    let text = clipboard.get_text().is_ok_and(|text| !text.is_empty());
+    [(image, ClipboardEntry::PNG), (text, ClipboardEntry::TEXT)].into_iter().filter(|(has, _)| *has).map(|(_, mime)| mime.to_owned()).collect()
+}
+
+pub(crate) fn clipboard_read(mime: &str) -> Option<Vec<u8>> {
+    let mut clipboard = arboard::Clipboard::new().ok()?;
+    match mime {
+        ClipboardEntry::TEXT => clipboard.get_text().ok().filter(|text| !text.is_empty()).map(String::into_bytes),
+        ClipboardEntry::PNG => clipboard.get_image().ok().and_then(|image| crate::clipimage::encode(image.width, image.height, &image.bytes)),
+        _ => None,
+    }
 }
 
 pub(crate) fn click_settings() -> acde::model::ClickSettings {
