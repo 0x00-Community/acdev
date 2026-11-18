@@ -634,6 +634,14 @@ describe('--session vm', () => {
     }
   })
 
+  test('input in the guest answers {done, textSkipped}; skipped text is a failure that says why', () => {
+    check(Acde.inputResult({ done: true, textSkipped: 0 })).toEqual({ ok: true, text: 'done' })
+    const skipped = Acde.inputResult({ done: true, textSkipped: 2 })
+    check(skipped.ok).toBe(false)
+    check(skipped.text).toContain('2 characters of the text did not reach the page')
+    check(Acde.inputResult({ ok: true, text: 'typed' })).toEqual({ ok: true, text: 'typed' })
+  })
+
   test('a pin of vm picks the guest session and no local one', () => {
     const local = { pid: 42, endpoint: '/run/x.sock', dirs: [], apps: [], desktop: null, started: 0 }
     check(Sessions.pins('vm', Sessions.guest())).toBe(true)

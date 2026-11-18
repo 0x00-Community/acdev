@@ -633,7 +633,34 @@ export class Acde {
   }
 
   async input(web: string, events: readonly InputEvent[]): Promise<ActResult> {
-    return Acde.#result(await this.#request('input', { web, events }))
+    return Acde.inputResult(await this.#request('input', { web, events }))
+  }
+
+  static inputResult(answer: unknown): ActResult {
+    const guest = answer as { done?: unknown; textSkipped?: unknown } | null
+    if (typeof guest?.done !== 'boolean') return Acde.#result(answer)
+    const skipped = Number(guest.textSkipped) || 0
+    if (skipped > 0) {
+      return {
+        ok: false,
+        text: `${skipped} character${skipped === 1 ? '' : 's'} of the text did not reach the page: in the guest, injected text keeps `
+          + 'only ASCII in web pages; type it with act type or settext, which go through the page',
+      }
+    }
+    return { ok: guest.done, text: guest.done ? 'done' : 'not done' }
+  }
+
+  get guest(): boolean {
+    return Sessions.isGuest(this.session)
+  }
+
+  async typeInPage(web: string, text: string): Promise<ActResult> {
+    const page = (await this.webs()).find((w) => w.name === web || w.app === web || (web === 'desktop' && w.kind === 'desktop'))
+    const window = page && (await this.windows()).find((w) => w.id === page.window)
+    if (!window) return { ok: false, text: `no window shows ${web} to type into` }
+    const focused = (await this.query({ selector: ':focus', window: window.ref, limit: 1 })).nodes[0]
+    if (!focused) return { ok: false, text: `nothing has the focus in ${web} to type ${JSON.stringify(text)} into` }
+    return await this.act(focused.ref, 'type', text)
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {

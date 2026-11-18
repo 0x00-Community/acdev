@@ -10,6 +10,10 @@
 `/run/user/<uid>/acde/dev.sock`, 见 `docs/devd.md`), 在隧道上建 `DevClient` (`DevClient.over`, 收任何 `Duplex`), 先发
 `{type: 'hello', role: 'dev'}`, 之后和宿主同样一行一个 JSON. 会话记录是 `Sessions.guest()` (`endpoint` 为 `vm`, `pid` 0, `desktop` 为 `vm`);
 `Sessions.pins` 判断钉住的是不是它. `acdev stop --session vm` 报错 (会话随用户注销结束, `acdev vm stop` 停客户机).
+和宿主不同的回答: 客户机的 `input` 回 `{done, textSkipped}` (窗口管理器注入, 见 acdes `docs/manager.md`), 不是 act 回答; `Acde.inputResult` 两种都认,
+`textSkipped` 大于 0 时算失败并说明原因 (命令行、MCP、driver 同一处). 客户机里注入的文字在网页里只留 ASCII, 所以 driver 的
+`keyboard.type` / `insertText` 在客户机会话里遇到非 ASCII 文字时改走页面: 找那个页面窗口里有焦点的元素 (`query ':focus'`), 用 `act type`
+经页面输入法打进去 (`Acde.typeInPage`); 没有焦点元素时报错.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
   (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdev runtime 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),

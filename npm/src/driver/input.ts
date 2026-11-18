@@ -35,6 +35,18 @@ export const Modifiers = {
   },
 }
 
+function ascii(text: string): boolean {
+  return [...text].every((char) => (char.codePointAt(0) ?? 0) < 0x80)
+}
+
+async function typeInPage(target: InputTarget, what: string, text: string): Promise<ActResult> {
+  return target.acde.trace.step(`${target.describe()}.${what}`, async () => {
+    const result = await target.acde.typeInPage(await target.web(), text)
+    if (!result.ok) throw new ActError(`${target.describe()}: ${what}`, result)
+    return result
+  })
+}
+
 async function send(target: InputTarget, what: string, events: readonly InputEvent[]): Promise<ActResult> {
   return target.acde.trace.step(`${target.describe()}.${what}`, async () => {
     const result = await target.acde.input(await target.web(), events)
@@ -153,6 +165,7 @@ export class Keyboard {
   }
 
   type(text: string): Promise<ActResult> {
+    if (this.#target.acde.guest && !ascii(text)) return typeInPage(this.#target, `keyboard.type(${JSON.stringify(text)})`, text)
     const events: InputEvent[] = []
     for (const char of text) {
       const key = Keyboard.#typed(char)
@@ -167,6 +180,7 @@ export class Keyboard {
   }
 
   insertText(text: string): Promise<ActResult> {
+    if (this.#target.acde.guest && !ascii(text)) return typeInPage(this.#target, `keyboard.insertText(${JSON.stringify(text)})`, text)
     return send(this.#target, `keyboard.insertText(${JSON.stringify(text)})`, [{ type: 'text', text }])
   }
 
