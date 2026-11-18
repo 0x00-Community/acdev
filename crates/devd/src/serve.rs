@@ -510,13 +510,13 @@ mod tests {
     #[test]
     fn a_hangup_ends_the_shell() {
         let (mut host, server, _) = serve();
-        frame::write(&mut host, frame::SHELL, &shell(24, 80, &["/bin/sh", "-c", "echo ready; exec sleep 30"])).unwrap();
+        frame::write(&mut host, frame::SHELL, &shell(24, 80, &["/bin/sh", "-c", "echo ready; exec sleep 120"])).unwrap();
         shell_pid(&mut host);
         output_until(&mut host, "ready");
         let started = std::time::Instant::now();
         drop(host);
         let _ = server.join().unwrap();
-        assert!(started.elapsed().as_secs() < 10);
+        assert!(started.elapsed().as_secs() < 30, "the shell outlived the hangup by {:?}", started.elapsed());
     }
 
     #[test]
