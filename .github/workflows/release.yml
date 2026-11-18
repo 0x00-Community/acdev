@@ -42,6 +42,9 @@ env:
   BUCKET: dopame-pkgs
   PREFIX: acdev
   CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
+  # the runners' uplink is slow: run 2558 timed out reading S3's answer to a large part (the CLI's default is 60 s)
+  AWS_RETRY_MODE: standard
+  AWS_MAX_ATTEMPTS: '10'
 
 jobs:
   plan:
@@ -398,7 +401,7 @@ jobs:
               cmp -s "$RUNNER_TEMP/published" "$1" || { echo "::error::$1 is already published with different content: a version is never overwritten"; exit 1; }
               echo "already published, identical: $1"
             elif grep -qE 'Not Found|NotFound|404' head.err; then
-              aws s3 cp "$1" "s3://$BUCKET/$key" --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
+              aws s3 cp "$1" "s3://$BUCKET/$key" --cli-read-timeout 600 --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
             else
               echo "::error::cannot check $1: $(cat head.err)"; exit 1
             fi

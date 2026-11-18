@@ -265,6 +265,8 @@ describe('release.yml', () => {
       BUCKET: 'dopame-pkgs',
       PREFIX: 'acdev',
       CLOUDFRONT_DISTRIBUTION: 'E3ET3L14ALFOXX',
+      AWS_RETRY_MODE: 'standard',
+      AWS_MAX_ATTEMPTS: '10',
     })
     expect(Pkgs.BASE).toBe(workflow.env['PKGS']!)
     expect(Pkgs.ACDEV).toBe(`${workflow.env['PKGS']}/${workflow.env['PREFIX']}`)
