@@ -543,6 +543,7 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     const args = machine.args({}, 'whpx', { kind: 'tcp', port: 4003 }).join(' ')
     expect(dirname(machine.qmp)).toMatch(/[\\/]acdev-[0-9a-f]{12}$/)
     expect(machine.qmp.startsWith(temp)).toBe(true)
+    expect(machine.accelerator()).toBe('WHPX (the Windows Hypervisor Platform feature); TCG if it does not start')
     expect(args).toContain('-accel whpx -cpu max')
     expect(args).toContain(`-qmp unix:${machine.qmp},server=on,wait=off`)
     expect(args).toContain(`-chardev socket,path=${machine.qga},server=on,wait=off,id=qga0`)

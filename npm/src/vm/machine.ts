@@ -298,7 +298,7 @@ export class Machine {
   }
 
   async #freshRun(): Promise<Link> {
-    for (const name of ['qemu.pid', 'key']) rmSync(join(this.run, name), { force: true })
+    for (const name of ['qemu.pid', 'key', 'accel']) rmSync(join(this.run, name), { force: true })
     mkdirSync(this.sockets, { recursive: true })
     for (const name of ['qga.sock', 'qmp.sock', 'devd.sock']) rmSync(join(this.sockets, name), { force: true })
     const link = await this.newLink()
@@ -345,6 +345,7 @@ export class Machine {
 
   async #boot(qemu: Qemu, options: StartOptions, accel: Accel): Promise<{ pid: number | null; log: string }> {
     const args = this.args(options, accel, await this.#freshRun())
+    writeFileSync(join(this.run, 'accel'), `${accel}\n`)
     writeFileSync(join(this.logs, 'qemu.cmd'), `${[qemu.system, ...args].join(' ')}\n`)
     writeFileSync(this.serial, '')
     const logFile = join(this.logs, 'qemu.log')
@@ -537,6 +538,21 @@ export class Machine {
       + '-e "s/^options .*/& console=tty0 console=ttyS0,115200 loglevel=6/" "$f"; echo "$f"; done', 60_000)
     if (done.code !== 0) throw new Error(`vm: console: ${done.stderr.toString().trim()}`)
     return done.stdout.toString().trim().split('\n').filter(Boolean)
+  }
+
+  accelerator(): string {
+    const used = join(this.run, 'accel')
+    if (this.pid() !== null && existsSync(used)) return `${readFileSync(used, 'utf8').trim().toUpperCase()} (this guest)`
+    const preferred = preferredAccel(this.host, Machine.kvm())
+    if (preferred === 'kvm') return 'KVM'
+    if (preferred === 'tcg') return this.host.platform === 'linux' ? 'TCG (/dev/kvm does not open)' : 'TCG'
+    const name = preferred === 'whpx' ? 'WHPX (the Windows Hypervisor Platform feature)' : 'HVF (Hypervisor.framework)'
+    return `${name}; TCG if it does not start`
+  }
+
+  overlayBase(): string | null {
+    const base = join(this.dir, 'disk.base')
+    return existsSync(base) ? readFileSync(base, 'utf8').trim() || null : null
   }
 
   image(): string | null {

@@ -74,8 +74,11 @@ async function status(machine: Machine, rest: readonly string[]): Promise<number
   count('status', rest, 0, 0, 'no arguments')
   const pid = machine.pid()
   console.log(`dir: ${machine.dir}`)
-  console.log(`image: ${machine.image() ?? 'none (acdev vm fetch)'}`)
-  console.log(`kvm: ${Machine.kvm() ? 'yes' : 'no (/dev/kvm does not open: TCG)'}`)
+  const base = machine.overlayBase()
+  const fetched = machine.image()
+  const image = base ? `${base} (under the overlay disk)` : fetched ? `${fetched} (the newest fetched)` : 'none (acdev vm fetch, or start --image)'
+  console.log(`image: ${image}`)
+  console.log(`accelerator: ${machine.accelerator()}`)
   if (pid === null) {
     console.log('guest: not running')
     return 0
