@@ -358,6 +358,37 @@ jobs:
         if: needs.plan.outputs.publish != 'true'
         run: echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
 
+  artifacts:
+    # every run's builds (with their split debug information), the guest and the release, kept on the artifacts host (.127)
+    needs: [plan, pkgs]
+    if: ${{ !cancelled() && needs.pkgs.result == 'success' }}
+    runs-on: x86_64-debian
+    steps:
+      - uses: http://gitea.dopamine/mirror/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
+        with:
+          path: in
+          pattern: '{build-*,guest,acdev-release}'
+      - name: to artifacts@192.168.10.127:/srv/artifacts/acdev/<run number>/, then latest
+        env:
+          KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}
+          V: ${{ needs.plan.outputs.version }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: |
+          set -eu
+          dpkg -s rsync openssh-client > /dev/null 2>&1 || { sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends rsync openssh-client; }
+          printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > in/run.json
+          k=$(mktemp -d)
+          trap 'rm -rf "$k"' EXIT
+          printf '%s\n' "$KEY" > "$k/upload"
+          chmod 600 "$k/upload"
+          echo '192.168.10.127 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEO/zlouRrnjVdb3bSH9SH0ueof9pfb+KIDTLr0l6xyT' > "$k/known_hosts"
+          ssh="ssh -i $k/upload -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts"
+          rsync -rt --chmod=D755,F644 -e "$ssh" in/ "artifacts@192.168.10.127:$GITHUB_RUN_NUMBER/"
+          echo "$GITHUB_RUN_NUMBER" > "$k/latest"
+          rsync -t -e "$ssh" "$k/latest" artifacts@192.168.10.127:latest
+          echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
+
   upload:
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true' && needs.guard.result == 'success'

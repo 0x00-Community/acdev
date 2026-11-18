@@ -174,3 +174,12 @@ Windows 两格, Windows 那格的 rust-cache 收尾时清理共用的 `~/.cargo`
 - wpt-setup 的第一步只结束所属作业目录 (`~/.cache/act/<id>/`) 已经删掉的进程和端口 18000-18009 的占用者: 被取消的作业留下的; 同一个
   runner 上正在跑的另一个作业目录还在, 不碰. 两个 WPT 作业同时落在一台机器上仍会争这些端口 (同一运行里 gate 和 wpt 二选一, 不同分支的
   test 运行同时跑时才会).
+
+## 产物机 .127 (2026-11-18)
+
+产物只放 .127, runner 上长期只留工具链 (用户定, 2026-11-18). .127 不是 CI 机: 没有 cicd 用户、没有工具链, 只有用户 `artifacts`
+(`/etc/nixos/artifacts.nix`, 家目录 `/srv/artifacts`), 每个仓库一个目录 (`ackernel`、`acinstaller`、`acdev`), 各仓库的 CI 用自己的密钥经 ssh 写,
+密钥在 .127 上限成 `rrsync -wo /srv/artifacts/<仓库>` (只能写, 不能读和列). release 的 `artifacts` 作业 (在 `pkgs` 之后, 预演和正式发布都跑)
+把这次运行的 `build-*` (含 `symbols/`)、`guest` 和 `acdev-release` 原样传到 `/srv/artifacts/acdev/<run 号>/`, 加 `run.json`
+(`version`、`commit`、`publish`、`run`), 再把 run 号写进 `/srv/artifacts/acdev/latest`. 密钥是 secret `ARTIFACTS_UPLOAD_KEY`. 对外发布照旧是
+`upload` 传 S3; Gitea 自己的产物 (下载 `build-*` 等, 留 30 / 1 天) 也在 .127 上 (Gitea 的数据目录).

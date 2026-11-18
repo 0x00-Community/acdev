@@ -57,12 +57,13 @@ describe('release.yml', () => {
   })
 
   test('the jobs and their needs', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'guard', 'upload', 'npm', 'tag', 'latest'])
+    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'guard', 'artifacts', 'upload', 'npm', 'tag', 'latest'])
     expect(needs('plan')).toEqual([])
     expect(needs('build')).toEqual(['plan'])
     expect(needs('guest')).toEqual(['plan'])
     expect(needs('pkgs')).toEqual(['plan', 'build', 'guest'])
     expect(needs('guard')).toEqual(['plan', 'pkgs'])
+    expect(needs('artifacts')).toEqual(['plan', 'pkgs'])
     expect(needs('upload')).toEqual(['plan', 'guard'])
     expect(needs('npm')).toEqual(['plan', 'guard'])
     expect(needs('tag')).toEqual(['plan', 'guard', 'upload'])
@@ -236,7 +237,7 @@ describe('release.yml', () => {
 
   test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
     const secrets = [...TEXT.matchAll(/\bsecrets\.(\w+)/g)].map((match) => match[1])
-    expect([...new Set(secrets)].sort()).toEqual(['ACKERNEL_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'NPM_TOKEN'])
+    expect([...new Set(secrets)].sort()).toEqual(['ACKERNEL_TOKEN', 'ARTIFACTS_UPLOAD_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'NPM_TOKEN'])
     for (const job of ['upload', 'latest']) {
       const item = step(job, CREDENTIALS)
       expect(item?.env).toEqual({ KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}', KEY_SECRET: '${{ secrets.AWS_SECRET_ACCESS_KEY }}' })
@@ -279,6 +280,17 @@ describe('release.yml', () => {
     expect(runs('build')).toContain('"$RUNNER_HOME/.cache/cargo-xwin-atl"')
     expect(runs('build')).toContain('ZIG_GLOBAL_CACHE_DIR=%s')
     expect(runs('build')).toContain('"$RUNNER_HOME/.cache/zig"')
+  })
+
+  test('every run keeps its builds, guest and release on the artifacts host, with a key that only writes there', () => {
+    const job = jobs['artifacts']!
+    expect(job.needs).toEqual(['plan', 'pkgs'])
+    const download = job.steps.find((item) => item.uses?.includes('/gitea-download-artifact@'))
+    expect(download?.with).toEqual({ path: 'in', pattern: '{build-*,guest,acdev-release}' })
+    const run = runs('artifacts')
+    expect(run).toContain('rsync -rt --chmod=D755,F644 -e "$ssh" in/ "artifacts@192.168.10.127:$GITHUB_RUN_NUMBER/"')
+    expect(run).toContain("192.168.10.127 ssh-ed25519 ")
+    expect(TEXT).toContain('KEY: ${{ secrets.ARTIFACTS_UPLOAD_KEY }}')
   })
 
   test('apt waits for the lock the other job on the runner may hold', () => {
