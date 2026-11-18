@@ -2,7 +2,7 @@
 
 > CLI 相关路径相对 `npm/`, 安装器在仓库根 `scripts/`。
 
-发版 (`.github/workflows/release.yml`, 在 Gitea 上手动跑或推标签 `v<版本>`, 说明在下文「分发」的「发布」): 一次发布、一个版本号, 把四个平台的
+发版 (`.github/workflows/cicd.yaml`, 在 Gitea 上手动跑或推标签 `v<版本>`, 说明在下文「分发」的「发布」): 一次发布、一个版本号, 把四个平台的
 `acdevrt-<triple>` (运行时)、`acdevtools-<triple>` (宿主小工具 `acdevtool`)、客户机守护进程 `acdev-guest-<版本>.tar.gz` (两个架构的 acdevd)、SDK `acde-api-<版本>.tar.gz`、`acdev` 命令行和安装器一起放进
 `pkgs.dopame.ai/acdev/<版本>/`, 同一版本也发到 npm (`@dopame/acdev`、`@dopame/acde-<os>-<cpu>`、`@dopame/acde-api`, 见「npm」), 标签 `v<版本>`
 打在本仓库. 版本号不用先提交: 推的标签给出它, 否则用输入 `version`, 都没有时取 pkgs 的 `latest.json`、npm 上两个包和 `v*` 标签里最高的版本加一个
@@ -12,7 +12,7 @@
 `build` 和 `pkgs` 都检出这一个提交),
 页面资源和启动器已嵌进 acdev 二进制, 不再有 `acde-host` 包和 `libexec/app` (2026-11-18 起; 原 AC/acdert 已归档).
 
-## 构建耗时与并行 (release.yml)
+## 构建耗时与并行 (cicd.yaml)
 
 - 改前 (2026-11-18 之前, 运行 2258): 总共 30 分 41 秒; `build` 四个目标各 9～14 分钟 (并行), `host` 1 分多, `pkgs` 2 分.
 - 改后的做法: 去掉 `host` (页面资源已嵌进二进制) 和克隆 AC/acdert 的步骤; `build` 在 cargo 之前装 bun 1.4.4 (`setup-bun`) 并 `bun install` libacde/js,
@@ -38,7 +38,7 @@
 声明, 工程的 `@dopame/acde-api` 指向它)、`acdevrt-<triple>.tar.xz` (Windows `.tar.gz`, 里面只有 `acdev[.exe]`)、
 `acdev-guest-<版本>.tar.gz` (`acdevd-x86_64`、`acdevd-aarch64`: 装进客户机的设备守护进程, 静态 musl, 和宿主平台无关)、
 `acdevtools-<triple>.tar.xz` (Windows `.tar.gz`, 里面只有 `acdevtool[.exe]`, 每个平台都有). `acdevtool` 是 `crates/tool` 的一个程序, 两个子命令:
-`relay SOCKET` (Windows 上命令行经它连 QMP 和客户机代理的 Unix 套接字) 和 `view` (客户机窗口, 见 `viewer.md`; 只在 unix 上编进去, 命令行目前只在 Linux 上用). 官网 `https://dopame.ai/install.*` 指向这里. 发布由仓库根 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是
+`relay SOCKET` (Windows 上命令行经它连 QMP 和客户机代理的 Unix 套接字) 和 `view` (客户机窗口, 见 `viewer.md`; 只在 unix 上编进去, 命令行目前只在 Linux 上用). 官网 `https://dopame.ai/install.*` 指向这里. 发布由仓库根 `.github/workflows/cicd.yaml` 完成 (见下). 本地托管目录就是
 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`install.md`、`latest` (版本号) 和上面的版本目录.
 
 **运行时**: 命令行、调试运行时、页面资源和 SDK 是同一次发布, 同一个版本号 (用户定, 2026-11-14), 都在 `acdev/<版本>/` 里, 由同一份 `SHA256SUMS`
@@ -80,7 +80,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `dist.ts` 把它的 JSON 文本 `define` 进去、
   `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
-- **发布** (`.github/workflows/release.yml`, 手动运行 `workflow_dispatch`, 或推送标签 `v*`): 协作者的工作流为基础, 合入以下要求. 版本由 `plan` 定 (见上文开头: 推的标签、输入 `version`、或已发布的最高版本加一), 不以提交里的 `package.json` 为准; 手动发布时标签 `v<版本>` 是注释标签, 由工作流打在该提交上; 推送标签 `v<版本>` 本身就是正式发布 (`plan` 把它当 `publish`, 提交取标签指向的那个, 版本取标签名). 命令行、四个平台的 acdev runtime、页面资源和 SDK 一起发 (见「运行时」); Dopame 桌面不随 acdev 发布.
+- **发布** (`.github/workflows/cicd.yaml`, 手动运行 `workflow_dispatch`, 或推送标签 `v*`): 协作者的工作流为基础, 合入以下要求. 版本由 `plan` 定 (见上文开头: 推的标签、输入 `version`、或已发布的最高版本加一), 不以提交里的 `package.json` 为准; 手动发布时标签 `v<版本>` 是注释标签, 由工作流打在该提交上; 推送标签 `v<版本>` 本身就是正式发布 (`plan` 把它当 `publish`, 提交取标签指向的那个, 版本取标签名). 命令行、四个平台的 acdev runtime、页面资源和 SDK 一起发 (见「运行时」); Dopame 桌面不随 acdev 发布.
   发版: 在 Gitea 上手动跑 release (勾 publish, 填 `commit=<sha>`, 可填 `version`、`skip_targets`), 或在 main 的提交上推标签 `v<版本>`. `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: 同样手动跑, 不勾 publish (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
   所有作业都直接跑在执行机上, 不用容器 (2026-11-18 起: ci-debian 执行机没有 Docker; 执行机自带的 node 20、npm 9 够 `node -p` 和 npm 那几步用, CLI 的冒烟测试走 bun; 缺的工具如 awscli 用 sudo apt 装, 装了就跳过), 不用 Ubuntu 的环境; `runs-on` 一律 `x86_64-debian` (`build` 的 Apple silicon 那一格除外, 在 `aarch64-debian`: aarch64 的 ci-debian 执行机共有的标签, 现在只有 .210) (三台 ci-debian 执行机 .110、.234、.243 共有的标签, 谁空谁接; 2026-11-18 起, 之前的 `debian12` 已不存在), GitHub 上也是: 不用任何 Ubuntu runner (用户定, 2026-11-13);
   作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; `v<版本>` (plan 的检出带全部历史和标签, 用 `git rev-parse` 查, 不调 forge 的 API) 不存在或指向该 SHA 才继续, 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA. `skip_targets` 定下要编的平台, 跳过的平台的 `build` 那一格在作业级 `if` 上跳过.

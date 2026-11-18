@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pkgs } from '../../src/pkgs.ts'
 
-const TEXT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'workflows', 'release.yml'), 'utf8')
+const TEXT = readFileSync(join(import.meta.dir, '..', '..', '..', '.github', 'workflows', 'cicd.yaml'), 'utf8')
 const CREDENTIALS = 'credentials for the role'
 const LOCK = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
 type Step = {
@@ -34,7 +34,7 @@ const indexIn = (text: string, needle: string) => {
   return at
 }
 
-describe('release.yml', () => {
+describe('cicd.yaml', () => {
   test('is started by hand, with publish (boolean, default false) and string inputs, or by pushing a tag v*', () => {
     expect(Object.keys(workflow.on)).toEqual(['push', 'workflow_dispatch'])
     expect(workflow.on.push).toEqual({ tags: ['v*'] })

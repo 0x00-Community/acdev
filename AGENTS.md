@@ -97,7 +97,7 @@ SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 liba
 | 改 `acdev doctor` 的检查项、修法文字或 `--fix` | `docs/acde-doctor.md` |
 | 改 `acdev dev`: 契约级别检查、stderr 过滤、监听重建、热重载、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
 | 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acdev test` | `docs/devtools-driver-mcp.md` |
-| 发版, 改 `.github/workflows/release.yml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
+| 发版, 改 `.github/workflows/cicd.yaml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
 | 改 `npm/skills/acdev/`、`acdev skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |
 | 改命令行和运行时之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-libacde.md` |
 | 跑或加命令行的测试, 在 Windows 上跑 `bun test` | `docs/cli-tests.md` |
