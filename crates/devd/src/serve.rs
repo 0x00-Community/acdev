@@ -450,6 +450,12 @@ mod tests {
         server.join().unwrap().unwrap();
         let pid = frame::u32_at(&frames[0].body, 0).unwrap();
         assert!(String::from_utf8_lossy(&frames[1].body).ends_with(&format!("{pid}.log")));
+        let log = logs.join(format!("{pid}.log"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while fs::read_to_string(&log).unwrap_or_default().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the detached program wrote nothing in 20 s");
+            thread::sleep(std::time::Duration::from_millis(20));
+        }
         let (mut host, server, _) = serve();
         frame::write(&mut host, frame::KILL, &pid.to_le_bytes()).unwrap();
         assert_eq!(frame::read(&mut host).unwrap().unwrap().kind, frame::OK);
