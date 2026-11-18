@@ -25,6 +25,7 @@ pub(crate) enum Msg {
     Menu(Vec<String>, Option<(usize, acde::render::MenuList)>),
     Refresh(Option<f64>),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
+    Device(Arc<crate::output::gpu::Gpu>),
     Stop,
 }
 
@@ -141,7 +142,7 @@ impl Surface {
         };
         let wake = link.clone();
         render.set_waker(Box::new(move || wake.send(Msg::Wake)));
-        let gpu = server.gpu.clone();
+        let gpu = server.gpu();
         let events = inbox.clone();
         let thread = std::thread::Builder::new()
             .name(format!("acde-host-{window}"))
