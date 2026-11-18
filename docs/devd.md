@@ -8,14 +8,15 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 
 - `acdevd serve [--port PORT]`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
   有密钥时 (见下面「传输与密钥」) 同时在 TCP `0.0.0.0:PORT` 上听; 两个都听不了才退出.
-- 宿主上找 acdevd 的顺序 (`npm/src/vm/binary.ts`): `ACDEV_DEVD`; `CARGO_TARGET_DIR` 下的 `release/acdevd`; 约定的共用产物目录
+- 宿主上找 acdevd 的顺序 (`npm/src/vm/binary.ts`): `ACDEV_DEVD`; 安装目录的 `libexec/acdevd-<x86_64|aarch64>` (按客户机架构, 发版的
+  `acdev-guest` 包, 见 `docs/release-distribution.md`); `CARGO_TARGET_DIR` 下的 `release/acdevd`; 约定的共用产物目录
   `logs/cargo-target/acdev-devd/release/acdevd` (从检出往上逐级找 `logs/`, 即总仓的 `logs/`; devd 是独立工作区, 不和根工作区共用产物目录);
   `crates/devd/target/release/acdevd`; 都没有就 `cargo build --release`. 装进客户机之前先跑 `acdevd --version`, 和 `crates/devd/Cargo.toml`
   的版本比, 对不上就报错 (哪个文件、什么版本、要什么版本、怎么重编), 不装旧的进去 (旧的会在第一帧报 `unknown request 'A'`).
   注意: `CARGO_TARGET_DIR` 排在约定目录前面. 它若指着 acdev 根工作区的产物目录 (如 `logs/cargo-target/acdev`), 那里留着的旧 acdevd
   会先被找到、被版本检查拦下报错, 不会再往下找. devd 是独立的 Cargo 工作区: 编它时用它自己的约定目录
   (`CARGO_TARGET_DIR=<总仓>/logs/cargo-target/acdev-devd`), 或者用 `ACDEV_DEVD` 明确指定.
-- 不是 Linux 的宿主上 (Windows、macOS) 不找也不编: 必须由 `ACDEV_DEVD` 给一个 Linux 客户机用的 acdevd, 版本在装进客户机后比 (见 `docs/vm.md`
+- 不是 Linux 的宿主上 (Windows、macOS) 不找也不编: 用 `ACDEV_DEVD` 给的, 否则安装目录的 `libexec/acdevd-<客户机架构>`, 版本在装进客户机后比 (见 `docs/vm.md`
   「Windows」).
 - `acdevd connect CID [PORT]`: 在宿主上把标准输入输出接到客户机 `CID` 的 acdevd. 宿主的 bun 和 Node.js 都开不了 vsock 套接字,
   所以 acdev 起这个子进程, 经它的标准输入输出说协议.

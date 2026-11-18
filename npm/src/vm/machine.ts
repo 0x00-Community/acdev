@@ -8,6 +8,7 @@ import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
+import { libexecBeside } from 'acdev/launcher'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
   accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
@@ -227,7 +228,7 @@ export class Machine {
   #transport(link: Link): Transport {
     if (link.kind === 'unix') return new SocketTransport({ path: link.path })
     if (link.kind === 'tcp') return new SocketTransport({ host: '127.0.0.1', port: link.port })
-    return new RelayTransport(Devd.binary(Machine.ROOT, this.env), this.cid())
+    return new RelayTransport(Devd.binary(Machine.ROOT, this.env, this.guest), this.cid())
   }
 
   static kvm(): boolean {
@@ -456,13 +457,15 @@ export class Machine {
 
   devdBinary(): string {
     if (this.host.platform === 'linux' && guestArch(this.host) === this.guest) {
-      const binary = Devd.binary(Machine.ROOT, this.env)
+      const binary = Devd.binary(Machine.ROOT, this.env, this.guest)
       Devd.checkVersion(binary, Machine.ROOT)
       return binary
     }
-    const given = this.env['ACDEV_DEVD']
+    const shipped = libexecBeside(Devd.shipped(this.guest))
+    const given = this.env['ACDEV_DEVD'] || (shipped !== null && existsSync(shipped) ? shipped : '')
     if (!given || !existsSync(given)) {
-      throw new Error(`vm: set ACDEV_DEVD to an acdevd built for the guest (Linux ${this.guest}): on Linux, cargo build --release `
+      throw new Error(`vm: no acdevd for the guest (Linux ${this.guest}) in the install's libexec: set ACDEV_DEVD to one; `
+        + 'on Linux, cargo build --release '
         + `in crates/devd (or --target ${this.guest}-unknown-linux-musl elsewhere); this host cannot run or build it for the guest`)
     }
     return given

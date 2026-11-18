@@ -3,6 +3,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, r
 import { connect } from 'node:net'
 import { dirname, isAbsolute, join, normalize, posix, relative, sep } from 'node:path'
 import { crateBinary, crateDir, crateVersion } from './binary.ts'
+import type { Guest } from './host.ts'
 
 export const PORT = 5252
 const MAX = 16 << 20
@@ -336,8 +337,13 @@ export class Devd {
     return out
   }
 
-  static binary(root: string, env: NodeJS.ProcessEnv = process.env): string {
-    return crateBinary(root, { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', shared: 'acdev-devd' }, env)
+  static binary(root: string, env: NodeJS.ProcessEnv = process.env, guest: Guest = 'x86_64'): string {
+    const wanted = { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', shared: 'acdev-devd', installed: Devd.shipped(guest) }
+    return crateBinary(root, wanted, env)
+  }
+
+  static shipped(guest: Guest): string {
+    return `acdevd-${guest}`
   }
 
   static checkVersion(binary: string, root: string): void {

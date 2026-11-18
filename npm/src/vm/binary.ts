@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { libexecBeside } from 'acdev/launcher'
 
 export const CHECKOUT = realpathSync(join(import.meta.dirname, '..', '..'))
 
@@ -9,7 +10,10 @@ export interface CrateBinary {
   readonly name: string
   readonly variable: string
   readonly shared?: string
+  readonly installed?: string
 }
+
+export type Beside = (name: string) => string | null
 
 function sharedTargets(root: string, shared: string): string[] {
   const out: string[] = []
@@ -27,14 +31,18 @@ export function crateVersion(root: string, crate: string): string | null {
   return /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(manifest, 'utf8'))?.[1] ?? null
 }
 
-export function crateBinary(root: string, wanted: CrateBinary, env: NodeJS.ProcessEnv = process.env): string {
+export function crateBinary(
+  root: string, wanted: CrateBinary, env: NodeJS.ProcessEnv = process.env, beside: Beside = libexecBeside,
+): string {
   const given = env[wanted.variable]
   if (given) {
     if (!existsSync(given)) throw new Error(`${wanted.variable}=${given}: no such file`)
     return given
   }
-  const crate = crateDir(root, wanted.crate)
   const file = process.platform === 'win32' ? `${wanted.name}.exe` : wanted.name
+  const shipped = beside(wanted.installed ?? file)
+  if (shipped !== null && existsSync(shipped)) return shipped
+  const crate = crateDir(root, wanted.crate)
   const configured = env['CARGO_TARGET_DIR'] || null
   const targets = [...(configured ? [configured] : []), ...(wanted.shared ? sharedTargets(root, wanted.shared) : []), join(crate, 'target')]
   const found = targets.map((dir) => join(dir, 'release', file)).find((path) => existsSync(path))

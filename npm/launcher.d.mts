@@ -5,6 +5,7 @@ export declare function runtime(): 'bun' | 'node'
 export declare function installDir(env?: Record<string, string | undefined>): string
 export declare function installed(root?: string): boolean
 export declare function which(name: string, env?: Record<string, string | undefined>): string | null
+export declare function libexecBeside(name: string, root?: string): string | null
 export declare function acdertBeside(root?: string): string | null
 export interface FoundAcdert {
   readonly path: string | null

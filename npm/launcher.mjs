@@ -44,9 +44,13 @@ export function which(name, env = process.env) {
 
 export const RUNTIME = `acdev${EXE}`
 
-export function acdertBeside(root = ROOT) {
+export function libexecBeside(name, root = ROOT) {
   if (!installed(root)) return null
-  return join(root, '..', '..', 'libexec', RUNTIME)
+  return join(root, '..', '..', 'libexec', name)
+}
+
+export function acdertBeside(root = ROOT) {
+  return libexecBeside(RUNTIME, root)
 }
 
 export function findAcdert(root = ROOT, env = process.env) {

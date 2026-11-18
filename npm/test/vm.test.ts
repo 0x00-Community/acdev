@@ -352,6 +352,21 @@ describe('the QEMU command line', () => {
     expect(crateBinary(root, wanted, { CARGO_TARGET_DIR: join(base, 'elsewhere'), ACDEV_DEVD: own })).toBe(own)
   })
 
+  test('an install\'s libexec comes right after the variable: acdevd-<guest arch>, acdev-relay, acdev-viewer', () => {
+    const base = tmp()
+    const root = join(base, 'repo', 'npm')
+    const libexec = join(base, 'install', 'libexec')
+    mkdirSync(libexec, { recursive: true })
+    for (const name of ['acdevd-aarch64', 'acdev-viewer']) writeFileSync(join(libexec, name), '')
+    const beside = (name: string) => join(libexec, name)
+    const devd = { crate: 'devd', name: 'acdevd', variable: 'ACDEV_DEVD', installed: Devd.shipped('aarch64') }
+    expect(Devd.shipped('x86_64')).toBe('acdevd-x86_64')
+    expect(crateBinary(root, devd, {}, beside)).toBe(join(libexec, 'acdevd-aarch64'))
+    expect(crateBinary(root, devd, { ACDEV_DEVD: CLI }, beside)).toBe(CLI)
+    expect(crateBinary(root, { crate: 'viewer', name: 'acdev-viewer', variable: 'ACDEV_VIEWER' }, {}, beside)).toBe(join(libexec, 'acdev-viewer'))
+    expect(() => crateBinary(root, { crate: 'relay', name: 'acdev-relay', variable: 'ACDEV_RELAY' }, {}, beside)).toThrow('vm: no acdev-relay')
+  })
+
   test('an acdevd of another version is refused before it goes into the guest', () => {
     const dir = tmp()
     const fake = (version: string) => {
@@ -551,7 +566,7 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(machine.linkKind()).toBe('tcp')
     await expect(machine.start({ share: 'C:\\src' }, () => undefined)).rejects.toThrow('use acdev vm push')
     await expect(machine.start({ display: 'viewer' }, () => undefined)).rejects.toThrow('Linux only for now')
-    expect(() => machine.devdBinary()).toThrow('set ACDEV_DEVD to an acdevd built for the guest (Linux x86_64)')
+    expect(() => machine.devdBinary()).toThrow('no acdevd for the guest (Linux x86_64)')
   })
 
   test('acdev-relay: ACDEV_RELAY, then CARGO_TARGET_DIR, then the crate\'s target; its failure ends the stream, not acdev', async () => {
