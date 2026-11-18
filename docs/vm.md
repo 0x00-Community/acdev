@@ -74,6 +74,23 @@ Windows 11 上 WSL2 默认开嵌套虚拟化 (`.wslconfig` 的 `nestedVirtualiza
 https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux 发行版里装 Linux 版的 acdev 和 QEMU, 就是 Linux 路径
 (KVM、vsock、9p 都有); 窗口经 WSLg 显示. 本机 2026-11-17 起就是这样跑的. 只是要装 WSL, Windows 10 上没有嵌套虚拟化.
 
+## macOS (HVF)
+
+工作项 03 (三平台模拟器里程碑). 先做 Intel Mac (x86_64 客户机, 和 Linux、Windows 同一份镜像); Apple 芯片只能跑 aarch64 客户机,
+`start` 直接报"等工作项 04".
+
+- QEMU: `brew install qemu` (Homebrew 在 Apple 芯片上装到 `/opt/homebrew`, 在 Intel 上装到 `/usr/local`, `qemuDirs` 两处都找), 或 MacPorts.
+  Homebrew 的配方 (`Formula/q/qemu.rb`) 开了 `--enable-cocoa`、`--enable-virtfs`, 关了 GTK 和 SDL; Apple 芯片上的 HVF 要 macOS 15 的 SDK
+  (`--disable-hvf if … MacOS.version <= :sonoma`), 和 Intel 无关. QEMU 自己只支持最新的 macOS 和上一版两年 (https://www.qemu.org/download/ ).
+- 加速: `-accel hvf -cpu host` (QEMU 的 `host` 型号在 HVF 下注册). 起不来 (比如 `sysctl kern.hv_support` 是 0) 时说原因、退回 TCG.
+  QEMU 要带 `com.apple.security.hypervisor` 权利 (苹果 Hypervisor 文档); Homebrew 的 QEMU 编的时候 QEMU 的构建会签上〔未核实〕.
+- 窗口: Homebrew 的 QEMU 没有 GTK, 所以 macOS 上 QEMU 自己的窗口是 `-display cocoa`; `--gl` (GTK 加 virgl) 只在 Linux 上有.
+  `--viewer` 和 `--headless --outputs N` 要 acdev-viewer, 目前只有 Linux.
+- 调试通道默认走 `127.0.0.1` 的 TCP 端口转发加密钥 (`hostfwd=unix` 要较新的 QEMU, 见「调试通道」); QMP 和 guest agent 照旧是 `run/` 下的
+  Unix 套接字 (macOS 的 Unix 套接字路径上限 104 字节, `ACDEV_VM_DIR` 别放太深〔推论〕). 9p `--share` 可用.
+- QEMU 用分离的子进程起 (macOS 没有 `setsid` 命令, 用 Node 的 `detached`).
+- acdevd 同 Windows: 设 `ACDEV_DEVD` 指向 Linux x86_64 的 acdevd.
+
 ## 目录与镜像
 
 一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acdev/vm`, 即 `~/.local/share/acdev/vm`; Windows 上没设 `XDG_DATA_HOME` 时是 `%LOCALAPPDATA%\acdev\vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、

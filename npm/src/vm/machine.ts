@@ -261,7 +261,7 @@ export class Machine {
     const display = options.display ?? 'window'
     const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
     const gpu = ['-device', `${options.gl ? 'virtio-vga-gl' : 'virtio-vga'},id=${Machine.GPU}${heads}`]
-    const shown = ['-display', Machine.#display(display, options.gl ?? false, options.outputs ?? 1)]
+    const shown = ['-display', this.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
     return [
@@ -285,10 +285,11 @@ export class Machine {
     ]
   }
 
-  static #display(display: NonNullable<StartOptions['display']>, gl: boolean, outputs: number): string {
+  #display(display: NonNullable<StartOptions['display']>, gl: boolean, outputs: number): string {
     if (display === 'none') return outputs > 1 ? 'dbus,p2p=yes' : 'none'
     if (display === 'vnc') return 'vnc=127.0.0.1:0'
     if (display === 'viewer') return 'dbus,p2p=yes'
+    if (this.host.platform === 'darwin') return 'cocoa'
     return gl ? 'gtk,gl=on' : 'gtk'
   }
 
@@ -309,6 +310,10 @@ export class Machine {
 
   #refuse(options: StartOptions): void {
     if (options.gl && options.display && options.display !== 'window') throw new Error('vm: --gl needs a window')
+    if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
+    if (this.host.platform === 'darwin' && this.host.arch === 'arm64') {
+      throw new Error('vm: Apple silicon runs only an aarch64 guest, which acdev does not start yet (work item 04)')
+    }
     if (this.host.platform === 'win32' && options.share) throw new Error('vm: --share needs 9p, which QEMU on Windows does not have; use acdev vm push')
     const viewer = options.display === 'viewer' || (options.display === 'none' && (options.outputs ?? 1) > 1)
     if (this.host.platform !== 'linux' && viewer) throw new Error('vm: acdev-viewer (--viewer, or --headless with --outputs) is Linux only for now')

@@ -575,6 +575,19 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(error.message).toBe('acdev-relay: /no/such.sock: connection refused')
   })
 
+  test('on an Intel Mac: HVF with the host CPU, QEMU\'s Cocoa window, a forwarded TCP port; Apple silicon waits for 04', async () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, mac)
+    const args = machine.args({}, 'hvf', { kind: 'tcp', port: 4005 }).join(' ')
+    expect(args).toContain('-machine q35 -accel hvf -cpu host')
+    expect(args).toContain('-display cocoa')
+    expect(args).toContain('-qmp unix:')
+    expect(args).not.toContain('vhost-vsock')
+    expect(machine.linkKind()).toBe('tcp')
+    await expect(machine.start({ gl: true }, () => undefined)).rejects.toThrow('Linux only')
+    const silicon = new Machine({ ACDEV_VM_DIR: tmp() }, { platform: 'darwin', arch: 'arm64' })
+    await expect(silicon.start({}, () => undefined)).rejects.toThrow('work item 04')
+  })
+
   test('the guest CPU must have the x86-64-v3 features', () => {
     const flags = 'flags\t\t: fpu sse4_2 avx avx2 bmi1 bmi2 f16c fma abm movbe xsave\n'
     expect(missingFeatures(flags)).toEqual([])
