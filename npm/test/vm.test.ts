@@ -379,6 +379,29 @@ describe('the QEMU command line', () => {
     expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`is acdevd 0.1.0, this acdev needs ${want}: rebuild it`)
   })
 
+  test('a start that fails after QEMU is up stops that QEMU', async () => {
+    const dir = tmp()
+    const bin = join(dir, 'bin')
+    mkdirSync(bin)
+    const script = (name: string, body: string) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+    script('qemu-system-x86_64', 'while [ $# -gt 0 ]; do [ "$1" = -pidfile ] && echo $$ > "$2"; shift; done; exec sleep 60')
+    script('qemu-img', 'exit 0')
+    writeFileSync(join(dir, 'image.qcow2'), '')
+    const vm = join(dir, 'vm')
+    const started = await collect([process.execPath, CLI, 'vm', 'start', '--viewer', '--wait', '0', '--image', join(dir, 'image.qcow2')], {
+      cwd: dir,
+      env: env({ ACDEV_VM_DIR: vm, ACDEV_VIEWER: join(dir, 'no-viewer'), PATH: `${bin}:${process.env['PATH']}`,
+        OVMF_CODE: join(dir, 'image.qcow2'), OVMF_VARS: join(dir, 'image.qcow2') }),
+    })
+    expect(started.code, started.out).toBe(1)
+    expect(started.stderr).toContain('ACDEV_VIEWER=')
+    expect(started.stderr).toMatch(/stopped qemu \(pid (\d+)\): the start did not finish/)
+    const pid = Number(/stopped qemu \(pid (\d+)\)/.exec(started.stderr)![1])
+    await new Promise((done) => setTimeout(done, 200))
+    expect(() => process.kill(pid, 0)).toThrow()
+    expect(existsSync(join(vm, 'run', 'qemu.pid'))).toBe(false)
+  })
+
   test('start checks acdevd\'s version before it starts QEMU', async () => {
     const dir = tmp()
     const bin = join(dir, 'bin')

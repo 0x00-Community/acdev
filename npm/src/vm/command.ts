@@ -54,6 +54,16 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   if (wait !== 0) machine.devdBinary()
   const pid = await machine.start(options, say)
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
+  try {
+    return await afterStart(machine, options, wait)
+  } catch (error) {
+    machine.abandon(pid)
+    say(`stopped qemu (pid ${pid}): the start did not finish`)
+    throw error
+  }
+}
+
+async function afterStart(machine: Machine, options: StartOptions, wait: number): Promise<number> {
   const outputs = options.outputs ?? 1
   if (options.display === 'none' && outputs > 1) {
     await machine.switchOnOutputs()
