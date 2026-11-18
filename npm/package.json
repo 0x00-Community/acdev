@@ -23,6 +23,7 @@
   "scripts": {
     "acdev": "bun bin/acdev.mjs",
     "test": "bun test",
+    "test:host": "ACDEV_HOST_E2E=1 bun test test/host",
     "typecheck": "tsc --noEmit -p .",
     "dist": "bun scripts/dist.ts",
     "startup": "bun scripts/startup.ts"

@@ -22,3 +22,12 @@ Windows 跳过 `install.sh`、Unix 会话权限与 Unix 域套接字文件清理
 应用后端的 Windows 运行时一侧见 `contract-with-libacde.md` 的「Windows 后端契约」（最初由 [acdert#4](http://gitea.dopamine/AC/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
 Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试仍验证套接字 HTTP 响应，跳过对进程网络套接字的枚举。
 未安装对应工具时，测试会跳过 npm、pnpm 或 Unix Node.js 后端的相关场景。
+
+## 对真实运行时的端到端测试 (`bun run test:host`, acdev-single-app 工作项 10 起)
+
+上面的测试都用假运行时, 测不出运行时一侧的缺口 (2026-11-16 删 `web/` 后 `acdev dev --app` 的调试通道就没人回答, 假运行时照样全过).
+`test/host/` 经命令行驱动真实的 acdev 运行时: 把 `test/fixtures/host/hello` (带 `server.ts` 后端的示例应用) 拷到临时目录, 起
+`acdev dev <目录> --app hello-backend --headless --force`, 再用 `acdev webs`、`acdev eval`、`acdev console` 检查. 只在
+`ACDEV_HOST_E2E=1` 且 `ACDEV_RUNTIME` 指向真的运行时 (比如 `target/debug/acdev`, 要和并排的 libacde 同一版本) 时跑, 否则跳过;
+`bun run test:host` 设好前一个. 运行时目录、数据、配置和缓存都放进临时目录. 先在 Linux 宿主上跑; Windows、macOS 由用户安排人测.
+后续工作项 (DevTools、其余请求类型、后端随应用起停) 在这里加用例.
