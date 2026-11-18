@@ -7,7 +7,7 @@ members = ["crates/*"]
 exclude = ["npm", "crates/devd", "crates/viewer", "crates/relay"]
 
 [workspace.package]
-version = "0.0.11"
+version = "0.1.0"
 edition = "2024"
 repository = "http://gitea.dopamine/AC/acdev"
 publish = false

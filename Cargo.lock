@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acde-hostwin"
-version = "0.0.11"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "block2 0.6.2",
@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "acdev"
-version = "0.0.11"
+version = "0.1.0"
 dependencies = [
  "acde-hostwin",
  "base64",
@@ -2999,7 +2999,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "libacde"
-version = "0.0.11"
+version = "0.1.0"
 dependencies = [
  "aes",
  "ash",

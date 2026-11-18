@@ -1,6 +1,6 @@
 {
   "name": "acdev",
-  "version": "0.0.10",
+  "version": "0.1.0",
   "description": "The acdev developer CLI (wrangler to acdert's workerd): acdev new / check / build / install / dev. Builds a web app (any framework) or a desktop into a package acdert runs; the preload that puts an app backend's every listen on a unix socket",
   "license": "UNLICENSED",
   "type": "module",
