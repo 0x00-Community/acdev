@@ -22,6 +22,27 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
 - vsock 只用 libc 的 `socket` / `bind` / `listen` / `accept4` / `connect` (`AF_VSOCK` = 40, `sockaddr_vm`), 拿到的描述符包成
   `UnixStream` 读写; 接受连接不用 `UnixListener::accept`, 因为它会检查地址族.
 
+## 给客户机编 (交叉编译)
+
+acdevd 跑在 Linux 客户机里. 宿主不是 Linux、或客户机架构和宿主不同时 (Apple 芯片的 Mac 要 aarch64 版, 见 `docs/vm.md`「aarch64 客户机」),
+在宿主上交叉编成静态的 musl 程序, 不要 C 工具链:
+
+```sh
+rustup target add aarch64-unknown-linux-musl          # x86_64 客户机: x86_64-unknown-linux-musl
+cd crates/devd                                         # 要在这个目录里跑: cargo 从当前目录往上找 .cargo/config.toml
+cargo build --release --target aarch64-unknown-linux-musl
+# -> crates/devd/target/aarch64-unknown-linux-musl/release/acdevd, 给 acdev vm 用: ACDEV_DEVD=<这个路径>
+```
+
+- 为什么能直接链接: `crates/devd/.cargo/config.toml` 给两个 musl 目标设了 `linker = "rust-lld"` 和 `-C link-self-contained=yes`.
+  `rust-lld` 随 rustup 的工具链一起装 (`lib/rustlib/<宿主>/bin/rust-lld`); rustc 按名字把它认成不经 C 编译器、直接用 lld 的 GNU 风格链接器
+  (rust-lang/rust `compiler/rustc_target/src/spec/mod.rs` 里 `stem == "rust-lld"` → `(Cc::No, Lld::Yes)`); musl 目标的标准库自带 crt 和
+  libc (`lib/rustlib/aarch64-unknown-linux-musl/lib/self-contained/` 下的 `crt1.o`、`libc.a` 等), `link-self-contained=yes` 让 rustc
+  用它们 (rustc 文档「Codegen options」`-C link-self-contained`). acdevd 只用 std, 没有 C 依赖, 所以这样就够.
+- 不在 `crates/devd` 里跑 (比如在仓库根用 `--manifest-path`) 时读不到这份配置, 会去找宿主的 `cc` 当链接器, 在 macOS 上链接失败.
+- 2026-11-18 本机 (Linux) 用这份配置 `cargo check --release --target aarch64-unknown-linux-musl` 通过; 真正链接一次〔待测〕, 在 Apple 芯片
+  Mac 上〔未核实〕.
+
 ## 传输与密钥 (`src/main.rs`、`src/key.rs`)
 
 用户 2026-11-18 定 (三平台模拟器规范): 协议不变, 只换传输. Linux 宿主用 vsock; Windows、macOS 上的 QEMU 没有 vsock (Windows 编不出 vhost,
