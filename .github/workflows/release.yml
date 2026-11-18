@@ -666,9 +666,9 @@ jobs:
           publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
 
   npm:
-    # npm: @dopame/acdev (one line of JS that starts its platform package), @dopame/acdev-<os>-<cpu> (the binaries, the
-    # built CLI, the guest daemons and the host tools, laid out as an install), and the SDK @dopame/acde-api; a version already
-    # there is skipped
+    # npm: @dopame/acdev (one line of JS that starts its platform package) and @dopame/acdev-<os>-<cpu> (the binaries, the
+    # built CLI, the guest daemons and the host tools, laid out as an install); a version already there is skipped. The SDK
+    # @dopame/acde-api is private and not on npm: projects take acde-api-<version>.tar.gz from pkgs by a file: or URL reference
     needs: [plan, guard]
     if: needs.plan.outputs.publish == 'true'
     runs-on: debian12
@@ -724,12 +724,9 @@ jobs:
             > npm/acdev/acdev.mjs
           node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
             "$V" "$deps" > npm/acdev/package.json
-          mkdir -p npm/acdev-api.stage
-          tar -xzf "$(ls "$rel"/acde-api-*.tar.gz)" -C npm/acdev-api.stage
-          mv npm/acdev-api.stage/package npm/acdev-api && rm -rf npm/acdev-api.stage
           cat npm/acdev/package.json npm/acdev/acdev.mjs
           du -sh npm/*
-      - name: publish (platforms, the SDK, then @dopame/acdev)
+      - name: publish (platforms, then @dopame/acdev)
         run: |
           set -eu
           if [ -z "$NPM_TOKEN" ]; then
@@ -739,7 +736,7 @@ jobs:
           printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"
           export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
           npm whoami
-          for dir in npm/acdev-*-* npm/acdev-api npm/acdev; do
+          for dir in npm/acdev-*-* npm/acdev; do
             [ -d "$dir" ] || continue
             case $dir in *.stage) continue ;; esac
             name=$(node -p "require('./$dir/package.json').name")

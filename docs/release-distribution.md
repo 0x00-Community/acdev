@@ -101,11 +101,12 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `aws sts assume-role`, 没有 (GitHub) 时用 OIDC 令牌 `assume-role-with-web-identity` (用户定, 2026-11-12: 腾讯云 COS 改回 S3 `dopame-pkgs`). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
   Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, 不往 GitHub 推 (用户定 2026-11-14: GitHub 不再更新).
   `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、构建和页面资源来自本次运行、版本目录的文件清单与上传、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN 与区域).
-- **npm** (作业 `npm`, 只在正式发布时, 在 `guard` 之后和 `upload` 并行; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
+- **npm** (SDK `@dopame/acde-api` 是 `private`, 不发 npm: 工程按 `file:` 或 pkgs 上 `acde-api-<版本>.tar.gz` 的地址引用它; 主会话 2026-11-18 定)
+  (作业 `npm`, 只在正式发布时, 在 `guard` 之后和 `upload` 并行; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
   每个要发的平台一个 `@dopame/acde-<os>-<cpu>` (`linux-x64`、`darwin-arm64`、`darwin-x64`、`win32-x64`; 内容按安装后的布局: 命令行归档、
-  `libexec/acdev[.exe]`、`libexec/acdevd-*` 和该平台的 `acdev-tools` 程序; 运行时包解进 `libexec/`, 以前误解进 `bin/`), SDK `@dopame/acde-api` (就是 `acde-api-<版本>.tar.gz` 里的 `package/`), 和
+  `libexec/acdev[.exe]`、`libexec/acdevd-*` 和该平台的 `acdev-tools` 程序; 运行时包解进 `libexec/`, 以前误解进 `bin/`), 和
   `@dopame/acdev` (一行 JS 的 `acde.mjs`, 按 `process.platform` / `process.arch` 载入对应平台包的 `lib/acdev/launcher.mjs`; 各平台包是它的 `optionalDependencies`, 平台包带 `os` / `cpu`).
-  先发平台包、再发 SDK、最后发 `@dopame/acdev`, `npm publish --access public`; 这一版已经在 npm 上的包跳过 (重跑).
+  先发平台包、最后发 `@dopame/acdev`, `npm publish --access public`; 这一版已经在 npm 上的包跳过 (重跑).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acdev/launcher` 留作外部
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. 归档可复现: 混淆固定 `seed`, 打包前把暂存树的时间戳统一为 2000-01-01, 先 `tar -cf` 再用 `zlib.gzipSync` 压 (gzip 头不写时间), 同一提交两次构建字节相同 (`dist.ts` 里的 `OBFUSCATION_SEED`、`pinTimes`). `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和

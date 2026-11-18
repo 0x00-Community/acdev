@@ -231,6 +231,12 @@ describe('release.yml', () => {
     expect(runs('build')).toContain('echo "ACDEV_BUN=$(command -v bun)" >> "$GITHUB_ENV"')
   })
 
+  test('npm publishes the platform packages and @dopame/acdev, not the private SDK', () => {
+    const npm = runs('npm')
+    expect(npm).toContain('for dir in npm/acdev-*-* npm/acdev; do')
+    expect(npm).not.toMatch(/acdev-api|acde-api-\*/)
+  })
+
   test('the lockfile fetches every package from the default registry, not a mirror', () => {
     expect(LOCK).not.toContain('mirrors.cloud.tencent.com')
   })
