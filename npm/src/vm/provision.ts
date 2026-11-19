@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
+import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -11,6 +12,7 @@ export interface ProvisionSources {
   readonly libacde: string | null
   readonly dopame: string | null
   readonly harness: string | null
+  readonly kernelPkgs?: string | null
 }
 
 export interface ProvisionOptions {
@@ -45,6 +47,7 @@ export const PROVISION_SCRIPT = [
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
   '',
+  ...KERNEL_SCRIPT,
   'restore() {',
   '  modinfo "$1" >/dev/null 2>&1 && return 0',
   '  step "the $1 module is missing (agentos-drivers prune removes $2): installing $2 back"',
@@ -213,6 +216,7 @@ export function stageProvision(sources: ProvisionSources, hardware: HardwareChoi
     stageAcdes(stage, sources)
     stageDopame(stage, sources)
     stageHardware(stage, hardware)
+    if (sources.kernelPkgs) stageKernel(stage, sources.kernelPkgs)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })
     return stage
   } catch (error) {
@@ -229,5 +233,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), winmanBin: get('winman-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
+    kernelPkgs: get('kernel-pkgs'),
   }
 }
