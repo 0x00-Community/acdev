@@ -118,6 +118,10 @@ pub(crate) trait Host {
     fn lock_pointer(&self, _: bool) -> bool {
         false
     }
+
+    fn drag(&self, _: u32) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]

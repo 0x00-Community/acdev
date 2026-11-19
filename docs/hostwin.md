@@ -112,23 +112,28 @@
   `launch`. `animate` 和会话一样走 model 的 `Transition` / `Look` (`State::animate` / `advance`): 合成线程每帧插值, 按 look 缩放、平移、
   调透明度画这个窗口 (最近点取样), 命中按 look 反算, 做完发 `windowanimated`; 窗口不存在时立刻发. `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
-- **独立应用的主窗口用宿主的控件** (`acdev runtime app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdev runtime app <id>` 起的那个窗口的
+- **独立应用的主窗口用宿主的控件** (`acdev runtime app`, 平台层 `Host::controls()` 为真时: Win32 和 winit (macOS / Linux), headless 没有): Broker 给 `acdev runtime app <id>` 起的那个窗口的
   `grant` 带 `host: true`, 窗口表记 `Entry.host`. 它没有运行时的窗框 (`frame` 按 0), 宿主窗口自己的标题栏和按钮是唯一的一套; 标题交给宿主窗口.
-  没有宿主控件的平台 (macOS / Linux winit) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
-  所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acdev`.
+  没有宿主控件的平台 (headless) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
+  所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acdev`. (2026-11-19 之前 macOS / Linux 也这样, 宿主窗口的系统标题栏下面还有一条运行时的窗框, 两层.)
   它的状态落到宿主窗口上 (`request_state` 发 `Cmd::HostState`, `platform/win32/frame.rs`): 最小化是最小化宿主窗口, `filled` 是最大化 (平台工作区),
   全屏是去掉边框铺满所在显示器 (记下样式和位置, 回去时还原), `normal` 还原. 用户在平台上做的 (任务栏最小化、`Win+Down`、Snap、标题栏最大化)
   由 `WM_SIZE` 变成 `HostEvent::State`, 运行时照收并照常发 `state` / `windowstate`; Snap 后是 `normal` 加新尺寸. 页面的 grab hint 变成
-  `WM_NCHITTEST` 的结果 (没有 edges 是 `HTCAPTION`: 系统的拖动、Snap、双击最大化; 有 edges 是对应的改大小边框). 宿主窗口所在显示器的尺寸、缩放和
+  `WM_NCHITTEST` 的结果 (没有 edges 是 `HTCAPTION`: 系统的拖动、Snap、双击最大化; 有 edges 是对应的改大小边框).
+  winit (`platform/host_winit.rs`): 最小化 `set_minimized`, `filled` 是 `set_maximized` (macOS 是缩放), 全屏 `Fullscreen::Borderless` (macOS 是系统的全屏空间),
+  `normal` 都撤掉; 用户在系统标题栏上做的 (红绿灯、双击标题栏、拖到屏幕边) 在 `Resized` / `Moved` / `Occluded` / `Focused` 之后按
+  `is_minimized` / `fullscreen` / `is_maximized` 重新判断, 变了发 `HostEvent::State`. 页面的 grab hint 在按下左键时由 `App::host_hint` 处理:
+  没有 edges 的交给 `Window::drag_window` (系统的移动), 有 edges 的交给 `drag_resize_window`, 这一下不给页面; 没有 edges 处的双击按
+  `State.double_click` (默认铺满 / 还原). winit 拿不到显示器的工作区, 不发 `hostoutput` / `hostworkarea`. 宿主窗口所在显示器的尺寸、缩放和
   工作区经 `hostoutput` / `hostworkarea` 给 Broker (`broker/output.ts` `Outputs`), 只给这个窗口当 `acde:window.output`, 换显示器时变.
   页面经 `claimSurface` 的 `hostControls` 知道, `acde.window.hostControls` (加 `on('hostcontrols')`) 是每个窗口自己的值, 任何窗口都可能为真,
-  本版本只有独立应用的主窗口为真. 别的窗口、完整桌面、headless 和 winit 的宿主照旧.
+  本版本只有独立应用的主窗口为真. 别的窗口、完整桌面和 headless 照旧.
   独立应用里宿主窗口的关闭按钮 (`windowcloserequest` 窗口 0) 先问主窗口的 `beforeclose` (同样最多等 3 秒), 拒绝时宿主留着; 完整桌面里照旧结束会话.
   独立应用开的别的窗口 (`State.standalone` 之后 grant 的, `Entry.minimize` 为假) 保留运行时窗框, 照常挪、改尺寸、关, 但不能最小化 (没有 Dock 找回来):
   窗框的最小化按钮画成灰的、按了没反应, 运行时拒绝变成 `minimized`, `acde.window.minimize()` 和 `acde.windows.requestState(id, 'minimized')`
   以 `AcdeWindowError` (`code: 'unavailable'`, `status: 409`) 拒绝. `acde.window.minimizable` (加 `on('minimizable')`) 是每个窗口自己的值.
   **能不能最小化只有一个说法** (`Entry::minimizable`: 宿主替它做 (`host`), 或者 `minimize` 为真、不是桌面和面板、模式允许最小化): 窗框按钮的灰显、
-  `Surface::minimizable`、`windows()` 行的 `minimize` 都用它. 所以宿主没有自己控件的平台 (macOS / Linux 的 winit 宿主、headless) 上, 独立应用的主窗口 (内部是
+  `Surface::minimizable`、`windows()` 行的 `minimize` 都用它. 所以宿主没有自己控件的平台 (headless) 上, 独立应用的主窗口 (内部是
   `fullscreen` 模式, 没人替它最小化) 也是不能最小化的: `minimizable` 为假, 窗框的最小化按钮是灰的, `minimize()` 以同一个 409 拒绝, `acde:inspect` 的
   `act <窗口> minimize` 回 `ok: false` 和原因, 不再回「已最小化」而什么都没变. 原因的文字在 `WindowCalls.unminimizable(行)` 一处: 桌面、铺满宿主窗口的主窗口
   (`it fills the host window, which only the host window's own controls minimize here`)、钉住的窗口、独立应用的别的窗口 (`a standalone app has no Dock to bring it back`).

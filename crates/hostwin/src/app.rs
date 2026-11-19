@@ -365,6 +365,7 @@ impl Handler for App {
                     server.event(hover, Event::named("pointerleave"));
                 }
             }
+            HostEvent::Button(keys::BUTTON_LEFT, true) if self.lock.is_none() && self.pressed.is_empty() && self.host_hint(server, host) => {}
             HostEvent::Button(button, pressed) => self.button(server, button, pressed),
             HostEvent::Wheel(dx, dy) => self.wheel(server, dx, dy),
             HostEvent::Modifiers(mods) => self.modifiers = mods,
@@ -796,6 +797,32 @@ impl App {
         let state = server.state();
         let e = state.entries.get(&id)?;
         (e.frame > 0.0).then(|| e.bar(state.theme, state.focus == Some(id)).button_at(self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1])).flatten()
+    }
+
+    fn host_hint(&mut self, server: &Server, host: &dyn Host) -> bool {
+        let (x, y) = self.pointer;
+        let (id, edges, double) = {
+            let mut state = server.state();
+            let Some(hit) = state.hit(x, y).filter(|hit| !hit.blocked) else { return false };
+            let Some(e) = state.entries.get(&hit.entry).filter(|e| e.host) else { return false };
+            let Some(edges) = crate::shell::pointer::edges_at(&e.grab_hints(&state.theme), x - e.rect[0], y - e.rect[1]) else { return false };
+            let target = state.double_click.target(Mode::Free, e.state);
+            let double = edges == 0 && state.clicks.press(hit.entry, acde::log::now_ms(), [x, y], platform::click_settings()) >= 2;
+            if double || edges != 0 {
+                state.clicks.reset();
+            }
+            (hit.entry, edges, double.then_some(target))
+        };
+        server.activate(id);
+        match double {
+            Some(to) => {
+                if to.is_some() {
+                    host.set_state(to);
+                }
+                true
+            }
+            None => host.drag(edges),
+        }
     }
 
     fn left_press(&mut self, server: &Server, entry: u32) -> bool {
