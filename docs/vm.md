@@ -150,7 +150,8 @@ acdev vm provision \
 ```
 
 它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
-acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
+acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
+`depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组) 和 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
@@ -332,6 +333,12 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
   就能载入: 模块依赖表由装包时的 depmod 钩子更新〔推断: kmod 的 pacman 钩子〕, 装完仍查不到模块时 provision 再跑一次 `depmod -a`.
   装不上 (拿不到包、找不到包名) 只打一行 warning, provision 照常往下走, Wi-Fi 一项照旧按缺模块只记日志.
   之后如果在模块没载入时 (例如关掉了 `acdev-wifi.service`) 再跑 prune, 又会把组包卸掉; 重新 `acdev vm provision` 就能装回.
+  组包从哪来 (第七轮查, 只读): 没有能给客户机配的仓库. ackernel 的 CI (`.gitea/workflows/cicd.yaml` 的 publish) 只把产物 rsync 到内网
+  `192.168.10.234:stable/<编号>/` (和 `stable/latest`), 不是 pacman 仓库; os 的说法是模块组包和元包 `linux-ackernel-drivers`「不是组件」,
+  只经 `AGENTOS_ACKERNEL_MODULE_PACKAGES` 进 live ISO 的本地仓库, 不进 `/opt/agentos`, 所以装好的系统里没有它们的来源; acinstaller 也写
+  `linux-ackernel` 不在 pacman 仓库里. os 的 `agentos` 仓库 (`pkgs.dopame.ai`) 有没有组包没核实, 客户机也没配这个源和它的签名公钥.
+  所以 `pacman -S linux-ackernel-wifi-other` 在客户机里报「未找到目标」, provision 只打 warning, Wi-Fi 暂时测不了. 要测就得从 .234 取
+  同版本的 `linux-ackernel-wifi-other-*.pkg.tar.zst`, `acdev vm push` 进去 `pacman -U` (provision 还没有这条路).
 - `test_power` 和 `hci_vhci` 第六轮里客户机都有.
 
 ### Wi-Fi
@@ -352,9 +359,20 @@ NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager �
 
 ### 蓝牙
 
-`acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
+`acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -C 5.2 -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
 起 `bluetoothd`; 编号最大的那个当“对面的设备”: `btmgmt` 开电、改名 `acdev-peer`、可连接、可被发现, 在另一个上扫描就能找到它.
 `bluetoothd` 两个控制器都管, 设置里会出现两个适配器 (没有办法只让它管一个). `down` 停 btvirt、卸掉模块.
+- 按路径找 btvirt (`/usr/local/bin`、`/usr/lib/bluez`、`/usr/libexec/bluetooth`、`/usr/bin`, 最后 `type -P`): 第七轮里脚本的函数也叫
+  `btvirt`, `command -v btvirt` 返回的是函数名, 装好的 `/usr/local/bin/btvirt` 也被当成没有; 函数已改名 `find_btvirt`.
+- `-C 5.2` (第七轮查清): btvirt 默认造 Core 6.2 的双模控制器 (bluez 5.88 `emulator/main.c` 的 `BTDEV_TYPE_BREDRLE62`), 它在 LE
+  特性里报 Shorter Connection Intervals (`emulator/btdev.c` 的 `le_features[9]`), 内核 (客户机 7.3) 于是在初始化时发 LE Read Connection
+  Interval (0x20a3); btdev 回一组区间, 内核报 `Invalid response length for 0x20a3`、`Opcode 0x20a3 failed: -38`, 控制器初始化失败,
+  不报给管理接口, `btmgmt info` 是 0 个、设置里“蓝牙不可用”. `-C 5.2` 的控制器不报这个特性, 也没有 6.x 的 LE 命令, 内核就不发它
+  〔推断: 内核只在控制器报了这个特性时才发 0x20a3, 没对照 7.3 的 `hci_sync.c` 逐行看; 要等客户机里验证〕. `-C 6.0` 也不带 6.2 的特性,
+  选 5.2 是为了连 6.0 的 Channel Sounding 一起避开. 不用 `-B` (只有 BR/EDR): 双模更像真机, 设置页的 LE 部分也能看到.
+  btvirt 走的就是 `/dev/vhci` (`-l` 每个控制器 `vhci_open` 一次), 不是它的 server 模式.
+- `up` 起 bluetoothd 后等最多 6 秒, 要管理接口 (`btmgmt info`) 看到两个控制器才算起来; 看不到时以 4 退出, 并带上 dmesg 里最后两行
+  `Bluetooth: hci…`, 下次一眼就能看出是哪条命令卡住.
 `btvirt` 从哪来 (2026-11-19 查): Arch 官方仓库里没有它, 已核实 `bluez-utils` 和 `bluez-deprecated-tools` 的文件列表 (archlinux.org
 的包页面) 都没有; 第六轮客户机里也找不到. 它是 BlueZ 源码 `emulator/btvirt`, 只在 `--enable-testing` 时编. AUR 有没有现成的包没查到
 (网页被拦), 也不想让 provision 依赖 AUR 助手. 所以 provision 按顺序:
