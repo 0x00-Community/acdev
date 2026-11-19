@@ -36,7 +36,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) (after 0.0.9) |
 
-A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acdev webs` (`notes#1048576`), an app id (that app's first window), or `desktop`.
+A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acdev webs` (`notes#1048576`), an app id (that app's first window), or `desktop`. In a Dopame OS guest, a page that does not answer within 1.5 s (its process is stopped or busy) is still listed, with the title `(not answering)`; the other pages are listed as usual.
 
 ### eval
 
