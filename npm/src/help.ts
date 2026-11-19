@@ -388,6 +388,12 @@ export class Help {
           { flag: '--wifi, --bluetooth, --battery', about: 'provision: deprecated, change nothing (all three are on by default)' },
           { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },
           { flag: '--audio none|wav', about: 'start: where the guest sound card plays: nowhere (default) or <logs>/audio.wav' },
+          {
+            flag: '--vga virtio|std',
+            about: 'start: the display device: virtio (default; resizes with the window, more displays, 3D) or std, the standard '
+              + 'VGA (bochs-drm in the guest; one display, a fixed size) for sleep and wake, which the virtio GPU does not survive',
+          },
+          { flag: '--resolution WxH', about: 'start: the display size the guest starts with (default 1280x800)' },
           { flag: '--size SIZE', about: 'usb add: the size of a new image, like 256M or 2G (default 256M)' },
           { flag: '--gl', about: 'start: virtio-vga-gl with an OpenGL window (virgl; not on the roadmap)' },
           { flag: '--detach', about: 'run: in the background; prints its process group id' },

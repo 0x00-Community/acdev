@@ -10,7 +10,7 @@ import { TOOL, crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { displayOf } from '../src/vm/command.ts'
-import { audioOf, hardwareArgs } from '../src/vm/hardware.ts'
+import { audioOf, gpuArgs, hardwareArgs, resolutionOf, vgaOf } from '../src/vm/hardware.ts'
 import { Usb } from '../src/vm/usb.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
@@ -726,7 +726,9 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(guestArch({ platform: 'linux', arch: 'x64' }, { ACDEV_VM_ARCH: 'aarch64' })).toBe('aarch64')
     expect(() => guestArch({ platform: 'linux', arch: 'x64' }, { ACDEV_VM_ARCH: 'riscv64' })).toThrow('x86_64 or aarch64')
     expect(guestDevices('aarch64', 'kvm').machine).toBe('virt,gic-version=host')
-    expect(guestDevices('aarch64', 'hvf')).toEqual({ machine: 'virt,gic-version=max', gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', console: 'ttyAMA0' })
+    expect(guestDevices('aarch64', 'hvf')).toEqual({
+      machine: 'virt,gic-version=max', gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', gpuStd: 'bochs-display', console: 'ttyAMA0',
+    })
     expect(accelArgs('whpx', 'aarch64')).toEqual(['-accel', 'whpx', '-cpu', 'host'])
     const silicon = { platform: 'darwin', arch: 'arm64' } as const
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/a.fd', OVMF_VARS: '/b.fd' }, silicon)
@@ -950,6 +952,24 @@ describe('acdev vm provision', () => {
 })
 
 describe('emulated hardware', () => {
+  test('--vga std is the standard VGA at a fixed size; virtio keeps its heads and takes a size only when given', () => {
+    const x86 = guestDevices('x86_64', 'kvm')
+    const choice = { vga: 'virtio' as const, gl: false, outputs: 1, resolution: null }
+    expect(gpuArgs(x86, 'gpu0', choice)).toEqual(['-device', 'virtio-vga,id=gpu0'])
+    expect(gpuArgs(x86, 'gpu0', { ...choice, outputs: 2, resolution: [1920, 1080] }))
+      .toEqual(['-device', 'virtio-vga,id=gpu0,max_outputs=2,xres=1920,yres=1080'])
+    expect(gpuArgs(x86, 'gpu0', { ...choice, vga: 'std' })).toEqual(['-device', 'VGA,id=gpu0,xres=1280,yres=800'])
+    expect(gpuArgs(guestDevices('aarch64', 'kvm'), 'gpu0', { ...choice, vga: 'std', resolution: [1024, 768] }))
+      .toEqual(['-device', 'bochs-display,id=gpu0,xres=1024,yres=768'])
+    expect([vgaOf(undefined), vgaOf('std'), resolutionOf('1600x900'), resolutionOf(undefined)]).toEqual(['virtio', 'std', [1600, 900], null])
+    expect(() => vgaOf('cirrus')).toThrow('--vga cirrus: one of virtio, std')
+    expect(() => resolutionOf('big')).toThrow('--resolution big')
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
+    expect(machine.args({ display: 'none', vga: 'std' }, 'kvm').join(' ')).toContain('-device VGA,id=gpu0,xres=1280,yres=800 -display none')
+    expect(() => machine.refuse({ vga: 'std', gl: true })).toThrow('--vga std has no 3D')
+    expect(() => machine.refuse({ vga: 'std', outputs: 2 })).toThrow('--vga std has one display')
+  })
+
   test('a sound card with a silent or wav backend, an xHCI controller and S3 on x86_64', () => {
     expect(hardwareArgs('x86_64', 'none', '/l')).toEqual([
       '-audiodev', 'none,id=snd0', '-device', 'ich9-intel-hda,id=sound0', '-device', 'hda-duplex,bus=sound0.0,audiodev=snd0',
