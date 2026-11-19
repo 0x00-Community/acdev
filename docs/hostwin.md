@@ -78,6 +78,12 @@
   不拖窗口、不开菜单; 注入的 `move` 按和上一次注入位置的差、`motion` 按原值变成相对移动 (dev 的 `input` 和 driver 照样能测). 收回并发
   `pointerlock {code: 0, title: 'lost'}`: Esc (这次按下和松开都不发给页面)、宿主窗口失焦 (选择器、批准对话框、⌘Tab 也是这一条)、焦点给了别的窗口
   (`Server::activate` / `focus_top` 发 `Cmd::FocusMoved`). 页面 `exitPointerLock` 或窗口没了 (`Surface` drop) 时不回答, 直接放开.
+- **帧率面板** (调试用, 画法见 libacde `docs/graphics/render-gpu.md`「帧率面板」): `ACDE_HUD=1` 时起来就开着; 有 `ACDE_DEV` 时 Shift+F12
+  开关 (`dev::DevtoolsKey`, 和 F12 一样按住的重复和松开都吞掉, 不给页面). 数在出帧线程记 (`output/hud.rs`): `Presenter::paint` 每画出页面的一帧新内容
+  记一次时刻和这一帧的光栅化毫秒 (同 `perf::raster` 的 `surface ms`), 每个窗口留最近 120 个帧间隔; 关着时不记. FPS 是最近一秒里画出的帧数,
+  平均是这些帧的间隔, 合成器重画不算帧, 所以静止的页面显示 idle. 合成线程 (`compose.rs` `meter`) 把它画成最上面一层: 焦点窗口 (没有时最上层的窗口)
+  内容区右上角, 离边 8 px, 预算按 `State.refresh` (不知道时 60 Hz); 场景最多 100 ms 重画一次 (自己的 Vello, 纹理按缩放建, 换 GPU 设备时扔掉),
+  页面不出帧时每 500 ms 合成一次, 让数字落到 idle. `screen` 截图里也有它.
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /

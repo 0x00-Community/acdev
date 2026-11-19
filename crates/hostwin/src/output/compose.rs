@@ -44,6 +44,9 @@ const SCREENSHOT_WAIT: Duration = Duration::from_secs(10);
 const RETRY: Duration = Duration::from_millis(50);
 const FAULT_AT: u64 = 3;
 const OFFSCREEN: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const METER_EVERY: Duration = Duration::from_millis(100);
+const METER_IDLE: Duration = Duration::from_millis(500);
+const METER_MARGIN: f64 = 8.0;
 const BACKGROUND: wgpu::Color = wgpu::Color { r: 0.12, g: 0.12, b: 0.13, a: 1.0 };
 
 pub(crate) struct Page {
@@ -121,6 +124,15 @@ impl Compositor {
     pub fn stop(&self) {
         let _ = self.0.send(Msg::Stop);
     }
+}
+
+struct Meter {
+    hud: acde::render::Hud,
+    vello: acde::vello::Vello,
+    overrides: acde::vello::Overrides,
+    layer: Bound,
+    scale: f64,
+    drawn: Option<Instant>,
 }
 
 struct Bound {
@@ -203,6 +215,7 @@ struct Thread {
     fault: Option<Fault>,
     fault_due: Option<Instant>,
     draws: u64,
+    meter: Option<Meter>,
 }
 
 fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) -> Result<wgpu::SurfaceConfiguration, String> {
@@ -241,8 +254,23 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
         Some((fault, delay)) => (Some(fault), delay.map(|d| Instant::now() + d)),
         None => (None, None),
     };
-    let mut thread =
-        Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, fault_due, draws: 0 };
+    let mut thread = Thread {
+        gpu,
+        output,
+        size,
+        offscreen,
+        layout,
+        dump,
+        dump_at: None,
+        pages,
+        composer,
+        canvas: None,
+        retry_at: None,
+        fault,
+        fault_due,
+        draws: 0,
+        meter: None,
+    };
     let run = move || guarded(|| thread.run(&rx));
     let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(run).map_err(|e| format!("compose thread: {e}"))?;
     Ok((Compositor(tx), handle))
@@ -327,7 +355,8 @@ impl Thread {
                     self.dump_at = None;
                     self.dump();
                 }
-                if self.retry_at.is_some_and(|at| at <= now) {
+                let meter = self.meter.as_ref().and_then(|m| m.drawn).is_some_and(|at| at + METER_IDLE <= now);
+                if self.retry_at.is_some_and(|at| at <= now) || meter {
                     self.retry_at = None;
                     self.draw();
                 }
@@ -369,6 +398,7 @@ impl Thread {
                 self.pages.clear();
                 self.canvas = None;
                 self.retry_at = None;
+                self.meter = None;
             }
             Err(e) => crate::output::gpu::give_up(&format!("composing on the new GPU device: {e}")),
         }
@@ -497,6 +527,7 @@ impl Thread {
     }
 
     fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Option<acde::gpu::Backdrop>)]) -> wgpu::TextureView {
+        let shown = self.meter();
         let canvas = self.canvas();
         let mut from = 0;
         let mut clear = true;
@@ -507,9 +538,82 @@ impl Thread {
             from = at;
             self.composer.backdrop(encoder, &canvas, backdrop);
         }
-        Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..].iter().map(|(id, _)| &self.pages[id].bind));
+        let meter = self.meter.as_ref().filter(|_| shown).map(|m| &m.layer.bind);
+        Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..].iter().map(|(id, _)| &self.pages[id].bind).chain(meter));
         self.composer.flush();
         canvas
+    }
+
+    fn meter(&mut self) -> bool {
+        if !crate::output::hud::shown() {
+            self.meter = None;
+            return false;
+        }
+        let Some(server) = server() else { return false };
+        let (window, rect, scale, budget) = {
+            let state = server.state();
+            let window = state.focus.or_else(|| state.layers().last().map(|l| l.id));
+            let Some((id, e)) = window.and_then(|id| state.entries.get(&id).map(|e| (id, e))) else { return false };
+            let [x, y, w, _] = e.rect;
+            (id, [x, y + e.frame, w], state.screen[2], 1000.0 / state.refresh.filter(|hz| *hz > 1.0).unwrap_or(60.0))
+        };
+        let now = Instant::now();
+        let size = acde::render::Hud::pixels(scale);
+        if self.meter.as_ref().is_none_or(|m| m.scale != scale) {
+            match self.new_meter(scale, size) {
+                Ok(meter) => self.meter = Some(meter),
+                Err(e) => {
+                    log::warn!("host window: frame meter: {e}");
+                    return false;
+                }
+            }
+        }
+        let gpu = self.gpu.clone();
+        let Some(meter) = self.meter.as_mut() else { return false };
+        if meter.drawn.is_none_or(|at| now.duration_since(at) >= METER_EVERY) {
+            let stats = crate::output::hud::stats(window);
+            let numbers = stats.as_ref().map(|s| acde::render::HudStats {
+                fps: s.fps,
+                mean_ms: s.mean_ms,
+                worst_ms: s.worst_ms,
+                raster_ms: s.raster_ms,
+                budget_ms: budget,
+                intervals: &s.intervals,
+            });
+            let scene = meter.hud.scene(numbers.as_ref(), scale);
+            let target = meter.layer.page.view.clone();
+            let drawn = meter.vello.render(
+                [(scene, acde::vello::vello::kurbo::Affine::IDENTITY)],
+                &mut meter.overrides,
+                &target,
+                size,
+                acde::vello::vello::peniko::Color::TRANSPARENT,
+                Some(&gpu.shared),
+            );
+            if let Err(e) = drawn {
+                log::warn!("host window: frame meter: {e}");
+                return false;
+            }
+            meter.drawn = Some(now);
+        }
+        let [x, y, w] = rect;
+        let left = ((x + w) * scale - f64::from(size.0) - METER_MARGIN * scale).max(0.0).round();
+        let top = ((y + METER_MARGIN) * scale).round();
+        let values = [self.size.0 as f32, self.size.1 as f32, left as f32, top as f32, size.0 as f32, size.1 as f32, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0];
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        gpu.shared.queue.write_buffer(&meter.layer.place, 0, &bytes);
+        true
+    }
+
+    fn new_meter(&self, scale: f64, size: (u32, u32)) -> Result<Meter, String> {
+        let device = &self.gpu.shared.device;
+        let usage = wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC;
+        let texture = acde::gpu::texture(device, size, usage, "acde frame meter");
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let page = Arc::new(Page { size, view, texture, straight: false.into(), owner: self.gpu.shared.clone() });
+        let vello = acde::vello::Vello::new(device, &self.gpu.shared.queue)?;
+        let overrides = acde::vello::Overrides::from(self.gpu.shared.images.clone());
+        Ok(Meter { hud: acde::render::Hud::new(), vello, overrides, layer: self.bind(page), scale, drawn: None })
     }
 
     fn configure(&mut self) {
@@ -562,7 +666,8 @@ impl Thread {
     }
 
     fn deadline(&self) -> Option<Instant> {
-        self.dump_at.into_iter().chain(self.retry_at).min()
+        let meter = self.meter.as_ref().and_then(|m| m.drawn).map(|at| at + METER_IDLE);
+        self.dump_at.into_iter().chain(self.retry_at).chain(meter).min()
     }
 
     fn acquire(&mut self) -> Option<wgpu::SurfaceTexture> {

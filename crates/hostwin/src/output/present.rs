@@ -136,6 +136,7 @@ impl Presenter {
         for (reply, _) in self.captures.drain(..) {
             let _ = reply.send(Err("the window is gone".to_owned()));
         }
+        crate::output::hud::forget(self.id);
         if let Some(compositor) = server().and_then(|s| s.compositor()) {
             for id in self.targets.keys() {
                 compositor.remove(*id);
@@ -262,7 +263,9 @@ impl Presenter {
         if let Some(compositor) = server().and_then(|s| s.compositor()).filter(|_| drawn) {
             compositor.dirty();
         }
-        log::debug!(target: "perf::raster", "surface ms={:.3}", acde::log::since_ms(started));
+        let raster = acde::log::since_ms(started);
+        crate::output::hud::frame(self.id, raster);
+        log::debug!(target: "perf::raster", "surface ms={raster:.3}");
     }
 
     fn in_layers(mut plane: Plane, (width, height): (u32, u32)) -> Plane {

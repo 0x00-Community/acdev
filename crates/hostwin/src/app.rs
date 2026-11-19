@@ -902,6 +902,10 @@ impl App {
                 let window = server.state().focus;
                 return server.broker.push(Event { kind: "devtools".into(), window, ..Default::default() });
             }
+            crate::dev::DevtoolsPress::Meter => {
+                crate::output::hud::toggle();
+                return server.relayout();
+            }
         }
         if self.menu_key(server, evdev, pressed) {
             return;
