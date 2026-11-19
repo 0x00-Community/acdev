@@ -246,6 +246,92 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   编过了就停掉旧的进程组、推送、再起. Ctrl+C (终端里 cargo 一起收到) 停掉程序后退出; 再按 Ctrl+C 不会跳过这一步.
 - guest agent 只用来装 acdevd、`mount` 和 `console`.
 
+## 模拟硬件
+
+原本只能真机测的硬件, 在 QEMU 里能模拟的部分. 参数在 `npm/src/vm/hardware.ts`, U 盘在 `usb.ts`, 测试在 `test/vm.test.ts`「emulated hardware」.
+
+### 声音
+
+`start` 总是带一块声卡: `ich9-intel-hda` 加 `hda-duplex` (一路输出、一路输入). 选 HDA 不选 `virtio-sound-pci`: 本机 QEMU 8.2.2 两者都有
+(`-device help` 核对过), 但 virtio-sound 是 8.2 才加的, 客户机内核要 `CONFIG_SND_VIRTIO`; HDA 由通用的 `snd-hda-intel` 驱动, 任何发行版内核都认,
+q35 本身就是 ICH9, aarch64 的 virt 上走 PCIe 也能用. 后端由 `--audio` 选 (`-audiodev ...,id=snd0`):
+
+```sh
+acdev vm start                       # 默认 --audio none: 客户机有声卡, 声音哪里也不去
+acdev vm start --audio wav           # 声音写进 <vm 目录>/logs/audio.wav (QEMU 的 wav 后端), 用来核对确实有输出
+```
+
+### U 盘
+
+`start` 总是带一个 xHCI 控制器 (`-device qemu-xhci,id=xhci`). U 盘在运行中经 QMP 插拔: `blockdev-add` (raw, 节点名 `usbN-disk`) 加
+`device_add usb-storage,bus=xhci.0,drive=usbN-disk,id=usbN,removable=on`; 拔是 `device_del`, 再反复 `blockdev-del` 直到客户机放开 (最多 10 秒).
+插着的记在 `<vm 目录>/run/usb.json`, `start` 时清掉.
+
+```sh
+acdev vm usb add stick.img                   # stick.img 不存在时按 --size (默认 256M) 新建并格式化成 FAT, 卷标 ACDEV
+acdev vm usb add photos.img --size 2G
+acdev vm usb list                            # usbN 和镜像路径
+acdev vm usb remove                          # 拔最后插的; 也可以给镜像路径或 usbN
+```
+
+新建镜像要本机有 `mkfs.vfat` (dosfstools) 或 `mkfs.exfat` (exfatprogs), 依次找 PATH、`/usr/sbin`、`/sbin`; 都没有就报错并说要装哪个,
+不换别的办法. 镜像整块就是一个文件系统, 没有分区表 (U 盘常见的「超级软盘」布局).
+
+### 睡眠
+
+x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默认就开 (`hw/acpi/ich9.c` 的 `ich9_pm_reset_properties` 里
+`disable_s3 = 0`), 显式写上是因为 libvirt 等常把它关掉, 这里不依赖默认. 客户机挂起后 (`systemctl suspend` 或电源设置), 用 `acdev vm wake`
+(QMP `system_wakeup`) 叫醒; 客户机没睡时它什么也不做. aarch64 的 virt 没有 ACPI S3, 不加这个参数.
+
+### 双屏
+
+`--outputs N` 的参数链路 (`Machine.args`、`afterStart`、`switchOnOutputs`):
+- `--headless --outputs N`: `-display dbus,p2p=yes`, 起来后 `acdevtool view --outputs N` 打开第 1 个以后的输出 (见上面「多个显示输出」).
+- 带窗口: GTK 为每个输出建标签页并报大小, 都连上. SDL 不行: 它只在用户拉动窗口时报大小, 第 1 个以后的输出没有窗口可拉, 客户机一直看到
+  disconnected. 所以默认窗口在 `--outputs` 2 以上时改用 GTK (说一句), 明说 `--sdl --outputs N` 报错.
+- `--vnc`、`--viewer` 只显示第一个输出, 和 `--outputs` 2 以上一起用时报错 (不变).
+
+### Wi-Fi、蓝牙、电池共同的做法 (客户机里, `src/vm/guesthw.ts`)
+
+QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 都是可选的: `acdev vm provision --wifi` / `--bluetooth` /
+`--battery` (可同时给) 把要的包 (`hw/packages`) 和脚本放进暂存目录 (`hw/acdev-*`), provision 脚本装包 (装不上只打一行) 并把脚本装到
+客户机 `/usr/local/bin`. 不给时暂存目录里没有 `hw/`, provision 照旧. 脚本要 root 跑 (`acdev vm run -- acdev-wifi up`, acdevd 是 root).
+三个脚本缺内核模块或缺包时以 4 退出, 说缺的是什么 (`CONFIG_…=m` 或要先 provision 哪一项); 客户机内核 (ackernel) 的配置不在本仓库,
+有没有这三个模块要在客户机里 `modinfo` 才知道〔未核实〕: `mac80211_hwsim` 和 `test_power` 没有设备别名, 按 ackernel 的拆包规则
+留在 `linux-ackernel` 里, 不会被 `agentos-drivers prune` 删掉; `hci_vhci` 同理.
+
+### Wi-Fi
+
+`acdev-wifi up|down`. `up`: `modprobe mac80211_hwsim radios=2`, 第一个口交给 hostapd (先 `nmcli device set <口> managed no`),
+一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1):
+
+| SSID | 安全 | 密码 |
+| --- | --- | --- |
+| `acdev-open` | 开放 | 无 |
+| `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` |
+
+第二个口交给 NetworkManager (`managed yes`, 再 `rescan`), 设置和控制中心能扫到这两个网络, 连 `acdev-wpa2` 时页面要密码.
+配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
+
+### 蓝牙
+
+`acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
+起 `bluetoothd`; 编号最大的那个当“对面的设备”: `btmgmt` 开电、改名 `acdev-peer`、可连接、可被发现, 在另一个上扫描就能找到它.
+`bluetoothd` 两个控制器都管, 设置里会出现两个适配器 (没有办法只让它管一个). `down` 停 btvirt、卸掉模块.
+`btvirt` 只在 BlueZ 带 `--enable-testing` 编时才有; Arch 的 `bluez-utils` 里没有它时脚本报 `no btvirt`〔未核实 Arch 的包里有没有〕,
+这时要另外放一个 `btvirt` (`/usr/lib/bluez/btvirt` 或 PATH 上). 包: `bluez`、`bluez-utils` (镜像里已有).
+
+### 电池
+
+libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDevices`、每个设备的 `Percentage` / `State` / `TimeToEmpty`、
+`OnBattery`, 再加 `/sys/class/power_supply/<NativePath>` 的充电上限), 所以假电池要让 UPower 自己看到: 用内核的 `test_power` 模块
+(`/sys/class/power_supply/test_battery`、`test_ac`, 改模块参数时发 uevent, UPower 跟着更新), 不用 umockdev (它要把 upowerd 换成
+`umockdev-run` 下的一份, 改电量还要另外通知).
+`acdev-battery <百分比> [charging|discharging]` (默认 discharging): 载入模块, 写 `battery_capacity`、`battery_status`、`ac_online`
+(充电时 on), 起 `upower`. `acdev-battery off` 卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
+默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
+的严重线在它上面). 包: `upower` (镜像里没有).
+
 ## 把 winman 和测试客户端放进去跑
 
 一条命令 (改了 winman 的源码就自动重编、推送、重启):
@@ -275,49 +361,6 @@ acdev vm kill "$pid"
 guest agent 以 root 跑命令, 不在任何 logind 会话里, 对应 winman 调研 (总仓 `.scratch/winman/issues/04-session-start.md`) 的做法 A.
 显卡是 virtio-gpu, 内核先用 simpledrm, `virtio_gpu` 载入后换成真驱动 (`/dev/dri/card1`). 宿主上编的二进制一般能直接跑 (客户机 Arch 的
 glibc 较新); 不放心就静态链接 (musl).
-
-## 模拟硬件
-
-### Wi-Fi、蓝牙、电池 (客户机里, `src/vm/guesthw.ts`)
-
-QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 都是可选的: `acdev vm provision --wifi` / `--bluetooth` /
-`--battery` (可同时给) 把要的包 (`hw/packages`) 和脚本放进暂存目录 (`hw/acdev-*`), provision 脚本装包 (装不上只打一行) 并把脚本装到
-客户机 `/usr/local/bin`. 不给时暂存目录里没有 `hw/`, provision 照旧. 脚本要 root 跑 (`acdev vm run -- acdev-wifi up`, acdevd 是 root).
-三个脚本缺内核模块或缺包时以 4 退出, 说缺的是什么 (`CONFIG_…=m` 或要先 provision 哪一项); 客户机内核 (ackernel) 的配置不在本仓库,
-有没有这三个模块要在客户机里 `modinfo` 才知道〔未核实〕: `mac80211_hwsim` 和 `test_power` 没有设备别名, 按 ackernel 的拆包规则
-留在 `linux-ackernel` 里, 不会被 `agentos-drivers prune` 删掉; `hci_vhci` 同理.
-
-#### Wi-Fi
-
-`acdev-wifi up|down`. `up`: `modprobe mac80211_hwsim radios=2`, 第一个口交给 hostapd (先 `nmcli device set <口> managed no`),
-一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1):
-
-| SSID | 安全 | 密码 |
-| --- | --- | --- |
-| `acdev-open` | 开放 | 无 |
-| `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` |
-
-第二个口交给 NetworkManager (`managed yes`, 再 `rescan`), 设置和控制中心能扫到这两个网络, 连 `acdev-wpa2` 时页面要密码.
-配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
-
-#### 蓝牙
-
-`acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
-起 `bluetoothd`; 编号最大的那个当“对面的设备”: `btmgmt` 开电、改名 `acdev-peer`、可连接、可被发现, 在另一个上扫描就能找到它.
-`bluetoothd` 两个控制器都管, 设置里会出现两个适配器 (没有办法只让它管一个). `down` 停 btvirt、卸掉模块.
-`btvirt` 只在 BlueZ 带 `--enable-testing` 编时才有; Arch 的 `bluez-utils` 里没有它时脚本报 `no btvirt`〔未核实 Arch 的包里有没有〕,
-这时要另外放一个 `btvirt` (`/usr/lib/bluez/btvirt` 或 PATH 上). 包: `bluez`、`bluez-utils` (镜像里已有).
-
-#### 电池
-
-libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDevices`、每个设备的 `Percentage` / `State` / `TimeToEmpty`、
-`OnBattery`, 再加 `/sys/class/power_supply/<NativePath>` 的充电上限), 所以假电池要让 UPower 自己看到: 用内核的 `test_power` 模块
-(`/sys/class/power_supply/test_battery`、`test_ac`, 改模块参数时发 uevent, UPower 跟着更新), 不用 umockdev (它要把 upowerd 换成
-`umockdev-run` 下的一份, 改电量还要另外通知).
-`acdev-battery <百分比> [charging|discharging]` (默认 discharging): 载入模块, 写 `battery_capacity`、`battery_status`、`ac_online`
-(充电时 on), 起 `upower`. `acdev-battery off` 卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
-默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
-的严重线在它上面). 包: `upower` (镜像里没有).
 
 ## 测试
 

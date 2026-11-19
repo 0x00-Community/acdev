@@ -342,7 +342,10 @@ export class Help {
             + '(default ./<name>; into LOCAL/<name> when LOCAL is a directory); '
             + 'view opens acdev\'s own window again on a guest started with --viewer; '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
-            + 'port from the next boot; provision sets the guest up for testing (the user, its password, greetd on the acdes '
+            + 'port from the next boot; usb add IMAGE [--size SIZE] plugs a disk image in as a USB stick (a new image is made '
+            + 'and formatted FAT, which needs mkfs.vfat or mkfs.exfat), usb remove [IMAGE or ID] pulls it (default: the last one), '
+            + 'usb list shows them; wake wakes a guest that went to sleep (S3); '
+            + 'provision sets the guest up for testing (the user, its password, greetd on the acdes '
             + 'login screen, acdes and winman laid out by the acdes PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
             + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and UEFI firmware (ACDEV_QEMU_DIR); without KVM, WHPX or HVF it emulates.',
@@ -350,7 +353,11 @@ export class Help {
         options: [
           { flag: '--headless', about: 'start: no window (screenshots still work)' },
           { flag: '--vnc', about: 'start: a VNC display on 127.0.0.1:5900 instead of a window' },
-          { flag: '--outputs N', about: 'start: N displays (virtio-vga max_outputs, 1 to 16; QEMU\'s window shows one tab each)' },
+          {
+            flag: '--outputs N',
+            about: 'start: N displays (virtio-vga max_outputs, 1 to 16); with a window it is GTK, one tab each (SDL cannot show '
+              + 'displays 1 and up)',
+          },
           { flag: '--output N', about: 'screenshot: which display, from 0 (default 0)' },
           { flag: '--viewer', about: 'start: show the guest in acdev\'s own window (QEMU\'s D-Bus display; Linux for now)' },
           {
@@ -378,6 +385,8 @@ export class Help {
           { flag: '--bluetooth', about: 'provision: BlueZ and acdev-bt up|down in the guest (virtual controllers through hci_vhci and btvirt)' },
           { flag: '--battery', about: 'provision: UPower and acdev-battery PERCENT [charging|discharging] in the guest (a test_power battery)' },
           { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },
+          { flag: '--audio none|wav', about: 'start: where the guest sound card plays: nowhere (default) or <logs>/audio.wav' },
+          { flag: '--size SIZE', about: 'usb add: the size of a new image, like 256M or 2G (default 256M)' },
           { flag: '--gl', about: 'start: virtio-vga-gl with an OpenGL window (virgl; not on the roadmap)' },
           { flag: '--detach', about: 'run: in the background; prints its process group id' },
           { flag: '--force', about: 'kill: SIGKILL instead of SIGTERM' },

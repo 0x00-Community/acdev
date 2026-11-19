@@ -1,6 +1,8 @@
 import { rmSync } from 'node:fs'
 import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
+import { audioOf } from './hardware.ts'
+import { Usb } from './usb.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
 import { guestHardware } from './guesthw.ts'
@@ -62,6 +64,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
     ...(flags.has('gl') && { gl: true }),
     display,
     outputs: outputsFor(flags, display),
+    audio: audioOf(flags.get('audio')),
   }
   const wait = seconds(flags.get('wait'))
   if (wait !== 0) machine.devdBinary()
@@ -261,6 +264,32 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   async mount(machine, rest) {
     count('mount', rest, 0, 0, 'no arguments')
     say(`guest:${Machine.SHARE} is ${await machine.mount()}`)
+    return 0
+  },
+  async usb(machine, rest, flags) {
+    const [action, ...more] = rest
+    if (action === 'add') {
+      count('usb add', more, 1, 1, 'IMAGE [--size SIZE]')
+      const stick = await machine.usb().add(more[0]!, Usb.size(flags.get('size')))
+      say(`${stick.image} is plugged in as ${stick.id} (a USB stick on the guest's xHCI controller)`)
+      return 0
+    }
+    if (action === 'remove') {
+      count('usb remove', more, 0, 1, '[IMAGE or ID]')
+      const stick = await machine.usb().remove(more[0])
+      say(`${stick.id} (${stick.image}) is unplugged`)
+      return 0
+    }
+    if (action === 'list' || action === undefined) {
+      for (const stick of machine.usb().list()) console.log(`${stick.id}\t${stick.image}`)
+      return 0
+    }
+    throw new Error(`vm usb: ${action}: add, remove or list (acdev vm --help)`)
+  },
+  async wake(machine, rest) {
+    count('wake', rest, 0, 0, 'no arguments')
+    await machine.wake()
+    say('sent the wake-up (QMP system_wakeup); a guest that is not asleep ignores it')
     return 0
   },
   async console(machine, rest) {
