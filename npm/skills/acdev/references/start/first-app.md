@@ -20,21 +20,21 @@ Available templates:
 | --- | --- |
 | `html` | A plain web page (default); add `--backend` to include a backend |
 | `desktop` | A desktop (see [Desktops](../guide/desktop.md)) |
-| `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates. In 0.0.9 they ignore `--backend`; after 0.0.9, `--backend` adds `server.ts` |
+| `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates. `--backend` adds `server.ts` |
 | `next` `nuxt` `sveltekit` `astro` | Each framework's official scaffolding tool |
 
 Framework templates run the latest version of the framework's scaffolding tool through your package manager, then add `acde.config.jsonc`.
 
 ## Run
 
-`acdev dev` runs your app in the runtime, acdev runtime, which the installer set up next to acdev (inside the Dopame virtual machine it is already on PATH). `acdev doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
+`acdev dev` runs your app in the runtime, which the installer set up next to acdev. `acdev doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
 
 ```sh
 cd my-app
 acdev dev
 ```
 
-`acdev dev` builds the project, starts acdev runtime, and opens a window on your computer with your app inside. Leave it running, then edit and save `index.html` or `src/main.js`; the window reloads automatically.
+`acdev dev` builds the project, starts the runtime, and opens a window on your computer with your app inside. Leave it running, then edit and save `index.html` or `src/main.js`; the window reloads automatically.
 
 Press Ctrl+C or close the window to stop, or run `acdev stop` from another terminal in the project directory.
 

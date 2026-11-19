@@ -20,15 +20,45 @@ Who can import what. "App" is an app of its own package; a "system app" ships in
 | `acde:fs` | `fs` | `fs` | ✓ |
 | `acde:terminal` | `terminal` | `terminal` | ✓ |
 | `acde:network` | `network` | `network` | ✓ |
+| `acde:system` | `system` | `system` | ✓ |
+| `acde:bluetooth` | `bluetooth` | `bluetooth` | ✓ |
+| `acde:audio` | `audio` | `audio` | ✓ |
+| `acde:devices` | `devices` | `devices` | ✓ |
+| `acde:power` | `power` | `power` | ✓ |
+| `acde:input` | `input` | `input` | ✓ |
+| `acde:display` | `display` | `display` | ✓ |
 | `acde:office` | `office` | `office` | ✓ |
 | `acde:openPath` `acde:handlers` | `openFiles` | `openFiles` | ✓ |
 | `acde:launch` | `launch` or `slots` | `launch` or `slots` | ✓ |
 | `acde:windows` `acde:packages` `acde:session` `acde:desktops` `acde:inspect` `acde:desktop` `acde:setDefault` `acde:permissions` (shell modules) | | The module's name: `"windows": true` | ✓ |
 | `acde:<service>` | The service's name in `services` | The same | ✓ |
 
-A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with a `TypeError` whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`. Desktop services cannot import `acde:` modules; a service that the desktop grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
+A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with an `AcdeError` (`code: 'forbidden'`, `status: 403`, `module` without `acde:`) whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`; when the service that provided the module stopped, the code is `service_not_running` and the status 503. See [Errors](#errors). Desktop services cannot import `acde:` modules; a service that the desktop grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
 
-Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `on()` throws a `TypeError` for an event type the module does not have, such as `acde:window has no nosuch event (activate, deactivate, …)`. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
+Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `on()` throws a `TypeError` for an event type the module does not have, such as `acde:window has no nosuch event (activate, deactivate, …)`. `acde:terminal` takes a callback instead (`subscribe`); `acde:network` has `on('changed')` and also takes a callback with `watch`.
+
+## Errors
+
+The system modules (`acde:network`, `acde:system`, `acde:bluetooth`, `acde:audio`, `acde:devices`, `acde:power`, `acde:input`, `acde:display`) fail with one kind of error, whether a method throws or its promise rejects: an `Error` with `name === 'AcdeError'` and `status`, `code` and `module` (the module's name without `acde:`). The cause is in `cause`, and a code of its own, when it has one, in the optional `reason`. The types are `AcdeError` and `AcdeErrorCode` in `@dopame/acde-api`; tell the error by `error.name === 'AcdeError'`. The codes:
+
+| `code` | `status` | When |
+| --- | --- | --- |
+| `bad_request` | 400 | A wrong argument, such as a host name, a time zone, a power setting, a brightness or a device id |
+| `forbidden` | 403 | The app was not given the module or the call (not in its capabilities) |
+| `unsupported` | 501 | This runtime or platform cannot do it |
+| `service_not_running` | 503 | The system service or bus it needs is not there (NetworkManager, BlueZ, UPower, fcitx5 and the like) |
+| `failed` | 500 | Anything else |
+
+```js
+try {
+  await network.connect('Home', 'secret')
+} catch (error) {
+  if (error.name === 'AcdeError' && error.code === 'service_not_running') showOffline()
+  else throw error
+}
+```
+
+An `import` of a module the app was not given fails with the same error, `code: 'forbidden'` (see above).
 
 ## acde:window
 
@@ -251,7 +281,7 @@ interface AcdeAppList {
 interface DesktopApp { id: string; label: string; icon: string; script: string }
 ```
 
-`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes. In 0.0.9 it also fires when the user denies a camera or microphone that an app requires, or takes that approval back, because the app leaves the list; after 0.0.9, a denial keeps the app in the list. Installing packages and native programs are in [`acde:packages`](#acdepackages).
+`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes. A denied camera or microphone keeps the app in the list. Installing packages and native programs are in [`acde:packages`](#acdepackages).
 
 ## acde:openPath / acde:handlers / acde:setDefault
 
@@ -321,6 +351,7 @@ interface AcdeNetwork {
   activate(iface: string): Promise<void>
   disconnect(iface: string): Promise<void>
   setWifiEnabled(on: boolean): Promise<void>
+  on(type: 'changed', handler: (state: NetworkState) => void): () => boolean
   watch(callback: (state: NetworkState) => void): void
 }
 
@@ -352,6 +383,152 @@ interface WifiNetwork {
   saved: boolean
 }
 ```
+
+## acde:system
+
+Linux only. Needs `system`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeSystem {
+  info(): Promise<SystemInfo>
+  storage(): Promise<SystemVolume[]>
+  time(): Promise<SystemTime>
+  timezones(): Promise<string[]>
+  setTimezone(zone: string): Promise<void>
+  setNtp(on: boolean): Promise<void>
+  setHostname(name: string): Promise<void>
+  user(): Promise<SystemUser>
+  on(type: 'changed', handler: (change: SystemChange) => void): () => boolean
+}
+```
+
+The computer: `info()` (the host name and other facts), `storage()` (its volumes), `time()` (with `timezone` and `ntp`), `timezones()`, the settings `setTimezone`, `setNtp` and `setHostname`, and `user()`. `changed` gives `{storage, hostname, timezone, ntp}`, the whole set each time, when one of these changes; it is checked every 30 seconds while someone listens, and right after this page sets one of them. The state types are in `@dopame/acde-api`.
+
+## acde:bluetooth
+
+Linux only. Needs `bluetooth`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeBluetooth {
+  state(): Promise<BluetoothState>
+  setPowered(on: boolean): Promise<void>
+  setDiscoverable(on: boolean, timeout?: number): Promise<void>
+  setName(name: string): Promise<void>
+  scan(on: boolean): Promise<void>
+  pair(id: string): Promise<void>
+  answer(id: string, accept: boolean, pin?: string): Promise<void>
+  connect(id: string): Promise<void>
+  disconnect(id: string): Promise<void>
+  forget(id: string): Promise<void>
+  setTrusted(id: string, on: boolean): Promise<void>
+  setBlocked(id: string, on: boolean): Promise<void>
+  rename(id: string, name: string): Promise<void>
+  setOnLogin(mode: 'remember' | 'on' | 'off'): Promise<void>
+  on(type: 'changed', handler: (state: BluetoothState) => void): () => boolean
+  on(type: 'pairing', handler: (request: BluetoothPairing) => void): () => boolean
+}
+```
+
+The Bluetooth adapter and its devices (BlueZ). `changed` gives the whole `BluetoothState`; `pairing` asks the page to confirm a pairing, show or enter a PIN or passkey, or authorize a service, and the page answers with `answer(id, accept, pin?)`. The state types are in `@dopame/acde-api`.
+
+## acde:audio
+
+Linux only. Needs `audio`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeAudio {
+  state(): Promise<AudioState>
+  setDefault(id: string): Promise<void>
+  setVolume(id: string, volume: number): Promise<void>
+  setMuted(id: string, muted: boolean): Promise<void>
+  setBalance(id: string, balance: number): Promise<void>
+  setPort(id: string, port: string): Promise<void>
+  setProfile(card: string, profile: string): Promise<void>
+  moveStream(id: string, device: string | null): Promise<void>
+  on(type: 'changed', handler: (state: AudioState) => void): () => boolean
+}
+```
+
+The sound cards, outputs, inputs and playing streams: the default device, volume, mute, balance, port and card profile, and which device a stream plays on. `changed` gives the whole `AudioState`. The state types are in `@dopame/acde-api`.
+
+## acde:devices
+
+Linux only. Needs `devices`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeDevices {
+  state(): Promise<DevicesState>
+  mount(id: string): Promise<string>
+  unmount(id: string): Promise<void>
+  eject(id: string): Promise<void>
+  setAutomount(patch: Partial<Pick<Automount, 'onLogin' | 'onAttach' | 'unknown'>>): Promise<void>
+  setDeviceAutomount(id: string, patch: Partial<Pick<AutomountDevice, 'login' | 'attach'>>): Promise<void>
+  forgetDevice(id: string): Promise<void>
+  setDefaultPrinter(id: string): Promise<void>
+  pausePrinter(id: string): Promise<void>
+  resumePrinter(id: string): Promise<void>
+  jobs(printer: string): Promise<PrintJob[]>
+  cancelJob(printer: string, job: number): Promise<void>
+  on(type: 'changed', handler: (state: DevicesState) => void): () => boolean
+  on(type: 'added', handler: (drive: Drive) => void): () => boolean
+}
+```
+
+Drives (USB sticks, cards, discs, phones, disks: mount, unmount, eject, and the automount settings) and printers (the default one, pause, resume, jobs). `changed` gives the whole `DevicesState`; `added` gives a drive when one is plugged in. The state types are in `@dopame/acde-api`.
+
+## acde:power
+
+Linux only. Needs `power`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdePower {
+  state(): Promise<PowerState>
+  setProfile(profile: PowerProfile): Promise<void>
+  configure(patch: PowerSettingsPatch): Promise<void>
+  setScreenOff(seconds: number | null): Promise<void>
+  setSleep(seconds: number | null): Promise<void>
+  suspend(): Promise<void>
+  hibernate(): Promise<void>
+  setBrightness(value: number): Promise<void>
+  setChargeLimit(percent: number | null): Promise<void>
+  on(type: 'changed', handler: (state: PowerState) => void): () => boolean
+  on(type: 'prompt', handler: (event: PowerPromptEvent) => void): () => boolean
+  on(type: 'critical', handler: (event: PowerCriticalEvent) => void): () => boolean
+}
+```
+
+Batteries, the power profile, what the lid, the power button and being idle do (on AC, on battery and on low battery), screen-off and sleep timers, suspend and hibernate, the backlight, and the charge limit. `changed` gives the whole `PowerState`; `prompt` (`{type: 'prompt'}`) asks the page to offer the power choices, and `critical` (`{type: 'critical', action, seconds}`) says the battery is critically low and what happens in how many seconds. The state types are in `@dopame/acde-api`.
+
+## acde:input
+
+Linux only. Needs `input`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeInput {
+  state(): Promise<InputState>
+  set(patch: InputPatch): Promise<void>
+  catalog(): Promise<InputCatalog>
+  on(type: 'changed', handler: (state: InputState) => void): () => boolean
+}
+```
+
+Keyboard (model, layouts, options, Num Lock), mouse and touchpad settings, and the input methods. `set()` takes the parts to change; `catalog()` lists the models, layouts, options and input methods to choose from. `changed` gives the whole `InputState`. The state types are in `@dopame/acde-api`.
+
+## acde:display
+
+Linux only. Needs `display`. Its errors are [`AcdeError`s](#errors).
+
+```ts
+interface AcdeDisplay {
+  state(): Promise<DisplayState>
+  configure(id: string, patch: DisplayPatch): Promise<void>
+  setBrightness(id: string, value: number): Promise<void>
+  setNightLight(patch: Partial<NightLight>): Promise<void>
+  on(type: 'changed', handler: (state: DisplayState) => void): () => boolean
+}
+```
+
+The displays (mode, scale, rotation and the rest, set with `configure`), their brightness, and the night light. `changed` gives the whole `DisplayState`. The state types are in `@dopame/acde-api`.
 
 ## acde:session
 
@@ -554,7 +731,7 @@ interface PermissionDecision {
 }
 ```
 
-A prompt's `capability` is `camera` or `microphone`, the only capabilities that ask; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `revoke` resolves to `false` when there was no decision. In 0.0.9, a prompt for a camera or microphone that the app requires comes when the app starts, with `reason: 'launch'`; after 0.0.9, every prompt comes on first use, with `reason: 'request'`. See [Desktops](../guide/desktop.md#camera-and-microphone-prompts).
+A prompt's `capability` is `camera`, `microphone` or `idleDetection`, the only capabilities that ask; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `revoke` resolves to `false` when there was no decision. Every prompt comes on first use, with `reason: 'request'`. See [Desktops](../guide/desktop.md#camera-and-microphone-prompts).
 
 ## acde:inspect
 

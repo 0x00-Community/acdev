@@ -15,7 +15,7 @@ References in your pages that start with `/` and point to a file in public:
 A file that only your JavaScript names is bundled one of these ways:
 
 - `import logo from './logo.png'`: `logo` is its URL in the built app.
-- `new URL('./logo.png', import.meta.url)`: the file is copied and the URL points at it (with Node.js, Vite does this; with Bun, acdev does it after 0.0.9). The path must be a literal that starts with `./` or `../` and names a file that exists; a module (`.js`, `.ts`, …) is left alone.
+- `new URL('./logo.png', import.meta.url)`: the file is copied and the URL points at it (with Node.js, Vite does this; with Bun, acdev does it). The path must be a literal that starts with `./` or `../` and names a file that exists; a module (`.js`, `.ts`, …) is left alone.
 - A path in a string (`img.src = 'img/logo.png'`) is not seen by any bundler: put the file in `public/` and refer to it as `/img/logo.png`.
 
 ## URLs

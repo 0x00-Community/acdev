@@ -1,6 +1,6 @@
 # Debugging
 
-A set of commands connects to a running `acdev dev` session and lets you look at pages, run code, take screenshots, and click buttons. After 0.0.9, `acdev devtools` also opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools). Run them in another terminal:
+A set of commands connects to a running `acdev dev` session and lets you look at pages, run code, take screenshots, and click buttons. `acdev devtools` also opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools). Run them in another terminal:
 
 ```sh
 acdev webs
@@ -14,7 +14,7 @@ notes#1048576  app      notes  1048576  Notes
 
 ## Sessions
 
-These commands find an `acdev dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acdev: using acdev dev <pid> (...), the only one running`); otherwise they fail and list all sessions. After 0.0.9, sessions that `acdev test` started for its tests are left out of this choice (they are listed with `acdev test` after what they run); only `--session <pid>` reaches them.
+These commands find an `acdev dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acdev: using acdev dev <pid> (...), the only one running`); otherwise they fail and list all sessions. Sessions that `acdev test` started for its tests are left out of this choice (they are listed with `acdev test` after what they run); only `--session <pid>` reaches them.
 
 ## Commands
 
@@ -34,7 +34,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev allow` / `acdev deny` `[<prompt id> \| <app> <capability>] [--all]` | Answers a waiting camera or microphone prompt |
 | `acdev revoke <app> <capability>` | Takes back a decision |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
-| `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) (after 0.0.9) |
+| `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
 A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acdev webs` (`notes#1048576`), an app id (that app's first window), or `desktop`. In a Dopame OS guest, a page that does not answer within 1.5 s (its process is stopped or busy) is still listed, with the title `(not answering)`; the other pages are listed as usual.
 
@@ -117,7 +117,7 @@ Without `--find`, the text is always in this English format: one line per window
 
 A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails (`acdev: act w1.23: there is no such element (any more); …`); take a new `inspect` then.
 
-After 0.0.9, an app run on its own shows its window menus on the title bar (see [Windows](window.md#menus)), and `inspect` lists them first: `menubar [w1.m]`, one `menuitem "File" [collapsed] [w1.m1]` per menu, and under the open one its items with their shortcuts, `menuitem "New": "ctrl+n" [w1.m1.1]` (a separator takes a number too). `acdev act w1.m1 click` opens a menu, `acdev act w1.m1.1 click` opens it if needed and chooses the item (`chose File › New`), and `acdev act w1 key escape` closes it. A disabled item is not chosen (`acdev: act w1.m1.4: w1.m1.4 (Print) is disabled`).
+An app run on its own shows its window menus on the title bar (see [Windows](window.md#menus)), and `inspect` lists them first: `menubar [w1.m]`, one `menuitem "File" [collapsed] [w1.m1]` per menu, and under the open one its items with their shortcuts, `menuitem "New": "ctrl+n" [w1.m1.1]` (a separator takes a number too). `acdev act w1.m1 click` opens a menu, `acdev act w1.m1.1 click` opens it if needed and chooses the item (`chose File › New`), and `acdev act w1 key escape` closes it. A disabled item is not chosen (`acdev: act w1.m1.4: w1.m1.4 (Print) is disabled`).
 
 By default the tree leaves out elements that can't be seen: `display: none`, `aria-hidden`, `inert`, `opacity: 0` and hidden `visibility`. `--all` lists every window that is not marked `[minimized]` in the window list and also keeps the elements hidden by `opacity: 0` (marked `transparent`; they can still be clicked) or by `visibility` (marked `invisible`; they can't); `display: none`, `aria-hidden` and `inert` are always left out.
 
@@ -158,7 +158,7 @@ w1 notes "Notes":
 
 When nothing matches it says so on stderr (`acdev: no element's name or value contains "milk"; elements scrolled out of view need --offscreen`) and exits with code 2. Elements scrolled out of view are found only with `--offscreen`; without it, a note under the tree says how many were left out (`(1 more outside the visible area; scroll, or add offscreen)`).
 
-Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore` `fill` `fullscreen`. `fill` fills the desktop's work area with the window and `fullscreen` covers the whole host window with it; `restore` sets either back to normal. Both refuse the desktop (`the desktop cannot be made filled`, `... fullscreen`) and a window that already fills the host window (`w1 already fills the host window`), and need a runtime from 0.0.9 on. `minimize` on a window that cannot be minimized changes nothing, says why and exits with code 1; in a session that runs a single app, on macOS and headless, that is the app's own window: `w1 cannot be minimized: it fills the host window, which only the host window's own controls minimize here`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. When closing a window ends acdev runtime (the app's window when `acdev dev` runs one app), `acdev dev` ends with it; `act w1 close` then says so and exits with code 0.
+Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore` `fill` `fullscreen`. `fill` fills the desktop's work area with the window and `fullscreen` covers the whole host window with it; `restore` sets either back to normal. Both refuse the desktop (`the desktop cannot be made filled`, `... fullscreen`) and a window that already fills the host window (`w1 already fills the host window`). `minimize` on a window that cannot be minimized changes nothing, says why and exits with code 1; in a session that runs a single app, on macOS and headless, that is the app's own window: `w1 cannot be minimized: it fills the host window, which only the host window's own controls minimize here`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. When closing a window ends acdev runtime (the app's window when `acdev dev` runs one app), `acdev dev` ends with it; `act w1 close` then says so and exits with code 0.
 
 #### Key names
 
@@ -201,11 +201,11 @@ acdev: nothing in w1 matches "nav"
 
 Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent, or its window is minimized. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
-The refs work with `act`, like the ones from `inspect`: `acdev act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches, it says so on stderr (`acdev: nothing in w1 matches "nav"`; in 0.0.9 on stdout, without `acdev: `) and the exit code is 2; otherwise it is 0.
+The refs work with `act`, like the ones from `inspect`: `acdev act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). When nothing matches, it says so on stderr (`acdev: nothing in w1 matches "nav"`) and the exit code is 2; otherwise it is 0.
 
 ### Styles and layout
 
-To look at styles and boxes, ask the page with `eval` (after 0.0.9, also the Elements panel of [DevTools](#devtools)). `getComputedStyle` gives the values the page uses after the CSS cascade, and `getBoundingClientRect` gives an element's box in CSS pixels of the page:
+To look at styles and boxes, ask the page with `eval` (or the Elements panel of [DevTools](#devtools)). `getComputedStyle` gives the values the page uses after the CSS cascade, and `getBoundingClientRect` gives an element's box in CSS pixels of the page:
 
 ```sh
 acdev eval notes "getComputedStyle(document.querySelector('h1')).color"
@@ -241,7 +241,7 @@ The most recent 5000 entries of each kind are kept.
 
 ## DevTools
 
-After 0.0.9, `acdev devtools [web]` opens the DevTools of Chrome or Edge (or Chromium on Linux) on a page of the session: Elements, Console, Network, and Sources with breakpoints.
+`acdev devtools [web]` opens the DevTools of Chrome or Edge (or Chromium on Linux) on a page of the session: Elements, Console, Network, and Sources with breakpoints.
 
 ```sh
 acdev devtools            # the focused page
@@ -266,11 +266,11 @@ acdev shot notes       # ./notes.png
 acdev screen           # ./screen.png, every window together
 ```
 
-A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)), or (after 0.0.9) from the shell with `acdev choose folder ~/Notes`, `acdev choose open a.md b.md` or `acdev choose save out.md` (`--cancel` to cancel). `acdev drop <web> <file...>` (after 0.0.9) drops files onto a page, as a drag from the file manager would. The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
+A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)), or from the shell with `acdev choose folder ~/Notes`, `acdev choose open a.md b.md` or `acdev choose save out.md` (`--cancel` to cancel). `acdev drop <web> <file...>` drops files onto a page, as a drag from the file manager would. The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
 
 ## Camera and microphone
 
-A capability an app declares is granted without asking, except the camera and the microphone. In 0.0.9, an app that declares one is asked when it starts, and its window opens once the prompt is answered; after 0.0.9, the user is asked the first time a page asks for one (`getUserMedia`), and the call waits for the answer. In a session that runs a single app, the host window asks in a dialog on Windows, and after 0.0.9 also on macOS (a sheet with `Don't Allow` and `Allow`) and on Linux (a notification with the same two buttons, where the desktop's notification service shows buttons). Elsewhere, and in a headless session, there is no dialog, so answer from the command line:
+A capability an app declares is granted without asking, except the camera, the microphone and idle detection (`idleDetection`). The user is asked the first time a page asks for one (`getUserMedia`, `IdleDetector.requestPermission()`), and the call waits for the answer. In a session that runs a single app, the host window asks in a dialog on Windows, on macOS (a sheet with `Don't Allow` and `Allow`) and on Linux (a notification with the same two buttons, where the desktop's notification service shows buttons). Elsewhere, and in a headless session, there is no dialog, so answer from the command line:
 
 ```sh
 $ acdev permissions

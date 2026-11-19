@@ -25,7 +25,7 @@ A running `acdev dev` is a **dev session**: the [debugging commands](tools.md), 
 
 With several projects or `--desktop`, the desktop is chosen like this: the value of `--desktop`; otherwise the only desktop project among them; otherwise `dopame`. A `--desktop` value that looks like a path (contains `/`, or is `.` / `..`), or that names a project in the current directory, is treated as one more project.
 
-The session is ready when `acdev webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. The camera and the microphone wait for an answer, which `acdev allow` or `acdev deny` gives from another terminal: in 0.0.9, an app that declares one opens its window only once answered; after 0.0.9, only a page that asks for one waits. See [Camera and microphone](tools.md#camera-and-microphone).
+The session is ready when `acdev webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. The camera and the microphone wait for an answer, which `acdev allow` or `acdev deny` gives from another terminal: only a page that asks for one waits. See [Camera and microphone](tools.md#camera-and-microphone).
 
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. On Linux without a GPU it draws on the CPU through the software Vulkan driver (lavapipe), slowly; see [Platform support](../reference/platforms.md).
 
@@ -53,18 +53,18 @@ By default the build goes into the project's `.acde/`. `--out DIR` changes that:
 
 ## Logs
 
-The terminal shows builds and reloads, the pages' `console.*` output (lines such as `6975.356 I acdev js: …`) and uncaught errors (`[<app>#<window>] page error: …`), backend output (`[<app>#backend] …`), what happens to an app (its backend started or stopped, its state restored after a reload, an `alert()`, a permission prompt waiting for an answer), and the runtime's warnings and errors (lines such as `14.383 W main …`). After 0.0.9, the runtime's own info log (startup timings, GPU and the like: `14.382 I main …`) is left out and `acdev dev --verbose` shows it too; in 0.0.9 it is always shown.
+The terminal shows builds and reloads, the pages' `console.*` output (lines such as `6975.356 I acdev js: …`) and uncaught errors (`[<app>#<window>] page error: …`), backend output (`[<app>#backend] …`), what happens to an app (its backend started or stopped, its state restored after a reload, an `alert()`, a permission prompt waiting for an answer), and the runtime's warnings and errors (lines such as `14.383 W main …`). The runtime's own info log (startup timings, GPU and the like: `14.382 I main …`) is left out; `acdev dev --verbose` shows it too.
 
 To watch them from another terminal, or to read them from a script, use `acdev console` / `acdev network` from the [debugging tools](tools.md).
 
 ## DevTools
 
-After 0.0.9, press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acdev: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acdev devtools [web]` does the same from another terminal (see [DevTools](tools.md#devtools)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
+Press **F12** in the host window (fn+F12 on a Mac keyboard) to open the DevTools of Chrome or Edge on the page in that window: Elements, Console, Network, and Sources with breakpoints. The terminal says `acdev: opened DevTools for <page> in <browser>`; F12 again brings that DevTools window to the front. `acdev devtools [web]` does the same from another terminal (see [DevTools](tools.md#devtools)). The page never sees that F12; F12 with Ctrl, Shift, Alt or Cmd still reaches it.
 
 DevTools open in a browser profile of acdev's own, not your everyday one. `ACDEV_BROWSER` names another browser; without Chrome or Edge, or with `ACDEV_BROWSER=none`, the terminal prints the address to paste into one instead.
 
 ## Runtime
 
-`acdev dev` runs the acdev runtime named by `ACDEV_RUNTIME` (a path, or a name on PATH), otherwise the acdev runtime the installer put next to acdev, otherwise the `acdev runtime` (or an older `acdert`) on PATH. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+`acdev dev` runs the runtime binary at `ACDEV_RUNTIME` (a path; when the file is not there, it stops with an error), otherwise the one the installer put next to acdev (`libexec/acdev` of the install); with neither it stops with an error. `acdev --version` shows which one it finds, and `acdev doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
 
 When acdev runtime exits before the session is ready (for example because it cannot use the GPU), `acdev dev` prints its log line, then `acdev: acdev runtime exited (1) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, and exits with that code.

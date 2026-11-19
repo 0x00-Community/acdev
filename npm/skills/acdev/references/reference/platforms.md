@@ -10,8 +10,10 @@ The host window used for development (`acdev dev`) runs on macOS, Windows, and L
 | System notifications | ✓ | Only in a desktop, which shows them | ✓ | Shown by the desktop |
 | App backends | ✓ | ✓ (see [Backend](../guide/backend.md#on-windows)) | ✓ | ✓ |
 | `acde:terminal` (`terminal`) | ✓ | ✓ | ✓ | ✓ |
-| Camera and microphone (`camera`, `microphone`) | ✓ | | ✓ | ✓ |
+| Camera and microphone (`camera`, `microphone`) | ✓ | | ✓ | Not yet: `getUserMedia()` rejects with `NotAllowedError` |
 | `acde:network`, `acde:office` (`network`, `office`) | | | ✓ | ✓ |
+| `acde:system`, `acde:bluetooth`, `acde:audio`, `acde:devices`, `acde:power`, `acde:input`, `acde:display` (capabilities of the same names) | | | ✓ | ✓ |
+| Idle detection (`idleDetection`) | | | ✓ | ✓ |
 | Native programs embedded in a window (`slots`) | | | | ✓ |
 | WebGPU, voice input | | | ✓ | ✓ |
 | Native programs (`.desktop`) | | | ✓ | ✓ |

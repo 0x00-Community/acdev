@@ -48,7 +48,7 @@ Each test gets:
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 
-After 0.0.9, a test's session does not count as the project's `acdev dev`: an `acdev dev` you run on the same project while tests run starts and keeps running, and commands such as `acdev eval` and the MCP tools use yours, never a test's (only `--session <pid>` reaches a test's session).
+A test's session does not count as the project's `acdev dev`: an `acdev dev` you run on the same project while tests run starts and keeps running, and commands such as `acdev eval` and the MCP tools use yours, never a test's (only `--session <pid>` reaches a test's session).
 
 ## Locators
 
@@ -71,9 +71,9 @@ app.locator('li').and(app.getByText('Milk'))
 
 Locators are lazy: they are resolved again against the latest tree every time they are used. Actions require **exactly one** match; with several, they fail instead of guessing.
 
-Adjacent text in one element is one name, as written: JSX `{rate}%` is `100%`. In 0.0.9 the tree puts a space between text nodes (`100 %`), so `getByText('100%')` finds nothing there; match `/100\s?%/` for 0.0.9.
+Adjacent text in one element is one name, as written: JSX `{rate}%` is `100%`.
 
-After 0.0.9, an app run on its own shows its window menus on the title bar ([Windows](window.md#menus)), and they are in the tree: click the menu, then the item.
+An app run on its own shows its window menus on the title bar ([Windows](window.md#menus)), and they are in the tree: click the menu, then the item.
 
 ```ts
 await app.getByRole('menuitem', { name: 'File' }).click()
@@ -256,7 +256,7 @@ await app.reload()
 
 ## Approvals
 
-Declared capabilities need no answer. Only the camera and the microphone ask the user (see [Capabilities](capabilities.md#camera-and-microphone)): after 0.0.9, the first time the page calls `getUserMedia()`; in 0.0.9, when an app that declares one starts, so there the test answers before it uses the window. Every test starts with an empty home, so nothing is decided yet and no prompt is answered by itself: the call (in 0.0.9, the window) waits until the test answers. The example is for after 0.0.9:
+Declared capabilities need no answer. Only the camera and the microphone ask the user (see [Capabilities](capabilities.md#camera-and-microphone)), the first time the page calls `getUserMedia()`, and idle detection (`idleDetection`, when the page calls `IdleDetector.requestPermission()`). Every test starts with an empty home, so nothing is decided yet and no prompt is answered by itself: the call waits until the test answers:
 
 ```ts
 import { expect, test } from 'acdev/test'
@@ -309,7 +309,7 @@ Several files run at once: half the machine's cores, at most 4, and one at a tim
 
 With `-t`, a file in which no test matches is skipped and does not count as failed (`acdev test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acdev test` prints `acdev test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
 
-Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with one summary line (after 0.0.9; 0.0.9 prints two, `acdev test: 5 tests ran: 4 passed, 1 failed, …` and `acdev test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`):
+Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with one summary line:
 
 ```text
 acdev test: 5 tests in 2 files: 4 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t); failed: e2e/notes.e2e.ts

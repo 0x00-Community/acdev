@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up acdev (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdev runtime, which runs your apps. The installer needs no npm and no root. See [The runtime](#the-runtime).
+The installer sets up acdev (the CLI, the project templates, and the SDK) together with the runtime it pairs with, which runs your apps. The installer needs no npm and no root. See [The runtime](#the-runtime).
 
 ## With a coding agent
 
@@ -47,7 +47,7 @@ To leave your startup files alone:
 curl -fsSL https://pkgs.dopame.ai/acdev/install.sh | sh -s -- --no-modify-path
 ```
 
-To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on the download site is 0.0.9.
+To install a specific version: `sh -s -- --version X.Y.Z`.
 
 ## Windows
 
@@ -59,15 +59,15 @@ irm https://pkgs.dopame.ai/acdev/install.ps1 | iex
 
 This installs into `%USERPROFILE%\.acdev` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
 
-After 0.0.9, in the classic Windows console (powershell.exe or cmd.exe started on their own), the boxes and frames that `acdev new` and other prompts draw use ASCII characters (`+`, `-`, `|`); Windows Terminal and the VS Code terminal show line-drawing ones. Both work the same; Windows Terminal is recommended.
+In the classic Windows console (powershell.exe or cmd.exe started on their own), the boxes and frames that `acdev new` and other prompts draw use ASCII characters (`+`, `-`, `|`); Windows Terminal and the VS Code terminal show line-drawing ones. Both work the same; Windows Terminal is recommended.
 
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
 ```powershell
-$env:ACDEV_VERSION = '0.0.9'; $env:ACDEV_NO_MODIFY_PATH = '1'
+$env:ACDEV_VERSION = 'X.Y.Z'; $env:ACDEV_NO_MODIFY_PATH = '1'
 irm https://pkgs.dopame.ai/acdev/install.ps1 | iex
 
-& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acdev/install.ps1))) -Version 0.0.9 -NoModifyPath
+& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acdev/install.ps1))) -Version X.Y.Z -NoModifyPath
 ```
 
 ## With npm
@@ -78,7 +78,7 @@ Where tools are installed with npm (a CI image, a container, a machine set up by
 npm install -g @dopame/acdev
 ```
 
-This needs Node.js 22.3 or later: the `acdev` command npm puts on PATH starts with Node.js. It installs `@dopame/acdev` and, through it, the package for this platform (`@dopame/acdev-linux-x64`, `@dopame/acdev-darwin-arm64`, `@dopame/acdev-darwin-x64` or `@dopame/acdev-win32-x64`), which holds acdev, the runtime `acdev runtime` and its host files laid out as the installer lays them out, so acdev finds the runtime next to it and `acdev doctor` checks it the same way. The platforms are the ones above; npm skips the packages of the others. The versions are those of the installer's releases, from 0.0.10: `npm install -g @dopame/acdev@0.0.11` installs that one, and running the command again upgrades acdev and the runtime together. No shell startup file is changed; acdev is wherever npm puts global commands (`npm prefix -g`). To remove it: `npm uninstall -g @dopame/acdev`.
+This needs Node.js 22.3 or later: the `acdev` command npm puts on PATH starts with Node.js. It installs `@dopame/acdev` and, through it, the package for this platform (`@dopame/acdev-linux-x64`, `@dopame/acdev-darwin-arm64`, `@dopame/acdev-darwin-x64` or `@dopame/acdev-win32-x64`), which holds acdev and the runtime binary laid out as the installer lays them out, so acdev finds the runtime next to it and `acdev doctor` checks it the same way. The platforms are the ones above; npm skips the packages of the others. The versions are those of the installer's releases: `npm install -g @dopame/acdev@X.Y.Z` installs that one, and running the command again upgrades acdev and the runtime together. No shell startup file is changed; acdev is wherever npm puts global commands (`npm prefix -g`). To remove it: `npm uninstall -g @dopame/acdev`.
 
 The installer below is still the way for a machine without npm, and the one the rest of these pages assume (`~/.acdev`, the PATH lines, the upgrade notes).
 
@@ -110,23 +110,22 @@ It checks what `acdev dev` and `acdev test` need: acdev on PATH, Bun and Node.js
 
 ## The runtime
 
-`acdev dev` and `acdev test` run your app in the runtime, acdebin-dbg. The installer puts the acdev runtime release that this acdev pairs with next to it: the binary as `libexec/acdev` (`acdev.exe` on Windows) and its host files as `libexec/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acdev release, so installing a specific version of acdev (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
+`acdev dev` and `acdev test` run your app in the runtime. The installer puts the runtime release that this acdev pairs with next to it, as the binary `libexec/acdev` (`acdev.exe` on Windows), checked against the release's `SHA256SUMS`. The pairing is recorded with each acdev release, so installing a specific version of acdev (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had.
 
 acdev looks for the runtime in this order:
 
-1. `ACDEV_RUNTIME`: the path of an acdev runtime binary, or the name of one on PATH;
-2. the acdev runtime the installer put next to acdev (or the `acdert` an older installer put there);
-3. `acdev runtime` on PATH, then an older `acdert` on PATH.
+1. `ACDEV_RUNTIME`: the path of a runtime binary; it is not looked up on PATH, and when the file is not there acdev stops with an error;
+2. the runtime the installer put next to acdev, `libexec/acdev` of the install.
 
 There is no other place: acdev does not look for a runtime built in a source checkout next to it, even when acdev itself runs from source; set `ACDEV_RUNTIME` to use one.
 
-When none is there, `acdev dev` stops and says so, and `acdev doctor` says where it looked and what to do.
+When neither is there, `acdev dev` stops and says so (`acdev dev needs the Dopame runtime (libexec/acdev of an install) and found none: …`), and `acdev doctor` says where it looked and what to do.
 
 The runtime renders pages on the GPU and wants a working one (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver). A software Vulkan driver (lavapipe, `llvmpipe` in `vulkaninfo`) is used only when no GPU driver is there: pages then render on the CPU and animate slowly, and `acdev doctor` warns about it. In WSL the GPU's Vulkan driver is Dozen (Vulkan on Direct3D 12), which is not a conformant driver, so it is passed over for the software one unless `WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER=1` is set. With no driver at all `acdev dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU. `acdev doctor` shows the same line as an error of its `gpu` check before you start anything.
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdev runtime` binary with its `app/` directory next to it; set `ACDEV_RUNTIME` to the path of that binary (`~/.acdebin-dbg/acdebin-dbg` in the commands below). The runtime is released together with acdev, in `https://pkgs.dopame.ai/acdev/<version>/`, and `https://pkgs.dopame.ai/acdev/latest` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is the runtime binary, `acdev` (`acdev.exe` on Windows); set `ACDEV_RUNTIME` to its path (`~/.acdev-runtime/acdev` in the commands below). The runtime is released together with acdev, in `https://pkgs.dopame.ai/acdev/<version>/`, and `https://pkgs.dopame.ai/acdev/latest` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
@@ -134,14 +133,15 @@ Use this only when the installer cannot set up the runtime, for example without 
 | `acdevrt-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
 | `acdevrt-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
 | `acdevrt-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
-| `acde-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory) and its license, the same on every platform |
-| `acde-<version>.tar.gz` | acdev itself (what the installer puts in `~/.acdev`) |
+| `acdevtools-<triple>.tar.xz` (`.tar.gz` on Windows) | `acdevtool`, a helper of `acdev vm` |
+| `acdev-guest-<version>.tar.gz` | acdevd, the device daemon `acdev vm` puts in the guest, for x86_64 and aarch64 |
+| `acdev-<version>.tar.gz` | acdev itself (what the installer puts in `~/.acdev`) |
 | `acde-api-<version>.tar.gz` | The SDK, `@dopame/acde-api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
 | `SHA256SUMS` | Checksums of the files above |
 
-Each runtime archive holds only the binary, `acdev runtime` (`acdev.exe` on Windows).
+Each runtime archive holds only the runtime binary, `acdev` (`acdev.exe` on Windows).
 
-Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: the runtime looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
+Download the archive for your platform and `SHA256SUMS`, check it and extract it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
 
 On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux.
 
@@ -150,20 +150,18 @@ On macOS or Linux, paste the lines below, with `target` set for your platform (t
 target=aarch64-apple-darwin
 base=https://pkgs.dopame.ai/acdev
 version=$(curl -fsSL "$base/latest" | tr -d ' \r\n')
-mkdir -p ~/.acdebin-dbg && cd ~/.acdebin-dbg
-curl -fsSLO "$base/$version/acdevrt-$target.tar.xz" -O "$base/$version/acde-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
-grep -E " (acdevrt-$target\.tar\.xz|acde-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
-  rm -rf app && tar -xzf "acde-host-$version.tar.gz" && tar -xJf "acdevrt-$target.tar.xz"
+mkdir -p ~/.acdev-runtime && cd ~/.acdev-runtime
+curl -fsSLO "$base/$version/acdevrt-$target.tar.xz" -O "$base/$version/SHA256SUMS"
+grep -E " acdevrt-$target\.tar\.xz\$" SHA256SUMS | sha256sum -c - &&
+  tar -xJf "acdevrt-$target.tar.xz"
 )
 ```
 
-`sha256sum` prints `OK` for both files; if it doesn't, nothing is extracted. Then point acdev at it: add this line to your shell's startup file, and run it in the current terminal too:
+`sha256sum` prints `OK`; if it doesn't, nothing is extracted. Then point acdev at it: add this line to your shell's startup file, and run it in the current terminal too:
 
 ```sh
-export ACDEV_RUNTIME="$HOME/.acdebin-dbg/acdebin-dbg"
+export ACDEV_RUNTIME="$HOME/.acdev-runtime/acdev"
 ```
-
-Adding `~/.acdebin-dbg` to `PATH` works as well.
 
 On Windows, in PowerShell:
 
@@ -172,17 +170,15 @@ On Windows, in PowerShell:
   $ProgressPreference = 'SilentlyContinue'
   $base = 'https://pkgs.dopame.ai/acdev'
   $version = (Invoke-RestMethod "$base/latest").Trim()
-  $dir = "$env:USERPROFILE\.acdebin-dbg"
+  $dir = "$env:USERPROFILE\.acdev-runtime"
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $files = 'acdevrt-x86_64-pc-windows-msvc.tar.gz', "acde-host-$version.tar.gz"
+  $files = @('acdevrt-x86_64-pc-windows-msvc.tar.gz')
   foreach ($f in $files + 'SHA256SUMS') { Invoke-WebRequest "$base/$version/$f" -OutFile "$dir\$f" }
   $sums = Get-Content "$dir\SHA256SUMS"
   foreach ($f in $files) {
     $want = (($sums | Where-Object { $_ -like "* $f" }) -split ' ')[0]
     if ((Get-FileHash "$dir\$f").Hash -ne $want) { throw "checksum mismatch: $f" }
   }
-  Remove-Item -Recurse -Force "$dir\app" -ErrorAction SilentlyContinue
-  tar -xzf "$dir\acde-host-$version.tar.gz" -C $dir
   tar -xzf "$dir\acdevrt-x86_64-pc-windows-msvc.tar.gz" -C $dir
   [Environment]::SetEnvironmentVariable('ACDEV_RUNTIME', "$dir\acdev.exe", 'User')
   $env:ACDEV_RUNTIME = "$dir\acdev.exe"
@@ -214,7 +210,7 @@ sha256sum -c SHA256SUMS &&
 )
 ```
 
-On Windows the package directory is `%USERPROFILE%\.local\share\acdev\packages`; extract the same archive there with `tar -xzf dopame.tar.gz -C <that directory>`.
+On Windows the package directory is `%USERPROFILE%\.local\share\acde\packages`; extract the same archive there with `tar -xzf dopame.tar.gz -C <that directory>`.
 
 Then, in your project:
 
@@ -226,9 +222,9 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 ## Upgrade and uninstall
 
-To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acdev/versions/<version>`, with its runtime in its `bin`, and `~/.acdev/current` points to the one in use. After 0.0.9, the installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acdev dev` started from it) stays until the next install.
+To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acdev/versions/<version>`, with its runtime in its `libexec`, and `~/.acdev/current` points to the one in use. The installer keeps the version it installs and the one it replaces, and removes older ones (about 100 MB each); a version a running program still uses (an `acdev dev` started from it) stays until the next install.
 
-`acdev uninstall` removes installed apps and desktops, not acdev itself (see [Local install](../guide/install.md#uninstall)). To uninstall acdev, run `acdev skills remove` if you installed the skill, delete `~/.acdev`, and remove the `# acdev` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acdev\current\bin` from your user `Path` and the user variable `ACDEV_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdebin-dbg` and remove the `ACDEV_RUNTIME` line.
+`acdev uninstall` removes installed apps and desktops, not acdev itself (see [Local install](../guide/install.md#uninstall)). To uninstall acdev, run `acdev skills remove` if you installed the skill, delete `~/.acdev`, and remove the `# acdev` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acdev\current\bin` from your user `Path` and the user variable `ACDEV_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdev-runtime` and remove the `ACDEV_RUNTIME` line.
 
 acdev and the runtime keep data outside the install directory. Delete these too to remove everything; otherwise a later install finds the old apps, desktops and their data again. The same paths are used on macOS; on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names (`%USERPROFILE%\.local\share\acdev` and so on):
 
@@ -239,6 +235,6 @@ acdev and the runtime keep data outside the install directory. Delete these too 
 | `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Approval decisions (`permissions.json`) |
 | `$XDG_CONFIG_HOME/acde-mimeapps.list` and `$XDG_CONFIG_HOME/acde-extensions.list` (`~/.config/…`) | The default app chosen for a file type or extension |
 | `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches (only when `XDG_RUNTIME_DIR` is not set) |
-| `acde/devtools` under `~/Library/Caches` (macOS), `%LOCALAPPDATA%` (Windows) or `$XDG_CACHE_HOME` (`~/.cache`, Linux) | The browser profile that `acdev devtools` and F12 open DevTools in (after 0.0.9) |
+| `acde/devtools` under `~/Library/Caches` (macOS), `%LOCALAPPDATA%` (Windows) or `$XDG_CACHE_HOME` (`~/.cache`, Linux) | The browser profile that `acdev devtools` and F12 open DevTools in |
 
 On Windows, reinstalling the same version while `acdev dev` runs moves the files in use aside (`versions/<version>.old-…`); the installer says so, and removes them the next time it runs.
