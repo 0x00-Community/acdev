@@ -994,7 +994,7 @@ describe('emulated hardware', () => {
   test('a new image needs mkfs.vfat or mkfs.exfat, and sizes read like 256M', async () => {
     const usb = new Usb(tmp(), async () => ({}))
     await expect(usb.add(join(tmp(), 'new.img'), Usb.SIZE, null)).rejects.toThrow('install dosfstools (mkfs.vfat) or exfatprogs (mkfs.exfat)')
-    expect([Usb.size(undefined), Usb.size('2G'), Usb.size('512m')]).toEqual([256 << 20, 2 << 30, 512 << 20])
+    expect([Usb.size(undefined), Usb.size('2G'), Usb.size('512m')]).toEqual([256 * 1024 ** 2, 2 * 1024 ** 3, 512 * 1024 ** 2])
     expect(() => Usb.size('lots')).toThrow('--size lots')
     const bin = tmp()
     writeFileSync(join(bin, 'mkfs.exfat'), '#!/bin/sh\n', { mode: 0o755 })

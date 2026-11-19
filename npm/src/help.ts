@@ -383,6 +383,7 @@ export class Help {
           { flag: '--no-restart', about: 'provision: leave greetd running as it is' },
           { flag: '--no-wifi', about: 'provision: no simulated Wi-Fi (by default acdev-wifi.service starts two access points over mac80211_hwsim)' },
           { flag: '--no-bluetooth', about: 'provision: no simulated Bluetooth (by default acdev-bt.service starts virtual controllers through btvirt)' },
+          { flag: '--btvirt FILE', about: 'provision: a btvirt build (BlueZ emulator/btvirt) for the guest; without it provision builds one in the guest' },
           { flag: '--no-battery', about: 'provision: no simulated battery (by default acdev-battery.service sets a test_power battery to 100%, charging)' },
           { flag: '--wifi, --bluetooth, --battery', about: 'provision: deprecated, change nothing (all three are on by default)' },
           { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },

@@ -85,6 +85,11 @@ export const PROVISION_SCRIPT = [
   '  for script in "$here"/hw/acdev-*; do',
   '    if [ -f "$script" ]; then install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; fi',
   '  done',
+  '  if [ -f "$here/hw/btvirt" ]; then install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt; fi',
+  '  if [ -f "$here/hw/acdev-btvirt-build" ] && ! command -v btvirt >/dev/null; then',
+  '    step "btvirt (no Arch package has it): building emulator/btvirt from the source of the installed bluez"',
+  '    /usr/local/bin/acdev-btvirt-build || step "warning: no btvirt, so the simulated Bluetooth stays off"',
+  '  fi',
   '  while read -r unit; do',
   '    [ -n "$unit" ] || continue',
   '    systemctl disable --now "$unit" >/dev/null 2>&1 || true',
@@ -168,9 +173,10 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
 export interface HardwareChoice {
   readonly on: readonly GuestHardware[]
   readonly off: readonly GuestHardware[]
+  readonly btvirt?: string | null
 }
 
-function stageHardware(stage: string, { on, off }: HardwareChoice): void {
+function stageHardware(stage: string, { on, off, btvirt }: HardwareChoice): void {
   const dir = join(stage, 'hw')
   const { scripts, units, packages, off: stopped } = hardwareFiles(on, off)
   mkdirSync(join(dir, 'units'), { recursive: true })
@@ -178,6 +184,7 @@ function stageHardware(stage: string, { on, off }: HardwareChoice): void {
   for (const [name, text] of Object.entries(units)) writeFileSync(join(dir, 'units', name), text)
   writeFileSync(join(dir, 'packages'), packages.map((pkg) => `${pkg}\n`).join(''))
   for (const [name, text] of Object.entries(scripts)) writeFileSync(join(dir, name), text, { mode: 0o755 })
+  if (btvirt && on.includes('bluetooth')) cpSync(need(btvirt, '--btvirt'), join(dir, 'btvirt'))
 }
 
 export function stageProvision(sources: ProvisionSources, hardware: HardwareChoice = { on: GUEST_HARDWARE, off: [] }): string {
