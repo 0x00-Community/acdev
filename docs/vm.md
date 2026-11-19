@@ -347,8 +347,20 @@ NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager �
 `acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
 起 `bluetoothd`; 编号最大的那个当“对面的设备”: `btmgmt` 开电、改名 `acdev-peer`、可连接、可被发现, 在另一个上扫描就能找到它.
 `bluetoothd` 两个控制器都管, 设置里会出现两个适配器 (没有办法只让它管一个). `down` 停 btvirt、卸掉模块.
-`btvirt` 只在 BlueZ 带 `--enable-testing` 编时才有; Arch 的 `bluez-utils` 里没有它时脚本报 `no btvirt`〔未核实 Arch 的包里有没有〕,
-这时要另外放一个 `btvirt` (`/usr/lib/bluez/btvirt` 或 PATH 上). 包: `bluez`、`bluez-utils` (镜像里已有).
+`btvirt` 从哪来 (2026-11-19 查): Arch 官方仓库里没有它, 已核实 `bluez-utils` 和 `bluez-deprecated-tools` 的文件列表 (archlinux.org
+的包页面) 都没有; 第六轮客户机里也找不到. 它是 BlueZ 源码 `emulator/btvirt`, 只在 `--enable-testing` 时编. AUR 有没有现成的包没查到
+(网页被拦), 也不想让 provision 依赖 AUR 助手. 所以 provision 按顺序:
+1. 给了 `acdev vm provision --btvirt FILE` (在别处编好的 btvirt) 就装到 `/usr/local/bin/btvirt`;
+2. 客户机里已有 `btvirt` 就用它;
+3. 否则跑 `acdev-btvirt-build` (`/usr/local/bin`, 也能手动跑): 取已装 `bluez` 的版本 (`pacman -Q bluez`, 去掉包修订号),
+   装 `base-devel glib2 dbus curl xz`, 下载 `https://www.kernel.org/pub/linux/bluetooth/bluez-<版本>.tar.xz`,
+   `./configure --enable-testing` 并关掉用不到、要额外依赖的部分 (`--disable-manpages --disable-obex --disable-cups --disable-client
+   --disable-mesh --disable-midi --disable-udev --disable-systemd --disable-hid2hci`), 只 `make emulator/btvirt`, 装到 `/usr/local/bin/btvirt`.
+   失败 (没网、缺依赖、编不过) 只打一行 warning, 蓝牙那一项照旧以 4 记日志.
+没选自己写 `/dev/vhci` 的小程序: 要让 bluetoothd 认出适配器, 得回答内核初始化时的整套 HCI 命令 (复位、读特性、版本、地址、缓冲区…),
+还要能扫到对面设备, 等于重写 btvirt 背后的 `emulator/btdev.c`; 用和已装 bluez 同版本的源码编 btvirt 最省事也最贴近真实.
+〔未核实〕: 这组 configure 选项在客户机的 bluez 版本上能不能过、`make emulator/btvirt` 需不需要别的依赖, 要等客户机里跑一次.
+包: `bluez`、`bluez-utils` (镜像里已有).
 
 ### 电池
 
@@ -358,8 +370,10 @@ libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDev
 `umockdev-run` 下的一份, 改电量还要另外通知).
 默认 (单元 `acdev-battery.service`): 接着电源、100%、充电中, 一开机不会碰到低电量的处理. 手动切电量:
 `acdev vm run -- acdev-battery <百分比> [charging|discharging]` (不给状态时是 discharging), 回到默认用 `acdev-battery 100 charging`
-或 `systemctl restart acdev-battery`. 脚本载入模块, 写 `battery_capacity`、`battery_status`、`ac_online`
-(充电时 on), 起 `upower`. `acdev-battery off` 卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
+或 `systemctl restart acdev-battery`. 脚本载入模块, 写 `battery_capacity`、`battery_status` 和两路电源: 充电时 `ac_online=on`、`usb_online=off`, 放电时两路都 off
+(`test_power` 的 `usb_online` 默认是 on, 不关掉的话 UPower 认为接着电源 (`OnBattery` 为 false), 第六轮里放电到 5% 也不触发严重电量倒计时);
+有 `battery_current` 参数时一并写成充电 +1600、放电 -1600 (默认 -1600, 第六轮里内核报 Charging、UPower 却判成放电). 再起 `upower`.
+`acdev-battery off` 把两路电源恢复成模块的默认值 (都 on) 再卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
 默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
 的严重线在它上面). 包: `upower` (镜像里没有).
 

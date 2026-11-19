@@ -79,7 +79,7 @@ const BLUETOOTH_SCRIPT = [
   'up() {',
   '  modinfo hci_vhci >/dev/null 2>&1 || fail "this kernel has no hci_vhci module (CONFIG_BT_HCIVHCI=m)"',
   '  exe=$(btvirt)',
-  '  [ -n "$exe" ] || fail "no btvirt (BlueZ built with --enable-testing has it; bluez-utils here does not): no virtual controller"',
+  '  [ -n "$exe" ] || fail "no btvirt (no Arch package has it): run acdev-btvirt-build, or acdev vm provision --btvirt FILE"',
   '  [ -f "$run/btvirt.pid" ] && { say "already up"; return; }',
   '  mkdir -p "$run"',
   '  modprobe hci_vhci',
@@ -121,7 +121,9 @@ const BATTERY_SCRIPT = [
   'fail() { echo "acdev-battery: $*" >&2; exit 4; }',
   'usage() { echo "usage: acdev-battery PERCENT [charging|discharging] | off" >&2; exit 2; }',
   'action() { sed -n "s/^PercentageAction=\\([0-9]*\\).*/\\1/p" /etc/UPower/UPower.conf 2>/dev/null | tail -n 1 || true; }',
+  'online() { echo "$2" >"$params/$1"; }',
   'if [ "$1" = off ]; then',
+  '  if [ -d "$params" ]; then online ac_online on; online usb_online on; fi',
   '  modprobe -r test_power 2>/dev/null || true',
   '  say "the simulated battery is gone"',
   '  exit 0',
@@ -138,11 +140,42 @@ const BATTERY_SCRIPT = [
   'modinfo test_power >/dev/null 2>&1 || fail "this kernel has no test_power module (CONFIG_TEST_POWER=m)"',
   'command -v upower >/dev/null || fail "UPower is not installed: run acdev vm provision (without --no-battery)"',
   '[ -d "$params" ] || modprobe test_power',
-  'echo "$([ "$state" = charging ] && echo on || echo off)" >"$params/ac_online"',
+  'if [ "$state" = charging ]; then online ac_online on; current=1600; else online ac_online off; current=-1600; fi',
+  'online usb_online off',
+  'if [ -w "$params/battery_current" ]; then echo "$current" >"$params/battery_current"; fi',
   'echo "$state" >"$params/battery_status"',
   'echo "$percent" >"$params/battery_capacity"',
   'systemctl start upower 2>/dev/null || true',
   'say "battery $percent%, $state"',
+  '',
+].join('\n')
+
+export const BTVIRT_BUILD = 'acdev-btvirt-build'
+
+export const BLUEZ_CONFIGURE = [
+  '--enable-testing', '--disable-manpages', '--disable-obex', '--disable-cups', '--disable-client', '--disable-mesh', '--disable-midi',
+  '--disable-udev', '--disable-systemd', '--disable-hid2hci',
+] as const
+
+const BTVIRT_BUILD_SCRIPT = [
+  '#!/bin/bash',
+  'set -eo pipefail',
+  'say() { echo "acdev-btvirt-build: $*"; }',
+  'fail() { echo "acdev-btvirt-build: $*" >&2; exit 4; }',
+  'if [ -x /usr/local/bin/btvirt ]; then say "/usr/local/bin/btvirt is there"; exit 0; fi',
+  'version=$(pacman -Q bluez 2>/dev/null | cut -d" " -f2 | sed "s/-[0-9.]*$//")',
+  '[ -n "$version" ] || fail "bluez is not installed"',
+  'pacman -S --noconfirm --needed base-devel glib2 dbus curl xz >/dev/null || fail "could not install the build tools"',
+  'work=$(mktemp -d)',
+  'trap \'rm -rf "$work"\' EXIT',
+  'url="https://www.kernel.org/pub/linux/bluetooth/bluez-$version.tar.xz"',
+  'curl -fsSL "$url" -o "$work/bluez.tar.xz" || fail "could not download $url"',
+  'tar -xf "$work/bluez.tar.xz" -C "$work"',
+  'cd "$work/bluez-$version"',
+  `./configure ${BLUEZ_CONFIGURE.join(' ')} >"$work/configure.log" 2>&1 || fail "configure: $(tail -n 3 "$work/configure.log")"`,
+  'make -j"$(nproc)" emulator/btvirt >"$work/make.log" 2>&1 || fail "make emulator/btvirt: $(tail -n 3 "$work/make.log")"',
+  'install -Dm755 emulator/btvirt /usr/local/bin/btvirt',
+  'say "built /usr/local/bin/btvirt from bluez $version"',
   '',
 ].join('\n')
 
@@ -153,11 +186,15 @@ interface Part {
   readonly after: string
   readonly start: string
   readonly stop: string
+  readonly helpers?: Readonly<Record<string, string>>
 }
 
 const PARTS: Readonly<Record<GuestHardware, Part>> = {
   wifi: { script: 'acdev-wifi', text: WIFI_SCRIPT, packages: ['hostapd', 'iw'], after: 'NetworkManager.service', start: 'up', stop: 'down' },
-  bluetooth: { script: 'acdev-bt', text: BLUETOOTH_SCRIPT, packages: ['bluez', 'bluez-utils'], after: 'bluetooth.service', start: 'up', stop: 'down' },
+  bluetooth: {
+    script: 'acdev-bt', text: BLUETOOTH_SCRIPT, packages: ['bluez', 'bluez-utils'], after: 'bluetooth.service', start: 'up', stop: 'down',
+    helpers: { [BTVIRT_BUILD]: BTVIRT_BUILD_SCRIPT },
+  },
   battery: { script: 'acdev-battery', text: BATTERY_SCRIPT, packages: ['upower'], after: 'upower.service', start: '100 charging', stop: 'off' },
 }
 
@@ -188,9 +225,15 @@ export function unitText(name: GuestHardware): string {
   ].join('\n')
 }
 
-export function guestHardware(flags: ReadonlyMap<string, string>): { readonly on: GuestHardware[]; readonly off: GuestHardware[] } {
+export interface GuestHardwareChoice {
+  readonly on: GuestHardware[]
+  readonly off: GuestHardware[]
+  readonly btvirt: string | null
+}
+
+export function guestHardware(flags: ReadonlyMap<string, string>): GuestHardwareChoice {
   const off = GUEST_HARDWARE.filter((name) => flags.has(`no-${name}`))
-  return { on: GUEST_HARDWARE.filter((name) => !off.includes(name)), off }
+  return { on: GUEST_HARDWARE.filter((name) => !off.includes(name)), off, btvirt: flags.get('btvirt') ?? null }
 }
 
 export interface HardwareFiles {
@@ -205,8 +248,9 @@ export function hardwareFiles(on: readonly GuestHardware[], off: readonly GuestH
   const units: Record<string, string> = {}
   const packages = new Set<string>()
   for (const name of on) {
-    const { script, text, packages: needed } = PARTS[name]
+    const { script, text, packages: needed, helpers } = PARTS[name]
     scripts[script] = text
+    Object.assign(scripts, helpers)
     units[unitName(name)] = unitText(name)
     for (const pkg of needed) packages.add(pkg)
   }
