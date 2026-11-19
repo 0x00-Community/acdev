@@ -216,7 +216,7 @@ impl Surface {
                 None if on => self.inbox.push(Event { kind: "pointerlock".into(), code: Some(0), title: Some("request".into()), ..Default::default() }),
                 None => {}
             },
-            C::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
+            C::OpenPanel { id, token, rect, .. } => self.open_panel(id, token, rect),
             C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             C::ClosePanel(id) => self.close_panel(id),
             C::ReservePanel { id, edge, thickness } => self.reserve_panel(id, edge, thickness),
