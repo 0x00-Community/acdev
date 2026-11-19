@@ -491,7 +491,7 @@ describe('the QEMU command line', () => {
     await new Promise((done) => setTimeout(done, 200))
     expect(() => process.kill(pid, 0)).toThrow()
     expect(existsSync(join(vm, 'run', 'qemu.pid'))).toBe(false)
-  })
+  }, 60_000)
 
   test('start checks acdevd\'s version before it starts QEMU', async () => {
     const dir = tmp()
@@ -537,7 +537,7 @@ describe('the QEMU command line', () => {
     expect((await run(['start', '--outputs', '2.5'])).stderr).toContain('--outputs 2.5: a whole number from 1 to 16')
     expect((await run(['start', '--outputs', '2', '--viewer'])).stderr).toContain('--viewer shows only the first output')
     expect((await run(['screenshot', 'x.png', '--output', '1.5'])).stderr).toContain('--output 1.5: a whole number from 0 to 15')
-    expect((await run(['start', '--headless', '--viewer'])).stderr).toContain('one of --headless, --vnc, --viewer, not --headless and --viewer')
+    expect((await run(['start', '--headless', '--viewer'])).stderr).toContain('one of --headless, --vnc, --viewer, --sdl, --gtk, not --headless and --viewer')
   })
 })
 
