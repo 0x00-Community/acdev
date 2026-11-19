@@ -77,7 +77,8 @@
   逻辑像素; X11 / Wayland 是不带加速的原始量), 发给锁着的窗口 `pointermove {x, y: 锁定时的页面坐标, deltaX, deltaY}`; 按钮和滚轮都给它, 不命中、
   不拖窗口、不开菜单; 注入的 `move` 按和上一次注入位置的差、`motion` 按原值变成相对移动 (dev 的 `input` 和 driver 照样能测). 收回并发
   `pointerlock {code: 0, title: 'lost'}`: Esc (这次按下和松开都不发给页面)、宿主窗口失焦 (选择器、批准对话框、⌘Tab 也是这一条)、焦点给了别的窗口
-  (`Server::activate` / `focus_top` 发 `Cmd::FocusMoved`). 页面 `exitPointerLock` 或窗口没了 (`Surface` drop) 时不回答, 直接放开.
+  (`Server::activate` / `focus_top` 发 `Cmd::FocusMoved`). 页面 `exitPointerLock` 或窗口没了 (`Surface` drop) 时不回答, 直接放开. 放开时还按着的按钮照旧有抬起: 那个窗口成为隐式 grab 的目标
+  (`capture`), 抬起发给它.
 - **帧率面板** (调试用, 画法见 libacde `docs/graphics/render-gpu.md`「帧率面板」): `ACDE_HUD=1` 时起来就开着; 有 `ACDE_DEV` 时 Shift+F12
   开关 (`dev::DevtoolsKey`, 和 F12 一样按住的重复和松开都吞掉, 不给页面). 数在出帧线程记 (`output/hud.rs`): `Presenter::paint` 每画出页面的一帧新内容
   记一次时刻和这一帧的光栅化毫秒 (同 `perf::raster` 的 `surface ms`), 每个窗口留最近 120 个帧间隔; 关着时不记. FPS 是最近一秒里画出的帧数,

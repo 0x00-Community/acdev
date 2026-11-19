@@ -270,7 +270,7 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     expect(await settle('document.title', 'Hello Backend')).toBe('Hello Backend')
   })
 
-  test('pointer lock: a click locks the element, moves arrive as movement at a still position, Esc gives it back', async () => {
+  test('pointer lock: a click locks the element, moves arrive as movement at a still position, Esc gives it back, a held button still comes up', async () => {
     await page(`(() => {
       const box = document.createElement('div')
       box.id = 'lockbox'
@@ -278,7 +278,7 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
       document.body.append(box)
       globalThis.locks = []
       globalThis.moves = []
-      box.addEventListener('mousedown', () => box.requestPointerLock().then(() => locks.push('resolved'), (e) => locks.push(e.name)))
+      box.addEventListener('mousedown', () => document.pointerLockElement || box.requestPointerLock().then(() => locks.push('resolved'), (e) => locks.push(e.name)))
       document.addEventListener('pointerlockchange', () => locks.push(document.pointerLockElement?.id ?? 'none'))
       document.addEventListener('mousemove', (e) => { if (document.pointerLockElement) moves.push([e.target.id, e.clientX, e.clientY, e.movementX, e.movementY]) })
       return true
@@ -289,8 +289,15 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     const sum = 'moves.reduce((a, m) => [a[0] + m[3], a[1] + m[4]], [0, 0])'
     expect(await settle(sum, [250, 350])).toEqual([250, 350])
     expect(await page('moves.every((m) => m[0] === "lockbox" && m[1] === 50 && m[2] === 50)')).toBe(true)
-    await driver!.input('hello-backend', [{ type: 'keydown', key: 'Escape' }, { type: 'keyup', key: 'Escape' }])
+    await page("globalThis.ups = 0; document.addEventListener('mouseup', () => ups++); true")
+    await driver!.input('hello-backend', [
+      { type: 'down', x: 50, y: 50, button: 'left' },
+      { type: 'keydown', key: 'Escape' },
+      { type: 'keyup', key: 'Escape' },
+      { type: 'up', x: 50, y: 50, button: 'left' },
+    ])
     expect(await settle('locks', ['lockbox', 'resolved', 'none'])).toEqual(['lockbox', 'resolved', 'none'])
+    expect(await settle('ups', 1)).toBe(1)
     await page("document.getElementById('lockbox').remove()")
   })
 

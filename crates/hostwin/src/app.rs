@@ -504,6 +504,9 @@ impl App {
     fn unlock(&mut self, server: &Server, host: &dyn Host, tell: bool) {
         let Some(lock) = self.lock.take() else { return };
         host.lock_pointer(false);
+        if !self.pressed.is_empty() {
+            self.capture = Some((lock.window, [self.pointer.0 - lock.at[0], self.pointer.1 - lock.at[1]]));
+        }
         if tell {
             server.event(lock.window, Event { kind: "pointerlock".into(), code: Some(0), title: Some("lost".into()), ..Default::default() });
         }
