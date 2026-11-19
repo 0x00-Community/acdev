@@ -30,6 +30,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   (`ui/gtk.c` `gd_configure` → `gd_set_ui_size`; virtio 显卡时 `zoom-to-fit` 自动打开, 窗口不再按画面调). 窗口初始大小由 GTK 按开机时的小画面定,
   所以客户机常常一上来是 640×480, 把窗口拉大就行; 显卡的 `xres` / `yres` (默认就是 1280×800) 会被窗口尺寸盖掉, 设了也没用.
   测试和要固定分辨率时用 `--headless` (1280×800) 或 `--viewer` (`acdevtool view` 主动报 1280×800, 之后跟着窗口变).
+- QEMU 没给 `-parallel` 时会给图形显示配一个默认并口, 接到一个文字控制台 (`system/vl.c` 的 `qemu_create_default_devices`: 图形显示时
+  `add_device_config(DEV_PARALLEL, vc)`); gtk 把它放进标签页, SDL 给每个控制台开一个窗口, 就多出一个 640×384 的 `QEMU (acdev-1)`. 所以总是加
+  `-parallel none`. 默认监视器不会出来: 给了 `-qmp` 就不再配 (`default_monitor = 0`); 串口已经接到 `serial.log`.
 - `--sdl` (试验, 只在 Linux): 换成 QEMU 的 SDL 窗口 (`-display sdl`, 带 `--gl` 时 `sdl,gl=on`, 显卡同 gtk 那两种). gtk 开窗时就拿窗口尺寸盖掉
   首选分辨率, SDL 只在用户拉动窗口时才报 (`ui/sdl2.c` 只处理 `SDL_WINDOWEVENT_RESIZED`), 窗口跟着客户机画面走, 所以客户机应能直接以 1280×800 起来,
   之后照样跟着拉动的窗口变. 还没实测; 和 `--headless`、`--vnc`、`--viewer` 只能选一个, 默认仍是 gtk.

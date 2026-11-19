@@ -289,6 +289,7 @@ export class Machine {
       '-qmp', `unix:${this.qmp},server=on,wait=off`,
       ...(link.kind === 'vsock' ? ['-device', `vhost-vsock-pci,guest-cid=${this.cid()}`] : []),
       '-chardev', `file,id=serial0,path=${this.serial}`, '-serial', 'chardev:serial0',
+      '-parallel', 'none',
       '-pidfile', join(this.run, 'qemu.pid'),
       ...Machine.HOTPLUG.flatMap((port, i) => ['-device', `pcie-root-port,id=${port},bus=pcie.0,chassis=${11 + i},slot=${11 + i}`]),
       ...gpu, ...shown, ...share,

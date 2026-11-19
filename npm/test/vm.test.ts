@@ -349,6 +349,8 @@ describe('the QEMU command line', () => {
     expect(machine.args({}, 'tcg').join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
     expect(machine.args({ gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display gtk,gl=on')
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
+    expect(args).toContain('-serial chardev:serial0 -parallel none')
+    expect(args).toContain('-qmp unix:')
   })
 
   test('--sdl, a trial, gives QEMU its SDL window (with GL when --gl), alone and on Linux only', () => {
