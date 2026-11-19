@@ -64,7 +64,10 @@ class Cli {
         'image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output',
         'acdes', 'acdes-bin', 'winman-bin', 'libacde', 'dopame', 'harness', 'user', 'audio', 'size',
       ],
-      switches: ['fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow', 'no-restart', 'wifi', 'bluetooth', 'battery'],
+      switches: [
+        'fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow', 'no-restart',
+        'wifi', 'bluetooth', 'battery', 'no-wifi', 'no-bluetooth', 'no-battery',
+      ],
     },
     test: {
       args: [0, Infinity],

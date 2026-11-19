@@ -17,7 +17,7 @@ const WIFI_SCRIPT = [
   'radios() { for phy in /sys/class/ieee80211/*; do if hwsim "$phy"; then ls "$phy/device/net"; fi; done 2>/dev/null | sort; }',
   'up() {',
   '  modinfo mac80211_hwsim >/dev/null 2>&1 || fail "this kernel has no mac80211_hwsim module (CONFIG_MAC80211_HWSIM=m)"',
-  '  command -v hostapd >/dev/null || fail "hostapd is not installed: run acdev vm provision --wifi"',
+  '  command -v hostapd >/dev/null || fail "hostapd is not installed: run acdev vm provision (without --no-wifi)"',
   '  [ -f "$run/hostapd.pid" ] && { say "already up"; return; }',
   '  modprobe mac80211_hwsim radios=2',
   '  for _ in $(seq 50); do [ "$(radios | wc -l)" -ge 2 ] && break; sleep 0.1; done',
@@ -136,7 +136,7 @@ const BATTERY_SCRIPT = [
   '  fail "$percent% is at or below UPower\'s PercentageAction ($floor%): UPower would act on it (CriticalPowerAction); use $((floor + 1)) or more"',
   'fi',
   'modinfo test_power >/dev/null 2>&1 || fail "this kernel has no test_power module (CONFIG_TEST_POWER=m)"',
-  'command -v upower >/dev/null || fail "UPower is not installed: run acdev vm provision --battery"',
+  'command -v upower >/dev/null || fail "UPower is not installed: run acdev vm provision (without --no-battery)"',
   '[ -d "$params" ] || modprobe test_power',
   'echo "$([ "$state" = charging ] && echo on || echo off)" >"$params/ac_online"',
   'echo "$state" >"$params/battery_status"',
@@ -146,23 +146,69 @@ const BATTERY_SCRIPT = [
   '',
 ].join('\n')
 
-const SCRIPTS: Readonly<Record<GuestHardware, { readonly name: string; readonly text: string; readonly packages: readonly string[] }>> = {
-  wifi: { name: 'acdev-wifi', text: WIFI_SCRIPT, packages: ['hostapd', 'iw'] },
-  bluetooth: { name: 'acdev-bt', text: BLUETOOTH_SCRIPT, packages: ['bluez', 'bluez-utils'] },
-  battery: { name: 'acdev-battery', text: BATTERY_SCRIPT, packages: ['upower'] },
+interface Part {
+  readonly script: string
+  readonly text: string
+  readonly packages: readonly string[]
+  readonly after: string
+  readonly start: string
+  readonly stop: string
 }
 
-export function guestHardware(flags: ReadonlyMap<string, string>): GuestHardware[] {
-  return GUEST_HARDWARE.filter((name) => flags.has(name))
+const PARTS: Readonly<Record<GuestHardware, Part>> = {
+  wifi: { script: 'acdev-wifi', text: WIFI_SCRIPT, packages: ['hostapd', 'iw'], after: 'NetworkManager.service', start: 'up', stop: 'down' },
+  bluetooth: { script: 'acdev-bt', text: BLUETOOTH_SCRIPT, packages: ['bluez', 'bluez-utils'], after: 'bluetooth.service', start: 'up', stop: 'down' },
+  battery: { script: 'acdev-battery', text: BATTERY_SCRIPT, packages: ['upower'], after: 'upower.service', start: '100 charging', stop: 'off' },
 }
 
-export function hardwareFiles(hardware: readonly GuestHardware[]): { readonly scripts: Record<string, string>; readonly packages: string[] } {
+export const MISSING = 4
+
+export function unitName(name: GuestHardware): string {
+  return `${PARTS[name].script}.service`
+}
+
+export function unitText(name: GuestHardware): string {
+  const { script, after, start, stop } = PARTS[name]
+  return [
+    '[Unit]',
+    `Description=acdev: the simulated ${name === 'wifi' ? 'Wi-Fi' : name} (${script})`,
+    `Wants=${after}`,
+    `After=${after}`,
+    '',
+    '[Service]',
+    'Type=oneshot',
+    'RemainAfterExit=yes',
+    `ExecStart=/usr/local/bin/${script} ${start}`,
+    `ExecStop=/usr/local/bin/${script} ${stop}`,
+    `SuccessExitStatus=${MISSING}`,
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+}
+
+export function guestHardware(flags: ReadonlyMap<string, string>): { readonly on: GuestHardware[]; readonly off: GuestHardware[] } {
+  const off = GUEST_HARDWARE.filter((name) => flags.has(`no-${name}`))
+  return { on: GUEST_HARDWARE.filter((name) => !off.includes(name)), off }
+}
+
+export interface HardwareFiles {
+  readonly scripts: Record<string, string>
+  readonly units: Record<string, string>
+  readonly packages: string[]
+  readonly off: string[]
+}
+
+export function hardwareFiles(on: readonly GuestHardware[], off: readonly GuestHardware[] = []): HardwareFiles {
   const scripts: Record<string, string> = {}
+  const units: Record<string, string> = {}
   const packages = new Set<string>()
-  for (const name of hardware) {
-    const { name: file, text, packages: needed } = SCRIPTS[name]
-    scripts[file] = text
+  for (const name of on) {
+    const { script, text, packages: needed } = PARTS[name]
+    scripts[script] = text
+    units[unitName(name)] = unitText(name)
     for (const pkg of needed) packages.add(pkg)
   }
-  return { scripts, packages: [...packages] }
+  return { scripts, units, packages: [...packages], off: off.map(unitName) }
 }

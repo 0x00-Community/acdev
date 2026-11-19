@@ -1,37 +1,55 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { GUEST_HARDWARE, PEER_NAME, WIFI, guestHardware, hardwareFiles } from '../src/vm/guesthw.ts'
+import { GUEST_HARDWARE, MISSING, PEER_NAME, WIFI, guestHardware, hardwareFiles, unitText } from '../src/vm/guesthw.ts'
 import { PROVISION_SCRIPT, stageProvision } from '../src/vm/provision.ts'
 
 const NONE = { acdes: null, acdesBin: null, winmanBin: null, libacde: null, dopame: null, harness: null }
 
-describe('acdev vm provision --wifi / --bluetooth / --battery', () => {
-  test('only the switches given are staged, in a fixed order', () => {
-    expect(guestHardware(new Map([['battery', ''], ['wifi', '']]))).toEqual(['wifi', 'battery'])
-    expect(guestHardware(new Map([['user', 'qa']]))).toEqual([])
+describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () => {
+  test('all three are on unless --no-<name>; --wifi and the like change nothing', () => {
+    expect(guestHardware(new Map())).toEqual({ on: ['wifi', 'bluetooth', 'battery'], off: [] })
+    expect(guestHardware(new Map([['wifi', ''], ['battery', '']]))).toEqual({ on: ['wifi', 'bluetooth', 'battery'], off: [] })
+    expect(guestHardware(new Map([['no-battery', ''], ['no-wifi', '']]))).toEqual({ on: ['bluetooth'], off: ['wifi', 'battery'] })
   })
 
-  test('each part brings its script and its packages, each package once', () => {
-    const { scripts, packages } = hardwareFiles(GUEST_HARDWARE)
+  test('each part brings its script, its unit and its packages, each package once; the parts turned off are listed', () => {
+    const { scripts, units, packages, off } = hardwareFiles(GUEST_HARDWARE)
     expect(Object.keys(scripts)).toEqual(['acdev-wifi', 'acdev-bt', 'acdev-battery'])
+    expect(Object.keys(units)).toEqual(['acdev-wifi.service', 'acdev-bt.service', 'acdev-battery.service'])
     expect(packages).toEqual(['hostapd', 'iw', 'bluez', 'bluez-utils', 'upower'])
-    expect(hardwareFiles([])).toEqual({ scripts: {}, packages: [] })
+    expect(off).toEqual([])
+    expect(hardwareFiles([], ['bluetooth'])).toEqual({ scripts: {}, units: {}, packages: [], off: ['acdev-bt.service'] })
   })
 
-  test('the stage has hw/ only when asked, and the provision script installs what is there', () => {
+  test('a unit runs at boot after its daemon, and a missing module or package is not a failure', () => {
+    const wifi = unitText('wifi')
+    for (const line of ['Type=oneshot', 'RemainAfterExit=yes', 'After=NetworkManager.service', 'ExecStart=/usr/local/bin/acdev-wifi up',
+      'ExecStop=/usr/local/bin/acdev-wifi down', `SuccessExitStatus=${MISSING}`, 'WantedBy=multi-user.target']) {
+      expect(wifi).toContain(line)
+    }
+    expect(unitText('bluetooth')).toContain('After=bluetooth.service')
+    expect(unitText('battery')).toContain('ExecStart=/usr/local/bin/acdev-battery 100 charging')
+    expect(unitText('battery')).toContain('ExecStop=/usr/local/bin/acdev-battery off')
+  })
+
+  test('the stage has all three by default, and the provision script installs, enables and starts them, and stops the ones turned off', () => {
     const plain = stageProvision(NONE)
-    const asked = stageProvision(NONE, ['wifi'])
+    const some = stageProvision(NONE, { on: ['wifi'], off: ['bluetooth', 'battery'] })
     try {
-      expect(existsSync(join(plain, 'hw'))).toBe(false)
-      expect(readFileSync(join(asked, 'hw', 'packages'), 'utf8')).toBe('hostapd\niw\n')
-      expect(statSync(join(asked, 'hw', 'acdev-wifi')).mode & 0o111).not.toBe(0)
+      expect(readFileSync(join(plain, 'hw', 'packages'), 'utf8')).toBe('hostapd\niw\nbluez\nbluez-utils\nupower\n')
+      expect(readFileSync(join(plain, 'hw', 'off'), 'utf8')).toBe('')
+      expect(statSync(join(plain, 'hw', 'acdev-battery')).mode & 0o111).not.toBe(0)
+      expect(readFileSync(join(some, 'hw', 'off'), 'utf8')).toBe('acdev-bt.service\nacdev-battery.service\n')
+      expect(readFileSync(join(some, 'hw', 'units', 'acdev-wifi.service'), 'utf8')).toBe(unitText('wifi'))
     } finally {
       rmSync(plain, { recursive: true, force: true })
-      rmSync(asked, { recursive: true, force: true })
+      rmSync(some, { recursive: true, force: true })
     }
-    expect(PROVISION_SCRIPT).toContain('done <"$here/hw/packages"')
-    expect(PROVISION_SCRIPT).toContain('install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"')
+    for (const line of ['done <"$here/hw/packages"', 'done <"$here/hw/off"', 'systemctl disable --now "$unit"', 'systemctl daemon-reload',
+      'systemctl enable "$name"', 'systemctl restart "$name" || step "warning: $name did not start"']) {
+      expect(PROVISION_SCRIPT).toContain(line)
+    }
   })
 
   test('the Wi-Fi script makes two radios, an open and a WPA2 access point, and leaves the other radio to NetworkManager', () => {
