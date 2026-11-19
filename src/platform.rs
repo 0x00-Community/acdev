@@ -46,6 +46,10 @@ impl Window for Surface {
     fn hosted(&self) -> bool {
         true
     }
+
+    fn pointer_lock(&self) -> bool {
+        self.0.pointer_lock()
+    }
 }
 
 impl Platform for Host {

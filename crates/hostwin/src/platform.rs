@@ -21,6 +21,8 @@ pub(crate) enum Cmd {
     HostSize([f64; 2]),
     Resize { size: [f64; 2], reply: ResizeReply },
     Device,
+    PointerLock { window: u32, on: bool },
+    FocusMoved,
     Exit(i32),
 }
 
@@ -31,20 +33,33 @@ pub(crate) struct Monitor {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) enum HostEvent {
-    Resized { size: (u32, u32), scale: f64 },
+    Resized {
+        size: (u32, u32),
+        scale: f64,
+    },
     CloseRequested,
     Focused(bool),
     PointerMove(f64, f64),
+    #[cfg_attr(windows, allow(dead_code))]
+    Motion(f64, f64),
     PointerLeave,
     Button(u32, bool),
     Wheel(f64, f64),
-    Key { evdev: u32, pressed: bool, text: Option<String> },
+    Key {
+        evdev: u32,
+        pressed: bool,
+        text: Option<String>,
+    },
     Modifiers(u8),
     ImePreedit(String),
     ImeCommit(String),
     Dropped(Vec<PathBuf>),
     State(acde::model::WindowState),
-    Output { size: (u32, u32), scale: f64, work: [f64; 4] },
+    Output {
+        size: (u32, u32),
+        scale: f64,
+        work: [f64; 4],
+    },
     Refresh(Option<f64>),
     Redraw,
     Cmd(Cmd),
@@ -99,6 +114,14 @@ pub(crate) trait Host {
     fn approve(&self, _: &str, _: &str, reply: ApproveReply) {
         let _ = reply.send(Ok(None));
     }
+
+    fn lock_pointer(&self, _: bool) -> bool {
+        false
+    }
+
+    fn drag(&self, _: u32) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -140,6 +163,10 @@ pub(crate) fn dismiss_approval() {
     native::dismiss_approval();
     #[cfg(not(windows))]
     crate::system::approve::dismiss();
+}
+
+pub(crate) fn pointer_lock() -> bool {
+    headless() || cfg!(not(windows))
 }
 
 pub(crate) fn click_settings() -> acde::model::ClickSettings {

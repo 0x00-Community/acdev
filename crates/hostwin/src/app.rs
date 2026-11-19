@@ -105,6 +105,7 @@ impl Server {
                 self.event(previous, Event::named("deactivate"));
             }
             self.event(id, Event::named("activate"));
+            self.send(Cmd::FocusMoved);
         }
         self.broker.push(Event { kind: "windowactivate".into(), window: Some(id), ..Default::default() });
         self.relayout();
@@ -122,6 +123,8 @@ impl Server {
                 if let Some(previous) = state.focus.take() {
                     Self::look(&state, previous, false);
                 }
+                drop(state);
+                self.send(Cmd::FocusMoved);
             }
         }
     }
@@ -196,6 +199,12 @@ struct Drag {
     rect: [f64; 4],
 }
 
+struct Lock {
+    window: u32,
+    at: [f64; 2],
+    injected: (f64, f64),
+}
+
 struct DataDrag {
     source: u32,
     data: HashMap<String, String>,
@@ -218,6 +227,8 @@ struct App {
     frame_press: Option<(u32, FrameButton)>,
     menu_press: Option<(u32, usize)>,
     edges: u8,
+    focused: bool,
+    lock: Option<Lock>,
 }
 
 enum MenuHit {
@@ -324,6 +335,10 @@ impl Handler for App {
             HostEvent::Resized { size, scale } => self.resized(server, size, scale),
             HostEvent::CloseRequested => server.broker.push(Event { kind: "windowcloserequest".into(), window: Some(0), ..Default::default() }),
             HostEvent::Focused(focused) => {
+                self.focused = focused;
+                if !focused {
+                    self.unlock(server, host, true);
+                }
                 let focus = server.state().focus;
                 if let Some(id) = focus {
                     server.event(id, Event::named(if focused { "activate" } else { "deactivate" }));
@@ -337,7 +352,10 @@ impl Handler for App {
                     self.devtools.blur();
                 }
             }
+            HostEvent::PointerMove(..) if self.lock.is_some() => {}
             HostEvent::PointerMove(x, y) => self.moved(server, x, y),
+            HostEvent::Motion(dx, dy) => self.locked_motion(server, dx, dy),
+            HostEvent::PointerLeave if self.lock.is_some() => {}
             HostEvent::PointerLeave => {
                 self.edges(server, 0);
                 if self.capture.is_none()
@@ -347,10 +365,20 @@ impl Handler for App {
                     server.event(hover, Event::named("pointerleave"));
                 }
             }
+            HostEvent::Button(keys::BUTTON_LEFT, true) if self.lock.is_none() && self.pressed.is_empty() && self.host_hint(server, host) => {}
             HostEvent::Button(button, pressed) => self.button(server, button, pressed),
             HostEvent::Wheel(dx, dy) => self.wheel(server, dx, dy),
             HostEvent::Modifiers(mods) => self.modifiers = mods,
-            HostEvent::Key { evdev, pressed, text } => self.key(server, evdev, pressed, text),
+            HostEvent::Key { evdev, pressed, text } => {
+                if self.lock.is_some() && evdev == keys::ESC {
+                    if pressed {
+                        self.swallowed.insert(evdev);
+                        self.unlock(server, host, true);
+                        return;
+                    }
+                }
+                self.key(server, evdev, pressed, text)
+            }
             HostEvent::ImePreedit(text) => self.focused(server, Event { kind: "imepreedit".into(), key: Some(text), ..Default::default() }),
             HostEvent::ImeCommit(text) => self.focused(server, Event { kind: "imecommit".into(), key: Some(text), ..Default::default() }),
             HostEvent::Dropped(paths) => self.dropped(server, self.pointer, &paths),
@@ -372,7 +400,23 @@ impl Handler for App {
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
+            HostEvent::Cmd(Cmd::Inject(Injected::Key { code: keys::ESC, pressed: true })) if self.lock.is_some() => {
+                self.swallowed.insert(keys::ESC);
+                self.unlock(server, host, true);
+            }
             HostEvent::Cmd(Cmd::Inject(event)) => self.inject(server, event),
+            HostEvent::Cmd(Cmd::PointerLock { window, on: true }) => self.lock(server, host, window),
+            HostEvent::Cmd(Cmd::PointerLock { window, on: false }) => {
+                if self.lock.as_ref().is_some_and(|lock| lock.window == window) {
+                    self.unlock(server, host, false);
+                }
+            }
+            HostEvent::Cmd(Cmd::FocusMoved) => {
+                let focus = server.state().focus;
+                if self.lock.as_ref().is_some_and(|lock| focus != Some(lock.window)) {
+                    self.unlock(server, host, true);
+                }
+            }
             HostEvent::Cmd(Cmd::StartDrag { window, data }) => self.start_data_drag(server, window, data),
             HostEvent::Cmd(Cmd::Drop { window, at, paths }) => self.simulated_drop(server, window, at, &paths),
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
@@ -437,8 +481,70 @@ impl App {
         crate::output::surface::announce(id, to, from);
     }
 
+    fn lock(&mut self, server: &Server, host: &dyn Host, window: u32) {
+        let reply = |granted: bool| Event { kind: "pointerlock".into(), code: Some(u32::from(granted)), title: Some("request".into()), ..Default::default() };
+        if self.lock.as_ref().is_some_and(|lock| lock.window == window) {
+            return server.event(window, reply(true));
+        }
+        let origin = {
+            let state = server.state();
+            let busy = self.drag.is_some() || self.data_drag.is_some() || state.entries.values().any(|e| e.menu_open.is_some());
+            state.entries.get(&window).filter(|e| e.shown() && !busy && self.focused && state.focus == Some(window)).map(|e| [e.rect[0], e.rect[1] + e.frame])
+        };
+        let Some([ox, oy]) = origin else { return server.event(window, reply(false)) };
+        if self.lock.is_some() {
+            self.unlock(server, host, true);
+        }
+        if !host.lock_pointer(true) {
+            return server.event(window, reply(false));
+        }
+        self.lock = Some(Lock { window, at: [self.pointer.0 - ox, self.pointer.1 - oy], injected: self.pointer });
+        server.event(window, reply(true));
+    }
+
+    fn unlock(&mut self, server: &Server, host: &dyn Host, tell: bool) {
+        let Some(lock) = self.lock.take() else { return };
+        host.lock_pointer(false);
+        if !self.pressed.is_empty() {
+            self.capture = Some((lock.window, [self.pointer.0 - lock.at[0], self.pointer.1 - lock.at[1]]));
+        }
+        if tell {
+            server.event(lock.window, Event { kind: "pointerlock".into(), code: Some(0), title: Some("lost".into()), ..Default::default() });
+        }
+    }
+
+    fn locked_motion(&self, server: &Server, dx: f64, dy: f64) {
+        let Some(lock) = &self.lock else { return };
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        let [x, y] = lock.at;
+        server.event(lock.window, Event { kind: "pointermove".into(), x: Some(x), y: Some(y), delta_x: Some(dx), delta_y: Some(dy), ..Default::default() });
+    }
+
+    fn locked_button(&mut self, server: &Server, button: u32, pressed: bool) {
+        let Some(lock) = &self.lock else { return };
+        let changed = if pressed { self.pressed.insert(button) } else { self.pressed.remove(&button) };
+        if self.pressed.is_empty() {
+            self.capture = None;
+        }
+        if !changed {
+            return;
+        }
+        let [x, y] = lock.at;
+        let kind = if pressed { "pointerdown" } else { "pointerup" };
+        server.event(lock.window, Event { kind: kind.into(), x: Some(x), y: Some(y), button: Some(button), ..Default::default() });
+    }
+
     fn inject(&mut self, server: &Server, event: Injected) {
         match event {
+            Injected::Move(x, y) if self.lock.is_some() => {
+                let Some(lock) = &mut self.lock else { return };
+                let (dx, dy) = (x - lock.injected.0, y - lock.injected.1);
+                lock.injected = (x, y);
+                self.locked_motion(server, dx, dy);
+            }
+            Injected::Motion(dx, dy) if self.lock.is_some() => self.locked_motion(server, dx, dy),
             Injected::Move(x, y) => self.moved(server, x, y),
             Injected::Motion(dx, dy) => self.moved(server, self.pointer.0 + dx, self.pointer.1 + dy),
             Injected::Button { button, pressed } => self.button(server, button, pressed),
@@ -471,6 +577,9 @@ impl App {
     }
 
     fn target(&self, server: &Server) -> Option<(u32, [f64; 2])> {
+        if let Some(lock) = &self.lock {
+            return Some((lock.window, [self.pointer.0 - lock.at[0], self.pointer.1 - lock.at[1]]));
+        }
         self.capture.or_else(|| server.state().hit(self.pointer.0, self.pointer.1).filter(|hit| !hit.bar && !hit.blocked).map(|hit| (hit.target, hit.origin)))
     }
 
@@ -690,6 +799,32 @@ impl App {
         (e.frame > 0.0).then(|| e.bar(state.theme, state.focus == Some(id)).button_at(self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1])).flatten()
     }
 
+    fn host_hint(&mut self, server: &Server, host: &dyn Host) -> bool {
+        let (x, y) = self.pointer;
+        let (id, edges, double) = {
+            let mut state = server.state();
+            let Some(hit) = state.hit(x, y).filter(|hit| !hit.blocked) else { return false };
+            let Some(e) = state.entries.get(&hit.entry).filter(|e| e.host) else { return false };
+            let Some(edges) = crate::shell::pointer::edges_at(&e.grab_hints(&state.theme), x - e.rect[0], y - e.rect[1]) else { return false };
+            let target = state.double_click.target(Mode::Free, e.state);
+            let double = edges == 0 && state.clicks.press(hit.entry, acde::log::now_ms(), [x, y], platform::click_settings()) >= 2;
+            if double || edges != 0 {
+                state.clicks.reset();
+            }
+            (hit.entry, edges, double.then_some(target))
+        };
+        server.activate(id);
+        match double {
+            Some(to) => {
+                if to.is_some() {
+                    host.set_state(to);
+                }
+                true
+            }
+            None => host.drag(edges),
+        }
+    }
+
     fn left_press(&mut self, server: &Server, entry: u32) -> bool {
         let (x, y) = self.pointer;
         let press = server.state().press(entry, [x, y], acde::log::now_ms(), platform::click_settings());
@@ -709,6 +844,9 @@ impl App {
     }
 
     fn button(&mut self, server: &Server, button: u32, pressed: bool) {
+        if self.lock.is_some() {
+            return self.locked_button(server, button, pressed);
+        }
         let (x, y) = self.pointer;
         if pressed {
             if self.pressed.is_empty() && self.menu_press.is_none() && self.menu_pressed(server) {
@@ -793,6 +931,10 @@ impl App {
             crate::dev::DevtoolsPress::Open => {
                 let window = server.state().focus;
                 return server.broker.push(Event { kind: "devtools".into(), window, ..Default::default() });
+            }
+            crate::dev::DevtoolsPress::Meter => {
+                crate::output::hud::toggle();
+                return server.relayout();
             }
         }
         if self.menu_key(server, evdev, pressed) {

@@ -69,6 +69,23 @@
   `dragend {button: 0}`), 指针移到别的 web 上发 `dndenter` (类型) / `dndmove`, 离开发 `dndleave`; 在别的窗口上松手发 `dnddrop` (数据) 再给源
   `dragend {button: 1}`, 不发 `pointerup`; 在源窗口里或没有窗口处松手照常发 `pointerup`. 数据来自页面, 没有 `files` (页面不能替用户担保
   文件). 没有拖动图标.
+- **指针锁定** (页面一侧见 libacde `docs/web/web-apps.md`「指针锁定」): 页面的 `SurfaceCommand::PointerLock(on)` 经 `Cmd::PointerLock` 到主线程
+  (`App::lock` / `unlock`). 给锁的条件: 宿主窗口有焦点、这个窗口是焦点窗口且显示着、没有在拖动窗口或数据、没有打开的窗框菜单; 再由平台层
+  `Host::lock_pointer(true)` 真的锁住 (winit: `CursorGrabMode::Locked`, 不支持时退到 `Confined`, 再藏起光标; headless 只记状态, 算成功;
+  Win32 还没有, `Surface::pointer_lock` 为假, 页面直接拒绝). 回答 `pointerlock {code, title: 'request'}`. 锁着时: 平台的
+  `CursorMoved` / 离开不用, 相对移动是 winit 的 `DeviceEvent::MouseMotion` (`HostEvent::Motion`, macOS 是 NSEvent 的 deltaX / deltaY, 带系统加速,
+  逻辑像素; X11 / Wayland 是不带加速的原始量), 发给锁着的窗口 `pointermove {x, y: 锁定时的页面坐标, deltaX, deltaY}`; 按钮和滚轮都给它, 不命中、
+  不拖窗口、不开菜单; 注入的 `move` 按和上一次注入位置的差、`motion` 按原值变成相对移动 (dev 的 `input` 和 driver 照样能测). 收回并发
+  `pointerlock {code: 0, title: 'lost'}`: Esc (这次按下和松开都不发给页面)、宿主窗口失焦 (选择器、批准对话框、⌘Tab 也是这一条)、焦点给了别的窗口
+  (`Server::activate` / `focus_top` 发 `Cmd::FocusMoved`). 页面 `exitPointerLock` 或窗口没了 (`Surface` drop) 时不回答, 直接放开. 放开时还按着的按钮照旧有抬起: 那个窗口成为隐式 grab 的目标
+  (`capture`), 抬起发给它.
+- **帧率面板** (调试用, 画法见 libacde `docs/graphics/render-gpu.md`「帧率面板」): `ACDE_HUD=1` 时起来就开着; 有 `ACDE_DEV` 时 Shift+F12
+  开关 (`dev::DevtoolsKey`, 和 F12 一样按住的重复和松开都吞掉, 不给页面). 数在出帧线程记 (`output/hud.rs`): `Presenter::paint` 每画出页面的一帧新内容
+  记一次时刻和这一帧的光栅化毫秒 (同 `perf::raster` 的 `surface ms`), 每个窗口留最近 120 个帧间隔; 关着时不记. FPS 是最近一秒里画出的帧数,
+  平均是这些帧的间隔, 合成器重画不算帧, 所以静止的页面显示 idle. 合成线程 (`compose.rs` `meter`) 把它画成最上面一层: 焦点窗口 (没有时最上层的窗口)
+  内容区右上角, 离边 8 px, 预算按 `State.refresh` (不知道时 60 Hz); 场景最多 100 ms 重画一次 (自己的 Vello, 纹理按缩放建, 换 GPU 设备时扔掉),
+  页面不出帧时每 500 ms 合成一次, 让数字落到 idle
+  (`Meter.idle_at`: 画过面板才排下一次; 合成提前返回 (headless 没有 surface、取不到 surface 纹理) 时不排, 不空转). `screen` 截图里也有它.
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /
@@ -96,23 +113,28 @@
   `launch`. `animate` 和会话一样走 model 的 `Transition` / `Look` (`State::animate` / `advance`): 合成线程每帧插值, 按 look 缩放、平移、
   调透明度画这个窗口 (最近点取样), 命中按 look 反算, 做完发 `windowanimated`; 窗口不存在时立刻发. `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
-- **独立应用的主窗口用宿主的控件** (`acdev runtime app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdev runtime app <id>` 起的那个窗口的
+- **独立应用的主窗口用宿主的控件** (`acdev runtime app`, 平台层 `Host::controls()` 为真时: Win32 和 winit (macOS / Linux), headless 没有): Broker 给 `acdev runtime app <id>` 起的那个窗口的
   `grant` 带 `host: true`, 窗口表记 `Entry.host`. 它没有运行时的窗框 (`frame` 按 0), 宿主窗口自己的标题栏和按钮是唯一的一套; 标题交给宿主窗口.
-  没有宿主控件的平台 (macOS / Linux winit) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
-  所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acdev`.
+  没有宿主控件的平台 (headless) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
+  所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acdev`. (2026-11-19 之前 macOS / Linux 也这样, 宿主窗口的系统标题栏下面还有一条运行时的窗框, 两层.)
   它的状态落到宿主窗口上 (`request_state` 发 `Cmd::HostState`, `platform/win32/frame.rs`): 最小化是最小化宿主窗口, `filled` 是最大化 (平台工作区),
   全屏是去掉边框铺满所在显示器 (记下样式和位置, 回去时还原), `normal` 还原. 用户在平台上做的 (任务栏最小化、`Win+Down`、Snap、标题栏最大化)
   由 `WM_SIZE` 变成 `HostEvent::State`, 运行时照收并照常发 `state` / `windowstate`; Snap 后是 `normal` 加新尺寸. 页面的 grab hint 变成
-  `WM_NCHITTEST` 的结果 (没有 edges 是 `HTCAPTION`: 系统的拖动、Snap、双击最大化; 有 edges 是对应的改大小边框). 宿主窗口所在显示器的尺寸、缩放和
+  `WM_NCHITTEST` 的结果 (没有 edges 是 `HTCAPTION`: 系统的拖动、Snap、双击最大化; 有 edges 是对应的改大小边框).
+  winit (`platform/host_winit.rs`): 最小化 `set_minimized`, `filled` 是 `set_maximized` (macOS 是缩放), 全屏 `Fullscreen::Borderless` (macOS 是系统的全屏空间),
+  `normal` 都撤掉; 用户在系统标题栏上做的 (红绿灯、双击标题栏、拖到屏幕边) 在 `Resized` / `Moved` / `Occluded` / `Focused` 之后按
+  `is_minimized` / `fullscreen` / `is_maximized` 重新判断, 变了发 `HostEvent::State`. 页面的 grab hint 在按下左键时由 `App::host_hint` 处理:
+  没有 edges 的交给 `Window::drag_window` (系统的移动), 有 edges 的交给 `drag_resize_window`, 这一下不给页面; 没有 edges 处的双击按
+  `State.double_click` (默认铺满 / 还原). winit 拿不到显示器的工作区, 不发 `hostoutput` / `hostworkarea`. 宿主窗口所在显示器的尺寸、缩放和
   工作区经 `hostoutput` / `hostworkarea` 给 Broker (`broker/output.ts` `Outputs`), 只给这个窗口当 `acde:window.output`, 换显示器时变.
   页面经 `claimSurface` 的 `hostControls` 知道, `acde.window.hostControls` (加 `on('hostcontrols')`) 是每个窗口自己的值, 任何窗口都可能为真,
-  本版本只有独立应用的主窗口为真. 别的窗口、完整桌面、headless 和 winit 的宿主照旧.
+  本版本只有独立应用的主窗口为真. 别的窗口、完整桌面和 headless 照旧.
   独立应用里宿主窗口的关闭按钮 (`windowcloserequest` 窗口 0) 先问主窗口的 `beforeclose` (同样最多等 3 秒), 拒绝时宿主留着; 完整桌面里照旧结束会话.
   独立应用开的别的窗口 (`State.standalone` 之后 grant 的, `Entry.minimize` 为假) 保留运行时窗框, 照常挪、改尺寸、关, 但不能最小化 (没有 Dock 找回来):
   窗框的最小化按钮画成灰的、按了没反应, 运行时拒绝变成 `minimized`, `acde.window.minimize()` 和 `acde.windows.requestState(id, 'minimized')`
   以 `AcdeWindowError` (`code: 'unavailable'`, `status: 409`) 拒绝. `acde.window.minimizable` (加 `on('minimizable')`) 是每个窗口自己的值.
   **能不能最小化只有一个说法** (`Entry::minimizable`: 宿主替它做 (`host`), 或者 `minimize` 为真、不是桌面和面板、模式允许最小化): 窗框按钮的灰显、
-  `Surface::minimizable`、`windows()` 行的 `minimize` 都用它. 所以宿主没有自己控件的平台 (macOS / Linux 的 winit 宿主、headless) 上, 独立应用的主窗口 (内部是
+  `Surface::minimizable`、`windows()` 行的 `minimize` 都用它. 所以宿主没有自己控件的平台 (headless) 上, 独立应用的主窗口 (内部是
   `fullscreen` 模式, 没人替它最小化) 也是不能最小化的: `minimizable` 为假, 窗框的最小化按钮是灰的, `minimize()` 以同一个 409 拒绝, `acde:inspect` 的
   `act <窗口> minimize` 回 `ok: false` 和原因, 不再回「已最小化」而什么都没变. 原因的文字在 `WindowCalls.unminimizable(行)` 一处: 桌面、铺满宿主窗口的主窗口
   (`it fills the host window, which only the host window's own controls minimize here`)、钉住的窗口、独立应用的别的窗口 (`a standalone app has no Dock to bring it back`).

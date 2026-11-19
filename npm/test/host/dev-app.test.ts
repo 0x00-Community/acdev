@@ -270,6 +270,37 @@ describe.skipIf(skip)('acdev dev --app on the host, driven through the CLI again
     expect(await settle('document.title', 'Hello Backend')).toBe('Hello Backend')
   })
 
+  test('pointer lock: a click locks the element, moves arrive as movement at a still position, Esc gives it back, a held button still comes up', async () => {
+    await page(`(() => {
+      const box = document.createElement('div')
+      box.id = 'lockbox'
+      box.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:200px;z-index:9'
+      document.body.append(box)
+      globalThis.locks = []
+      globalThis.moves = []
+      box.addEventListener('mousedown', () => document.pointerLockElement || box.requestPointerLock().then(() => locks.push('resolved'), (e) => locks.push(e.name)))
+      document.addEventListener('pointerlockchange', () => locks.push(document.pointerLockElement?.id ?? 'none'))
+      document.addEventListener('mousemove', (e) => { if (document.pointerLockElement) moves.push([e.target.id, e.clientX, e.clientY, e.movementX, e.movementY]) })
+      return true
+    })()`)
+    await driver!.input('hello-backend', [{ type: 'down', x: 50, y: 50, button: 'left' }, { type: 'up', x: 50, y: 50, button: 'left' }])
+    expect(await settle('locks', ['lockbox', 'resolved'])).toEqual(['lockbox', 'resolved'])
+    await driver!.input('hello-backend', [{ type: 'move', x: 60, y: 45 }, { type: 'move', x: 30, y: 45 }, { type: 'move', x: 300, y: 400 }])
+    const sum = 'moves.reduce((a, m) => [a[0] + m[3], a[1] + m[4]], [0, 0])'
+    expect(await settle(sum, [250, 350])).toEqual([250, 350])
+    expect(await page('moves.every((m) => m[0] === "lockbox" && m[1] === 50 && m[2] === 50)')).toBe(true)
+    await page("globalThis.ups = 0; document.addEventListener('mouseup', () => ups++); true")
+    await driver!.input('hello-backend', [
+      { type: 'down', x: 50, y: 50, button: 'left' },
+      { type: 'keydown', key: 'Escape' },
+      { type: 'keyup', key: 'Escape' },
+      { type: 'up', x: 50, y: 50, button: 'left' },
+    ])
+    expect(await settle('locks', ['lockbox', 'resolved', 'none'])).toEqual(['lockbox', 'resolved', 'none'])
+    expect(await settle('ups', 1)).toBe(1)
+    await page("document.getElementById('lockbox').remove()")
+  })
+
   test('SIGTERM to acdev dev ends the runtime cleanly: the backend is stopped, and acdev dev exits 0', async () => {
     const backend = await backendPid()
     await driver?.close()

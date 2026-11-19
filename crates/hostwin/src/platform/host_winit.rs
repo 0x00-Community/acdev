@@ -2,12 +2,12 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use acde::gpu::wgpu;
-use acde::model::Combo;
+use acde::model::{Combo, WindowState};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
-use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, ResizeDirection, Window, WindowId};
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
@@ -25,9 +25,68 @@ impl Proxy {
 pub(crate) struct Host {
     window: Arc<Window>,
     exit: Cell<Option<i32>>,
+    state: Cell<WindowState>,
+}
+
+impl Host {
+    fn state_now(&self) -> WindowState {
+        if self.window.is_minimized() == Some(true) {
+            WindowState::Minimized
+        } else if self.window.fullscreen().is_some() {
+            WindowState::Fullscreen
+        } else if self.window.is_maximized() {
+            WindowState::Filled
+        } else {
+            WindowState::Normal
+        }
+    }
+
+    fn state_changed(&self) -> Option<WindowState> {
+        let now = self.state_now();
+        (self.state.replace(now) != now).then_some(now)
+    }
 }
 
 impl super::Host for Host {
+    fn controls(&self) -> bool {
+        true
+    }
+
+    fn set_state(&self, to: Option<WindowState>) {
+        let window = &self.window;
+        match to {
+            None if window.is_minimized() == Some(true) => window.set_minimized(false),
+            None => window.set_fullscreen(None),
+            Some(WindowState::Minimized) => window.set_minimized(true),
+            Some(WindowState::Fullscreen) => window.set_fullscreen(Some(Fullscreen::Borderless(None))),
+            Some(WindowState::Filled) => {
+                window.set_fullscreen(None);
+                window.set_maximized(true);
+            }
+            Some(WindowState::Normal) => {
+                window.set_fullscreen(None);
+                window.set_maximized(false);
+                window.set_minimized(false);
+            }
+        }
+    }
+
+    fn drag(&self, edges: u32) -> bool {
+        let (top, bottom, left, right) = (edges & 1 != 0, edges & 2 != 0, edges & 4 != 0, edges & 8 != 0);
+        let direction = match (top, bottom, left, right) {
+            (false, false, false, false) => return self.window.drag_window().map_err(|e| log::warn!("host window: move: {e}")).is_ok(),
+            (true, _, true, _) => ResizeDirection::NorthWest,
+            (true, _, _, true) => ResizeDirection::NorthEast,
+            (_, true, true, _) => ResizeDirection::SouthWest,
+            (_, true, _, true) => ResizeDirection::SouthEast,
+            (true, ..) => ResizeDirection::North,
+            (_, true, ..) => ResizeDirection::South,
+            (.., true, _) => ResizeDirection::West,
+            (.., true) => ResizeDirection::East,
+        };
+        self.window.drag_resize_window(direction).map_err(|e| log::warn!("host window: resize: {e}")).is_ok()
+    }
+
     fn set_title(&self, title: &str) {
         self.window.set_title(title);
     }
@@ -62,6 +121,26 @@ impl super::Host for Host {
 
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
+    }
+
+    fn lock_pointer(&self, on: bool) -> bool {
+        if !on {
+            if let Err(e) = self.window.set_cursor_grab(CursorGrabMode::None) {
+                log::warn!("host window: release the pointer: {e}");
+            }
+            self.window.set_cursor_visible(true);
+            return true;
+        }
+        match self.window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined)) {
+            Ok(()) => {
+                self.window.set_cursor_visible(false);
+                true
+            }
+            Err(e) => {
+                log::warn!("host window: lock the pointer: {e}");
+                false
+            }
+        }
     }
 
     fn set_size(&self, [w, h]: [f64; 2]) -> Option<(u32, u32)> {
@@ -125,6 +204,12 @@ pub(crate) fn run(handler: Box<dyn Handler>) -> Result<i32, String> {
 }
 
 impl Loop {
+    fn follow_state(&mut self, el: &ActiveEventLoop) {
+        if let Some(state) = self.host.as_ref().and_then(Host::state_changed) {
+            self.emit(el, HostEvent::State(state));
+        }
+    }
+
     fn emit(&mut self, el: &ActiveEventLoop, event: HostEvent) {
         let Some(host) = &self.host else { return };
         self.handler.event(host, event);
@@ -158,7 +243,7 @@ impl ApplicationHandler<Cmd> for Loop {
         window.set_ime_allowed(true);
         let size = window.inner_size();
         let scale = window.scale_factor();
-        let host = Host { window, exit: Cell::new(None) };
+        let host = Host { window, exit: Cell::new(None), state: Cell::new(WindowState::Normal) };
         self.handler.started(&host, super::Proxy::Native(Proxy(self.proxy.clone())), monitor, (size.width.max(1), size.height.max(1)), scale);
         if let Some(code) = host.exit.take() {
             self.code = code;
@@ -169,6 +254,12 @@ impl ApplicationHandler<Cmd> for Loop {
 
     fn user_event(&mut self, el: &ActiveEventLoop, cmd: Cmd) {
         self.emit(el, HostEvent::Cmd(cmd));
+    }
+
+    fn device_event(&mut self, el: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
+            self.emit(el, HostEvent::Motion(dx, dy));
+        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -207,8 +298,13 @@ impl ApplicationHandler<Cmd> for Loop {
             WindowEvent::Ime(Ime::Commit(text)) => HostEvent::ImeCommit(text),
             WindowEvent::DroppedFile(path) => HostEvent::Dropped(vec![path]),
             WindowEvent::Occluded(false) | WindowEvent::RedrawRequested => HostEvent::Redraw,
+            WindowEvent::Occluded(true) | WindowEvent::Moved(_) => return self.follow_state(el),
             _ => return,
         };
+        let placed = matches!(event, HostEvent::Resized { .. } | HostEvent::Focused(_) | HostEvent::Redraw);
         self.emit(el, event);
+        if placed {
+            self.follow_state(el);
+        }
     }
 }

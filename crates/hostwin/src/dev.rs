@@ -239,6 +239,7 @@ pub(crate) enum DevtoolsPress {
     Pass,
     Swallow,
     Open,
+    Meter,
 }
 
 impl DevtoolsKey {
@@ -258,11 +259,13 @@ impl DevtoolsKey {
         if self.held {
             return DevtoolsPress::Swallow;
         }
-        if modifiers != 0 {
-            return DevtoolsPress::Pass;
-        }
+        let press = match modifiers {
+            0 => DevtoolsPress::Open,
+            acde::model::Combo::SHIFT => DevtoolsPress::Meter,
+            _ => return DevtoolsPress::Pass,
+        };
         self.held = true;
-        DevtoolsPress::Open
+        press
     }
 
     /// The host window lost the focus: the F12 that opened DevTools is usually released in the browser it brought
@@ -351,7 +354,7 @@ mod tests {
     #[test]
     fn f12_with_a_modifier_other_keys_and_any_key_outside_dev_mode_pass() {
         let mut key = DevtoolsKey { on: true, held: false };
-        for modifier in [Combo::CTRL, Combo::SHIFT, Combo::ALT, Combo::SUPER] {
+        for modifier in [Combo::CTRL, Combo::ALT, Combo::SUPER, Combo::CTRL | Combo::SHIFT] {
             assert_eq!(key.key(F12, true, modifier), DevtoolsPress::Pass);
             assert_eq!(key.key(F12, false, modifier), DevtoolsPress::Pass);
         }
@@ -360,5 +363,16 @@ mod tests {
         let mut off = DevtoolsKey::default();
         assert_eq!(off.key(F12, true, 0), DevtoolsPress::Pass);
         assert_eq!(off.key(F12, false, 0), DevtoolsPress::Pass);
+    }
+
+    #[test]
+    fn shift_f12_toggles_the_frame_meter_once_per_press() {
+        let mut key = DevtoolsKey { on: true, held: false };
+        assert_eq!(key.key(F12, true, Combo::SHIFT), DevtoolsPress::Meter);
+        assert_eq!(key.key(F12, true, Combo::SHIFT), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, false, Combo::SHIFT), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, true, Combo::SHIFT), DevtoolsPress::Meter);
+        let mut off = DevtoolsKey::default();
+        assert_eq!(off.key(F12, true, Combo::SHIFT), DevtoolsPress::Pass);
     }
 }
