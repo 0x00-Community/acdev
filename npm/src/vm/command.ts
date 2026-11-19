@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
-import { audioOf } from './hardware.ts'
+import { audioOf, resolutionOf, vgaOf } from './hardware.ts'
 import { Usb } from './usb.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
@@ -65,6 +65,8 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
     display,
     outputs: outputsFor(flags, display),
     audio: audioOf(flags.get('audio')),
+    vga: vgaOf(flags.get('vga')),
+    resolution: resolutionOf(flags.get('resolution')),
   }
   const wait = seconds(flags.get('wait'))
   if (wait !== 0) machine.devdBinary()
