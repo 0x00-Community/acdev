@@ -44,7 +44,7 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 ## Media
 
-`Audio` / `AudioContext` are supported. WebGPU is currently available only on Linux.
+`Audio` / `AudioContext` are supported. After 0.0.9 also `OfflineAudioContext` (one or two channels, no `suspend()`), the effect nodes (biquad, delay, wave shaper, compressor, convolver, analyser) and custom `PeriodicWave`s; `ChannelSplitterNode`, `ChannelMergerNode`, `IIRFilterNode` and `AudioWorklet` are not there yet. WebGPU is currently available only on Linux.
 
 `<video>` plays what the system's own decoders can open, so formats differ by platform: on macOS, MP4 / QuickTime plays and WebM does not. Ask `canPlayType()` before choosing a source.
 
@@ -83,7 +83,7 @@ Added after 0.0.9:
 
 ## Not yet supported
 
-`<datalist>`, `appearance: base-select` on `<select>`, Web Workers, `crypto.subtle`, WebGL (`getContext('webgl')` and `getContext('webgl2')` return `null`; use 2D canvas, or WebGPU on Linux), OffscreenCanvas / `createImageBitmap`, the Fullscreen API (`requestFullscreen()` rejects with `NotSupportedError`; an app window goes full screen with `requestState('fullscreen')` from [`acde:window`](../guide/window.md#window-state)) and pointer lock, `:target`, Storage Buckets, and Service Workers.
+`<datalist>`, `appearance: base-select` on `<select>`, Web Workers in 0.0.9 (after 0.0.9 dedicated workers work; `SharedWorker`, a `MessagePort` sent to a worker and `SharedArrayBuffer` do not), `crypto.subtle`, WebGL (`getContext('webgl')` and `getContext('webgl2')` return `null`; use 2D canvas, or WebGPU on Linux), OffscreenCanvas / `createImageBitmap`, the Fullscreen API (`requestFullscreen()` rejects with `NotSupportedError`; an app window goes full screen with `requestState('fullscreen')` from [`acde:window`](../guide/window.md#window-state)) and pointer lock, `:target`, Storage Buckets, and Service Workers.
 
 ## Differences from browsers
 
