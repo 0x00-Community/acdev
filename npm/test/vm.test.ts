@@ -466,7 +466,8 @@ describe('the QEMU command line', () => {
     }
     const want = crateVersion(Machine.ROOT, 'devd')!
     expect(() => Devd.checkVersion(fake(want), Machine.ROOT)).not.toThrow()
-    expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`is acdevd 0.1.0, this acdev needs ${want}: rebuild it`)
+    expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`is acdevd 0.1.0, this acdev needs ${want}. Rebuild it: cd `)
+    expect(() => Devd.checkVersion(fake('0.1.0'), Machine.ROOT)).toThrow(`or set ACDEV_DEVD to an acdevd ${want} binary`)
   })
 
   test('a start that fails after QEMU is up stops that QEMU', async () => {

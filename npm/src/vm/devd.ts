@@ -462,8 +462,12 @@ export class Devd {
     const ran = spawnSync(binary, ['--version'], { encoding: 'utf8' })
     const got = /^acdevd (\S+)/.exec(ran.stdout ?? '')?.[1] ?? `unknown (${(ran.stderr || ran.error?.message || 'no answer').trim()})`
     if (got === want) return
-    const manifest = join(crateDir(root, 'devd'), 'Cargo.toml')
-    throw new Error(`vm: ${binary} is acdevd ${got}, this acdev needs ${want}: rebuild it with `
-      + `cargo build --release --manifest-path ${manifest} (CARGO_TARGET_DIR picks where it goes) or set ACDEV_DEVD to a current build`)
+    throw new Error(`vm: ${binary} is acdevd ${got}, this acdev needs ${want}. ${Devd.rebuild(root, want)}`)
+  }
+
+  static rebuild(root: string, want: string): string {
+    const crate = crateDir(root, 'devd')
+    return `Rebuild it: cd ${crate} && cargo build --release (the build lands in CARGO_TARGET_DIR if set, which acdev looks in `
+      + `first, so point it at the shared logs/cargo-target/acdev-devd or unset it), or set ACDEV_DEVD to an acdevd ${want} binary`
   }
 }

@@ -13,6 +13,9 @@ acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-da
   `logs/cargo-target/acdev-devd/release/acdevd` (从检出往上逐级找 `logs/`, 即总仓的 `logs/`; devd 是独立工作区, 不和根工作区共用产物目录);
   `crates/devd/target/release/acdevd`; 都没有就 `cargo build --release`. 装进客户机之前先跑 `acdevd --version`, 和 `crates/devd/Cargo.toml`
   的版本比, 对不上就报错 (哪个文件、什么版本、要什么版本、怎么重编), 不装旧的进去 (旧的会在第一帧报 `unknown request 'A'`).
+  报错里给出处理办法 (`Devd.rebuild`): `cd crates/devd && cargo build --release` (设了 `CARGO_TARGET_DIR` 时产物在那里, acdev 先找它, 所以让它
+  指向共用的 `logs/cargo-target/acdev-devd` 或不设), 或者把 `ACDEV_DEVD` 指向那个版本的 acdevd. 分支改了协议 (例如 `C` / `T` 隧道要 0.5.0)
+  而测试机上留着旧的 acdevd 时就会碰到; 客户机里装着的版本不对 (`ACDEV_DEVD` 给了旧的) 也报同样的办法, 重编后 `acdev vm start` 会再装进去.
   注意: `CARGO_TARGET_DIR` 排在约定目录前面. 它若指着 acdev 根工作区的产物目录 (如 `logs/cargo-target/acdev`), 那里留着的旧 acdevd
   会先被找到、被版本检查拦下报错, 不会再往下找. devd 是独立的 Cargo 工作区: 编它时用它自己的约定目录
   (`CARGO_TARGET_DIR=<总仓>/logs/cargo-target/acdev-devd`), 或者用 `ACDEV_DEVD` 明确指定.

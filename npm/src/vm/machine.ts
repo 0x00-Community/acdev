@@ -647,7 +647,10 @@ export class Machine {
 
   static #sameVersion(running: string): string {
     const want = crateVersion(Machine.ROOT, 'devd')
-    if (want !== null && running !== want) throw new Error(`vm: the guest runs acdevd ${running}, this acdev needs ${want}: rebuild ACDEV_DEVD`)
+    if (want !== null && running !== want) {
+      throw new Error(`vm: the guest runs acdevd ${running}, this acdev needs ${want}. ${Devd.rebuild(Machine.ROOT, want)}; `
+        + 'acdev vm start then installs it in the guest')
+    }
     return running
   }
 
