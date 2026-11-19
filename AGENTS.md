@@ -50,7 +50,6 @@ SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 liba
 - 格式化: Rust 只格式化自己改的文件: `rustfmt --edition 2024 --config-path rustfmt.toml <文件...>`, 或加 `--check` 只看不改 (根目录
   `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`). 不要不带参数跑 `cargo fmt` / `cargo fmt --all`: 路径依赖 (并排的 `../libacde`
   和它的 `vendor/blitz`) 会被一起改写 (2026-11-18 总仓检出里出过一次, 用户定).
-  Guard 的行宽同为 160 (`git config --local akira.guardMaxLineLength 160`, 全仓).
 - 构建不从外网取东西 (2026-11-14): 依赖都从内网 Gitea 取 (libacde 和它的 blitz 子模块、rusty_v8 预编译库、CI 的 action), 见 libacde 的 `docs/dev/build-run.md`「构建不从外网取东西」.
   Cargo.toml / package.json 里的仓库地址写 gitea (`http://gitea.dopamine/AC/acdev`).
 
@@ -64,14 +63,13 @@ SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 liba
 - 远端只有 `main` (加发版和存档的 tag), 不推别的分支. 本地需要时在总仓 `.worktrees/acdev-<后缀>` 开工作树和本地分支 `Akira/<后缀>` (基于
   `origin/main`), 做完普通合并回 `main` 再推 `origin main` (用户定 2026-11-17). 不开工作树时几个会话共用工作区和 git index: 只改自己负责的路径,
   别人没提交的文件先等.
-- 提交只经总仓的 Guard: `uv run <总仓>/.agents/skills/akira/scripts/guard.py commit -m '<信息>' <自己的路径...>` (它做暂存语法检查、行宽和提交格式,
-  再按给的路径提交; 用户定 2026-11-17). 推前 `git show --stat HEAD` 和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
+- 提交用 `git commit -- <自己的路径...>` (acde 的仓库不依赖 uv, 用户定 2026-11-19). 推前 `git show --stat HEAD` 和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
   做完就提交并推送.
 - 不 force push, 不 amend / rebase 已推送的提交.
 - 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明负载), 不加 Co-Authored-By.
 - 不在总仓的 acdev 检出 (`<总仓>/acdev`) 里改动或格式化任何文件, 改就开工作树 (用户定 2026-11-18): 那个检出是总仓记录的版本, 也给测试联调用.
 - 提交前: 按上面的写法格式化自己改的文件; 改了 `npm/` 时 `bun run typecheck` (在 `npm/`); 总仓的质量检查 `bun scripts/quality/check.ts <本仓库> origin/main`
-  (在总仓跑, 结果须为 0 条); 提交时 Guard 的暂存检查.
+  (在总仓跑, 结果须为 0 条).
 - 构建、运行和测试按工程需要直接做 (命令行: `bun test`、`bun run typecheck`, 在 `npm/`; 运行时: 见 libacde 的 `docs/dev/testing.md`), 做了就在提交信息里写清
   已验证 / 未验证. 汇报时也分开写「已验证 / 未验证」.
 
