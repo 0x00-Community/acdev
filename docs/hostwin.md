@@ -84,7 +84,8 @@
   记一次时刻和这一帧的光栅化毫秒 (同 `perf::raster` 的 `surface ms`), 每个窗口留最近 120 个帧间隔; 关着时不记. FPS 是最近一秒里画出的帧数,
   平均是这些帧的间隔, 合成器重画不算帧, 所以静止的页面显示 idle. 合成线程 (`compose.rs` `meter`) 把它画成最上面一层: 焦点窗口 (没有时最上层的窗口)
   内容区右上角, 离边 8 px, 预算按 `State.refresh` (不知道时 60 Hz); 场景最多 100 ms 重画一次 (自己的 Vello, 纹理按缩放建, 换 GPU 设备时扔掉),
-  页面不出帧时每 500 ms 合成一次, 让数字落到 idle. `screen` 截图里也有它.
+  页面不出帧时每 500 ms 合成一次, 让数字落到 idle
+  (`Meter.idle_at`: 画过面板才排下一次; 合成提前返回 (headless 没有 surface、取不到 surface 纹理) 时不排, 不空转). `screen` 截图里也有它.
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /

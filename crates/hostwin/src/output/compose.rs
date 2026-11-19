@@ -133,6 +133,7 @@ struct Meter {
     layer: Bound,
     scale: f64,
     drawn: Option<Instant>,
+    idle_at: Option<Instant>,
 }
 
 struct Bound {
@@ -355,7 +356,7 @@ impl Thread {
                     self.dump_at = None;
                     self.dump();
                 }
-                let meter = self.meter.as_ref().and_then(|m| m.drawn).is_some_and(|at| at + METER_IDLE <= now);
+                let meter = self.meter.as_mut().and_then(|m| m.idle_at.take_if(|at| *at <= now)).is_some();
                 if self.retry_at.is_some_and(|at| at <= now) || meter {
                     self.retry_at = None;
                     self.draw();
@@ -596,6 +597,7 @@ impl Thread {
             }
             meter.drawn = Some(now);
         }
+        meter.idle_at = Some(now + METER_IDLE);
         let [x, y, w] = rect;
         let left = ((x + w) * scale - f64::from(size.0) - METER_MARGIN * scale).max(0.0).round();
         let top = ((y + METER_MARGIN) * scale).round();
@@ -613,7 +615,7 @@ impl Thread {
         let page = Arc::new(Page { size, view, texture, straight: false.into(), owner: self.gpu.shared.clone() });
         let vello = acde::vello::Vello::new(device, &self.gpu.shared.queue)?;
         let overrides = acde::vello::Overrides::from(self.gpu.shared.images.clone());
-        Ok(Meter { hud: acde::render::Hud::new(), vello, overrides, layer: self.bind(page), scale, drawn: None })
+        Ok(Meter { hud: acde::render::Hud::new(), vello, overrides, layer: self.bind(page), scale, drawn: None, idle_at: None })
     }
 
     fn configure(&mut self) {
@@ -666,7 +668,7 @@ impl Thread {
     }
 
     fn deadline(&self) -> Option<Instant> {
-        let meter = self.meter.as_ref().and_then(|m| m.drawn).map(|at| at + METER_IDLE);
+        let meter = self.meter.as_ref().and_then(|m| m.idle_at);
         self.dump_at.into_iter().chain(self.retry_at).chain(meter).min()
     }
 
