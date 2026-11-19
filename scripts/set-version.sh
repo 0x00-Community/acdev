@@ -1,7 +1,7 @@
 #!/bin/sh
 # Write one release version into what the build reads it from, without committing it: the [workspace.package] version of
 # acdev's Cargo.toml (crates/hostwin takes it from there) and of libacde's beside it (the runtime library acdert), npm/package.json
-# and the SDK's libacde/acde-api/package.json.
+# and the SDK's libacde/acde-api/package.json; in both Cargo.lock files, every package that takes the workspace version.
 # Usage: set-version.sh <x.y.z> <acdev checkout>   (libacde is the checkout beside it, <acdev checkout>/../libacde)
 set -eu
 v=$1 dir=$2
@@ -13,8 +13,13 @@ done
 for json in "$dir/npm/package.json" "$lib/acde-api/package.json"; do
   node -e 'const f=process.argv[1],p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' "$json" "$v"
 done
+names=$(for toml in "$dir"/Cargo.toml "$dir"/crates/*/Cargo.toml "$lib"/Cargo.toml "$lib"/*/Cargo.toml; do
+  [ -f "$toml" ] && grep -q '^version.workspace = true$' "$toml" && sed -n 's/^name = "\(.*\)"$/\1/p' "$toml" | head -n 1
+done | paste -s -d '|' -)
 for lock in "$dir/Cargo.lock" "$lib/Cargo.lock"; do
   [ -f "$lock" ] || continue
-  sed -i "/^name = \"\(acdev\|acde-hostwin\|libacde\)\"$/{n;s/^version = \".*\"$/version = \"$v\"/}" "$lock"
+  awk -v names="|$names|" -v v="$v" 'bump && /^version = "/ { $0 = "version = \"" v "\""; bump = 0 }
+    /^name = "/ { n = $0; sub(/^name = "/, "", n); sub(/"$/, "", n); bump = index(names, "|" n "|") > 0 }
+    { print }' "$lock" > "$lock.tmp" && mv "$lock.tmp" "$lock"
 done
 echo "version $v"
