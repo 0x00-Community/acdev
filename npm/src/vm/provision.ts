@@ -63,6 +63,7 @@ export const PROVISION_SCRIPT = [
   '  (',
   '    set +u',
   '    srcdir="$here/acdes/src" pkgdir=""',
+  '    unset CARGO_TARGET_DIR',
   '    . "$here/acdes/PKGBUILD"',
   `    missing=$(pacman -T "\${depends[@]}" || true)`,
   '    if [ -n "$missing" ]; then',
@@ -169,9 +170,9 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   cpSync(need(join(repo, 'packaging', 'arch', 'PKGBUILD'), 'the acdes PKGBUILD'), join(stage, 'acdes', 'PKGBUILD'))
   cpSync(join(repo, 'packaging'), join(src, 'acdebin-system', 'packaging'), { recursive: true })
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
-  mkdirSync(join(src, 'target-winman', 'release'), { recursive: true })
+  mkdirSync(join(src, 'target', 'winman', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
-  cpSync(need(sources.winmanBin, '--winman-bin'), join(src, 'target-winman', 'release', 'winman'))
+  cpSync(need(sources.winmanBin, '--winman-bin'), join(src, 'target', 'winman', 'release', 'winman'))
   const license = sources.libacde ? join(resolve(sources.libacde), 'LICENSE') : null
   mkdirSync(join(src, 'libacde'), { recursive: true })
   if (license && existsSync(license)) cpSync(license, join(src, 'libacde', 'LICENSE'))
