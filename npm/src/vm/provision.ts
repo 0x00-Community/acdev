@@ -21,6 +21,11 @@ export interface ProvisionOptions {
 
 export const PROVISION_DIR = '/opt/acdev/provision'
 
+export const PRUNED = {
+  bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
+  hwsim: { module: 'mac80211_hwsim', package: 'linux-ackernel-wifi-other' },
+} as const
+
 export const PROVISION_SCRIPT = [
   '#!/bin/bash',
   'set -euo pipefail',
@@ -39,6 +44,15 @@ export const PROVISION_SCRIPT = [
   '  pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "could not install $pkg"',
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
+  '',
+  'restore() {',
+  '  modinfo "$1" >/dev/null 2>&1 && return 0',
+  '  step "the $1 module is missing (agentos-drivers prune removes $2): installing $2 back"',
+  '  pacman -S --needed --noconfirm "$2" >/dev/null || { step "warning: could not install $2"; return 0; }',
+  '  modinfo "$1" >/dev/null 2>&1 || depmod -a || true',
+  '  modinfo "$1" >/dev/null 2>&1 || step "warning: $2 is installed but there is still no $1 module"',
+  '}',
+  `restore ${PRUNED.bochs.module} ${PRUNED.bochs.package}`,
   '',
   'if [ -f "$here/acdes/PKGBUILD" ]; then',
   '  step "acdes, laid out by its own PKGBUILD package()"',
@@ -78,6 +92,7 @@ export const PROVISION_SCRIPT = [
   '',
   'if [ -d "$here/hw" ]; then',
   '  step "simulated hardware: packages, scripts in /usr/local/bin, units in /etc/systemd/system"',
+  `  if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore ${PRUNED.hwsim.module} ${PRUNED.hwsim.package}; fi`,
   '  while read -r pkg; do',
   '    [ -n "$pkg" ] || continue',
   '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "warning: could not install $pkg"',

@@ -323,8 +323,16 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
   开机不会被标成 degraded), 只在 journal (`journalctl -u acdev-wifi`) 和 provision 输出里留一条说明. 注意 hostapd、btvirt 自己起不来
   也是 4, 同样只留日志. 手动跑脚本时退出码照旧是 4.
 - 手动起停: `acdev vm run -- systemctl stop|start acdev-wifi` (单元), 或直接 `acdev vm run -- acdev-wifi up|down` (脚本要 root, acdevd 是 root).
-- 客户机内核 (ackernel) 的配置不在本仓库, 有没有这三个模块要在客户机里 `modinfo` 才知道〔未核实〕: `mac80211_hwsim` 和 `test_power`
-  没有设备别名, 按 ackernel 的拆包规则留在 `linux-ackernel` 里, 不会被 `agentos-drivers prune` 删掉; `hci_vhci` 同理.
+- 被 `agentos-drivers prune` 卸掉的模块 (第六轮查清, 之前这里的推断是错的): `mac80211_hwsim` 只有 virtio 的设备别名, 而 virtio 是固定总线,
+  按 ackernel 的拆包规则 (`packaging/arch/split.awk`、`module-groups`) 它进了组包 `linux-ackernel-wifi-other`; 装机时 os 仓的
+  `agentos-drivers prune` 把这台机器用不上的组包整个卸掉, 客户机里就没有它了. `bochs` (`--vga std` 用) 在 `linux-ackernel-gpu-other`
+  里, 一般因为 virtio-gpu 也在这个组包而被留下, 但同样可能被卸. 所以 provision 装完基本的包后先查 `modinfo bochs`, 不在就
+  `pacman -S --needed --noconfirm linux-ackernel-gpu-other` (总是查, 和 `--vga` 无关); 模拟硬件一节开头再查: Wi-Fi 那一项开着 (没有 `--no-wifi`) 且
+  `modinfo mac80211_hwsim` 不在就装回 `linux-ackernel-wifi-other` (`PRUNED`, `src/vm/provision.ts`). 装上后不用重启, 下次 `modprobe`
+  就能载入: 模块依赖表由装包时的 depmod 钩子更新〔推断: kmod 的 pacman 钩子〕, 装完仍查不到模块时 provision 再跑一次 `depmod -a`.
+  装不上 (拿不到包、找不到包名) 只打一行 warning, provision 照常往下走, Wi-Fi 一项照旧按缺模块只记日志.
+  之后如果在模块没载入时 (例如关掉了 `acdev-wifi.service`) 再跑 prune, 又会把组包卸掉; 重新 `acdev vm provision` 就能装回.
+- `test_power` 和 `hci_vhci` 第六轮里客户机都有.
 
 ### Wi-Fi
 

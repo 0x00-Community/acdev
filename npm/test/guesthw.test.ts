@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   BLUEZ_CONFIGURE, BTVIRT_BUILD, GUEST_HARDWARE, MISSING, PEER_NAME, WIFI, guestHardware, hardwareFiles, unitText,
 } from '../src/vm/guesthw.ts'
-import { PROVISION_SCRIPT, stageProvision } from '../src/vm/provision.ts'
+import { PROVISION_SCRIPT, PRUNED, stageProvision } from '../src/vm/provision.ts'
 
 const NONE = { acdes: null, acdesBin: null, winmanBin: null, libacde: null, dopame: null, harness: null }
 
@@ -106,5 +106,21 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
     }
     expect(PROVISION_SCRIPT).toContain('install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt')
     expect(PROVISION_SCRIPT).toContain('/usr/local/bin/acdev-btvirt-build || step "warning: no btvirt')
+  })
+
+  test('provision puts back the module packages agentos-drivers prune removed: bochs always, mac80211_hwsim when the Wi-Fi is on', () => {
+    expect(PRUNED).toEqual({
+      bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
+      hwsim: { module: 'mac80211_hwsim', package: 'linux-ackernel-wifi-other' },
+    })
+    for (const line of ['modinfo "$1" >/dev/null 2>&1 && return 0',
+      'pacman -S --needed --noconfirm "$2" >/dev/null || { step "warning: could not install $2"; return 0; }',
+      'depmod -a || true', 'restore bochs linux-ackernel-gpu-other',
+      'if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore mac80211_hwsim linux-ackernel-wifi-other; fi']) {
+      expect(PROVISION_SCRIPT).toContain(line)
+    }
+    const restoring = PROVISION_SCRIPT.indexOf('restore mac80211_hwsim')
+    expect(restoring).toBeGreaterThan(PROVISION_SCRIPT.indexOf('restore() {'))
+    expect(restoring).toBeLessThan(PROVISION_SCRIPT.indexOf('systemctl restart "$name"'))
   })
 })
