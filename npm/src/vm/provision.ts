@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
+import { hardwareFiles, type GuestHardware } from './guesthw.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -75,6 +76,15 @@ export const PROVISION_SCRIPT = [
   'faillock --user "$user" --reset 2>/dev/null || true',
   'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
   '',
+  'if [ -d "$here/hw" ]; then',
+  '  step "simulated hardware: the packages and scripts in /usr/local/bin"',
+  '  while read -r pkg; do',
+  '    [ -n "$pkg" ] || continue',
+  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "could not install $pkg"',
+  '  done <"$here/hw/packages"',
+  '  for script in "$here"/hw/acdev-*; do install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; done',
+  'fi',
+  '',
   'step "greetd runs the acdes login screen"',
   'for g in video input; do if getent group "$g" >/dev/null; then usermod -aG "$g" greeter; fi; done',
   'mkdir -p /etc/greetd',
@@ -136,11 +146,21 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }
 
-export function stageProvision(sources: ProvisionSources): string {
+function stageHardware(stage: string, hardware: readonly GuestHardware[]): void {
+  if (!hardware.length) return
+  const dir = join(stage, 'hw')
+  const { scripts, packages } = hardwareFiles(hardware)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'packages'), packages.map((pkg) => `${pkg}\n`).join(''))
+  for (const [name, text] of Object.entries(scripts)) writeFileSync(join(dir, name), text, { mode: 0o755 })
+}
+
+export function stageProvision(sources: ProvisionSources, hardware: readonly GuestHardware[] = []): string {
   const stage = mkdtempSync(join(tmpdir(), 'acdev-provision-'))
   try {
     stageAcdes(stage, sources)
     stageDopame(stage, sources)
+    stageHardware(stage, hardware)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })
     return stage
   } catch (error) {
