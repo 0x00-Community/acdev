@@ -928,7 +928,7 @@ describe('acdev vm provision', () => {
     }
     const stage = stageProvision(sources)
     try {
-      for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes', 'acdes/src/target-winman/release/winman',
+      for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes', 'acdes/src/target/winman/release/winman',
         'acdes/src/acdebin-system/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
         'dopame/dopame-harness']) {
         expect(existsSync(join(stage, file))).toBe(true)
@@ -1018,7 +1018,8 @@ describe('emulated hardware', () => {
     expect(() => Usb.size('lots')).toThrow('--size lots')
     const bin = tmp()
     writeFileSync(join(bin, 'mkfs.exfat'), '#!/bin/sh\n', { mode: 0o755 })
-    expect(Usb.formatter(bin)?.tool).toBe(join(bin, 'mkfs.exfat'))
+    expect(Usb.formatter([bin])?.tool).toBe(join(bin, 'mkfs.exfat'))
+    expect(Usb.searched(`${bin}:/opt/bin`)).toEqual([bin, '/opt/bin', '/usr/sbin', '/sbin'])
   })
 
   test('more than one display with a window takes GTK; --sdl refuses it', () => {

@@ -42,13 +42,16 @@ export class Usb {
     return bytes
   }
 
-  static formatter(path: string = process.env['PATH'] ?? ''): Formatter | null {
-    const dirs = [...path.split(delimiter).filter(Boolean), '/usr/sbin', '/sbin']
+  static formatter(dirs: readonly string[] = Usb.searched(process.env['PATH'] ?? '')): Formatter | null {
     for (const tool of Usb.TOOLS) {
       const found = dirs.map((dir) => join(dir, tool.name)).find((file) => existsSync(file))
       if (found) return { tool: found, args: tool.args }
     }
     return null
+  }
+
+  static searched(path: string): string[] {
+    return [...path.split(delimiter).filter(Boolean), '/usr/sbin', '/sbin']
   }
 
   static create(image: string, bytes: number, formatter: Formatter | null): void {

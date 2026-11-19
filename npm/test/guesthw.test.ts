@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  BLUEZ_CONFIGURE, BTVIRT_BUILD, GUEST_HARDWARE, MISSING, PEER_NAME, WIFI, guestHardware, hardwareFiles, unitText,
+  BLUEZ_CONFIGURE, BTVIRT_BUILD, BTVIRT_CORE, GUEST_HARDWARE, MISSING, PEER_NAME, WIFI, guestHardware, hardwareFiles, unitText,
 } from '../src/vm/guesthw.ts'
 import { PROVISION_SCRIPT, PRUNED, stageProvision } from '../src/vm/provision.ts'
 
@@ -67,7 +67,7 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
 
   test('the Bluetooth script starts btvirt with two controllers and makes the last one discoverable', () => {
     const bt = hardwareFiles(['bluetooth']).scripts['acdev-bt']!
-    for (const line of ['modprobe hci_vhci', '"$exe" -l2', 'systemctl start bluetooth', `peer=${PEER_NAME}`, 'discov on', 'CONFIG_BT_HCIVHCI=m']) {
+    for (const line of ['modprobe hci_vhci', '"$exe" -C "$core" -l2', 'systemctl start bluetooth', `peer=${PEER_NAME}`, 'discov on', 'CONFIG_BT_HCIVHCI=m']) {
       expect(bt).toContain(line)
     }
   })
@@ -122,5 +122,22 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
     const restoring = PROVISION_SCRIPT.indexOf('restore mac80211_hwsim')
     expect(restoring).toBeGreaterThan(PROVISION_SCRIPT.indexOf('restore() {'))
     expect(restoring).toBeLessThan(PROVISION_SCRIPT.indexOf('systemctl restart "$name"'))
+  })
+
+  test('acdev-bt finds btvirt by path, makes Core 5.2 controllers and waits until bluetoothd manages both', () => {
+    const bt = hardwareFiles(['bluetooth']).scripts['acdev-bt']!
+    expect(BTVIRT_CORE).toBe('5.2')
+    expect(bt).not.toMatch(/^btvirt\(\) \{/m)
+    expect(bt).not.toContain('command -v btvirt')
+    for (const line of ['find_btvirt() {', '/usr/local/bin/btvirt /usr/lib/bluez/btvirt', `core=${BTVIRT_CORE}`, 'exe=$(find_btvirt)',
+      'btmgmt info', '[ "$(managed)" -ge 2 ] || fail "bluetoothd sees $(managed) of the 2 controllers']) {
+      expect(bt).toContain(line)
+    }
+  })
+
+  test('provision installs the acdes dependencies its PKGBUILD lists and pacman -T finds missing', () => {
+    expect(PROVISION_SCRIPT).toContain(`missing=$(pacman -T "\${depends[@]}" || true)`)
+    expect(PROVISION_SCRIPT).toContain('pacman -S --needed --noconfirm $missing >/dev/null')
+    expect(PROVISION_SCRIPT.indexOf('pacman -T')).toBeLessThan(PROVISION_SCRIPT.indexOf('    package\n'))
   })
 })

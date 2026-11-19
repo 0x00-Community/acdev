@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
+import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -11,6 +12,7 @@ export interface ProvisionSources {
   readonly libacde: string | null
   readonly dopame: string | null
   readonly harness: string | null
+  readonly kernelPkgs?: string | null
 }
 
 export interface ProvisionOptions {
@@ -45,6 +47,7 @@ export const PROVISION_SCRIPT = [
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
   '',
+  ...KERNEL_SCRIPT,
   'restore() {',
   '  modinfo "$1" >/dev/null 2>&1 && return 0',
   '  step "the $1 module is missing (agentos-drivers prune removes $2): installing $2 back"',
@@ -60,7 +63,13 @@ export const PROVISION_SCRIPT = [
   '  (',
   '    set +u',
   '    srcdir="$here/acdes/src" pkgdir=""',
+  '    unset CARGO_TARGET_DIR',
   '    . "$here/acdes/PKGBUILD"',
+  `    missing=$(pacman -T "\${depends[@]}" || true)`,
+  '    if [ -n "$missing" ]; then',
+  '      step "the acdes dependencies not installed yet: $(echo $missing)"',
+  '      pacman -S --needed --noconfirm $missing >/dev/null || step "warning: could not install all of: $(echo $missing)"',
+  '    fi',
   '    package',
   '  )',
   '  ln -sf acdes /usr/bin/acdert',
@@ -161,9 +170,9 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   cpSync(need(join(repo, 'packaging', 'arch', 'PKGBUILD'), 'the acdes PKGBUILD'), join(stage, 'acdes', 'PKGBUILD'))
   cpSync(join(repo, 'packaging'), join(src, 'acdebin-system', 'packaging'), { recursive: true })
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
-  mkdirSync(join(src, 'target-winman', 'release'), { recursive: true })
+  mkdirSync(join(src, 'target', 'winman', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
-  cpSync(need(sources.winmanBin, '--winman-bin'), join(src, 'target-winman', 'release', 'winman'))
+  cpSync(need(sources.winmanBin, '--winman-bin'), join(src, 'target', 'winman', 'release', 'winman'))
   const license = sources.libacde ? join(resolve(sources.libacde), 'LICENSE') : null
   mkdirSync(join(src, 'libacde'), { recursive: true })
   if (license && existsSync(license)) cpSync(license, join(src, 'libacde', 'LICENSE'))
@@ -208,6 +217,7 @@ export function stageProvision(sources: ProvisionSources, hardware: HardwareChoi
     stageAcdes(stage, sources)
     stageDopame(stage, sources)
     stageHardware(stage, hardware)
+    if (sources.kernelPkgs) stageKernel(stage, sources.kernelPkgs)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })
     return stage
   } catch (error) {
@@ -224,5 +234,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), winmanBin: get('winman-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
+    kernelPkgs: get('kernel-pkgs'),
   }
 }
