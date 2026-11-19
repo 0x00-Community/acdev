@@ -29,7 +29,7 @@ There is a single manifest validator: the runtime and `acdev check` / `acdev bui
 
 ## Contract level
 
-`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@dopame/acde-api`; `acdev --version` and `acdev runtime --version` print theirs). The runtime loads only packages of its own level:
+`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@dopame/acde-api`; `acdev --version` prints its own and the runtime's, and the runtime binary (`libexec/acdev` of the install) prints its own with `--version`). The runtime loads only packages of its own level:
 
 | Package | What the runtime and `acdev check` say |
 | --- | --- |
@@ -75,17 +75,25 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 | `fs` | `true` \| `{roots: string[]}` | `acde:fs`: the private folder and picked folders; `roots` names shared places (`desktop`, `documents`, `downloads`, `music`, `pictures`, `videos`) | |
 | `terminal` | `true` | `acde:terminal` | |
 | `network` | `true` | `acde:network` | |
+| `system` | `true` | [`acde:system`](modules.md#acdesystem) (Linux only) | |
+| `bluetooth` | `true` | [`acde:bluetooth`](modules.md#acdebluetooth) (Linux only) | |
+| `audio` | `true` | [`acde:audio`](modules.md#acdeaudio) (Linux only) | |
+| `devices` | `true` | [`acde:devices`](modules.md#acdedevices) (Linux only) | |
+| `power` | `true` | [`acde:power`](modules.md#acdepower) (Linux only) | |
+| `input` | `true` | [`acde:input`](modules.md#acdeinput) (Linux only) | |
+| `display` | `true` | [`acde:display`](modules.md#acdedisplay) (Linux only) | |
 | `office` | `true` | `acde:office` | |
 | `launch` | `true` | `start` in `acde:launch` | |
 | `slots` | `true` | `embed` in `acde:launch`: native programs embedded in the app's window | |
 | `open` | `true` \| `string[]` | Opening (these) apps with `acde:open` | |
 | `openFiles` | `true` | `acde:openPath`, `acde:handlers`, and `open(request)` without a target app | |
-| `camera` / `microphone` | `true` | `getUserMedia()` video / audio | Yes. In 0.0.9, a required one when the app starts, an optional one on first use; after 0.0.9, both on first use |
+| `camera` / `microphone` | `true` | `getUserMedia()` video / audio | Yes, on first use |
+| `idleDetection` | `true` | `IdleDetector` (Linux only) | Yes, when the page calls `IdleDetector.requestPermission()` |
 | `windows` `packages` `session` `desktops` `inspect` `desktop` `setDefault` `permissions` | `true` | The shell module of that name. System apps only: an error in any other package | |
 
-Any other key is an error: desktop services go in `services`. System apps are never asked for approval.
+Any other key is an error: desktop services go in `services`. System notifications (`new Notification()`) need no key; `acde:capabilities` reports them as `notifications`. System apps are never asked for approval.
 
-Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, service not running) is left out of the app list and refuses to start: `Notes needs "network" (not available on macOS host windows); list it in "optional" to run without it` (404 `unsupported_app`; the place is `Windows host windows`, `Linux host windows` or `Linux sessions`), or `Notes needs "clock" (service not running)` (503 `service_not_running`). Declaring a capability grants it; only the camera and the microphone ask the user (see [Capabilities](../guide/capabilities.md#camera-and-microphone)).
+Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, service not running) is left out of the app list and refuses to start: `Notes needs "network" (not available on macOS host windows); list it in "optional" to run without it` (404 `unsupported_app`; the place is `Windows host windows`, `Linux host windows` or `Linux sessions`), or `Notes needs "clock" (service not running)` (503 `service_not_running`). Declaring a capability grants it; only the camera, the microphone and idle detection ask the user (see [Capabilities](../guide/capabilities.md#camera-and-microphone)).
 
 ## URLs
 

@@ -15,7 +15,8 @@
   the user)` (404) 这一句; `needs "…" (…)` 只剩平台没有和服务没跑两种 (404 `unsupported_app`). 要批准的能力按状态分开说 (`acde:capabilities` 的
   `not-asked` / `asking` / `available` / `denied`): 被批准挡住的调用都是 403 带 `capability`, `code` 是 `not_asked` (`… is not asked for yet; ask for it
   with acde:capabilities request("…")`)、`asking` (`… is waiting for the user's answer`) 或 `denied` (`… is denied by the user`); 可选模块的动态
-  `import()` 以同样三句的 `TypeError` 拒绝 (前面是 `acde:<模块>: `), `load()` 只给 `null`.
+  `import()` 以同样三句拒绝 (前面是 `acde:<模块>: `), 拒绝的是 `AcdeError` (`code: 'forbidden'`、`status: 403`、`module`; 提供它的服务停了时是
+  `service_not_running` / 503, 见 libacde `src/host/modules.rs` 的 `import_error`), `load()` 只给 `null`.
   **摄像头和麦克风** (`reference/web.md`): 用运行时的假设备 `ACDE_CAPTURE=fake` 验的 (`Fake camera` / `Fake microphone`, `reference/env.md` 列了它):
   可选的由 `getUserMedia()` 自己触发提示 (先麦克风后摄像头), `permissions.query` 没答之前是 `prompt`, 拒绝或撤销后 `denied`. 「批准之后回答的是系统
   自己对设备的权限」这半句照 libacde 的 `permits.ts` 写 (批准后转给原生的 `permission()`), 本机上假设备和真设备看到的都是 `granted`; macOS 系统自己的

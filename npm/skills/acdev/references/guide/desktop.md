@@ -46,7 +46,7 @@ apps.on('changed', ({ apps }) => render(apps))
 
 `app.icon` is an icon name or an image URL; the desktop decides how to draw it. An app that cannot run here is not in the list: one that requires a capability this platform lacks. `changed` fires with the new list when it changes.
 
-`apps.open(id)` rejects when the app cannot start: with `status: 404`, `code: 'unsupported_app'` for an app that requires what this platform lacks (`Viewer needs "network" (not available on macOS host windows); list it in "optional" to run without it`), and with `status: 503`, `code: 'service_not_running'` for one whose service is not running (`Viewer needs "clock" (service not running)`). In 0.0.9, an app whose required camera or microphone the user denied also rejects, with `status: 403`, `code: 'denied'` (`Viewer: "camera" is denied by the user`); after 0.0.9 it starts. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
+`apps.open(id)` rejects when the app cannot start: with `status: 404`, `code: 'unsupported_app'` for an app that requires what this platform lacks (`Viewer needs "network" (not available on macOS host windows); list it in "optional" to run without it`), and with `status: 503`, `code: 'service_not_running'` for one whose service is not running (`Viewer needs "clock" (service not running)`). An app whose required camera or microphone the user denied starts. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
 
 ## Windows
 
@@ -119,7 +119,7 @@ Shortcut scopes: `session` (highest, cannot be overridden) → app-level shortcu
 
 ## Camera and microphone prompts
 
-The camera and the microphone ask the user the first time an app uses them (see [Capabilities](capabilities.md#camera-and-microphone)); no other capability asks. In 0.0.9, one that an app requires is asked for when the app starts, with `reason: 'launch'`; after 0.0.9, `reason` is always `'request'`. The desktop shows these prompts and passes the answers on with `acde:permissions`:
+The camera and the microphone ask the user the first time an app uses them (see [Capabilities](capabilities.md#camera-and-microphone)), and idle detection (`idleDetection`, when the page calls `IdleDetector.requestPermission()`); no other capability asks. `reason` is always `'request'`. The desktop shows these prompts and passes the answers on with `acde:permissions`:
 
 ```js
 import { permissions } from 'acde:permissions'

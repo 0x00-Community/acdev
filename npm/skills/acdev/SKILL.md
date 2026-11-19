@@ -5,7 +5,7 @@ description: Build, run, debug, and test apps and desktops for Dopame OS with th
 
 # acdev
 
-A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). `acdev runtime` is the runtime that draws the desktop and the apps (built on the libacde runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
+A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acdev` is the developer CLI (create, check, build, run, inspect, test). The acdev runtime (the binary `libexec/acdev` of the install) is the runtime that draws the desktop and the apps (built on the libacde runtime library); `acdev dev` starts it. The relation is wrangler to workerd.
 
 This skill ships inside acdev and describes the version it came with. When it and the CLI disagree, the CLI is right: `acdev --help` prints every command, and `acdev <command> --help` that command's options.
 
@@ -14,7 +14,7 @@ This skill ships inside acdev and describes the version it came with. When it an
 Run `acdev doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acdev dev`, `acdev test` or the MCP `start` does not come up, before guessing. `acdev doctor --fix` then fixes what acdev may (the skill, `.acde/` in `.gitignore`, the sessions directory) and asks before what downloads, installs or stops something; without a terminal it skips those unless given `--yes`, which you pass only when the user agreed. Approvals, GPU drivers and the project's code it leaves to you and the user. See [Check the setup](references/guide/doctor.md).
 
 1. `acdev` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acdev dev` and `acdev test` need the runtime, acdebin-dbg. The acdev installer sets up the acdev runtime release that acdev pairs with next to it; acdev finds `ACDEV_RUNTIME` (a path to the binary) first, then that one, then `acdev runtime` (or an older `acdert`) on PATH (in the Dopame virtual machine it is already there). If `acdev doctor` finds none, or one that does not run, run the acdev installer again (`acdev doctor --fix --yes` does that for an installed acdev); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acdev new`, `acdev check`, and `acdev build` still work, and `acdev dev` says what is missing.
+2. `acdev dev` and `acdev test` need the runtime. The acdev installer puts the runtime release that acdev pairs with next to it, at `libexec/acdev` of the install; acdev uses `ACDEV_RUNTIME` (the path to a runtime binary) first, then that one, and stops with an error when neither is there. If `acdev doctor` finds none, or one that does not run, run the acdev installer again (`acdev doctor --fix --yes` does that for an installed acdev); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acdev new`, `acdev check`, and `acdev build` still work, and `acdev dev` says what is missing.
 3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acdev test` needs Bun.
 
 ## What is not like a browser
@@ -22,10 +22,10 @@ Run `acdev doctor`, in the project directory when there is one. It checks what f
 The runtime has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch`, and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
 
 - **No modules from a CDN.** ES modules load only from the app's own files (`import('https://…')` fails): bundle every code dependency. Images, stylesheets and fonts can come from other hosts, as in a browser.
-- **Missing APIs**: Service Workers, `crypto.subtle`, WebGL, OffscreenCanvas, fullscreen. In 0.0.9 also Web Workers and pointer lock; after 0.0.9 dedicated workers (`new Worker(url, { type })`) and pointer lock work. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
+- **Missing APIs**: Service Workers, `crypto.subtle`, OffscreenCanvas, fullscreen. WebGL 1 and 2 work, with some parts missing (see [Web compatibility](references/reference/web.md#rendering-and-canvas)). Dedicated workers (`new Worker(url, { type })`) and pointer lock work. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
 - **System access goes through `acde:` modules only** (`import { fs } from 'acde:fs'`), and only for capabilities the config requests. There is no global object. Importing a module that was not requested fails. See [Capabilities](references/guide/capabilities.md).
 - **The backend has no TCP port.** A backend's `listen(port)` becomes a unix socket, and the page reaches it with a same-origin `fetch('/api/…')`. Do not `curl localhost`. See [Backend](references/guide/backend.md).
-- **Developer tools.** In 0.0.9 there are none: use the commands below to look at pages; after 0.0.9, F12 in an `acdev dev` window or `acdev devtools` opens the DevTools of Chrome or Edge on the page, over the Chrome DevTools Protocol. See [acdev dev](references/guide/dev.md#devtools).
+- **Developer tools.** F12 in an `acdev dev` window or `acdev devtools` opens the DevTools of Chrome or Edge on the page, over the Chrome DevTools Protocol. See [acdev dev](references/guide/dev.md#devtools).
 - **Platforms differ.** An app that requires a capability the platform lacks does not start there; one that lists it as optional finds that `import('acde:<name>')` rejects. See [Platform support](references/reference/platforms.md).
 
 ## The working loop
@@ -64,7 +64,7 @@ Before handing over: `acdev check` (config and entry), `acdev build` (the packag
 
 - Edit `acde.config.jsonc`, never the generated `.acde/package.json`.
 - Request a capability in the config before importing its module.
-- Declaring a capability grants it. Only the camera and the microphone ask the user, the first time a page calls `getUserMedia()`; the call waits for the answer: run `acdev permissions`, then `acdev allow` or `acdev deny`. Answering is the user's decision, and it is kept for the app: allow only what the user asked for or agreed to, and say what you allowed. See [Capabilities](references/guide/capabilities.md#camera-and-microphone).
+- Declaring a capability grants it. Only the camera and the microphone (the first time a page calls `getUserMedia()`) and idle detection (`idleDetection`, when the page calls `IdleDetector.requestPermission()`) ask the user; the call waits for the answer: run `acdev permissions`, then `acdev allow` or `acdev deny`. Answering is the user's decision, and it is kept for the app: allow only what the user asked for or agreed to, and say what you allowed. See [Capabilities](references/guide/capabilities.md#camera-and-microphone).
 - In `acde:fs` a root is an id, not a path. `"fs": true` gives the app its own folder, the root `private`: keep the app's working files there. See [Files and folders](references/guide/files.md).
 - An app that lists `services` only runs in the desktop that provides them: `acdev dev` in the app project alone does not start it, `acdev dev --desktop <dir>` does. See [Services](references/guide/services.md).
 - Keep `.acde/` out of git.
@@ -95,7 +95,7 @@ Guides:
 - [Services](references/guide/services.md): desktop services and the capabilities they provide
 - [acdev dev](references/guide/dev.md): what runs, reloading, several projects, `--desktop`
 - [Check the setup](references/guide/doctor.md): `acdev doctor`, what it checks, what to do about each finding, and what `--fix` repairs
-- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`, and `devtools` (after 0.0.9)
+- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`, and `devtools`
 - [Coding agents](references/guide/agents.md): this skill, `acdev skills`, where it is installed
 - [MCP](references/guide/mcp.md): `acdev mcp` and its tools
 - [Testing](references/guide/testing.md): `acdev test`, locators, assertions, screenshots, traces

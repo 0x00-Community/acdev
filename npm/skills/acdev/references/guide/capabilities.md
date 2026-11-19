@@ -31,12 +31,20 @@ The `capabilities` in your config decide which modules an app can import:
 | `fs` | `acde:fs`. `true`: the app's private folder and the folders the user picks for it. `{ "roots": ["downloads", … ] }` adds shared places; see [Files and folders](files.md) |
 | `terminal` | `acde:terminal`: pseudo-terminals |
 | `network` | `acde:network`: network settings, Wi-Fi (Linux only, including Dopame OS) |
+| `system` | `acde:system`: host name, time zone and clock sync, storage, the user (Linux only) |
+| `bluetooth` | `acde:bluetooth`: the adapter, pairing and devices (Linux only) |
+| `audio` | `acde:audio`: sound devices, volume, streams (Linux only) |
+| `devices` | `acde:devices`: drives (mount, eject, automount) and printers (Linux only) |
+| `power` | `acde:power`: batteries, power profiles and settings, suspend, brightness (Linux only) |
+| `input` | `acde:input`: keyboard layouts, mouse and touchpad, input methods (Linux only) |
+| `display` | `acde:display`: display modes, scale, rotation, brightness, night light (Linux only) |
 | `office` | `acde:office`: office document service (Linux only) |
 | `open` | Opening other apps with `acde:open`. `true` for any app, or a list of app ids |
 | `openFiles` | `acde:openPath` / `acde:handlers`, and `open(request)` without a target app: a file or a link goes to its default app |
 | `launch` | `start` in `acde:launch`: start native programs |
 | `slots` | `embed` in `acde:launch`: native programs embedded in your own window (Dopame OS only) |
 | `camera` / `microphone` | `navigator.mediaDevices.getUserMedia()` video / audio (not on Windows); the user is asked, see [below](#camera-and-microphone) |
+| `idleDetection` | `IdleDetector` (Linux only); the user is asked when the page calls `IdleDetector.requestPermission()` |
 
 Every app can import these without requesting anything: `acde:window` (its own window), `acde:capabilities` (what it has, see [below](#acdecapabilities)), `acde:apps` (`list()` and `open()`), and `acde:open` (opening another app still needs `open`).
 
@@ -45,7 +53,7 @@ A name that is not in the table is an error in `acdev check`:
 - **Desktop services** are listed under `services`, not under `capabilities`: `"services": ["clock"]`, then `import { clock } from 'acde:clock'`. The app then starts only in a desktop that runs the service. See [Services](services.md).
 - **Shell modules** (`acde:windows`, `acde:packages`, `acde:session`, `acde:desktops`, `acde:inspect`, `acde:desktop`, `acde:setDefault`, `acde:permissions`) belong to the desktop. Only the desktop page, its services, and the apps bundled with a desktop (system apps) get them; see [Desktops](desktop.md#system-apps).
 
-Importing a module the app has no right to fails with a `TypeError` that names the missing declaration, and `acdev check` and `acdev build` report the same thing for every `import` in your source before anything runs:
+Importing a module the app has no right to fails with an `AcdeError` (an `Error` with `name === 'AcdeError'`, `code: 'forbidden'`, `status: 403`, and `module`, the name without `acde:`) whose message names the missing declaration; a module whose service stopped fails the same way with `code: 'service_not_running'` and `status: 503` (see [Errors](../reference/modules.md#errors)). `acdev check` and `acdev build` report the same thing for every `import` in your source before anything runs:
 
 ```text
 error: app "notes": capability "clock" is not a system capability; list desktop services under services
@@ -57,12 +65,13 @@ Calling a method the app has no right to is rejected with `status: 403` (`code: 
 
 ## Camera and microphone
 
-Declaring a capability is what gives the app access to it: nothing is asked, also for shared places in `fs.roots`, `terminal`, `network`, `launch` and `slots`. Only the camera and the microphone ask the user. The apps bundled with a desktop (system apps) are not asked.
+Declaring a capability is what gives the app access to it: nothing is asked, also for shared places in `fs.roots`, `terminal`, `network`, `launch` and `slots`. Only the camera and the microphone ask the user, and idle detection (`idleDetection`, when the page calls `IdleDetector.requestPermission()`), which asks the same way. The apps bundled with a desktop (system apps) are not asked.
 
-- **When**: the first time a page calls `navigator.mediaDevices.getUserMedia()` (or `request()`, below); the call waits for the answer. In 0.0.9, a camera or microphone the app requires (not in `optional`) is asked for when the app starts, and the window opens after the answer; after 0.0.9, it is asked for on first use too.
+- **When**: the first time a page calls `navigator.mediaDevices.getUserMedia()` (or `request()`, below); the call waits for the answer. This holds for a camera or microphone the app requires too.
 - **Allowed**: the decision is stored per app (`$XDG_CONFIG_HOME/acde/permissions.json`) and the user is not asked again.
-- **Denied**: `getUserMedia()` rejects with `NotAllowedError`, as in a browser. In 0.0.9, denying a required one keeps the app from starting (`Notes: "camera" is denied by the user`, 403 `denied`) and takes it off the app list; after 0.0.9, the app keeps running and stays in the list.
-- **Who asks**: in a desktop, the desktop shows the prompt (see [Desktops](desktop.md#camera-and-microphone-prompts)). In the host window of a single app, Windows asks in a dialog; in 0.0.9, macOS and Linux show nothing. After 0.0.9, a macOS host window asks in a sheet (`Allow` / `Don't Allow`) and a Linux host window in a desktop notification with Allow and Deny (without a notification service, nothing shows).
+- **Denied**: `getUserMedia()` rejects with `NotAllowedError`, as in a browser. The app keeps running and stays in the app list, also when it requires the one denied.
+- **Who asks**: in a desktop, the desktop shows the prompt (see [Desktops](desktop.md#camera-and-microphone-prompts)). In the host window of a single app, Windows asks in a dialog, a macOS host window in a sheet (`Allow` / `Don't Allow`) and a Linux host window in a desktop notification with Allow and Deny (without a notification service, nothing shows).
+- **In a Dopame OS session**: the camera and the microphone are not available yet, also when declared: `getUserMedia()` rejects at once with `NotAllowedError` and nothing asks.
 - **In a dev session**: answer with `acdev allow` or `acdev deny` (also when nothing shows, and headless), take a decision back with `acdev revoke`; see [Debugging](tools.md#camera-and-microphone). Tests answer with `acde.allow()` (see [Testing](testing.md#approvals)).
 
 ## Optional capabilities

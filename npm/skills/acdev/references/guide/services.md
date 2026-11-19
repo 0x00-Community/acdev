@@ -64,7 +64,7 @@ Names:
   note: src/main.js:1: app "notes": acde:timer resolves only if the service Notes lists ("clock") provides the "timer" namespace
   ```
 
-  If no listed service provides it, the import throws a `TypeError` when the page loads (`'acde:timer' is not given to …`). In an app that lists no service, the same import is an error: `error: src/main.js:1: app "notes": acde:timer is not a system module; if a desktop service provides it, list that service's name in the services of Notes`. A service with one namespace, named after the service, gets no note.
+  If no listed service provides it, the import throws an `AcdeError` (`code: 'forbidden'`, `status: 403`) when the page loads (`'acde:timer' is not given to …`). In an app that lists no service, the same import is an error: `error: src/main.js:1: app "notes": acde:timer is not a system module; if a desktop service provides it, list that service's name in the services of Notes`. A service with one namespace, named after the service, gets no note.
 - A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acdev check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, and the runtime logs a line that ends, word for word, `[clock] acde.fs is taken; left out` (it writes the namespace as `acde.fs`, with a dot).
 
 ## ServiceContext
