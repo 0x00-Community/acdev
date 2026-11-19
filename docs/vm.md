@@ -26,6 +26,10 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - QEMU 进程用分离的子进程起 (Node 的 `detached`: POSIX 上是新会话, Windows 上不挂在当前控制台), 不随 `acdev` 退出, 不再要 `setsid`.
 - 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdevtool view`, 取 `ACDEVTOOL`, 否则检出里 `crates/tool` 编出的,
   目前只有 Linux); 没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
+- gtk 窗口下客户机的分辨率跟着窗口大小走: QEMU 的 gtk 前端每次窗口大小变化都把窗口尺寸经 `dpy_set_ui_info` 报给显卡, 显卡改了首选分辨率再告诉客户机
+  (`ui/gtk.c` `gd_configure` → `gd_set_ui_size`; virtio 显卡时 `zoom-to-fit` 自动打开, 窗口不再按画面调). 窗口初始大小由 GTK 按开机时的小画面定,
+  所以客户机常常一上来是 640×480, 把窗口拉大就行; 显卡的 `xres` / `yres` (默认就是 1280×800) 会被窗口尺寸盖掉, 设了也没用.
+  测试和要固定分辨率时用 `--headless` (1280×800) 或 `--viewer` (`acdevtool view` 主动报 1280×800, 之后跟着窗口变).
 
 ## Windows (WHPX)
 

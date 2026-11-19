@@ -140,7 +140,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 
 ## 执行机的工具链 (2026-11-18)
 
-ci-debian 执行机是 act_runner 0.6.1 的宿主模式 (不在容器里), capacity 2 (用户定, 2026-11-18): 同一台上的两个作业共用 cicd 的家目录.
+ci-debian 执行机是 gitea-runner 6.0.0 (原名 act_runner, 2026-11-19 从 0.6.1 升上来) 的宿主模式 (不在容器里), capacity 2 (用户定, 2026-11-18): 同一台上的两个作业共用 cicd 的家目录.
 所以作业不装任何东西 (run 2562 里一格的 rust-cache 收尾清掉共用的 `~/.cargo`, 另一格的 cargo 就没了, 退出码 127), 工具链由 root 在 ci-debian 里跑
 `scripts/runner-setup.sh` 预装, 归 root, 作业只能读; 升级: 执行机空闲时再跑一次.
 

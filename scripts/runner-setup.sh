@@ -10,6 +10,8 @@ apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends \
   clang lld llvm pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev \
   libwayland-dev libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk
+# AC/os test.yaml boots a VM with the iGPU passed through; the host side is AC/os scripts/ci/vm-host.sh.
+[ "$(uname -m)" != x86_64 ] || apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends qemu-system-x86 qemu-utils ovmf
 
 export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo
 targets=x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,x86_64-unknown-linux-musl,aarch64-unknown-linux-musl,x86_64-pc-windows-msvc,x86_64-apple-darwin,aarch64-apple-darwin
