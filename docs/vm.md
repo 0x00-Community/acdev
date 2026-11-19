@@ -333,12 +333,18 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
   就能载入: 模块依赖表由装包时的 depmod 钩子更新〔推断: kmod 的 pacman 钩子〕, 装完仍查不到模块时 provision 再跑一次 `depmod -a`.
   装不上 (拿不到包、找不到包名) 只打一行 warning, provision 照常往下走, Wi-Fi 一项照旧按缺模块只记日志.
   之后如果在模块没载入时 (例如关掉了 `acdev-wifi.service`) 再跑 prune, 又会把组包卸掉; 重新 `acdev vm provision` 就能装回.
-  组包从哪来 (第七轮查, 只读): 没有能给客户机配的仓库. ackernel 的 CI (`.gitea/workflows/cicd.yaml` 的 publish) 只把产物 rsync 到内网
-  `192.168.10.234:stable/<编号>/` (和 `stable/latest`), 不是 pacman 仓库; os 的说法是模块组包和元包 `linux-ackernel-drivers`「不是组件」,
-  只经 `AGENTOS_ACKERNEL_MODULE_PACKAGES` 进 live ISO 的本地仓库, 不进 `/opt/agentos`, 所以装好的系统里没有它们的来源; acinstaller 也写
-  `linux-ackernel` 不在 pacman 仓库里. os 的 `agentos` 仓库 (`pkgs.dopame.ai`) 有没有组包没核实, 客户机也没配这个源和它的签名公钥.
-  所以 `pacman -S linux-ackernel-wifi-other` 在客户机里报「未找到目标」, provision 只打 warning, Wi-Fi 暂时测不了. 要测就得从 .234 取
-  同版本的 `linux-ackernel-wifi-other-*.pkg.tar.zst`, `acdev vm push` 进去 `pacman -U` (provision 还没有这条路).
+  组包从哪来 (第七轮查, 只读): 没有能给客户机配的仓库. ackernel 的 CI (`.gitea/workflows/cicd.yaml` 的 publish 步骤) 只把每次构建的产物
+  rsync 到内网构建产物目录的 `stable/<编号>/` (另有指向最新一批的 `stable/latest`), 不是 pacman 仓库; os 的说法是模块组包和元包
+  `linux-ackernel-drivers`「不是组件」, 只经 `AGENTOS_ACKERNEL_MODULE_PACKAGES` 进 live ISO 的本地仓库, 不进 `/opt/agentos`, 所以装好的
+  系统里没有它们的来源; acinstaller 也写 `linux-ackernel` 不在 pacman 仓库里. os 的 `agentos` 仓库有没有组包没核实, 客户机也没配这个源.
+  所以不给下面的参数时, `pacman -S linux-ackernel-wifi-other` 在客户机里报「未找到目标」, provision 只打 warning.
+- `--kernel-pkgs <宿主目录>` (`src/vm/kernelpkgs.ts`): 从 ackernel CI 的产物目录里取**和客户机 `linux-ackernel` 同版本**的那一批
+  (`stable/<编号>/`, 看客户机 `pacman -Q linux-ackernel` 的 pkgver-pkgrel 找对应的编号), 把整批或其中的组包放进一个宿主目录, provision
+  不联网去取. 宿主上: 只认 `linux-ackernel-<组>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst` (主包 `linux-ackernel`、`-headers`、元包 `-drivers`
+  和其他文件忽略), 一个都没有或版本不止一个就报错退出; 组包和它们的版本放进暂存目录 `kernel/`, 随 provision 推进客户机. 客户机里
+  (装完基本的包、查 `bochs` 之前): `pacman -Q linux-ackernel` 的版本和这批不同就退出 3, 说出两边的版本和该取哪一批; 相同就按
+  `pacman -Qqp` 取包名, 只 `pacman -U --needed --noconfirm` 客户机还没有的组包 (已装的组包和主包不动), 装不上也退出 3. 之后照常查
+  `bochs` 和 `mac80211_hwsim`, 这时它们已经在了.
 - `test_power` 和 `hci_vhci` 第六轮里客户机都有.
 
 ### Wi-Fi
