@@ -28,6 +28,11 @@ on:
         required: false
         default: ''
         type: string
+      release_run:
+        description: 'publish what an earlier run of the same commit and version built (its run number) instead of building again'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -68,6 +73,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       targets: ${{ steps.version.outputs.targets }}
+      release_run: ${{ steps.version.outputs.release_run }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -82,6 +88,7 @@ jobs:
           COMMIT: ${{ github.event.inputs.commit }}
           VERSION_INPUT: ${{ github.event.inputs.version }}
           SKIP: ${{ github.event.inputs.skip_targets }}
+          RELEASE_RUN: ${{ github.event.inputs.release_run }}
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
         run: |
           # Gitea gives inputs.publish as false even when ticked; in the environment it is the text true
@@ -133,7 +140,9 @@ jobs:
           left=
           for t in $all; do case ",${SKIP:-}," in *",$t,"*) ;; *) left="$left,$t" ;; esac; done
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
-          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" | tee -a "$GITHUB_OUTPUT"
+          case ${RELEASE_RUN:-} in '') ;; *[!0-9]*) echo "::error::release_run $RELEASE_RUN is not a run number"; exit 1 ;; esac
+          [ -z "${RELEASE_RUN:-}" ] || [ "$PUBLISH" = true ] || { echo "::error::release_run only publishes: run it with publish=true"; exit 1; }
+          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\nrelease_run=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" "${RELEASE_RUN:-}" | tee -a "$GITHUB_OUTPUT"
 
   # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
   # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on any aarch64-debian runner (user)
@@ -149,7 +158,7 @@ jobs:
           - { triple: x86_64-pc-windows-msvc, cargo: xwin build, runner: x86_64-debian }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
+    if: needs.plan.outputs.release_run == '' && contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
     env:
       T: ${{ matrix.triple }}
       V: ${{ needs.plan.outputs.version }}
@@ -229,6 +238,7 @@ jobs:
   # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
   guest:
     needs: plan
+    if: needs.plan.outputs.release_run == ''
     runs-on: x86_64-debian
     timeout-minutes: 30
     steps:
@@ -251,7 +261,7 @@ jobs:
   # the release (out/: <version>/, latest, latest.json, install.*) from the builds, guarded, kept as <run>/acdev-release
   pkgs:
     needs: [plan, build, guest]
-    if: ${{ !cancelled() && needs.guest.result == 'success' && needs.build.result != 'failure' }}
+    if: ${{ !cancelled() && needs.plan.outputs.release_run == '' && needs.guest.result == 'success' && needs.build.result != 'failure' }}
     runs-on: x86_64-debian
     env:
       V: ${{ needs.plan.outputs.version }}
@@ -301,7 +311,7 @@ jobs:
   # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
   publish:
     needs: [plan, pkgs]
-    if: needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'
+    if: ${{ !cancelled() && needs.plan.outputs.publish == 'true' && (needs.pkgs.result == 'success' || (needs.plan.outputs.release_run != '' && needs.pkgs.result == 'skipped')) }}
     runs-on: x86_64-debian
     permissions:
       contents: write
@@ -309,6 +319,7 @@ jobs:
       V: ${{ needs.plan.outputs.version }}
       TAG: ${{ needs.plan.outputs.tag }}
       SHA: ${{ needs.plan.outputs.sha }}
+      RUN: ${{ needs.plan.outputs.release_run || github.run_number }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -318,8 +329,8 @@ jobs:
       - name: the release from the artifacts host
         run: |
           rm -rf out && mkdir out
-          printf 'acdev/%s/acdev-release\n' "$GITHUB_RUN_NUMBER" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
-          [ -f out/latest ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/acdev-release"; exit 1; }
+          printf 'acdev/%s/acdev-release\n' "$RUN" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
+          [ -f out/latest ] || { echo "::error::the artifacts host has no $RUN/acdev-release"; exit 1; }
           [ "$(cat out/latest)" = "$V" ] || { echo "::error::the release is $(cat out/latest), not $V"; exit 1; }
           (cd "out/$V" && sha256sum -c SHA256SUMS)
       - &aws
@@ -328,7 +339,8 @@ jobs:
           KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+          # the second time the role session of the first is in the environment: its token must not go with the long-term key
+          creds=$(env -u AWS_SESSION_TOKEN AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
             --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
           for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
           printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
