@@ -153,7 +153,12 @@ acdev vm provision \
 acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; Dopame 包放到
-`/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
+`/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 后台服务照 dopame 自己的
+`packaging/arch/PKGBUILD` (`src/vm/dopamebackend.ts`): 宿主上从 `build()` 里认出输出在 `backend/` 下的那条 `bun build …` (只认不带变量和引号的一行),
+用 acdev 所在的 Bun (不在 Bun 上时用 PATH 上的 `bun`) 照原参数在 dopame 检出里跑, 只把 `--outfile` 换到暂存目录 (不往检出里写); 再按 `package()`
+里 `install -Dm<权限> <文件…> -t "${pkgdir}/usr/lib/dopame/backend…"` 那些行 (文件名可以带 `*`) 暂存文件, 写下权限、文件、目标目录的清单
+(`dopame/backend.install`), 客户机里逐行 `install -Dm<权限> 文件 -t 目标`. 点到的文件不存在 (或 `*` 一个也没匹配上) 时在宿主上报错, 说出路径;
+PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的 winman 直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdebin-system/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
