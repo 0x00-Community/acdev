@@ -16,6 +16,8 @@ import {
 } from './host.ts'
 import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
+import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
+import { Usb } from './usb.ts'
 
 export interface StartOptions {
   readonly image?: string
@@ -24,6 +26,9 @@ export interface StartOptions {
   readonly display?: 'window' | 'sdl' | 'gtk' | 'none' | 'vnc' | 'viewer'
   readonly gl?: boolean
   readonly outputs?: number
+  readonly audio?: Audio
+  readonly vga?: Vga
+  readonly resolution?: Resolution | null
 }
 
 export type Stopped = 'devd' | 'agent' | 'acpi' | 'killed' | 'not running'
@@ -268,9 +273,9 @@ export class Machine {
   args(options: StartOptions, accel: Accel, link: Link = { kind: 'vsock' }): string[] {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
-    const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
     const devices = guestDevices(this.guest, accel)
-    const gpu = ['-device', `${options.gl ? devices.gpuGl : devices.gpu},id=${Machine.GPU}${heads}`]
+    const choice = { vga: options.vga ?? 'virtio', gl: options.gl ?? false, outputs: options.outputs ?? 1, resolution: options.resolution ?? null }
+    const gpu = gpuArgs(devices, Machine.GPU, choice)
     const shown = ['-display', this.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
@@ -292,6 +297,7 @@ export class Machine {
       '-parallel', 'none',
       '-pidfile', join(this.run, 'qemu.pid'),
       ...Machine.HOTPLUG.flatMap((port, i) => ['-device', `pcie-root-port,id=${port},bus=pcie.0,chassis=${11 + i},slot=${11 + i}`]),
+      ...hardwareArgs(this.guest, options.audio ?? 'none', this.logs),
       ...gpu, ...shown, ...share,
     ]
   }
@@ -312,7 +318,7 @@ export class Machine {
   }
 
   async #freshRun(): Promise<Link> {
-    for (const name of ['qemu.pid', 'key', 'accel']) rmSync(join(this.run, name), { force: true })
+    for (const name of ['qemu.pid', 'key', 'accel', 'usb.json']) rmSync(join(this.run, name), { force: true })
     mkdirSync(this.sockets, { recursive: true })
     for (const name of ['qga.sock', 'qmp.sock', 'devd.sock']) rmSync(join(this.sockets, name), { force: true })
     const link = await this.newLink()
@@ -324,6 +330,10 @@ export class Machine {
   refuse(options: StartOptions): void {
     const windowed = options.display === undefined || ['window', 'sdl', 'gtk'].includes(options.display)
     if (options.gl && !windowed) throw new Error('vm: --gl needs a window')
+    if (options.vga === 'std' && options.gl) throw new Error('vm: --vga std has no 3D: leave out --gl (virgl needs the virtio GPU)')
+    if (options.vga === 'std' && (options.outputs ?? 1) > 1) {
+      throw new Error(`vm: --vga std has one display: leave out --outputs ${options.outputs} (more displays need the virtio GPU)`)
+    }
     if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window) is Linux only')
     if (options.display === 'gtk' && this.host.platform !== 'linux') throw new Error('vm: --gtk is for Linux, where SDL is the default window')
     if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
@@ -340,12 +350,22 @@ export class Machine {
     return (listed.stdout ?? '').split('\n').map((line) => line.trim()).filter((line) => /^[a-z][a-z0-9-]*$/.test(line))
   }
 
-  window(display: NonNullable<StartOptions['display']>, available: readonly string[], say: (line: string) => void): NonNullable<StartOptions['display']> {
+  window(
+    display: NonNullable<StartOptions['display']>, available: readonly string[], say: (line: string) => void, outputs = 1,
+  ): NonNullable<StartOptions['display']> {
     if (this.host.platform !== 'linux') return display
     if (display === 'sdl' && !available.includes('sdl')) {
       throw new Error('vm: --sdl: this QEMU has no SDL display (qemu-system -display help); install QEMU with SDL, or use --gtk')
     }
+    if (display === 'sdl' && outputs > 1) {
+      throw new Error(`vm: --sdl with --outputs ${outputs}: SDL never reports a size for displays 1 and up, so the guest sees them `
+        + 'disconnected; use the GTK window (--gtk, one tab per display) or --headless')
+    }
     if (display !== 'window') return display
+    if (outputs > 1) {
+      say(`--outputs ${outputs}: the window is GTK, one tab per display (SDL cannot show displays 1 and up)`)
+      return 'gtk'
+    }
     if (available.includes('sdl')) return 'sdl'
     say('this QEMU has no SDL display (qemu-system -display help lists none): the window is GTK, where the guest starts at the '
       + 'small first window size; install QEMU with SDL for a 1280x800 start')
@@ -357,7 +377,8 @@ export class Machine {
     if (already !== null) throw new Error(`vm: a guest is already running from ${this.dir} (pid ${already})`)
     this.refuse(given)
     const qemu = this.qemu()
-    const options = { ...given, display: this.window(given.display ?? 'window', Machine.displays(qemu.system), say) }
+    const display = this.window(given.display ?? 'window', Machine.displays(qemu.system), say, given.outputs ?? 1)
+    const options = { ...given, display }
     const image = realpathSync(options.image ?? this.image() ?? join(this.images, 'latest.qcow2'))
     mkdirSync(this.run, { recursive: true })
     mkdirSync(this.logs, { recursive: true })
@@ -542,6 +563,16 @@ export class Machine {
   static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with --gl, where QMP screendump reads the display surface that virgl '
     + 'does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest instead: '
     + 'acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start without --gl'
+
+  async wake(): Promise<void> {
+    this.running()
+    await monitor(this.qmp, 'system_wakeup')
+  }
+
+  usb(): Usb {
+    this.running()
+    return new Usb(this.run, this.qmp)
+  }
 
   async screenshot(file: string, output = 0): Promise<string> {
     this.running()

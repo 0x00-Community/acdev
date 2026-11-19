@@ -8,6 +8,7 @@ export interface Web {
   readonly window: number
   readonly title: string | null
   readonly lock?: boolean
+  readonly stalled?: boolean
 }
 
 export interface WebList {

@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
+import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -19,6 +20,11 @@ export interface ProvisionOptions {
 }
 
 export const PROVISION_DIR = '/opt/acdev/provision'
+
+export const PRUNED = {
+  bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
+  hwsim: { module: 'mac80211_hwsim', package: 'linux-ackernel-wifi-other' },
+} as const
 
 export const PROVISION_SCRIPT = [
   '#!/bin/bash',
@@ -38,6 +44,15 @@ export const PROVISION_SCRIPT = [
   '  pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "could not install $pkg"',
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
+  '',
+  'restore() {',
+  '  modinfo "$1" >/dev/null 2>&1 && return 0',
+  '  step "the $1 module is missing (agentos-drivers prune removes $2): installing $2 back"',
+  '  pacman -S --needed --noconfirm "$2" >/dev/null || { step "warning: could not install $2"; return 0; }',
+  '  modinfo "$1" >/dev/null 2>&1 || depmod -a || true',
+  '  modinfo "$1" >/dev/null 2>&1 || step "warning: $2 is installed but there is still no $1 module"',
+  '}',
+  `restore ${PRUNED.bochs.module} ${PRUNED.bochs.package}`,
   '',
   'if [ -f "$here/acdes/PKGBUILD" ]; then',
   '  step "acdes, laid out by its own PKGBUILD package()"',
@@ -73,7 +88,41 @@ export const PROVISION_SCRIPT = [
   'fi',
   'printf \'%s:%s\\n\' "$user" "$password" | chpasswd',
   'faillock --user "$user" --reset 2>/dev/null || true',
-  'su - "$user" -c xdg-user-dirs-update >/dev/null 2>&1 || true',
+  'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
+  '',
+  'if [ -d "$here/hw" ]; then',
+  '  step "simulated hardware: packages, scripts in /usr/local/bin, units in /etc/systemd/system"',
+  `  if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore ${PRUNED.hwsim.module} ${PRUNED.hwsim.package}; fi`,
+  '  while read -r pkg; do',
+  '    [ -n "$pkg" ] || continue',
+  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "warning: could not install $pkg"',
+  '  done <"$here/hw/packages"',
+  '  for script in "$here"/hw/acdev-*; do',
+  '    if [ -f "$script" ]; then install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; fi',
+  '  done',
+  '  if [ -f "$here/hw/btvirt" ]; then install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt; fi',
+  '  if [ -f "$here/hw/acdev-btvirt-build" ] && ! command -v btvirt >/dev/null; then',
+  '    step "btvirt (no Arch package has it): building emulator/btvirt from the source of the installed bluez"',
+  '    /usr/local/bin/acdev-btvirt-build || step "warning: no btvirt, so the simulated Bluetooth stays off"',
+  '  fi',
+  '  while read -r unit; do',
+  '    [ -n "$unit" ] || continue',
+  '    systemctl disable --now "$unit" >/dev/null 2>&1 || true',
+  '    rm -f "/etc/systemd/system/$unit"',
+  '    step "$unit is off"',
+  '  done <"$here/hw/off"',
+  '  for unit in "$here"/hw/units/*.service; do',
+  '    if [ -f "$unit" ]; then install -Dm644 "$unit" "/etc/systemd/system/$(basename "$unit")"; fi',
+  '  done',
+  '  systemctl daemon-reload',
+  '  for unit in "$here"/hw/units/*.service; do',
+  '    [ -f "$unit" ] || continue',
+  '    name=$(basename "$unit")',
+  '    systemctl enable "$name" >/dev/null 2>&1 || step "warning: could not enable $name"',
+  '    systemctl restart "$name" || step "warning: $name did not start"',
+  '    journalctl -u "$name" -n 2 --no-pager -o cat 2>/dev/null | grep "^acdev-" | sed "s/^/acdev provision: /" || true',
+  '  done',
+  'fi',
   '',
   'step "greetd runs the acdes login screen"',
   'for g in video input; do if getent group "$g" >/dev/null; then usermod -aG "$g" greeter; fi; done',
@@ -136,11 +185,29 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }
 
-export function stageProvision(sources: ProvisionSources): string {
+export interface HardwareChoice {
+  readonly on: readonly GuestHardware[]
+  readonly off: readonly GuestHardware[]
+  readonly btvirt?: string | null
+}
+
+function stageHardware(stage: string, { on, off, btvirt }: HardwareChoice): void {
+  const dir = join(stage, 'hw')
+  const { scripts, units, packages, off: stopped } = hardwareFiles(on, off)
+  mkdirSync(join(dir, 'units'), { recursive: true })
+  writeFileSync(join(dir, 'off'), stopped.map((unit) => `${unit}\n`).join(''))
+  for (const [name, text] of Object.entries(units)) writeFileSync(join(dir, 'units', name), text)
+  writeFileSync(join(dir, 'packages'), packages.map((pkg) => `${pkg}\n`).join(''))
+  for (const [name, text] of Object.entries(scripts)) writeFileSync(join(dir, name), text, { mode: 0o755 })
+  if (btvirt && on.includes('bluetooth')) cpSync(need(btvirt, '--btvirt'), join(dir, 'btvirt'))
+}
+
+export function stageProvision(sources: ProvisionSources, hardware: HardwareChoice = { on: GUEST_HARDWARE, off: [] }): string {
   const stage = mkdtempSync(join(tmpdir(), 'acdev-provision-'))
   try {
     stageAcdes(stage, sources)
     stageDopame(stage, sources)
+    stageHardware(stage, hardware)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })
     return stage
   } catch (error) {

@@ -42,13 +42,14 @@ export interface GuestDevices {
   readonly machine: string
   readonly gpu: string
   readonly gpuGl: string
+  readonly gpuStd: string
   readonly console: string
 }
 
 export function guestDevices(guest: Guest, accel: Accel): GuestDevices {
-  if (guest === 'x86_64') return { machine: 'q35', gpu: 'virtio-vga', gpuGl: 'virtio-vga-gl', console: 'ttyS0' }
+  if (guest === 'x86_64') return { machine: 'q35', gpu: 'virtio-vga', gpuGl: 'virtio-vga-gl', gpuStd: 'VGA', console: 'ttyS0' }
   const gic = accel === 'kvm' ? 'host' : 'max'
-  return { machine: `virt,gic-version=${gic}`, gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', console: 'ttyAMA0' }
+  return { machine: `virt,gic-version=${gic}`, gpu: 'virtio-gpu-pci', gpuGl: 'virtio-gpu-gl-pci', gpuStd: 'bochs-display', console: 'ttyAMA0' }
 }
 
 export interface Qemu {

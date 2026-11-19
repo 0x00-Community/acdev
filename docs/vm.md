@@ -153,7 +153,7 @@ acdev vm provision \
 acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组) 和 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
-(`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录;
+(`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的 winman 直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
@@ -246,6 +246,145 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   编过了就停掉旧的进程组、推送、再起. Ctrl+C (终端里 cargo 一起收到) 停掉程序后退出; 再按 Ctrl+C 不会跳过这一步.
 - guest agent 只用来装 acdevd、`mount` 和 `console`.
 
+## 模拟硬件
+
+原本只能真机测的硬件, 在 QEMU 里能模拟的部分. 参数在 `npm/src/vm/hardware.ts`, U 盘在 `usb.ts`, 测试在 `test/vm.test.ts`「emulated hardware」.
+
+### 声音
+
+`start` 总是带一块声卡: `ich9-intel-hda` 加 `hda-duplex` (一路输出、一路输入). 选 HDA 不选 `virtio-sound-pci`: 本机 QEMU 8.2.2 两者都有
+(`-device help` 核对过), 但 virtio-sound 是 8.2 才加的, 客户机内核要 `CONFIG_SND_VIRTIO`; HDA 由通用的 `snd-hda-intel` 驱动, 任何发行版内核都认,
+q35 本身就是 ICH9, aarch64 的 virt 上走 PCIe 也能用. 后端由 `--audio` 选 (`-audiodev ...,id=snd0`):
+
+```sh
+acdev vm start                       # 默认 --audio none: 客户机有声卡, 声音哪里也不去
+acdev vm start --audio wav           # 声音写进 <vm 目录>/logs/audio.wav (QEMU 的 wav 后端), 用来核对确实有输出
+```
+
+### U 盘
+
+`start` 总是带一个 xHCI 控制器 (`-device qemu-xhci,id=xhci`). U 盘在运行中经 QMP 插拔: `blockdev-add` (raw, 节点名 `usbN-disk`) 加
+`device_add usb-storage,bus=xhci.0,drive=usbN-disk,id=usbN,removable=on`; 拔是 `device_del`, 再反复 `blockdev-del` 直到客户机放开 (最多 10 秒).
+插着的记在 `<vm 目录>/run/usb.json`, `start` 时清掉.
+
+```sh
+acdev vm usb add stick.img                   # stick.img 不存在时按 --size (默认 256M) 新建并格式化成 FAT, 卷标 ACDEV
+acdev vm usb add photos.img --size 2G
+acdev vm usb list                            # usbN 和镜像路径
+acdev vm usb remove                          # 拔最后插的; 也可以给镜像路径或 usbN
+```
+
+新建镜像要本机有 `mkfs.vfat` (dosfstools) 或 `mkfs.exfat` (exfatprogs), 依次找 PATH、`/usr/sbin`、`/sbin`; 都没有就报错并说要装哪个,
+不换别的办法. 镜像整块就是一个文件系统, 没有分区表 (U 盘常见的「超级软盘」布局).
+
+### 睡眠
+
+x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默认就开 (`hw/acpi/ich9.c` 的 `ich9_pm_reset_properties` 里
+`disable_s3 = 0`), 显式写上是因为 libvirt 等常把它关掉, 这里不依赖默认. 客户机挂起后 (`systemctl suspend` 或电源设置), 用 `acdev vm wake`
+(QMP `system_wakeup`) 叫醒; 客户机没睡时它什么也不做. aarch64 的 virt 没有 ACPI S3, 不加这个参数.
+
+**测睡眠、唤醒要用 `--vga std`**: 默认的 virtio-gpu 过不了 S3, 唤醒后黑屏. 这是 QEMU 的已知缺陷 (QEMU issue #1860): 复位时显卡销毁了显示
+资源, 客户机驱动恢复后还拿旧的资源编号提交, QEMU 报 `0x1203` (资源编号无效). `--vga std` 换成标准 VGA (x86_64 是 `-device VGA`,
+aarch64 是 `bochs-display`〔aarch64 未核实〕), 客户机里由 bochs-drm 驱动; winman 只要 dumb buffer, 它满足.
+
+```sh
+acdev vm start --vga std                       # 标准 VGA, 1280x800
+acdev vm start --vga std --resolution 1600x900
+acdev vm run --detach systemctl suspend    # 后台跑, 不等它; 睡下后再 acdev vm wake
+```
+
+代价: 只有一块屏 (`--outputs` 2 以上报错); 分辨率固定在开机时给的大小 (`xres` / `yres`, 默认 1280x800), 不随窗口变 (标准 VGA 不接
+窗口报来的尺寸); 没有 3D (`--gl` 报错). `--resolution WxH` 对 virtio 也有效, 是它开机时的首选分辨率 (之后照样跟着窗口变).
+客户机内核要带 bochs 模块 (`CONFIG_DRM_BOCHS`, 模块名 `bochs`): 各轮测试的日志里查不到 `modinfo bochs` 或 `lsmod` 的记录, ackernel 的
+配置脚本 (`packaging/configure.sh`) 也没有显式写它〔未核实〕; 起 `--vga std` 前在客户机里跑 `modinfo bochs` 确认. 还要注意 ackernel 的
+`agentos-drivers prune` 按机器上的硬件删驱动, 在 virtio 显卡下 prune 过的客户机可能把 `bochs` 删掉 (`drivers/gpu/drm` 属于 gpu-other 组).
+
+### 双屏
+
+`--outputs N` 的参数链路 (`Machine.args`、`afterStart`、`switchOnOutputs`):
+- `--headless --outputs N`: `-display dbus,p2p=yes`, 起来后 `acdevtool view --outputs N` 打开第 1 个以后的输出 (见上面「多个显示输出」).
+- 带窗口: GTK 为每个输出建标签页并报大小, 都连上. SDL 不行: 它只在用户拉动窗口时报大小, 第 1 个以后的输出没有窗口可拉, 客户机一直看到
+  disconnected. 所以默认窗口在 `--outputs` 2 以上时改用 GTK (说一句), 明说 `--sdl --outputs N` 报错.
+- `--vnc`、`--viewer` 只显示第一个输出, 和 `--outputs` 2 以上一起用时报错 (不变).
+
+### Wi-Fi、蓝牙、电池共同的做法 (客户机里, `src/vm/guesthw.ts`)
+
+QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 默认都带 (用户 2026-11-19): `acdev vm provision` 把要的包
+(`hw/packages`)、脚本 (`hw/acdev-*`) 和 systemd 单元 (`hw/units/acdev-wifi.service`、`acdev-bt.service`、`acdev-battery.service`) 放进
+暂存目录; provision 脚本装包 (装不上只打一行 warning)、把脚本装到 `/usr/local/bin`、单元装到 `/etc/systemd/system`, `daemon-reload`
+后 `enable` 并立即 `restart` 一次, 再把单元日志里脚本自己的那两行 (`acdev-…: …`) 转到 provision 的输出. 以后每次开机由单元启用.
+
+- 关掉: `--no-wifi` / `--no-bluetooth` / `--no-battery`. 关掉的那项不装包、不装单元; 客户机里已有的单元 `disable --now` 后删掉
+  (`hw/off` 列出它们), 脚本留在 `/usr/local/bin` 里, 照样能手动跑. 旧的 `--wifi` / `--bluetooth` / `--battery` 已过时, 仍认, 什么也不改变.
+- 单元: `Type=oneshot` + `RemainAfterExit=yes`, `ExecStart` 调脚本的 `up` (电池是 `100 charging`), `ExecStop` 调 `down` (电池 `off`),
+  `Wants=` + `After=` 各自的守护进程 (NetworkManager、bluetooth、upower; 脚本里的 `systemctl start` 因此不会和开机顺序互等),
+  `WantedBy=multi-user.target`.
+- 缺内核模块、缺包或缺 `btvirt` 时脚本以 4 退出并说缺的是什么; 单元写了 `SuccessExitStatus=4`, 所以开机时这算成功 (单元是 active,
+  开机不会被标成 degraded), 只在 journal (`journalctl -u acdev-wifi`) 和 provision 输出里留一条说明. 注意 hostapd、btvirt 自己起不来
+  也是 4, 同样只留日志. 手动跑脚本时退出码照旧是 4.
+- 手动起停: `acdev vm run -- systemctl stop|start acdev-wifi` (单元), 或直接 `acdev vm run -- acdev-wifi up|down` (脚本要 root, acdevd 是 root).
+- 被 `agentos-drivers prune` 卸掉的模块 (第六轮查清, 之前这里的推断是错的): `mac80211_hwsim` 只有 virtio 的设备别名, 而 virtio 是固定总线,
+  按 ackernel 的拆包规则 (`packaging/arch/split.awk`、`module-groups`) 它进了组包 `linux-ackernel-wifi-other`; 装机时 os 仓的
+  `agentos-drivers prune` 把这台机器用不上的组包整个卸掉, 客户机里就没有它了. `bochs` (`--vga std` 用) 在 `linux-ackernel-gpu-other`
+  里, 一般因为 virtio-gpu 也在这个组包而被留下, 但同样可能被卸. 所以 provision 装完基本的包后先查 `modinfo bochs`, 不在就
+  `pacman -S --needed --noconfirm linux-ackernel-gpu-other` (总是查, 和 `--vga` 无关); 模拟硬件一节开头再查: Wi-Fi 那一项开着 (没有 `--no-wifi`) 且
+  `modinfo mac80211_hwsim` 不在就装回 `linux-ackernel-wifi-other` (`PRUNED`, `src/vm/provision.ts`). 装上后不用重启, 下次 `modprobe`
+  就能载入: 模块依赖表由装包时的 depmod 钩子更新〔推断: kmod 的 pacman 钩子〕, 装完仍查不到模块时 provision 再跑一次 `depmod -a`.
+  装不上 (拿不到包、找不到包名) 只打一行 warning, provision 照常往下走, Wi-Fi 一项照旧按缺模块只记日志.
+  之后如果在模块没载入时 (例如关掉了 `acdev-wifi.service`) 再跑 prune, 又会把组包卸掉; 重新 `acdev vm provision` 就能装回.
+- `test_power` 和 `hci_vhci` 第六轮里客户机都有.
+
+### Wi-Fi
+
+`acdev-wifi up|down`. `up`: `modprobe mac80211_hwsim radios=2`, 第一个口交给 hostapd (先 `nmcli device set <口> managed no`),
+一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1):
+
+| SSID | 安全 | 密码 |
+| --- | --- | --- |
+| `acdev-open` | 开放 | 无 |
+| `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` |
+
+第二个口交给 NetworkManager (`managed yes`, 再 `rescan`), 设置和控制中心能扫到这两个网络, 连 `acdev-wpa2` 时页面要密码.
+NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager 只自动连已有的连接配置 (connection profile), 不为扫到的陌生网络
+新建配置, 而脚本只扫描、不建配置. 测试里在设置中连过一次后, NetworkManager 会存下配置 (默认 `autoconnect=yes`), 之后开机会自己连;
+要回到没连过的状态, `acdev vm run -- nmcli connection delete acdev-open` (或 `acdev-wpa2`).
+配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
+
+### 蓝牙
+
+`acdev-bt up|down`. `up`: `modprobe hci_vhci`, 用 BlueZ 测试工具 `btvirt -l2` 造两个虚拟控制器 (经 `/dev/vhci`, 它们之间能互相看见),
+起 `bluetoothd`; 编号最大的那个当“对面的设备”: `btmgmt` 开电、改名 `acdev-peer`、可连接、可被发现, 在另一个上扫描就能找到它.
+`bluetoothd` 两个控制器都管, 设置里会出现两个适配器 (没有办法只让它管一个). `down` 停 btvirt、卸掉模块.
+`btvirt` 从哪来 (2026-11-19 查): Arch 官方仓库里没有它, 已核实 `bluez-utils` 和 `bluez-deprecated-tools` 的文件列表 (archlinux.org
+的包页面) 都没有; 第六轮客户机里也找不到. 它是 BlueZ 源码 `emulator/btvirt`, 只在 `--enable-testing` 时编. AUR 有没有现成的包没查到
+(网页被拦), 也不想让 provision 依赖 AUR 助手. 所以 provision 按顺序:
+1. 给了 `acdev vm provision --btvirt FILE` (在别处编好的 btvirt) 就装到 `/usr/local/bin/btvirt`;
+2. 客户机里已有 `btvirt` 就用它;
+3. 否则跑 `acdev-btvirt-build` (`/usr/local/bin`, 也能手动跑): 取已装 `bluez` 的版本 (`pacman -Q bluez`, 去掉包修订号),
+   装 `base-devel glib2 dbus curl xz`, 下载 `https://www.kernel.org/pub/linux/bluetooth/bluez-<版本>.tar.xz`,
+   `./configure --enable-testing` 并关掉用不到、要额外依赖的部分 (`--disable-manpages --disable-obex --disable-cups --disable-client
+   --disable-mesh --disable-midi --disable-udev --disable-systemd --disable-hid2hci`), 只 `make emulator/btvirt`, 装到 `/usr/local/bin/btvirt`.
+   失败 (没网、缺依赖、编不过) 只打一行 warning, 蓝牙那一项照旧以 4 记日志.
+没选自己写 `/dev/vhci` 的小程序: 要让 bluetoothd 认出适配器, 得回答内核初始化时的整套 HCI 命令 (复位、读特性、版本、地址、缓冲区…),
+还要能扫到对面设备, 等于重写 btvirt 背后的 `emulator/btdev.c`; 用和已装 bluez 同版本的源码编 btvirt 最省事也最贴近真实.
+〔未核实〕: 这组 configure 选项在客户机的 bluez 版本上能不能过、`make emulator/btvirt` 需不需要别的依赖, 要等客户机里跑一次.
+包: `bluez`、`bluez-utils` (镜像里已有).
+
+### 电池
+
+libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDevices`、每个设备的 `Percentage` / `State` / `TimeToEmpty`、
+`OnBattery`, 再加 `/sys/class/power_supply/<NativePath>` 的充电上限), 所以假电池要让 UPower 自己看到: 用内核的 `test_power` 模块
+(`/sys/class/power_supply/test_battery`、`test_ac`, 改模块参数时发 uevent, UPower 跟着更新), 不用 umockdev (它要把 upowerd 换成
+`umockdev-run` 下的一份, 改电量还要另外通知).
+默认 (单元 `acdev-battery.service`): 接着电源、100%、充电中, 一开机不会碰到低电量的处理. 手动切电量:
+`acdev vm run -- acdev-battery <百分比> [charging|discharging]` (不给状态时是 discharging), 回到默认用 `acdev-battery 100 charging`
+或 `systemctl restart acdev-battery`. 脚本载入模块, 写 `battery_capacity`、`battery_status` 和两路电源: 充电时 `ac_online=on`、`usb_online=off`, 放电时两路都 off
+(`test_power` 的 `usb_online` 默认是 on, 不关掉的话 UPower 认为接着电源 (`OnBattery` 为 false), 第六轮里放电到 5% 也不触发严重电量倒计时);
+有 `battery_current` 参数时一并写成充电 +1600、放电 -1600 (默认 -1600, 第六轮里内核报 Charging、UPower 却判成放电). 再起 `upower`.
+`acdev-battery off` 把两路电源恢复成模块的默认值 (都 on) 再卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
+默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
+的严重线在它上面). 包: `upower` (镜像里没有).
+
 ## 把 winman 和测试客户端放进去跑
 
 一条命令 (改了 winman 的源码就自动重编、推送、重启):
@@ -278,6 +417,7 @@ glibc 较新); 不放心就静态链接 (musl).
 
 ## 测试
 
+`test/guesthw.test.ts`: 三项模拟硬件的暂存、包与脚本的要点 (不起客户机).
 `test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的
 宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列、错误、先发密钥), 套接字传输对着进程内的 Unix 套接字服务端测;
 QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有客户机时的子命令.

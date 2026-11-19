@@ -62,9 +62,12 @@ class Cli {
       args: [1, Infinity],
       flags: [
         'image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output',
-        'acdes', 'acdes-bin', 'winman-bin', 'libacde', 'dopame', 'harness', 'user',
+        'acdes', 'acdes-bin', 'winman-bin', 'libacde', 'dopame', 'harness', 'user', 'audio', 'size', 'vga', 'resolution', 'btvirt',
       ],
-      switches: ['fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow', 'no-restart'],
+      switches: [
+        'fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow', 'no-restart',
+        'wifi', 'bluetooth', 'battery', 'no-wifi', 'no-bluetooth', 'no-battery',
+      ],
     },
     test: {
       args: [0, Infinity],
