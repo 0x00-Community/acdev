@@ -211,6 +211,11 @@ impl Surface {
                 self.inbox.push(Event { kind: "grab".into(), key: Some(name.into()), code: Some(1), ..Default::default() });
             }
             C::Grab(_, false) => {}
+            C::PointerLock(on) => match server() {
+                Some(server) => server.send(Cmd::PointerLock { window: self.window, on }),
+                None if on => self.inbox.push(Event { kind: "pointerlock".into(), code: Some(0), title: Some("request".into()), ..Default::default() }),
+                None => {}
+            },
             C::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
             C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             C::ClosePanel(id) => self.close_panel(id),
@@ -313,6 +318,10 @@ impl Surface {
         server.refill();
     }
 
+    pub fn pointer_lock(&self) -> bool {
+        platform::pointer_lock()
+    }
+
     pub fn minimizable(&self) -> bool {
         server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.minimizable()))
     }
@@ -383,6 +392,9 @@ impl Surface {
 
 impl Drop for Surface {
     fn drop(&mut self) {
+        if let Some(server) = server() {
+            server.send(Cmd::PointerLock { window: self.window, on: false });
+        }
         self.link.send(Msg::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();

@@ -26,6 +26,10 @@ impl super::Host for Host {
 
     fn set_ime_area(&self, _: [f64; 4]) {}
 
+    fn lock_pointer(&self, _: bool) -> bool {
+        true
+    }
+
     fn surface(&self, _: &wgpu::Instance) -> Result<Option<wgpu::Surface<'static>>, String> {
         Ok(None)
     }

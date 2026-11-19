@@ -5,9 +5,9 @@ use acde::gpu::wgpu;
 use acde::model::Combo;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
-use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
@@ -62,6 +62,26 @@ impl super::Host for Host {
 
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
+    }
+
+    fn lock_pointer(&self, on: bool) -> bool {
+        if !on {
+            if let Err(e) = self.window.set_cursor_grab(CursorGrabMode::None) {
+                log::warn!("host window: release the pointer: {e}");
+            }
+            self.window.set_cursor_visible(true);
+            return true;
+        }
+        match self.window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined)) {
+            Ok(()) => {
+                self.window.set_cursor_visible(false);
+                true
+            }
+            Err(e) => {
+                log::warn!("host window: lock the pointer: {e}");
+                false
+            }
+        }
     }
 
     fn set_size(&self, [w, h]: [f64; 2]) -> Option<(u32, u32)> {
@@ -169,6 +189,12 @@ impl ApplicationHandler<Cmd> for Loop {
 
     fn user_event(&mut self, el: &ActiveEventLoop, cmd: Cmd) {
         self.emit(el, HostEvent::Cmd(cmd));
+    }
+
+    fn device_event(&mut self, el: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
+            self.emit(el, HostEvent::Motion(dx, dy));
+        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, event: WindowEvent) {

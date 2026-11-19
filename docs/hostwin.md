@@ -69,6 +69,15 @@
   `dragend {button: 0}`), 指针移到别的 web 上发 `dndenter` (类型) / `dndmove`, 离开发 `dndleave`; 在别的窗口上松手发 `dnddrop` (数据) 再给源
   `dragend {button: 1}`, 不发 `pointerup`; 在源窗口里或没有窗口处松手照常发 `pointerup`. 数据来自页面, 没有 `files` (页面不能替用户担保
   文件). 没有拖动图标.
+- **指针锁定** (页面一侧见 libacde `docs/web/web-apps.md`「指针锁定」): 页面的 `SurfaceCommand::PointerLock(on)` 经 `Cmd::PointerLock` 到主线程
+  (`App::lock` / `unlock`). 给锁的条件: 宿主窗口有焦点、这个窗口是焦点窗口且显示着、没有在拖动窗口或数据、没有打开的窗框菜单; 再由平台层
+  `Host::lock_pointer(true)` 真的锁住 (winit: `CursorGrabMode::Locked`, 不支持时退到 `Confined`, 再藏起光标; headless 只记状态, 算成功;
+  Win32 还没有, `Surface::pointer_lock` 为假, 页面直接拒绝). 回答 `pointerlock {code, title: 'request'}`. 锁着时: 平台的
+  `CursorMoved` / 离开不用, 相对移动是 winit 的 `DeviceEvent::MouseMotion` (`HostEvent::Motion`, macOS 是 NSEvent 的 deltaX / deltaY, 带系统加速,
+  逻辑像素; X11 / Wayland 是不带加速的原始量), 发给锁着的窗口 `pointermove {x, y: 锁定时的页面坐标, deltaX, deltaY}`; 按钮和滚轮都给它, 不命中、
+  不拖窗口、不开菜单; 注入的 `move` 按和上一次注入位置的差、`motion` 按原值变成相对移动 (dev 的 `input` 和 driver 照样能测). 收回并发
+  `pointerlock {code: 0, title: 'lost'}`: Esc (这次按下和松开都不发给页面)、宿主窗口失焦 (选择器、批准对话框、⌘Tab 也是这一条)、焦点给了别的窗口
+  (`Server::activate` / `focus_top` 发 `Cmd::FocusMoved`). 页面 `exitPointerLock` 或窗口没了 (`Surface` drop) 时不回答, 直接放开.
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /
