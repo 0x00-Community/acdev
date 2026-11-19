@@ -182,8 +182,9 @@ impl Surface {
         use SurfaceCommand as C;
         match command {
             C::RequestFrame => self.link.send(Msg::Frame),
-            C::SetClipboard(text) => platform::clipboard_set(text),
-            C::ReadClipboard(reply) => reply(platform::clipboard_get()),
+            C::SetClipboard(entries) => platform::clipboard_set(entries),
+            C::ClipboardTypes(reply) => reply(platform::clipboard_types()),
+            C::ReadClipboard { mime, reply } => reply(platform::clipboard_read(&mime)),
             C::StartDrag(data, _) => match server() {
                 Some(server) => server.send(Cmd::StartDrag { window: self.window, data }),
                 None => self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() }),

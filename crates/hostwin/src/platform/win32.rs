@@ -8,13 +8,16 @@ use std::sync::{Arc, Mutex};
 
 use acde::gpu::wgpu;
 use acde::model::Combo;
+use acde::render::ClipboardEntry;
 use wgpu::rwh;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, ValidateRect};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
-use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
+use windows_sys::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext,
@@ -196,52 +199,88 @@ fn open_clipboard() -> bool {
     false
 }
 
-pub(crate) fn clipboard_set(text: String) {
+fn png_format() -> u32 {
+    static FORMAT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *FORMAT.get_or_init(|| unsafe { RegisterClipboardFormatW(wide("PNG").as_ptr()) })
+}
+
+unsafe fn put(format: u32, bytes: &[u8]) {
+    let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)) };
+    if memory.is_null() {
+        return;
+    }
+    let target = unsafe { GlobalLock(memory) }.cast::<u8>();
+    if target.is_null() {
+        unsafe { GlobalFree(memory) };
+        return;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), target, bytes.len());
+        GlobalUnlock(memory);
+        if SetClipboardData(format, memory).is_null() {
+            GlobalFree(memory);
+        }
+    }
+}
+
+unsafe fn take(format: u32) -> Option<Vec<u8>> {
+    let memory = unsafe { GetClipboardData(format) };
+    if memory.is_null() {
+        return None;
+    }
+    let source = unsafe { GlobalLock(memory) }.cast::<u8>();
+    if source.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(source, GlobalSize(memory)) }.to_vec();
+    unsafe { GlobalUnlock(memory) };
+    Some(bytes)
+}
+
+pub(crate) fn clipboard_set(entries: Vec<ClipboardEntry>) {
     if !open_clipboard() {
         log::warn!("clipboard: cannot open");
         return;
     }
-    let data = wide(&text);
     unsafe {
         EmptyClipboard();
-        let memory = GlobalAlloc(GMEM_MOVEABLE, data.len() * 2);
-        if !memory.is_null() {
-            let target = GlobalLock(memory).cast::<u16>();
-            if target.is_null() {
-                GlobalFree(memory);
-            } else {
-                std::ptr::copy_nonoverlapping(data.as_ptr(), target, data.len());
-                GlobalUnlock(memory);
-                if SetClipboardData(u32::from(CF_UNICODETEXT), memory).is_null() {
-                    GlobalFree(memory);
-                }
-            }
+        if let Some(text) = ClipboardEntry::find(&entries, ClipboardEntry::TEXT) {
+            let units: Vec<u8> = wide(&String::from_utf8_lossy(&text.data)).iter().flat_map(|unit| unit.to_le_bytes()).collect();
+            put(u32::from(CF_UNICODETEXT), &units);
+        }
+        if let Some(png) = ClipboardEntry::find(&entries, ClipboardEntry::PNG) {
+            put(png_format(), &png.data);
         }
         CloseClipboard();
     }
 }
 
-pub(crate) fn clipboard_get() -> String {
+pub(crate) fn clipboard_types() -> Vec<String> {
+    let has = |format: u32| unsafe { IsClipboardFormatAvailable(format) } != 0;
+    [(has(png_format()), ClipboardEntry::PNG), (has(u32::from(CF_UNICODETEXT)), ClipboardEntry::TEXT)]
+        .into_iter()
+        .filter(|(present, _)| *present)
+        .map(|(_, mime)| mime.to_owned())
+        .collect()
+}
+
+pub(crate) fn clipboard_read(mime: &str) -> Option<Vec<u8>> {
+    let format = match mime {
+        ClipboardEntry::TEXT => u32::from(CF_UNICODETEXT),
+        ClipboardEntry::PNG => png_format(),
+        _ => return None,
+    };
     if !open_clipboard() {
-        return String::new();
+        return None;
     }
-    let mut text = String::new();
-    unsafe {
-        let memory = GetClipboardData(u32::from(CF_UNICODETEXT));
-        if !memory.is_null() {
-            let source = GlobalLock(memory).cast::<u16>();
-            if !source.is_null() {
-                let mut len = 0;
-                while *source.add(len) != 0 {
-                    len += 1;
-                }
-                text = String::from_utf16_lossy(std::slice::from_raw_parts(source, len));
-                GlobalUnlock(memory);
-            }
-        }
-        CloseClipboard();
+    let bytes = unsafe { take(format) };
+    unsafe { CloseClipboard() };
+    let bytes = bytes?;
+    if format != u32::from(CF_UNICODETEXT) {
+        return Some(bytes);
     }
-    text
+    let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).take_while(|unit| *unit != 0).collect();
+    Some(String::from_utf16_lossy(&units).into_bytes())
 }
 
 pub(crate) fn click_settings() -> acde::model::ClickSettings {

@@ -5,6 +5,7 @@ use acde::gpu::wgpu;
 
 use super::{Cmd, FilesReply, FolderReply, Handler, HostEvent};
 use crate::{OpenRequest, SaveRequest};
+use acde::render::ClipboardEntry;
 
 #[derive(Clone)]
 pub(crate) struct Proxy(mpsc::Sender<Cmd>);
@@ -50,14 +51,18 @@ impl super::Host for Host {
     }
 }
 
-static CLIPBOARD: Mutex<String> = Mutex::new(String::new());
+static CLIPBOARD: Mutex<Vec<ClipboardEntry>> = Mutex::new(Vec::new());
 
-pub(crate) fn clipboard_set(text: String) {
-    *CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner()) = text;
+pub(crate) fn clipboard_set(entries: Vec<ClipboardEntry>) {
+    *CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner()) = entries;
 }
 
-pub(crate) fn clipboard_get() -> String {
-    CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner()).clone()
+pub(crate) fn clipboard_types() -> Vec<String> {
+    ClipboardEntry::types(&CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+pub(crate) fn clipboard_read(mime: &str) -> Option<Vec<u8>> {
+    ClipboardEntry::find(&CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner()), mime).map(|entry| entry.data.clone())
 }
 
 pub(crate) fn scale() -> f64 {

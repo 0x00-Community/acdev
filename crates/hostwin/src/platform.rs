@@ -120,12 +120,16 @@ pub(crate) fn run(handler: Box<dyn Handler>) -> Result<i32, String> {
     if headless() { headless::run(handler) } else { native::run(handler) }
 }
 
-pub(crate) fn clipboard_set(text: String) {
-    if headless() { headless::clipboard_set(text) } else { native::clipboard_set(text) }
+pub(crate) fn clipboard_set(entries: Vec<acde::render::ClipboardEntry>) {
+    if headless() { headless::clipboard_set(entries) } else { native::clipboard_set(entries) }
 }
 
-pub(crate) fn clipboard_get() -> String {
-    if headless() { headless::clipboard_get() } else { native::clipboard_get() }
+pub(crate) fn clipboard_types() -> Vec<String> {
+    if headless() { headless::clipboard_types() } else { native::clipboard_types() }
+}
+
+pub(crate) fn clipboard_read(mime: &str) -> Option<Vec<u8>> {
+    if headless() { headless::clipboard_read(mime) } else { native::clipboard_read(mime) }
 }
 
 pub(crate) fn dismiss_approval() {
