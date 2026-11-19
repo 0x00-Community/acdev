@@ -49,6 +49,7 @@ export const PROVISION_SCRIPT = [
   '    package',
   '  )',
   '  ln -sf acdes /usr/bin/acdert',
+  '  systemd-sysusers',
   '  systemd-tmpfiles --create /usr/lib/tmpfiles.d/acde.conf',
   '  chown -R greeter:greeter /var/lib/acde/greeter',
   '  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true',
