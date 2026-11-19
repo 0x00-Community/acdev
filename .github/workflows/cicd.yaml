@@ -186,6 +186,12 @@ jobs:
           printf '%s\n' "$KEY" > "$k/key" && chmod 600 "$k/key"
           echo '192.168.10.127 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEO/zlouRrnjVdb3bSH9SH0ueof9pfb+KIDTLr0l6xyT' > "$k/known_hosts"
           echo "RSYNC_RSH=ssh -i $k/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$k/known_hosts" >> "$GITHUB_ENV"
+          # upload: rsync again when it fails, as when several jobs of this run reach the host at once
+          # ("Another instance of rrsync is already accessing this directory", exit 12): up to 6 tries, 5 s more each time
+          printf '%s\n' '#!/bin/sh' 'n=1' 'while :; do' '  rsync "$@" && exit 0' '  s=$?' '  [ "$n" -lt 6 ] || exit "$s"' \
+            '  echo "upload: rsync exited $s (try $n of 6), again in $((n * 5)) s" >&2' '  sleep $((n * 5)); n=$((n + 1))' 'done' > "$k/upload"
+          chmod 755 "$k/upload"
+          echo "$k" >> "$GITHUB_PATH"
       - name: acdev (dist profile, split debug information) and acdevtool
         working-directory: acdev
         env:
@@ -218,7 +224,7 @@ jobs:
           for part in acdev.pdb acdev.dwp acdev.dSYM; do [ ! -e "acdev/target/$T/dist/$part" ] || cp -RL "acdev/target/$T/dist/$part" out/symbols/; done
           [ -n "$(ls -A out/symbols)" ] || { echo "::error::no split debug information was produced"; exit 1; }
           ls -la out out/symbols
-          rsync -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/build-$T/"
+          upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/build-$T/"
 
   # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
   guest:
@@ -240,7 +246,7 @@ jobs:
           (cd "$s" && chmod 755 * && TZ=UTC touch -t 200001010000.00 * &&
             tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64) | gzip -9 -n \
             > "$o/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
-          rsync -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
+          upload -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
 
   # the release (out/: <version>/, latest, latest.json, install.*) from the builds, guarded, kept as <run>/acdev-release
   pkgs:
@@ -279,9 +285,9 @@ jobs:
         env:
           PUBLISH: ${{ needs.plan.outputs.publish }}
         run: |
-          rsync -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
+          upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
           mkdir -p run && printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > run/run.json
-          rsync -t --mkpath --chmod=F644 run/run.json "$TO:$GITHUB_RUN_NUMBER/"
+          upload -t --mkpath --chmod=F644 run/run.json "$TO:$GITHUB_RUN_NUMBER/"
           echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
       - name: the release is exactly the allow-list and the shipped content is clean
         working-directory: acdev/npm
@@ -289,7 +295,7 @@ jobs:
       - name: latest on the artifacts host
         run: |
           echo "$GITHUB_RUN_NUMBER" > run/latest
-          rsync -t --chmod=F644 run/latest "$TO:"
+          upload -t --chmod=F644 run/latest "$TO:"
           [ "${{ needs.plan.outputs.publish }}" = true ] || echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
 
   # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
