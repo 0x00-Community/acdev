@@ -18,7 +18,7 @@ acdev 分三个仓库 (测试期间的架构, 用户定 2026-11-13): libacde (�
   (`acde::Portal`), 否则用宿主窗口的原生对话框; `doctor.rs` 是 `acdev runtime doctor [--json]`.
 - `crates/hostwin`: 宿主窗口和合成 (见 `docs/hostwin.md`).
 - 合成器: 现在直接用 libacde 的 acde-gpu (wgpu: Vulkan / OpenGL / Metal / DX12); libacde 抽出合成器接口后, wgpu (vello) 实现搬到本仓库,
-  另加 acgpu 实现 (feature `acgpu`).
+  另加 detour 实现 (acgpu 已废弃, 由 detour 取代, 用户定 2026-11-19).
 
 目录: `src/` 是 acdev runtime 本体 (Rust, 仓库根的包); `crates/hostwin` 宿主窗口; `npm/` 是开发者 CLI `acdev` 这个 JS 包 (连同它自己的构建脚本 `npm/scripts/`); `scripts/` 是不随包发的安装器
 (`install.sh` / `install.ps1` / `install.md`, 发版时传到 pkgs) 和发版检查 `release-guard.ts`.
