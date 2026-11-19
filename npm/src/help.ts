@@ -342,7 +342,8 @@ export class Help {
             + '(default ./<name>; into LOCAL/<name> when LOCAL is a directory); '
             + 'view opens acdev\'s own window again on a guest started with --viewer; '
             + 'mount mounts the --share directory at /mnt/acdev; console makes the guest kernel log to the serial '
-            + 'port from the next boot.',
+            + 'port from the next boot; provision sets the guest up for testing (the user, its password, greetd on the acdes '
+            + 'login screen, acdes and winman laid out by the acdes PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
             + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and UEFI firmware (ACDEV_QEMU_DIR); without KVM, WHPX or HVF it emulates.',
         ],
@@ -364,7 +365,15 @@ export class Help {
           },
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
-          { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first' },
+          { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first; run provision again after it' },
+          { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin and --winman-bin' },
+          { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
+          { flag: '--winman-bin FILE', about: 'provision: the winman guest build' },
+          { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
+          { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
+          { flag: '--harness FILE', about: 'provision: the dopame-harness build' },
+          { flag: '--user NAME', about: 'provision: the test user (default tester; password ACDEV_VM_PASSWORD, default dopame-dev)' },
+          { flag: '--no-restart', about: 'provision: leave greetd running as it is' },
           { flag: '--wait SECONDS', about: 'start: how long to wait until the guest is ready (default 300; 0: not)' },
           { flag: '--gl', about: 'start: virtio-vga-gl with an OpenGL window (virgl; not on the roadmap)' },
           { flag: '--detach', about: 'run: in the background; prints its process group id' },

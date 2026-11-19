@@ -16,6 +16,7 @@ import { Forward } from '../src/vm/forward.ts'
 import { guestPassword, prepareGuest, stageInGuest } from '../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
+import { PROVISION_SCRIPT, provisionOptions, stageProvision } from '../src/vm/provision.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -908,3 +909,40 @@ describe('drop in the guest session', () => {
   })
 })
 
+describe('acdev vm provision', () => {
+  test('stages acdes for its own PKGBUILD, the Dopame package and the script', () => {
+    const repo = tmp()
+    mkdirSync(join(repo, 'acdes', 'packaging', 'arch'), { recursive: true })
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { :; }\n')
+    mkdirSync(join(repo, 'dopame', 'packages', 'dopame', 'dist'), { recursive: true })
+    writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'package.json'), '{}')
+    writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'dist', 'index.js'), '')
+    for (const bin of ['acdes-bin', 'winman', 'harness']) writeFileSync(join(repo, bin), bin)
+    const sources = {
+      acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), winmanBin: join(repo, 'winman'), libacde: null,
+      dopame: join(repo, 'dopame'), harness: join(repo, 'harness'),
+    }
+    const stage = stageProvision(sources)
+    try {
+      for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes', 'acdes/src/target-winman/release/winman',
+        'acdes/src/acdebin-system/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
+        'dopame/dopame-harness']) {
+        expect(existsSync(join(stage, file))).toBe(true)
+      }
+      expect(readFileSync(join(stage, 'provision.sh'), 'utf8')).toBe(PROVISION_SCRIPT)
+    } finally {
+      rmSync(stage, { recursive: true, force: true })
+    }
+    expect(() => stageProvision({ ...sources, winmanBin: null })).toThrow('--acdes needs --acdes-bin and --winman-bin')
+    expect(() => stageProvision({ ...sources, acdes: null })).toThrow('need --acdes')
+  })
+
+  test('the script lays out acdes by package(), sets the user and greetd, and takes the defaults it is told', () => {
+    const lines = ['. "$here/acdes/PKGBUILD"', 'printf \'%s:%s\\n\' "$user" "$password" | chpasswd', 'command = "/usr/bin/acdes --greeter"', 'pacman -Sy']
+    for (const line of lines) {
+      expect(PROVISION_SCRIPT).toContain(line)
+    }
+    expect(provisionOptions(new Map(), {})).toEqual({ user: 'tester', password: 'dopame-dev', restart: true })
+    expect(provisionOptions(new Map([['user', 'qa'], ['no-restart', '']]), { ACDEV_VM_PASSWORD: 'x' })).toEqual({ user: 'qa', password: 'x', restart: false })
+  })
+})

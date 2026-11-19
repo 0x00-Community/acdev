@@ -139,6 +139,24 @@ AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 
 os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
 
+**`--fresh` 清掉什么, 之后要做什么**: 客户机里装的、配的东西都在覆盖盘 (`disk.qcow2`) 上, `--fresh` 连它和 UEFI 变量一起丢, 回到基础镜像:
+没有测试用户 `tester`, greetd 还是镜像里的旧登录命令, acdes / winman / Dopame 是镜像构建时的旧包, `/opt/acdev` 和 pacman 的同步数据库也没有.
+覆盖盘没有备份, 所以 `--fresh` 之后先跑一遍 `acdev vm provision` (可以重复跑, 每次结果一样):
+
+```sh
+acdev vm provision \
+  --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --winman-bin <winman 的 guest 构建> --libacde ~/ACDE/libacde \
+  --dopame ~/ACDE/dopame --harness <dopame-harness 的构建>
+```
+
+它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库并装 greetd、xdg-user-dirs;
+acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
+`/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes`; Dopame 包放到
+`/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
+(`--user` 可换; 有 video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录;
+写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
+acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
+
 ## 命令
 
 ```sh

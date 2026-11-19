@@ -60,8 +60,11 @@ class Cli {
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     vm: {
       args: [1, Infinity],
-      flags: ['image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output'],
-      switches: ['fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow'],
+      flags: [
+        'image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output',
+        'acdes', 'acdes-bin', 'winman-bin', 'libacde', 'dopame', 'harness', 'user',
+      ],
+      switches: ['fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'detach', 'force', 'follow', 'no-restart'],
     },
     test: {
       args: [0, Infinity],

@@ -1,6 +1,8 @@
+import { rmSync } from 'node:fs'
 import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
+import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
 
 type Flags = ReadonlyMap<string, string>
 type Handler = (machine: Machine, rest: readonly string[], flags: Flags) => Promise<number>
@@ -228,6 +230,21 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     count('push', rest, 1, 2, 'LOCAL [REMOTE]')
     say(`${rest[0]} -> guest:${await machine.push(rest[0]!, rest[1])}`)
     return 0
+  },
+  async provision(machine, rest, flags) {
+    count('provision', rest, 0, 0, 'no arguments')
+    machine.running()
+    const options = provisionOptions(flags)
+    const stage = stageProvision(provisionSources(flags))
+    try {
+      const devd = machine.devd()
+      await devd.run(['/bin/rm', '-rf', PROVISION_DIR])
+      await machine.push(stage, PROVISION_DIR)
+      const argv = ['/bin/bash', `${PROVISION_DIR}/provision.sh`, options.user, options.password, options.restart ? '1' : '0']
+      return await devd.run(argv, { stdout: (chunk) => process.stdout.write(chunk), stderr: (chunk) => process.stderr.write(chunk) })
+    } finally {
+      rmSync(stage, { recursive: true, force: true })
+    }
   },
   async pull(machine, rest) {
     count('pull', rest, 1, 2, 'REMOTE [LOCAL]')
