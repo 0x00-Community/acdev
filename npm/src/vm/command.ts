@@ -33,15 +33,23 @@ function outputsFor(flags: Flags, display: StartOptions['display']): number {
   return outputs
 }
 
+const DISPLAYS: readonly [string, NonNullable<StartOptions['display']>][] = [['headless', 'none'], ['vnc', 'vnc'], ['viewer', 'viewer'], ['sdl', 'sdl']]
+
+export function displayOf(flags: Flags): NonNullable<StartOptions['display']> {
+  const shown = DISPLAYS.filter(([flag]) => flags.has(flag))
+  if (shown.length > 1) {
+    throw new Error(`vm start: one of --headless, --vnc, --viewer, --sdl, not ${shown.map(([flag]) => `--${flag}`).join(' and ')}`)
+  }
+  return shown[0]?.[1] ?? 'window'
+}
+
 function count(sub: string, rest: readonly string[], min: number, max: number, usage: string): void {
   if (rest.length < min || rest.length > max) throw new Error(`vm ${sub}: ${usage} (acdev vm --help)`)
 }
 
 async function start(machine: Machine, rest: readonly string[], flags: Flags): Promise<number> {
   count('start', rest, 0, 0, 'options only')
-  const shown = ['headless', 'vnc', 'viewer'].filter((flag) => flags.has(flag))
-  if (shown.length > 1) throw new Error(`vm start: one of --headless, --vnc, --viewer, not ${shown.map((flag) => `--${flag}`).join(' and ')}`)
-  const display: StartOptions['display'] = flags.has('headless') ? 'none' : flags.has('vnc') ? 'vnc' : flags.has('viewer') ? 'viewer' : 'window'
+  const display = displayOf(flags)
   const options: StartOptions = {
     ...(flags.has('image') && { image: flags.get('image')! }),
     ...(flags.has('share') && { share: Machine.directory(flags.get('share')!) }),

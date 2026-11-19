@@ -352,6 +352,11 @@ export class Help {
           { flag: '--outputs N', about: 'start: N displays (virtio-vga max_outputs, 1 to 16; QEMU\'s window shows one tab each)' },
           { flag: '--output N', about: 'screenshot: which display, from 0 (default 0)' },
           { flag: '--viewer', about: 'start: show the guest in acdev\'s own window (QEMU\'s D-Bus display; Linux for now)' },
+          {
+            flag: '--sdl',
+            about: 'start: a trial: QEMU\'s SDL window instead of GTK (Linux only). GTK hands its first, small window size to the '
+              + 'guest as the preferred resolution; SDL does not, so the guest should start at 1280x800',
+          },
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first' },

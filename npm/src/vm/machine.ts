@@ -21,7 +21,7 @@ export interface StartOptions {
   readonly image?: string
   readonly fresh?: boolean
   readonly share?: string
-  readonly display?: 'window' | 'none' | 'vnc' | 'viewer'
+  readonly display?: 'window' | 'sdl' | 'none' | 'vnc' | 'viewer'
   readonly gl?: boolean
   readonly outputs?: number
 }
@@ -299,6 +299,7 @@ export class Machine {
     if (display === 'none') return outputs > 1 ? 'dbus,p2p=yes' : 'none'
     if (display === 'vnc') return 'vnc=127.0.0.1:0'
     if (display === 'viewer') return 'dbus,p2p=yes'
+    if (display === 'sdl') return gl ? 'sdl,gl=on' : 'sdl'
     if (this.host.platform === 'darwin') return 'cocoa'
     return gl ? 'gtk,gl=on' : 'gtk'
   }
@@ -318,8 +319,10 @@ export class Machine {
     return link
   }
 
-  #refuse(options: StartOptions): void {
-    if (options.gl && options.display && options.display !== 'window') throw new Error('vm: --gl needs a window')
+  refuse(options: StartOptions): void {
+    const windowed = options.display === undefined || options.display === 'window' || options.display === 'sdl'
+    if (options.gl && !windowed) throw new Error('vm: --gl needs a window')
+    if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window, a trial) is Linux only')
     if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
     if (this.host.platform === 'darwin' && this.host.arch === 'arm64' && this.guest !== 'aarch64') {
       throw new Error('vm: Apple silicon runs only an aarch64 guest (unset ACDEV_VM_ARCH)')
@@ -332,7 +335,7 @@ export class Machine {
   async start(options: StartOptions, say: (line: string) => void): Promise<number> {
     const already = this.pid()
     if (already !== null) throw new Error(`vm: a guest is already running from ${this.dir} (pid ${already})`)
-    this.#refuse(options)
+    this.refuse(options)
     const qemu = this.qemu()
     const image = realpathSync(options.image ?? this.image() ?? join(this.images, 'latest.qcow2'))
     mkdirSync(this.run, { recursive: true })

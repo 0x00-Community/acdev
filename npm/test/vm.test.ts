@@ -9,6 +9,7 @@ import { Devd, encode, Frames, Kind, SocketTransport, type Frame, type Transport
 import { TOOL, crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
+import { displayOf } from '../src/vm/command.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
 import { Forward } from '../src/vm/forward.ts'
@@ -348,6 +349,19 @@ describe('the QEMU command line', () => {
     expect(machine.args({}, 'tcg').join(' ')).toContain('-accel tcg,thread=multi -cpu max -smp')
     expect(machine.args({ gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display gtk,gl=on')
     expect(args).toContain(`-fw_cfg name=opt/acdev/key,file=${machine.key}`)
+  })
+
+  test('--sdl, a trial, gives QEMU its SDL window (with GL when --gl), alone and on Linux only', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
+    expect(machine.args({ display: 'sdl' }, 'kvm').join(' ')).toContain('-device virtio-vga,id=gpu0 -display sdl')
+    expect(machine.args({ display: 'sdl', gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display sdl,gl=on')
+    expect(machine.args({}, 'kvm').join(' ')).toContain('-display gtk')
+    expect(() => machine.refuse({ display: 'sdl', gl: true })).not.toThrow()
+    const mac = new Machine({ ACDEV_VM_DIR: tmp(), ACDEV_VM_ARCH: 'aarch64' }, { platform: 'darwin', arch: 'arm64' })
+    expect(() => mac.refuse({ display: 'sdl' })).toThrow('--sdl (QEMU\'s SDL window, a trial) is Linux only')
+    expect(displayOf(new Map([['sdl', '']]))).toBe('sdl')
+    expect(displayOf(new Map())).toBe('window')
+    expect(() => displayOf(new Map([['sdl', ''], ['viewer', '']]))).toThrow('one of --headless, --vnc, --viewer, --sdl, not --viewer and --sdl')
   })
 
   test('--viewer gives QEMU a peer-to-peer D-Bus display; acdevtool comes from ACDEVTOOL', () => {
