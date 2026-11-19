@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
@@ -13,6 +13,7 @@ export interface ProvisionSources {
   readonly dopame: string | null
   readonly harness: string | null
   readonly kernelPkgs?: string | null
+  readonly systemAgentBin?: string | null
 }
 
 export interface ProvisionOptions {
@@ -74,9 +75,16 @@ export const PROVISION_SCRIPT = [
   '  )',
   '  ln -sf acdes /usr/bin/acdert',
   '  systemd-sysusers',
-  '  systemd-tmpfiles --create /usr/lib/tmpfiles.d/acde.conf',
+  '  for conf in /usr/lib/tmpfiles.d/acde*.conf; do',
+  '    [ ! -f "$conf" ] || systemd-tmpfiles --create "$conf"',
+  '  done',
   '  chown -R greeter:greeter /var/lib/acde/greeter',
   '  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true',
+  '  if [ -x /usr/lib/acdes/system-agent ] && [ -f /usr/lib/systemd/system/acdes-system-agent.service ]; then',
+  '    systemctl daemon-reload',
+  '    systemctl enable acdes-system-agent >/dev/null 2>&1 || step "warning: could not enable acdes-system-agent"',
+  '    systemctl restart acdes-system-agent || step "warning: acdes-system-agent did not start"',
+  '  fi',
   'fi',
   '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --acdes the first time" >&2; exit 3; }',
   '',
@@ -169,14 +177,28 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   const src = join(stage, 'acdes', 'src')
   cpSync(need(join(repo, 'packaging', 'arch', 'PKGBUILD'), 'the acdes PKGBUILD'), join(stage, 'acdes', 'PKGBUILD'))
   cpSync(join(repo, 'packaging'), join(src, 'acdebin-system', 'packaging'), { recursive: true })
+  for (const path of pkgbuildPaths(readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8'))) {
+    cpSync(need(join(repo, path), 'what the acdes PKGBUILD installs,'), join(src, 'acdebin-system', path), { recursive: true })
+  }
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
   mkdirSync(join(src, 'target', 'winman', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
   cpSync(need(sources.winmanBin, '--winman-bin'), join(src, 'target', 'winman', 'release', 'winman'))
+  const pkgbuild = readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8')
+  if (sources.systemAgentBin) cpSync(need(sources.systemAgentBin, '--system-agent-bin'), join(src, 'target', 'release', 'system-agent'))
+  else if (pkgbuild.includes('release/system-agent')) {
+    throw new Error('vm provision: this acdes PKGBUILD installs system-agent: give --system-agent-bin (cargo build -p acde-system-agent)')
+  }
   const license = sources.libacde ? join(resolve(sources.libacde), 'LICENSE') : null
   mkdirSync(join(src, 'libacde'), { recursive: true })
   if (license && existsSync(license)) cpSync(license, join(src, 'libacde', 'LICENSE'))
   else writeFileSync(join(src, 'libacde', 'LICENSE'), '')
+}
+
+export function pkgbuildPaths(pkgbuild: string): string[] {
+  const used = [...pkgbuild.matchAll(/\$\{?srcdir\}?\/acdebin-system\/([A-Za-z0-9._@/*-]+)/g)].map(([, path]) => path!)
+  const plain = used.map((path) => (path.includes('*') ? path.slice(0, path.indexOf('*')).replace(/[^/]*$/, '') : path).replace(/\/+$/, ''))
+  return [...new Set(plain.filter((path) => path !== '' && !path.split('/').includes('..')))]
 }
 
 function stageDopame(stage: string, sources: ProvisionSources): void {
@@ -234,6 +256,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), winmanBin: get('winman-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
-    kernelPkgs: get('kernel-pkgs'),
+    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'),
   }
 }

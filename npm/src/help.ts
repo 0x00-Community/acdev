@@ -376,6 +376,7 @@ export class Help {
           { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin and --winman-bin' },
           { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
           { flag: '--winman-bin FILE', about: 'provision: the winman guest build' },
+          { flag: '--system-agent-bin FILE', about: 'provision: the acdes system-agent guest build (when the acdes PKGBUILD installs it)' },
           { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
           { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
           { flag: '--harness FILE', about: 'provision: the dopame-harness build' },
