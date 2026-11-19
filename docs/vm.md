@@ -283,6 +283,22 @@ x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默�
 `disable_s3 = 0`), 显式写上是因为 libvirt 等常把它关掉, 这里不依赖默认. 客户机挂起后 (`systemctl suspend` 或电源设置), 用 `acdev vm wake`
 (QMP `system_wakeup`) 叫醒; 客户机没睡时它什么也不做. aarch64 的 virt 没有 ACPI S3, 不加这个参数.
 
+**测睡眠、唤醒要用 `--vga std`**: 默认的 virtio-gpu 过不了 S3, 唤醒后黑屏. 这是 QEMU 的已知缺陷 (QEMU issue #1860): 复位时显卡销毁了显示
+资源, 客户机驱动恢复后还拿旧的资源编号提交, QEMU 报 `0x1203` (资源编号无效). `--vga std` 换成标准 VGA (x86_64 是 `-device VGA`,
+aarch64 是 `bochs-display`〔aarch64 未核实〕), 客户机里由 bochs-drm 驱动; winman 只要 dumb buffer, 它满足.
+
+```sh
+acdev vm start --vga std                       # 标准 VGA, 1280x800
+acdev vm start --vga std --resolution 1600x900
+acdev vm run --detach systemctl suspend    # 后台跑, 不等它; 睡下后再 acdev vm wake
+```
+
+代价: 只有一块屏 (`--outputs` 2 以上报错); 分辨率固定在开机时给的大小 (`xres` / `yres`, 默认 1280x800), 不随窗口变 (标准 VGA 不接
+窗口报来的尺寸); 没有 3D (`--gl` 报错). `--resolution WxH` 对 virtio 也有效, 是它开机时的首选分辨率 (之后照样跟着窗口变).
+客户机内核要带 bochs 模块 (`CONFIG_DRM_BOCHS`, 模块名 `bochs`): 各轮测试的日志里查不到 `modinfo bochs` 或 `lsmod` 的记录, ackernel 的
+配置脚本 (`packaging/configure.sh`) 也没有显式写它〔未核实〕; 起 `--vga std` 前在客户机里跑 `modinfo bochs` 确认. 还要注意 ackernel 的
+`agentos-drivers prune` 按机器上的硬件删驱动, 在 virtio 显卡下 prune 过的客户机可能把 `bochs` 删掉 (`drivers/gpu/drm` 属于 gpu-other 组).
+
 ### 双屏
 
 `--outputs N` 的参数链路 (`Machine.args`、`afterStart`、`switchOnOutputs`):

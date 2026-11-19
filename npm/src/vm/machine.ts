@@ -16,7 +16,7 @@ import {
 } from './host.ts'
 import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
-import { hardwareArgs, type Audio } from './hardware.ts'
+import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
 import { Usb } from './usb.ts'
 
 export interface StartOptions {
@@ -27,6 +27,8 @@ export interface StartOptions {
   readonly gl?: boolean
   readonly outputs?: number
   readonly audio?: Audio
+  readonly vga?: Vga
+  readonly resolution?: Resolution | null
 }
 
 export type Stopped = 'devd' | 'agent' | 'acpi' | 'killed' | 'not running'
@@ -271,9 +273,9 @@ export class Machine {
   args(options: StartOptions, accel: Accel, link: Link = { kind: 'vsock' }): string[] {
     const [code] = this.firmware()
     const display = options.display ?? 'window'
-    const heads = (options.outputs ?? 1) > 1 ? `,max_outputs=${options.outputs}` : ''
     const devices = guestDevices(this.guest, accel)
-    const gpu = ['-device', `${options.gl ? devices.gpuGl : devices.gpu},id=${Machine.GPU}${heads}`]
+    const choice = { vga: options.vga ?? 'virtio', gl: options.gl ?? false, outputs: options.outputs ?? 1, resolution: options.resolution ?? null }
+    const gpu = gpuArgs(devices, Machine.GPU, choice)
     const shown = ['-display', this.#display(display, options.gl ?? false, options.outputs ?? 1)]
     const share = options.share
       ? ['-virtfs', `local,path=${options.share},mount_tag=${Machine.MOUNT_TAG},security_model=none,id=share0`] : []
@@ -328,6 +330,10 @@ export class Machine {
   refuse(options: StartOptions): void {
     const windowed = options.display === undefined || ['window', 'sdl', 'gtk'].includes(options.display)
     if (options.gl && !windowed) throw new Error('vm: --gl needs a window')
+    if (options.vga === 'std' && options.gl) throw new Error('vm: --vga std has no 3D: leave out --gl (virgl needs the virtio GPU)')
+    if (options.vga === 'std' && (options.outputs ?? 1) > 1) {
+      throw new Error(`vm: --vga std has one display: leave out --outputs ${options.outputs} (more displays need the virtio GPU)`)
+    }
     if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window) is Linux only')
     if (options.display === 'gtk' && this.host.platform !== 'linux') throw new Error('vm: --gtk is for Linux, where SDL is the default window')
     if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
