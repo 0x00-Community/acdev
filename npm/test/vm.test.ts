@@ -939,6 +939,15 @@ describe('acdev vm provision', () => {
     }
     expect(() => stageProvision({ ...sources, winmanBin: null })).toThrow('--acdes needs --acdes-bin and --winman-bin')
     expect(() => stageProvision({ ...sources, acdes: null })).toThrow('need --acdes')
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { install "$(_target)/release/system-agent"; }\n')
+    expect(() => stageProvision(sources)).toThrow('give --system-agent-bin')
+    writeFileSync(join(repo, 'system-agent'), 'system-agent')
+    const withAgent = stageProvision({ ...sources, systemAgentBin: join(repo, 'system-agent') })
+    try {
+      expect(existsSync(join(withAgent, 'acdes/src/target/release/system-agent'))).toBe(true)
+    } finally {
+      rmSync(withAgent, { recursive: true, force: true })
+    }
   })
 
   test('the script lays out acdes by package(), sets the user and greetd, and takes the defaults it is told', () => {

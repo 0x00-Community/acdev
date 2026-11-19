@@ -156,6 +156,7 @@ acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的 winman 直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
+acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧.
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
 ## 命令
