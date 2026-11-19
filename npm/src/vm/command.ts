@@ -3,6 +3,7 @@ import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
+import { guestHardware } from './guesthw.ts'
 
 type Flags = ReadonlyMap<string, string>
 type Handler = (machine: Machine, rest: readonly string[], flags: Flags) => Promise<number>
@@ -235,7 +236,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     count('provision', rest, 0, 0, 'no arguments')
     machine.running()
     const options = provisionOptions(flags)
-    const stage = stageProvision(provisionSources(flags))
+    const stage = stageProvision(provisionSources(flags), guestHardware(flags))
     try {
       const devd = machine.devd()
       await devd.run(['/bin/rm', '-rf', PROVISION_DIR])
