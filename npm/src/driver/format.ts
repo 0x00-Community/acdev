@@ -51,12 +51,18 @@ export class Format {
     const marked = webs.some((w) => w.lock !== undefined)
     const rows = [
       ['NAME', 'KIND', 'APP', 'WINDOW', ...(marked ? ['LOCK'] : []), 'TITLE'],
-      ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), ...(marked ? [w.lock ? 'lock' : '-'] : []), w.title ?? '']),
+      ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), ...(marked ? [w.lock ? 'lock' : '-'] : []), Format.#title(w)]),
     ]
     const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)))
     const row = (r: string[]) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join('  ')
     const table = rows.map((r) => row(r).trimEnd()).join('\n')
     return locked === null ? table : `${table}\nlocked: ${locked ? 'yes (the lock page is up)' : 'no'}`
+  }
+
+  static readonly STALLED = '(not answering)'
+
+  static #title(web: Web): string {
+    return web.stalled ? Format.STALLED : (web.title ?? '')
   }
 
   static node(n: InspectNode): string {
