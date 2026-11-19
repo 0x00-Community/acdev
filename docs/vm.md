@@ -149,12 +149,12 @@ acdev vm provision \
   --dopame ~/ACDE/dopame --harness <dopame-harness 的构建>
 ```
 
-它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库, 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
+它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
 acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 建用户 `tester`
-(`--user` 可换; 有 video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录;
-写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
+(`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录;
+把 `greeter` 用户加进 video、input 组 (登录页的 winman 直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
 ## 命令
