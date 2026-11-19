@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
-import { hardwareFiles, type GuestHardware } from './guesthw.ts'
+import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -77,12 +77,31 @@ export const PROVISION_SCRIPT = [
   'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
   '',
   'if [ -d "$here/hw" ]; then',
-  '  step "simulated hardware: the packages and scripts in /usr/local/bin"',
+  '  step "simulated hardware: packages, scripts in /usr/local/bin, units in /etc/systemd/system"',
   '  while read -r pkg; do',
   '    [ -n "$pkg" ] || continue',
-  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "could not install $pkg"',
+  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "warning: could not install $pkg"',
   '  done <"$here/hw/packages"',
-  '  for script in "$here"/hw/acdev-*; do install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; done',
+  '  for script in "$here"/hw/acdev-*; do',
+  '    if [ -f "$script" ]; then install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; fi',
+  '  done',
+  '  while read -r unit; do',
+  '    [ -n "$unit" ] || continue',
+  '    systemctl disable --now "$unit" >/dev/null 2>&1 || true',
+  '    rm -f "/etc/systemd/system/$unit"',
+  '    step "$unit is off"',
+  '  done <"$here/hw/off"',
+  '  for unit in "$here"/hw/units/*.service; do',
+  '    if [ -f "$unit" ]; then install -Dm644 "$unit" "/etc/systemd/system/$(basename "$unit")"; fi',
+  '  done',
+  '  systemctl daemon-reload',
+  '  for unit in "$here"/hw/units/*.service; do',
+  '    [ -f "$unit" ] || continue',
+  '    name=$(basename "$unit")',
+  '    systemctl enable "$name" >/dev/null 2>&1 || step "warning: could not enable $name"',
+  '    systemctl restart "$name" || step "warning: $name did not start"',
+  '    journalctl -u "$name" -n 2 --no-pager -o cat 2>/dev/null | grep "^acdev-" | sed "s/^/acdev provision: /" || true',
+  '  done',
   'fi',
   '',
   'step "greetd runs the acdes login screen"',
@@ -146,16 +165,22 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }
 
-function stageHardware(stage: string, hardware: readonly GuestHardware[]): void {
-  if (!hardware.length) return
+export interface HardwareChoice {
+  readonly on: readonly GuestHardware[]
+  readonly off: readonly GuestHardware[]
+}
+
+function stageHardware(stage: string, { on, off }: HardwareChoice): void {
   const dir = join(stage, 'hw')
-  const { scripts, packages } = hardwareFiles(hardware)
-  mkdirSync(dir, { recursive: true })
+  const { scripts, units, packages, off: stopped } = hardwareFiles(on, off)
+  mkdirSync(join(dir, 'units'), { recursive: true })
+  writeFileSync(join(dir, 'off'), stopped.map((unit) => `${unit}\n`).join(''))
+  for (const [name, text] of Object.entries(units)) writeFileSync(join(dir, 'units', name), text)
   writeFileSync(join(dir, 'packages'), packages.map((pkg) => `${pkg}\n`).join(''))
   for (const [name, text] of Object.entries(scripts)) writeFileSync(join(dir, name), text, { mode: 0o755 })
 }
 
-export function stageProvision(sources: ProvisionSources, hardware: readonly GuestHardware[] = []): string {
+export function stageProvision(sources: ProvisionSources, hardware: HardwareChoice = { on: GUEST_HARDWARE, off: [] }): string {
   const stage = mkdtempSync(join(tmpdir(), 'acdev-provision-'))
   try {
     stageAcdes(stage, sources)

@@ -293,12 +293,22 @@ x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默�
 
 ### Wi-Fi、蓝牙、电池共同的做法 (客户机里, `src/vm/guesthw.ts`)
 
-QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 都是可选的: `acdev vm provision --wifi` / `--bluetooth` /
-`--battery` (可同时给) 把要的包 (`hw/packages`) 和脚本放进暂存目录 (`hw/acdev-*`), provision 脚本装包 (装不上只打一行) 并把脚本装到
-客户机 `/usr/local/bin`. 不给时暂存目录里没有 `hw/`, provision 照旧. 脚本要 root 跑 (`acdev vm run -- acdev-wifi up`, acdevd 是 root).
-三个脚本缺内核模块或缺包时以 4 退出, 说缺的是什么 (`CONFIG_…=m` 或要先 provision 哪一项); 客户机内核 (ackernel) 的配置不在本仓库,
-有没有这三个模块要在客户机里 `modinfo` 才知道〔未核实〕: `mac80211_hwsim` 和 `test_power` 没有设备别名, 按 ackernel 的拆包规则
-留在 `linux-ackernel` 里, 不会被 `agentos-drivers prune` 删掉; `hci_vhci` 同理.
+QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 默认都带 (用户 2026-11-19): `acdev vm provision` 把要的包
+(`hw/packages`)、脚本 (`hw/acdev-*`) 和 systemd 单元 (`hw/units/acdev-wifi.service`、`acdev-bt.service`、`acdev-battery.service`) 放进
+暂存目录; provision 脚本装包 (装不上只打一行 warning)、把脚本装到 `/usr/local/bin`、单元装到 `/etc/systemd/system`, `daemon-reload`
+后 `enable` 并立即 `restart` 一次, 再把单元日志里脚本自己的那两行 (`acdev-…: …`) 转到 provision 的输出. 以后每次开机由单元启用.
+
+- 关掉: `--no-wifi` / `--no-bluetooth` / `--no-battery`. 关掉的那项不装包、不装单元; 客户机里已有的单元 `disable --now` 后删掉
+  (`hw/off` 列出它们), 脚本留在 `/usr/local/bin` 里, 照样能手动跑. 旧的 `--wifi` / `--bluetooth` / `--battery` 已过时, 仍认, 什么也不改变.
+- 单元: `Type=oneshot` + `RemainAfterExit=yes`, `ExecStart` 调脚本的 `up` (电池是 `100 charging`), `ExecStop` 调 `down` (电池 `off`),
+  `Wants=` + `After=` 各自的守护进程 (NetworkManager、bluetooth、upower; 脚本里的 `systemctl start` 因此不会和开机顺序互等),
+  `WantedBy=multi-user.target`.
+- 缺内核模块、缺包或缺 `btvirt` 时脚本以 4 退出并说缺的是什么; 单元写了 `SuccessExitStatus=4`, 所以开机时这算成功 (单元是 active,
+  开机不会被标成 degraded), 只在 journal (`journalctl -u acdev-wifi`) 和 provision 输出里留一条说明. 注意 hostapd、btvirt 自己起不来
+  也是 4, 同样只留日志. 手动跑脚本时退出码照旧是 4.
+- 手动起停: `acdev vm run -- systemctl stop|start acdev-wifi` (单元), 或直接 `acdev vm run -- acdev-wifi up|down` (脚本要 root, acdevd 是 root).
+- 客户机内核 (ackernel) 的配置不在本仓库, 有没有这三个模块要在客户机里 `modinfo` 才知道〔未核实〕: `mac80211_hwsim` 和 `test_power`
+  没有设备别名, 按 ackernel 的拆包规则留在 `linux-ackernel` 里, 不会被 `agentos-drivers prune` 删掉; `hci_vhci` 同理.
 
 ### Wi-Fi
 
@@ -311,6 +321,9 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
 | `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` |
 
 第二个口交给 NetworkManager (`managed yes`, 再 `rescan`), 设置和控制中心能扫到这两个网络, 连 `acdev-wpa2` 时页面要密码.
+NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager 只自动连已有的连接配置 (connection profile), 不为扫到的陌生网络
+新建配置, 而脚本只扫描、不建配置. 测试里在设置中连过一次后, NetworkManager 会存下配置 (默认 `autoconnect=yes`), 之后开机会自己连;
+要回到没连过的状态, `acdev vm run -- nmcli connection delete acdev-open` (或 `acdev-wpa2`).
 配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
 
 ### 蓝牙
@@ -327,7 +340,9 @@ libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDev
 `OnBattery`, 再加 `/sys/class/power_supply/<NativePath>` 的充电上限), 所以假电池要让 UPower 自己看到: 用内核的 `test_power` 模块
 (`/sys/class/power_supply/test_battery`、`test_ac`, 改模块参数时发 uevent, UPower 跟着更新), 不用 umockdev (它要把 upowerd 换成
 `umockdev-run` 下的一份, 改电量还要另外通知).
-`acdev-battery <百分比> [charging|discharging]` (默认 discharging): 载入模块, 写 `battery_capacity`、`battery_status`、`ac_online`
+默认 (单元 `acdev-battery.service`): 接着电源、100%、充电中, 一开机不会碰到低电量的处理. 手动切电量:
+`acdev vm run -- acdev-battery <百分比> [charging|discharging]` (不给状态时是 discharging), 回到默认用 `acdev-battery 100 charging`
+或 `systemctl restart acdev-battery`. 脚本载入模块, 写 `battery_capacity`、`battery_status`、`ac_online`
 (充电时 on), 起 `upower`. `acdev-battery off` 卸掉模块. 放电且百分比不高于 UPower 的 `PercentageAction` (`/etc/UPower/UPower.conf`,
 默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
 的严重线在它上面). 包: `upower` (镜像里没有).
