@@ -362,17 +362,40 @@ describe('the QEMU command line', () => {
     await expect(machine.screenshot(join(tmp(), 'shot.png'))).rejects.toThrow('acdev screen --session vm -o FILE.png')
   })
 
-  test('--sdl, a trial, gives QEMU its SDL window (with GL when --gl), alone and on Linux only', () => {
+  test('--sdl gives QEMU its SDL window (with GL when --gl), alone and on Linux only; --gtk the GTK one', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
     expect(machine.args({ display: 'sdl' }, 'kvm').join(' ')).toContain('-device virtio-vga,id=gpu0 -display sdl')
     expect(machine.args({ display: 'sdl', gl: true }, 'kvm').join(' ')).toContain('-device virtio-vga-gl,id=gpu0 -display sdl,gl=on')
     expect(machine.args({}, 'kvm').join(' ')).toContain('-display gtk')
     expect(() => machine.refuse({ display: 'sdl', gl: true })).not.toThrow()
     const mac = new Machine({ ACDEV_VM_DIR: tmp(), ACDEV_VM_ARCH: 'aarch64' }, { platform: 'darwin', arch: 'arm64' })
-    expect(() => mac.refuse({ display: 'sdl' })).toThrow('--sdl (QEMU\'s SDL window, a trial) is Linux only')
+    expect(() => mac.refuse({ display: 'sdl' })).toThrow('--sdl (QEMU\'s SDL window) is Linux only')
+    expect(() => mac.refuse({ display: 'gtk' })).toThrow('--gtk is for Linux')
+    expect(machine.args({ display: 'gtk', gl: true }, 'kvm').join(' ')).toContain('-display gtk,gl=on')
+    expect(displayOf(new Map([['gtk', '']]))).toBe('gtk')
     expect(displayOf(new Map([['sdl', '']]))).toBe('sdl')
     expect(displayOf(new Map())).toBe('window')
-    expect(() => displayOf(new Map([['sdl', ''], ['viewer', '']]))).toThrow('one of --headless, --vnc, --viewer, --sdl, not --viewer and --sdl')
+    expect(() => displayOf(new Map([['sdl', ''], ['viewer', '']]))).toThrow('one of --headless, --vnc, --viewer, --sdl, --gtk, not --viewer and --sdl')
+  })
+
+  test('on Linux the default window is SDL when QEMU has it, else GTK with a note; other hosts keep their window', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
+    const said: string[] = []
+    const say = (line: string) => void said.push(line)
+    expect(machine.window('window', ['none', 'gtk', 'sdl', 'dbus'], say)).toBe('sdl')
+    expect(machine.window('gtk', ['gtk', 'sdl'], say)).toBe('gtk')
+    expect(said).toEqual([])
+    expect(machine.window('window', ['none', 'gtk', 'dbus'], say)).toBe('gtk')
+    expect(said[0]).toContain('this QEMU has no SDL display')
+    expect(() => machine.window('sdl', ['gtk'], say)).toThrow('--sdl: this QEMU has no SDL display')
+    const mac = new Machine({ ACDEV_VM_DIR: tmp(), ACDEV_VM_ARCH: 'aarch64' }, { platform: 'darwin', arch: 'arm64' })
+    expect(mac.window('window', [], say)).toBe('window')
+  })
+
+  test('the displays a QEMU has come from -display help', () => {
+    const fake = join(tmp(), 'qemu-system-x86_64')
+    writeFileSync(fake, '#!/bin/sh\nprintf "Available display backend types:\\nnone\\ngtk\\nsdl\\negl-headless\\n"\n', { mode: 0o755 })
+    expect(Machine.displays(fake)).toEqual(['none', 'gtk', 'sdl', 'egl-headless'])
   })
 
   test('--viewer gives QEMU a peer-to-peer D-Bus display; acdevtool comes from ACDEVTOOL', () => {

@@ -354,8 +354,13 @@ export class Help {
           { flag: '--viewer', about: 'start: show the guest in acdev\'s own window (QEMU\'s D-Bus display; Linux for now)' },
           {
             flag: '--sdl',
-            about: 'start: a trial: QEMU\'s SDL window instead of GTK (Linux only). GTK hands its first, small window size to the '
-              + 'guest as the preferred resolution; SDL does not, so the guest should start at 1280x800',
+            about: 'start: QEMU\'s SDL window, the default window on Linux: the guest starts at 1280x800 and follows the window '
+              + 'when you resize it (needs QEMU built with SDL; without it the default falls back to GTK)',
+          },
+          {
+            flag: '--gtk',
+            about: 'start: QEMU\'s GTK window instead (Linux): GTK hands its first, small window size to the guest as the preferred '
+              + 'resolution, so the guest starts small until you enlarge the window',
           },
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },

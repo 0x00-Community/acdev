@@ -21,7 +21,7 @@ export interface StartOptions {
   readonly image?: string
   readonly fresh?: boolean
   readonly share?: string
-  readonly display?: 'window' | 'sdl' | 'none' | 'vnc' | 'viewer'
+  readonly display?: 'window' | 'sdl' | 'gtk' | 'none' | 'vnc' | 'viewer'
   readonly gl?: boolean
   readonly outputs?: number
 }
@@ -301,6 +301,7 @@ export class Machine {
     if (display === 'vnc') return 'vnc=127.0.0.1:0'
     if (display === 'viewer') return 'dbus,p2p=yes'
     if (display === 'sdl') return gl ? 'sdl,gl=on' : 'sdl'
+    if (display === 'gtk') return gl ? 'gtk,gl=on' : 'gtk'
     if (this.host.platform === 'darwin') return 'cocoa'
     return gl ? 'gtk,gl=on' : 'gtk'
   }
@@ -321,9 +322,10 @@ export class Machine {
   }
 
   refuse(options: StartOptions): void {
-    const windowed = options.display === undefined || options.display === 'window' || options.display === 'sdl'
+    const windowed = options.display === undefined || ['window', 'sdl', 'gtk'].includes(options.display)
     if (options.gl && !windowed) throw new Error('vm: --gl needs a window')
-    if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window, a trial) is Linux only')
+    if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window) is Linux only')
+    if (options.display === 'gtk' && this.host.platform !== 'linux') throw new Error('vm: --gtk is for Linux, where SDL is the default window')
     if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
     if (this.host.platform === 'darwin' && this.host.arch === 'arm64' && this.guest !== 'aarch64') {
       throw new Error('vm: Apple silicon runs only an aarch64 guest (unset ACDEV_VM_ARCH)')
@@ -333,11 +335,29 @@ export class Machine {
     if (this.host.platform !== 'linux' && viewer) throw new Error('vm: acdevtool view (--viewer, or --headless with --outputs) is Linux only for now')
   }
 
-  async start(options: StartOptions, say: (line: string) => void): Promise<number> {
+  static displays(system: string): string[] {
+    const listed = spawnSync(system, ['-display', 'help'], { encoding: 'utf8', timeout: 30_000 })
+    return (listed.stdout ?? '').split('\n').map((line) => line.trim()).filter((line) => /^[a-z][a-z0-9-]*$/.test(line))
+  }
+
+  window(display: NonNullable<StartOptions['display']>, available: readonly string[], say: (line: string) => void): NonNullable<StartOptions['display']> {
+    if (this.host.platform !== 'linux') return display
+    if (display === 'sdl' && !available.includes('sdl')) {
+      throw new Error('vm: --sdl: this QEMU has no SDL display (qemu-system -display help); install QEMU with SDL, or use --gtk')
+    }
+    if (display !== 'window') return display
+    if (available.includes('sdl')) return 'sdl'
+    say('this QEMU has no SDL display (qemu-system -display help lists none): the window is GTK, where the guest starts at the '
+      + 'small first window size; install QEMU with SDL for a 1280x800 start')
+    return 'gtk'
+  }
+
+  async start(given: StartOptions, say: (line: string) => void): Promise<number> {
     const already = this.pid()
     if (already !== null) throw new Error(`vm: a guest is already running from ${this.dir} (pid ${already})`)
-    this.refuse(options)
+    this.refuse(given)
     const qemu = this.qemu()
+    const options = { ...given, display: this.window(given.display ?? 'window', Machine.displays(qemu.system), say) }
     const image = realpathSync(options.image ?? this.image() ?? join(this.images, 'latest.qcow2'))
     mkdirSync(this.run, { recursive: true })
     mkdirSync(this.logs, { recursive: true })

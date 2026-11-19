@@ -33,12 +33,14 @@ function outputsFor(flags: Flags, display: StartOptions['display']): number {
   return outputs
 }
 
-const DISPLAYS: readonly [string, NonNullable<StartOptions['display']>][] = [['headless', 'none'], ['vnc', 'vnc'], ['viewer', 'viewer'], ['sdl', 'sdl']]
+const DISPLAYS: readonly [string, NonNullable<StartOptions['display']>][] = [
+  ['headless', 'none'], ['vnc', 'vnc'], ['viewer', 'viewer'], ['sdl', 'sdl'], ['gtk', 'gtk'],
+]
 
 export function displayOf(flags: Flags): NonNullable<StartOptions['display']> {
   const shown = DISPLAYS.filter(([flag]) => flags.has(flag))
   if (shown.length > 1) {
-    throw new Error(`vm start: one of --headless, --vnc, --viewer, --sdl, not ${shown.map(([flag]) => `--${flag}`).join(' and ')}`)
+    throw new Error(`vm start: one of --headless, --vnc, --viewer, --sdl, --gtk, not ${shown.map(([flag]) => `--${flag}`).join(' and ')}`)
   }
   return shown[0]?.[1] ?? 'window'
 }

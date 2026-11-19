@@ -24,9 +24,12 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   (`-accel whpx -cpu max`), macOS 上 HVF (`-accel hvf -cpu host`). WHPX / HVF 起不来 (QEMU 马上退出, 输出里提到它) 时说一句原因,
   退回 TCG 重起一次; 慢得多. `start` 和 `status` 会说.
 - QEMU 进程用分离的子进程起 (Node 的 `detached`: POSIX 上是新会话, Windows 上不挂在当前控制台), 不随 `acdev` 退出, 不再要 `setsid`.
-- 窗口用 QEMU 的 gtk 显示; `--viewer` 时是 acdev 自己的窗口 (`acdevtool view`, 取 `ACDEVTOOL`, 否则检出里 `crates/tool` 编出的,
+- 窗口: Linux 上默认用 QEMU 的 SDL 窗口 (`-display sdl`, 带 `--gl` 时 `sdl,gl=on`), `--gtk` 换成 gtk 窗口; macOS 是 cocoa, Windows 是 gtk, 不变.
+  理由见下面两条: gtk 开窗就拿窗口尺寸盖掉客户机的首选分辨率, SDL 不会, 客户机直接以 1280×800 起来, 之后照样跟着拉动的窗口变 (round21 后实测,
+  WSLg 上 X11 窗口). QEMU 没编 SDL 时 (`Machine.displays` 看 `qemu-system -display help` 的列表) 默认退回 gtk 并提示一句; 明说 `--sdl` 而没有 SDL 时报错.
+  `--viewer` 时是 acdev 自己的窗口 (`acdevtool view`, 取 `ACDEVTOOL`, 否则检出里 `crates/tool` 编出的,
   目前只有 Linux); 没有图形环境时用 `--headless` (截图照样能取) 或 `--vnc`.
-- gtk 窗口下客户机的分辨率跟着窗口大小走: QEMU 的 gtk 前端每次窗口大小变化都把窗口尺寸经 `dpy_set_ui_info` 报给显卡, 显卡改了首选分辨率再告诉客户机
+- gtk 窗口 (`--gtk`) 下客户机的分辨率跟着窗口大小走: QEMU 的 gtk 前端每次窗口大小变化都把窗口尺寸经 `dpy_set_ui_info` 报给显卡, 显卡改了首选分辨率再告诉客户机
   (`ui/gtk.c` `gd_configure` → `gd_set_ui_size`; virtio 显卡时 `zoom-to-fit` 自动打开, 窗口不再按画面调). 窗口初始大小由 GTK 按开机时的小画面定,
   所以客户机常常一上来是 640×480, 把窗口拉大就行; 显卡的 `xres` / `yres` (默认就是 1280×800) 会被窗口尺寸盖掉, 设了也没用.
   测试和要固定分辨率时用 `--headless` (1280×800) 或 `--viewer` (`acdevtool view` 主动报 1280×800, 之后跟着窗口变).
@@ -36,14 +39,8 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - `--gl` (virgl) 时 `acdev vm screenshot` 截不出图: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的 `qmp_screendump` →
   `qemu_console_surface`), virgl 的画面在 GL 纹理里, 不画进这个表面. 所以带 `--gl` 时 `vm screenshot` 直接报错并指路: 登录着的会话里用
   `acdev screen --session vm -o FILE.png` (管家经 winman 截, 和 GL 无关), 或者不带 `--gl` 起. 是否 `--gl` 记在 `run/gl`.
-- `--sdl` (试验, 只在 Linux): 换成 QEMU 的 SDL 窗口 (`-display sdl`, 带 `--gl` 时 `sdl,gl=on`, 显卡同 gtk 那两种). gtk 开窗时就拿窗口尺寸盖掉
-  首选分辨率, SDL 只在用户拉动窗口时才报 (`ui/sdl2.c` 只处理 `SDL_WINDOWEVENT_RESIZED`), 窗口跟着客户机画面走, 所以客户机应能直接以 1280×800 起来,
-  之后照样跟着拉动的窗口变. 还没实测; 和 `--headless`、`--vnc`、`--viewer` 只能选一个, 默认仍是 gtk.
-
-## Windows (WHPX)
-
-工作项 02 (三平台模拟器里程碑, 规范在总仓 `.scratch/acdev-m2/spec.md`). 依据总仓 `.scratch/roadmap/research/05-emulator.md` 第二节.
-
+- SDL 窗口 (`ui/sdl2.c`、`sdl2-2d.c`): 窗口按客户机画面的大小开, 画面变了就跟着改窗口; 只在用户拉动窗口 (`SDL_WINDOWEVENT_RESIZED`) 时
+  才把窗口尺寸报给显卡, 开窗时不报, 所以显卡的首选分辨率 1280×800 留着, 客户机直接用它. `--sdl`、`--gtk`、`--headless`、`--vnc`、`--viewer` 只能给一个.
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
   x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
 - 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」).
@@ -149,7 +146,7 @@ acdev vm fetch                                  # 下载并校验最新镜像
 acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 和 acdevd 应答 (--wait 秒, 默认 300; 0 不等)
 acdev vm start --headless --share ~/winman/target/release
 acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdevtool view, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
-acdev vm start --sdl                            # 试验: QEMU 的 SDL 窗口, 开窗不改客户机的首选分辨率 (只在 Linux)
+acdev vm start --gtk                            # Linux 上换成 QEMU 的 gtk 窗口 (默认是 SDL); 客户机先按开窗时的小窗口起
 acdev vm view                                   # 关掉之后再开一个 acdevtool view
 acdev vm start --outputs 2                      # 两个显示输出 (多屏验收), QEMU 窗口里每个输出一个标签页
 acdev vm screenshot second.png --output 1       # 取第二个输出
