@@ -73,7 +73,7 @@ export const PROVISION_SCRIPT = [
   'fi',
   'printf \'%s:%s\\n\' "$user" "$password" | chpasswd',
   'faillock --user "$user" --reset 2>/dev/null || true',
-  'su - "$user" -c xdg-user-dirs-update >/dev/null 2>&1 || true',
+  'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
   '',
   'step "greetd runs the acdes login screen"',
   'for g in video input; do if getent group "$g" >/dev/null; then usermod -aG "$g" greeter; fi; done',
