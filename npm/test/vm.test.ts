@@ -18,7 +18,7 @@ import { Forward } from '../src/vm/forward.ts'
 import { guestPassword, prepareGuest, stageInGuest } from '../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
-import { PROVISION_SCRIPT, provisionOptions, stageProvision } from '../src/vm/provision.ts'
+import { PROVISION_SCRIPT, pkgbuildPaths, provisionOptions, stageProvision } from '../src/vm/provision.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -939,6 +939,20 @@ describe('acdev vm provision', () => {
     }
     expect(() => stageProvision({ ...sources, winmanBin: null })).toThrow('--acdes needs --acdes-bin and --winman-bin')
     expect(() => stageProvision({ ...sources, acdes: null })).toThrow('need --acdes')
+    const src = ['$', '{srcdir}/acdebin-system'].join('')
+    expect(pkgbuildPaths(`install -Dm644 "${src}/protocol/a/policy.json" x\ncp $srcdir/acdebin-system/docs/*.md y\n`
+      + `z "${src}/../etc/passwd" "${src}/protocol/a/policy.json"`)).toEqual(['protocol/a/policy.json', 'docs'])
+    mkdirSync(join(repo, 'acdes', 'protocol'), { recursive: true })
+    writeFileSync(join(repo, 'acdes', 'protocol', 'policy.json'), '{}')
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), `package() { install "${src}/protocol/policy.json"; }\n`)
+    const used = stageProvision(sources)
+    try {
+      expect(existsSync(join(used, 'acdes/src/acdebin-system/protocol/policy.json'))).toBe(true)
+    } finally {
+      rmSync(used, { recursive: true, force: true })
+    }
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), `package() { install "${src}/docs/gone.md"; }\n`)
+    expect(() => stageProvision(sources)).toThrow('docs/gone.md')
     writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { install "$(_target)/release/system-agent"; }\n')
     expect(() => stageProvision(sources)).toThrow('give --system-agent-bin')
     writeFileSync(join(repo, 'system-agent'), 'system-agent')

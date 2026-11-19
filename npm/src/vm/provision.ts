@@ -175,6 +175,9 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   const src = join(stage, 'acdes', 'src')
   cpSync(need(join(repo, 'packaging', 'arch', 'PKGBUILD'), 'the acdes PKGBUILD'), join(stage, 'acdes', 'PKGBUILD'))
   cpSync(join(repo, 'packaging'), join(src, 'acdebin-system', 'packaging'), { recursive: true })
+  for (const path of pkgbuildPaths(readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8'))) {
+    cpSync(need(join(repo, path), 'what the acdes PKGBUILD installs,'), join(src, 'acdebin-system', path), { recursive: true })
+  }
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
   mkdirSync(join(src, 'target', 'winman', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
@@ -188,6 +191,12 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   mkdirSync(join(src, 'libacde'), { recursive: true })
   if (license && existsSync(license)) cpSync(license, join(src, 'libacde', 'LICENSE'))
   else writeFileSync(join(src, 'libacde', 'LICENSE'), '')
+}
+
+export function pkgbuildPaths(pkgbuild: string): string[] {
+  const used = [...pkgbuild.matchAll(/\$\{?srcdir\}?\/acdebin-system\/([A-Za-z0-9._@/*-]+)/g)].map(([, path]) => path!)
+  const plain = used.map((path) => (path.includes('*') ? path.slice(0, path.indexOf('*')).replace(/[^/]*$/, '') : path).replace(/\/+$/, ''))
+  return [...new Set(plain.filter((path) => path !== '' && !path.split('/').includes('..')))]
 }
 
 function stageDopame(stage: string, sources: ProvisionSources): void {
