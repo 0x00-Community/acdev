@@ -353,6 +353,15 @@ describe('the QEMU command line', () => {
     expect(args).toContain('-qmp unix:')
   })
 
+  test('vm screenshot under --gl says why it cannot and what to use instead', async () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    mkdirSync(join(machine.dir, 'run'), { recursive: true })
+    writeFileSync(join(machine.dir, 'run', 'qemu.pid'), `${process.pid}\n`)
+    writeFileSync(join(machine.dir, 'run', 'gl'), 'on\n')
+    expect(machine.gl()).toBe(true)
+    await expect(machine.screenshot(join(tmp(), 'shot.png'))).rejects.toThrow('acdev screen --session vm -o FILE.png')
+  })
+
   test('--sdl, a trial, gives QEMU its SDL window (with GL when --gl), alone and on Linux only', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
     expect(machine.args({ display: 'sdl' }, 'kvm').join(' ')).toContain('-device virtio-vga,id=gpu0 -display sdl')

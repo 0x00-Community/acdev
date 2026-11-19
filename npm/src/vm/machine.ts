@@ -347,6 +347,7 @@ export class Machine {
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
     writeFileSync(join(this.run, 'display'), `${options.display ?? 'window'}\n`)
     writeFileSync(join(this.run, 'outputs'), `${options.outputs ?? 1}\n`)
+    writeFileSync(join(this.run, 'gl'), `${options.gl ? 'on' : 'off'}\n`)
     const preferred = preferredAccel(this.host, Machine.kvm())
     if (preferred === 'tcg') say('no hardware acceleration (/dev/kvm does not open): emulating (TCG), much slower')
     const tried = await this.#boot(qemu, options, preferred)
@@ -513,8 +514,18 @@ export class Machine {
     return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) || 1 : 1
   }
 
+  gl(): boolean {
+    const file = join(this.run, 'gl')
+    return existsSync(file) && readFileSync(file, 'utf8').trim() === 'on'
+  }
+
+  static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with --gl, where QMP screendump reads the display surface that virgl '
+    + 'does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest instead: '
+    + 'acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start without --gl'
+
   async screenshot(file: string, output = 0): Promise<string> {
     this.running()
+    if (this.gl()) throw new Error(Machine.GL_SCREENSHOT)
     const outputs = this.outputs()
     if (!Number.isInteger(output) || output < 0 || output >= outputs) {
       throw new Error(`vm: --output ${output}: the guest has ${outputs} output${outputs === 1 ? '' : 's'}, 0 to ${outputs - 1}`)

@@ -33,6 +33,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - QEMU 没给 `-parallel` 时会给图形显示配一个默认并口, 接到一个文字控制台 (`system/vl.c` 的 `qemu_create_default_devices`: 图形显示时
   `add_device_config(DEV_PARALLEL, vc)`); gtk 把它放进标签页, SDL 给每个控制台开一个窗口, 就多出一个 640×384 的 `QEMU (acdev-1)`. 所以总是加
   `-parallel none`. 默认监视器不会出来: 给了 `-qmp` 就不再配 (`default_monitor = 0`); 串口已经接到 `serial.log`.
+- `--gl` (virgl) 时 `acdev vm screenshot` 截不出图: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的 `qmp_screendump` →
+  `qemu_console_surface`), virgl 的画面在 GL 纹理里, 不画进这个表面. 所以带 `--gl` 时 `vm screenshot` 直接报错并指路: 登录着的会话里用
+  `acdev screen --session vm -o FILE.png` (管家经 winman 截, 和 GL 无关), 或者不带 `--gl` 起. 是否 `--gl` 记在 `run/gl`.
 - `--sdl` (试验, 只在 Linux): 换成 QEMU 的 SDL 窗口 (`-display sdl`, 带 `--gl` 时 `sdl,gl=on`, 显卡同 gtk 那两种). gtk 开窗时就拿窗口尺寸盖掉
   首选分辨率, SDL 只在用户拉动窗口时才报 (`ui/sdl2.c` 只处理 `SDL_WINDOWEVENT_RESIZED`), 窗口跟着客户机画面走, 所以客户机应能直接以 1280×800 起来,
   之后照样跟着拉动的窗口变. 还没实测; 和 `--headless`、`--vnc`、`--viewer` 只能选一个, 默认仍是 gtk.
@@ -157,7 +160,7 @@ acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
 acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (只留读写执行位); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
-acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行
+acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; --gl 时截不出, 用 acdev screen --session vm -o shot.png
 acdev vm console                                # 客户机内核日志从下次启动起进串口
 acdev vm stop                                   # 让客户机自己关机 (acdevd → guest agent → ACPI), 都不行才杀掉 QEMU
 ```
