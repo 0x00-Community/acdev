@@ -10,6 +10,8 @@ import { TOOL, crateBinary, crateVersion } from '../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../src/vm/host.ts'
 import { defaultLink, Machine } from '../src/vm/machine.ts'
 import { displayOf } from '../src/vm/command.ts'
+import { audioOf, hardwareArgs } from '../src/vm/hardware.ts'
+import { Usb } from '../src/vm/usb.ts'
 import { DEVD_LOGS, LineFilter, logCommand } from '../src/vm/logs.ts'
 import { BIN, executables, profileFor, snapshot, startCommand } from '../src/vm/loop.ts'
 import { Forward } from '../src/vm/forward.ts'
@@ -946,3 +948,67 @@ describe('acdev vm provision', () => {
     expect(provisionOptions(new Map([['user', 'qa'], ['no-restart', '']]), { ACDEV_VM_PASSWORD: 'x' })).toEqual({ user: 'qa', password: 'x', restart: false })
   })
 })
+
+describe('emulated hardware', () => {
+  test('a sound card with a silent or wav backend, an xHCI controller and S3 on x86_64', () => {
+    expect(hardwareArgs('x86_64', 'none', '/l')).toEqual([
+      '-audiodev', 'none,id=snd0', '-device', 'ich9-intel-hda,id=sound0', '-device', 'hda-duplex,bus=sound0.0,audiodev=snd0',
+      '-device', 'qemu-xhci,id=xhci', '-global', 'ICH9-LPC.disable_s3=0',
+    ])
+    expect(hardwareArgs('aarch64', 'wav', '/l')).toEqual([
+      '-audiodev', 'wav,id=snd0,path=/l/audio.wav', '-device', 'ich9-intel-hda,id=sound0', '-device', 'hda-duplex,bus=sound0.0,audiodev=snd0',
+      '-device', 'qemu-xhci,id=xhci',
+    ])
+    expect(audioOf(undefined)).toBe('none')
+    expect(() => audioOf('pa')).toThrow('--audio pa: one of none, wav')
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' })
+    const args = machine.args({ display: 'none', audio: 'wav' }, 'kvm').join(' ')
+    expect(args).toContain(`-audiodev wav,id=snd0,path=${join(machine.logs, 'audio.wav')}`)
+    expect(args).toContain('-device qemu-xhci,id=xhci -global ICH9-LPC.disable_s3=0')
+  })
+
+  test('usb add plugs an image in over QMP and remove pulls it, waiting until the guest lets go', async () => {
+    const run = tmp()
+    const image = join(tmp(), 'stick.img')
+    writeFileSync(image, 'x')
+    const sent: [string, unknown][] = []
+    let busy = 1
+    const qmp = async (command: string, args?: unknown) => {
+      sent.push([command, args])
+      if (command === 'blockdev-del' && busy-- > 0) throw new Error('Node usb0-disk is in use')
+      return {}
+    }
+    const usb = new Usb(run, qmp)
+    expect(await usb.add(image, Usb.SIZE, null)).toEqual({ id: 'usb0', image })
+    expect(sent.slice(0, 2)).toEqual([
+      ['blockdev-add', { 'node-name': 'usb0-disk', driver: 'raw', file: { driver: 'file', filename: image } }],
+      ['device_add', { driver: 'usb-storage', bus: 'xhci.0', drive: 'usb0-disk', id: 'usb0', removable: true }],
+    ])
+    await expect(usb.add(image, Usb.SIZE, null)).rejects.toThrow('is already plugged in')
+    expect(await usb.remove(undefined, async () => undefined)).toEqual({ id: 'usb0', image })
+    expect(sent.slice(2).map(([command]) => command)).toEqual(['device_del', 'blockdev-del', 'blockdev-del'])
+    expect(usb.list()).toEqual([])
+    await expect(usb.remove('usb3')).rejects.toThrow('no USB stick usb3 (plugged: none)')
+  })
+
+  test('a new image needs mkfs.vfat or mkfs.exfat, and sizes read like 256M', async () => {
+    const usb = new Usb(tmp(), async () => ({}))
+    await expect(usb.add(join(tmp(), 'new.img'), Usb.SIZE, null)).rejects.toThrow('install dosfstools (mkfs.vfat) or exfatprogs (mkfs.exfat)')
+    expect([Usb.size(undefined), Usb.size('2G'), Usb.size('512m')]).toEqual([256 << 20, 2 << 30, 512 << 20])
+    expect(() => Usb.size('lots')).toThrow('--size lots')
+    const bin = tmp()
+    writeFileSync(join(bin, 'mkfs.exfat'), '#!/bin/sh\n', { mode: 0o755 })
+    expect(Usb.formatter(bin)?.tool).toBe(join(bin, 'mkfs.exfat'))
+  })
+
+  test('more than one display with a window takes GTK; --sdl refuses it', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
+    const said: string[] = []
+    expect(machine.window('window', ['gtk', 'sdl'], (line) => void said.push(line), 2)).toBe('gtk')
+    expect(said[0]).toContain('--outputs 2: the window is GTK')
+    expect(() => machine.window('sdl', ['gtk', 'sdl'], () => undefined, 2)).toThrow('--sdl with --outputs 2')
+    expect(machine.window('none', ['sdl'], () => undefined, 2)).toBe('none')
+    expect(machine.args({ display: 'gtk', outputs: 2 }, 'kvm').join(' ')).toContain('virtio-vga,id=gpu0,max_outputs=2 -display gtk')
+  })
+})
+

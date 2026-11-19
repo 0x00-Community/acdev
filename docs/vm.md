@@ -246,6 +246,57 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   编过了就停掉旧的进程组、推送、再起. Ctrl+C (终端里 cargo 一起收到) 停掉程序后退出; 再按 Ctrl+C 不会跳过这一步.
 - guest agent 只用来装 acdevd、`mount` 和 `console`.
 
+## 模拟硬件
+
+原本只能真机测的硬件, 在 QEMU 里能模拟的部分. 参数在 `npm/src/vm/hardware.ts`, U 盘在 `usb.ts`, 测试在 `test/vm.test.ts`「emulated hardware」.
+
+### 声音
+
+`start` 总是带一块声卡: `ich9-intel-hda` 加 `hda-duplex` (一路输出、一路输入). 选 HDA 不选 `virtio-sound-pci`: 本机 QEMU 8.2.2 两者都有
+(`-device help` 核对过), 但 virtio-sound 是 8.2 才加的, 客户机内核要 `CONFIG_SND_VIRTIO`; HDA 由通用的 `snd-hda-intel` 驱动, 任何发行版内核都认,
+q35 本身就是 ICH9, aarch64 的 virt 上走 PCIe 也能用. 后端由 `--audio` 选 (`-audiodev ...,id=snd0`):
+
+```sh
+acdev vm start                       # 默认 --audio none: 客户机有声卡, 声音哪里也不去
+acdev vm start --audio wav           # 声音写进 <vm 目录>/logs/audio.wav (QEMU 的 wav 后端), 用来核对确实有输出
+```
+
+### U 盘
+
+`start` 总是带一个 xHCI 控制器 (`-device qemu-xhci,id=xhci`). U 盘在运行中经 QMP 插拔: `blockdev-add` (raw, 节点名 `usbN-disk`) 加
+`device_add usb-storage,bus=xhci.0,drive=usbN-disk,id=usbN,removable=on`; 拔是 `device_del`, 再反复 `blockdev-del` 直到客户机放开 (最多 10 秒).
+插着的记在 `<vm 目录>/run/usb.json`, `start` 时清掉.
+
+```sh
+acdev vm usb add stick.img                   # stick.img 不存在时按 --size (默认 256M) 新建并格式化成 FAT, 卷标 ACDEV
+acdev vm usb add photos.img --size 2G
+acdev vm usb list                            # usbN 和镜像路径
+acdev vm usb remove                          # 拔最后插的; 也可以给镜像路径或 usbN
+```
+
+新建镜像要本机有 `mkfs.vfat` (dosfstools) 或 `mkfs.exfat` (exfatprogs), 依次找 PATH、`/usr/sbin`、`/sbin`; 都没有就报错并说要装哪个,
+不换别的办法. 镜像整块就是一个文件系统, 没有分区表 (U 盘常见的「超级软盘」布局).
+
+### 睡眠
+
+x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默认就开 (`hw/acpi/ich9.c` 的 `ich9_pm_reset_properties` 里
+`disable_s3 = 0`), 显式写上是因为 libvirt 等常把它关掉, 这里不依赖默认. 客户机挂起后 (`systemctl suspend` 或电源设置), 用 `acdev vm wake`
+(QMP `system_wakeup`) 叫醒; 客户机没睡时它什么也不做. aarch64 的 virt 没有 ACPI S3, 不加这个参数.
+
+### 双屏
+
+`--outputs N` 的参数链路 (`Machine.args`、`afterStart`、`switchOnOutputs`):
+- `--headless --outputs N`: `-display dbus,p2p=yes`, 起来后 `acdevtool view --outputs N` 打开第 1 个以后的输出 (见上面「多个显示输出」).
+- 带窗口: GTK 为每个输出建标签页并报大小, 都连上. SDL 不行: 它只在用户拉动窗口时报大小, 第 1 个以后的输出没有窗口可拉, 客户机一直看到
+  disconnected. 所以默认窗口在 `--outputs` 2 以上时改用 GTK (说一句), 明说 `--sdl --outputs N` 报错.
+- `--vnc`、`--viewer` 只显示第一个输出, 和 `--outputs` 2 以上一起用时报错 (不变).
+
+### Wi-Fi
+
+### 蓝牙
+
+### 电池
+
 ## 把 winman 和测试客户端放进去跑
 
 一条命令 (改了 winman 的源码就自动重编、推送、重启):
