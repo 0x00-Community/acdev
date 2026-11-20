@@ -36,19 +36,23 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - QEMU 没给 `-parallel` 时会给图形显示配一个默认并口, 接到一个文字控制台 (`system/vl.c` 的 `qemu_create_default_devices`: 图形显示时
   `add_device_config(DEV_PARALLEL, vc)`); gtk 把它放进标签页, SDL 给每个控制台开一个窗口, 就多出一个 640×384 的 `QEMU (acdev-1)`. 所以总是加
   `-parallel none`. 默认监视器不会出来: 给了 `-qmp` 就不再配 (`default_monitor = 0`); 串口已经接到 `serial.log`.
-- 3D (virgl, 用户 2026-11-20 定为默认, `src/vm/gl.ts`): 默认用带 GL 的 virtio 显卡 (`virtio-vga-gl`, aarch64 是 `virtio-gpu-gl-pci`), 窗口是
-  `sdl,gl=on` / `gtk,gl=on`, `--headless` 时是 `egl-headless` (在宿主的渲染节点上离屏画, 画面读回控制台表面, 所以 `vm screenshot` 照样能截).
-  `--no-gl` 关掉. 起之前判断宿主行不行, 不行就说一句并退回不带 GL (不报错): 不是 Linux 宿主 (macOS 的 cocoa、Windows 没接 GL);
-  `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view 只收共享内存的画面, 而 `egl-headless`
-  不报大小, 见下面「多个显示输出」), 先不带 GL; `-device help` 里没有 `virtio-vga-gl`; 宿主没有 `/dev/dri/renderD*` (WSL2 有, 经 `/dev/dxg` 走 mesa 的 d3d12).
-  `--vga std` 本来就没有 3D, 静默不开. 起了以后 QEMU 才失败、日志里提到 EGL / OpenGL / virgl / 渲染节点 / gbm / epoxy 的, 说一句后不带 GL 再起一次.
-  `--gl` 保留, 不改变什么. 核对 (本机 QEMU 8.2.2, 只查没起): `-display help` 有 `egl-headless`、`dbus`、`sdl`、`gtk`; `-device help` 有
-  `virtio-vga-gl`、`virtio-gpu-gl-pci`; Ubuntu 的包里 `-device virtio-vga-gl,help` 单独跑会因为 GL 模块的符号 (`qemu_egl_display`) 没载入而报错,
-  所以只看 `-device help` 的列表.
-- 窗口里带 3D 时 `acdev vm screenshot` 截不出图: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的 `qmp_screendump` →
-  `qemu_console_surface`), 窗口里 virgl 的画面在 GL 纹理里, 不画进这个表面. 所以这时 `vm screenshot` 直接报错并指路: 登录着的会话里用
-  `acdev screen --session vm -o FILE.png` (管家经 winman 截, 和 GL 无关), 或者 `--headless` (egl-headless 能截) / `--no-gl` 起.
-  `run/gl` 记的就是“窗口里带 3D、截不出图”(`on`), 无窗口带 3D 记 `off`.
+- 3D (virgl, 用户 2026-11-20 定为窗口里默认, `src/vm/gl.ts`): 有窗口时默认用带 GL 的 virtio 显卡 (`virtio-vga-gl`, aarch64 是 `virtio-gpu-gl-pci`),
+  窗口是 `sdl,gl=on` / `gtk,gl=on`; `--no-gl` 关掉. `--headless` 默认不带 3D (原因见下一条), `--headless --gl` 才带, 用 `egl-headless`
+  (在宿主的渲染节点上离屏画), 起的时候说一句截图用不了. 起之前判断宿主行不行, 不行就说一句并退回不带 GL (不报错): 不是 Linux 宿主
+  (macOS 的 cocoa、Windows 没接 GL); `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view
+  只收共享内存的画面, 而 `egl-headless` 不报大小, 见下面「多个显示输出」), 先不带 GL; `-device help` 里没有 `virtio-vga-gl`; 宿主没有
+  `/dev/dri/renderD*` (WSL2 有, 经 `/dev/dxg` 走 mesa 的 d3d12). `--vga std` 本来就没有 3D, 静默不开. 起了以后 QEMU 才失败、日志里提到
+  EGL / OpenGL / virgl / 渲染节点 / gbm / epoxy 的, 说一句后不带 GL 再起一次. 核对 (本机 QEMU 8.2.2, 只查没起): `-display help` 有
+  `egl-headless`、`dbus`、`sdl`、`gtk`; `-device help` 有 `virtio-vga-gl`、`virtio-gpu-gl-pci`; Ubuntu 的包里 `-device virtio-vga-gl,help`
+  单独跑会因为 GL 模块的符号 (`qemu_egl_display`) 没载入而报错, 所以只看 `-device help` 的列表.
+- 带 3D 时 `acdev vm screenshot` 截不出图, 窗口和 `egl-headless` 都一样: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的
+  `qmp_screendump` → `ui/console.c` 的 `qemu_console_surface`), 而 `qemu_console_surface` 在扫描输出是 GL 纹理 (virgl) 时返回空, 只在
+  `SCANOUT_SURFACE` 时才有表面. `egl-headless` 把 GL 画面读回到它自己的表面 (`ui/egl-headless.c` 的 `egl_fb_read` 写进 `edpy->ds`,
+  再 `dpy_gfx_update`), 不是控制台的, `screendump` 读不到. 实测 (2026-11-20, 证据在总仓 `logs/system-test/wgpu-gl/`): `--headless`
+  带 `egl-headless` 时第一次截出近乎全黑的图 (客户机还在用帧缓冲时的旧表面), 客户机切到 virgl 之后报 `no surface`. QEMU 里没有能让
+  `screendump` 读 GL 扫描输出的开关, 所以 `--headless` 默认不带 3D, 保住截图. 带 3D 时 `vm screenshot` 直接报错并指路: 登录着的会话里用
+  `acdev screen --session vm -o FILE.png` (管家经 winman 截, 和 GL 无关), 或者 `--no-gl` / 不加 `--gl` 的 `--headless` 起.
+  `run/gl` 记的就是“带 3D、截不出图”(`on`), 不带 3D 记 `off`.
 - SDL 窗口 (`ui/sdl2.c`、`sdl2-2d.c`): 窗口按客户机画面的大小开, 画面变了就跟着改窗口; 只在用户拉动窗口 (`SDL_WINDOWEVENT_RESIZED`) 时
   才把窗口尺寸报给显卡, 开窗时不报, 所以显卡的首选分辨率 1280×800 留着, 客户机直接用它. `--sdl`、`--gtk`、`--headless`、`--vnc`、`--viewer` 只能给一个.
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
@@ -193,7 +197,7 @@ acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个
 acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
 acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (只留读写执行位); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
-acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; 窗口里带 3D (默认) 时截不出, 用 acdev screen --session vm -o shot.png 或 --headless
+acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; 带 3D (窗口里默认) 时截不出, 用 acdev screen --session vm -o shot.png 或不加 --gl 的 --headless
 acdev vm console                                # 客户机内核日志从下次启动起进串口
 acdev vm stop                                   # 让客户机自己关机 (acdevd → guest agent → ACPI), 都不行才杀掉 QEMU
 ```

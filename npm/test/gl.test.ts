@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { glChoice, qemuDevices, renderNode, windowed, type GlFacts } from '../src/vm/gl.ts'
+import { HEADLESS_GL, glChoice, qemuDevices, renderNode, type GlFacts } from '../src/vm/gl.ts'
 import { Machine } from '../src/vm/machine.ts'
 import { tmp } from './helpers.ts'
 
@@ -11,9 +11,11 @@ const LINUX: GlFacts = {
 }
 
 describe('acdev vm start: 3D (virgl) by default', () => {
-  test('is on when nothing stands against it, and off without a note for --no-gl and --vga std', () => {
+  test('is on in a window when nothing stands against it; off without a note for --no-gl, --vga std and --headless without --gl', () => {
     expect(glChoice(LINUX)).toEqual({ gl: true, note: null })
-    expect(glChoice({ ...LINUX, asked: true, display: 'none' })).toEqual({ gl: true, note: null })
+    expect(glChoice({ ...LINUX, display: 'none' })).toEqual({ gl: false, note: null })
+    expect(glChoice({ ...LINUX, asked: true, display: 'none' })).toEqual({ gl: true, note: HEADLESS_GL })
+    expect(HEADLESS_GL).toContain('acdev screen --session vm')
     expect(glChoice({ ...LINUX, asked: false })).toEqual({ gl: false, note: null })
     expect(glChoice({ ...LINUX, vga: 'std', asked: true })).toEqual({ gl: false, note: null })
   })
@@ -29,7 +31,7 @@ describe('acdev vm start: 3D (virgl) by default', () => {
     off({ platform: 'win32' }, 'needs a Linux host')
     off({ display: 'vnc' }, '--vnc')
     off({ display: 'viewer' }, '--viewer')
-    off({ display: 'none', outputs: 2 }, '--headless with --outputs 2')
+    off({ display: 'none', outputs: 2, asked: true }, '--headless with --outputs 2')
     off({ devices: () => ['virtio-vga'] }, 'no virtio-vga-gl device')
     off({ renderNode: () => false }, 'no GPU render node')
     const untouched = () => { throw new Error('QEMU is not asked when the display already rules 3D out') }
@@ -44,7 +46,7 @@ describe('acdev vm start: 3D (virgl) by default', () => {
     expect(machine.args({ display: 'none', outputs: 2, gl: false }, 'kvm').join(' ')).toContain('-display dbus,p2p=yes')
   })
 
-  test('the devices QEMU lists, the render nodes, the displays where the screen cannot be read back', () => {
+  test('the devices QEMU lists and the render nodes', () => {
     const fake = join(tmp(), 'qemu')
     const listing = ['name "virtio-vga", bus PCI', 'name "virtio-vga-gl", bus PCI', 'name "virtio-gpu-gl-pci", bus PCI, alias "x"']
     writeFileSync(fake, `#!/bin/sh\ncat <<'EOF'\n${listing.join('\n')}\nEOF\n`, { mode: 0o755 })
@@ -54,6 +56,5 @@ describe('acdev vm start: 3D (virgl) by default', () => {
     mkdirSync(join(dri, 'renderD128'))
     expect(renderNode(dri)).toBe(true)
     expect(renderNode(join(dri, 'none'))).toBe(false)
-    expect(['sdl', 'gtk', 'window', 'none', 'vnc', 'viewer'].map(windowed)).toEqual([true, true, true, false, false, false])
   })
 })

@@ -18,7 +18,7 @@ import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
 import { Usb } from './usb.ts'
-import { GL_FAILED, glChoice, qemuDevices, renderNode, windowed } from './gl.ts'
+import { GL_FAILED, glChoice, qemuDevices, renderNode } from './gl.ts'
 
 export interface StartOptions {
   readonly image?: string
@@ -415,7 +415,7 @@ export class Machine {
   }
 
   #noteGl(options: StartOptions): void {
-    writeFileSync(join(this.run, 'gl'), `${options.gl && windowed(options.display ?? 'window') ? 'on' : 'off'}\n`)
+    writeFileSync(join(this.run, 'gl'), `${options.gl ? 'on' : 'off'}\n`)
   }
 
   static #firstLine(log: string, word: string): string {
@@ -578,10 +578,9 @@ export class Machine {
     return existsSync(file) && readFileSync(file, 'utf8').trim() === 'on'
   }
 
-  static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with 3D (virgl, the default) in a window, where QMP screendump reads the '
-    + 'display surface that virgl does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest '
-    + 'instead: acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start with --headless (3D, readable) '
-    + 'or --no-gl'
+  static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with 3D (virgl), where QMP screendump has no display surface to read '
+    + '(the picture lives in a GL texture), so it gives no picture; take it inside the guest instead: acdev screen --session vm -o FILE.png '
+    + '(the logged-in session, through winman), or start with --no-gl (or --headless, which is without 3D unless --gl)'
 
   async wake(): Promise<void> {
     this.running()
