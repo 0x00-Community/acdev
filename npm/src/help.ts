@@ -112,7 +112,7 @@ export class Help {
         args: '[update] [dir]',
         summary: 'Show or update the project\'s SDK',
         about: [
-          'Shows the project\'s @dopame/acde-api and the version this acdev pairs with. update points the '
+          'Shows the project\'s @acde/api and the version this acdev pairs with. update points the '
             + 'dependency at that version\'s tarball and reinstalls with the project\'s package manager.',
         ],
         options: [],

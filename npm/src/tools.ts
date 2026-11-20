@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { InspectAction } from '@dopame/acde-api'
+import type { InspectAction } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'

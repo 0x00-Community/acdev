@@ -18,7 +18,7 @@ function oldProject(dir = tmp(), fields: Record<string, unknown> = {}): string {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
-    name: 'old', ...fields, devDependencies: { '@dopame/acde-api': OLD },
+    name: 'old', ...fields, devDependencies: { '@acde/api': OLD },
   }, null, 2))
   return dir
 }
@@ -60,13 +60,13 @@ describe('acdev check on a project', () => {
     const write = (spec: string) =>
       writeFileSync(join(dir, 'package.json'), JSON.stringify({
         name: 'portable',
-        devDependencies: { '@dopame/acde-api': spec },
+        devDependencies: { '@acde/api': spec },
       }))
     for (const spec of ['file:/Users/me/acdev/npm/acde-api', `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`]) {
       write(spec)
       const checked = await cli(['check'], dir)
       expect(checked.code).toBe(0)
-      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, but this acdev's SDK is `
+      expect(checked.stderr).toContain(`warning: package.json: @acde/api is ${spec}, but this acdev's SDK is `
         + `${Sdk.spec()}: run acdev sdk update`)
     }
     expect((await cli(['sdk'], dir)).stdout).toContain(`project: 0.0.7 (`)
@@ -81,17 +81,17 @@ describe('acdev check on a project', () => {
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
     const paired = Sdk.paired()
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.spec() },
+      name: 'stale', devDependencies: { '@acde/api': Sdk.spec() },
     }))
     writeFileSync(join(dir, 'package-lock.json'), '{}')
-    const installed = join(dir, 'node_modules', '@dopame', 'acde-api')
+    const installed = join(dir, 'node_modules', '@acde', 'api')
     mkdirSync(installed, { recursive: true })
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: '0.0.1' }))
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@acde/api', version: '0.0.1' }))
     const checked = await cli(['check'], dir)
     expect(checked.code).toBe(0)
-    expect(checked.stderr).toContain(`warning: package.json names @dopame/acde-api ${paired}, but 0.0.1 is installed: `
+    expect(checked.stderr).toContain(`warning: package.json names @acde/api ${paired}, but 0.0.1 is installed: `
       + 'run npm install')
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: paired }))
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@acde/api', version: paired }))
     expect((await cli(['check'], dir)).stderr).toBe('')
   })
 
@@ -99,12 +99,12 @@ describe('acdev check on a project', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'stale' }))
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'stale', devDependencies: { '@dopame/acde-api': Sdk.spec() } }))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'stale', devDependencies: { '@acde/api': Sdk.spec() } }))
     writeFileSync(join(dir, 'bun.lock'), '{}')
-    const installed = join(dir, 'node_modules', '@dopame', 'acde-api')
+    const installed = join(dir, 'node_modules', '@acde', 'api')
     mkdirSync(installed, { recursive: true })
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: '0.0.1' }))
-    const said = `package.json names @dopame/acde-api ${Sdk.paired()}, but 0.0.1 is installed: run bun install`
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@acde/api', version: '0.0.1' }))
+    const said = `package.json names @acde/api ${Sdk.paired()}, but 0.0.1 is installed: run bun install`
     expect((await cli(['check'], dir)).stderr).toContain(`warning: ${said}`)
     expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe(said)
   })
@@ -116,7 +116,7 @@ describe('acdev check on a project', () => {
       const dir = tmp()
       writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
       writeFileSync(join(dir, 'package.json'), JSON.stringify({
-        name: 'old', packageManager: pm, devDependencies: { '@dopame/acde-api': old },
+        name: 'old', packageManager: pm, devDependencies: { '@acde/api': old },
       }, null, 2))
       return dir
     }
@@ -126,7 +126,7 @@ describe('acdev check on a project', () => {
     const failed = await cli(['sdk', 'update'], bun, { ACDEV_SDK: broken })
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain(`so the update to ${Sdk.paired()} was undone: package.json and bun.lock are as `
-      + 'before (@dopame/acde-api 0.0.7); node_modules may be half updated: run bun install to match them')
+      + 'before (@acde/api 0.0.7); node_modules may be half updated: run bun install to match them')
     expect(readFileSync(join(bun, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(bun, 'bun.lock'), 'utf8')).toBe('the old lock\n')
     expect(existsSync(join(bun, '.npmrc'))).toBe(false)
@@ -134,7 +134,7 @@ describe('acdev check on a project', () => {
     const npm = project('npm@11.0.0')
     const npmFailed = await cli(['sdk', 'update'], npm, { ACDEV_SDK: broken, npm_config_install_links: 'true' })
     expect(npmFailed.code).toBe(1)
-    expect(npmFailed.stderr).toContain('package.json are as before (@dopame/acde-api 0.0.7)')
+    expect(npmFailed.stderr).toContain('package.json are as before (@acde/api 0.0.7)')
     expect(existsSync(join(npm, '.npmrc'))).toBe(false)
     expect(existsSync(join(npm, 'package-lock.json'))).toBe(false)
   }, 120_000)
@@ -168,7 +168,7 @@ describe('acdev check on a project', () => {
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain(`acdev: sdk: pnpm install exited with 1, and the update to ${Sdk.paired()} could not `
       + 'be undone completely: could not put back package-lock.json (EISDIR')
-    expect(failed.stderr).toContain('; package.json and pnpm-lock.yaml are as before (@dopame/acde-api 0.0.7); '
+    expect(failed.stderr).toContain('; package.json and pnpm-lock.yaml are as before (@acde/api 0.0.7); '
       + 'node_modules may be half updated: run pnpm install to match them')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
@@ -227,7 +227,7 @@ describe('acdev check on a project', () => {
     const dir = oldProject(tmp(), { packageManager: 'npm@11.10.0' })
     const kept = await cli(['sdk', 'update'], dir, { PATH: npm })
     expect(kept.code, kept.out).toBe(0)
-    expect(kept.stdout).toBe(`acdev: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with npm\n`)
+    expect(kept.stdout).toBe(`acdev: @acde/api is ${Sdk.paired()} (${Sdk.spec()}), installed with npm\n`)
     expect(existsSync(join(dir, '.npmrc'))).toBe(false)
   })
 
@@ -242,7 +242,7 @@ describe('acdev check on a project', () => {
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain('acdev: sdk: pnpm install did not start (')
     expect(failed.stderr).toContain(`so the update to ${Sdk.paired()} was undone: package.json and pnpm-lock.yaml are `
-      + 'as before (@dopame/acde-api 0.0.7)\n')
+      + 'as before (@acde/api 0.0.7)\n')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
   })
 
@@ -272,7 +272,7 @@ describe('acdev check on a project', () => {
     expect(await child.exited).toBe(3)
     const stderr = await new Response(child.stderr).text()
     expect(stderr).toBe(`acdev: sdk: interrupted (SIGINT), so the update to ${Sdk.paired()} was undone: package.json and `
-      + 'pnpm-lock.yaml are as before (@dopame/acde-api 0.0.7); node_modules may be half updated: run pnpm install '
+      + 'pnpm-lock.yaml are as before (@acde/api 0.0.7); node_modules may be half updated: run pnpm install '
       + 'to match them\n')
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
@@ -284,14 +284,14 @@ describe('acdev check on a project', () => {
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
     const old = `${Pkgs.ACDEV}/0.0.7/acde-api-0.0.7.tar.gz`
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
+      name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@acde/api': old },
     }, null, 2))
     const updated = await cli(['sdk', 'update'], dir)
     expect(updated.code, updated.out).toBe(0)
-    expect(updated.stdout).toContain(`acdev: @dopame/acde-api is ${Sdk.paired()} (${Sdk.spec()}), installed with bun`)
+    expect(updated.stdout).toContain(`acdev: @acde/api is ${Sdk.paired()} (${Sdk.spec()}), installed with bun`)
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies['@dopame/acde-api']).toBe(Sdk.spec())
-    const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@dopame/acde-api/package.json'), 'utf8'))
+    expect(pkg.devDependencies['@acde/api']).toBe(Sdk.spec())
+    const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@acde/api/package.json'), 'utf8'))
     expect(installed.version).toBe(Sdk.paired())
   }, 120_000)
 })

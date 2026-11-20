@@ -15,7 +15,7 @@ export interface SdkState {
 }
 
 export class Sdk {
-  static readonly NAME = '@dopame/acde-api'
+  static readonly NAME = '@acde/api'
   static readonly SECTIONS = ['devDependencies', 'dependencies'] as const
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
@@ -63,7 +63,7 @@ export class Sdk {
 
   static installed(dir: string): string | null {
     const file = up(dir, (at) => {
-      const found = join(at, 'node_modules', '@dopame', 'acde-api', 'package.json')
+      const found = join(at, 'node_modules', '@acde', 'api', 'package.json')
       return existsSync(found) && found
     })
     if (!file) return null
@@ -85,7 +85,7 @@ export class Sdk {
     const tarball = /\/acde-api-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.tar\.gz$/.exec(spec)
     if (tarball) return tarball[1]!
     const path = Sdk.path(dir, spec)
-    const installed = join(path ?? join(dir, 'node_modules', '@dopame', 'acde-api'), 'package.json')
+    const installed = join(path ?? join(dir, 'node_modules', '@acde', 'api'), 'package.json')
     if (!existsSync(installed)) return null
     const { version } = JSON.parse(readFileSync(installed, 'utf8')) as { version?: unknown }
     return typeof version === 'string' ? version : null

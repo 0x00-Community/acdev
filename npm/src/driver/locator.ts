@@ -1,4 +1,4 @@
-import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@acde/api'
 import { ActError, type Acde, type ActResult, type Shot } from './acde.ts'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Modifiers, type Modifier } from './input.ts'

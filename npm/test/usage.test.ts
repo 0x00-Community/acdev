@@ -184,7 +184,7 @@ describe('mistakes', () => {
     expect(version.code).toBe(0)
     const [acde, sdk] = version.stdout.trim().split('\n')
     expect(acde).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
-    const api = join(import.meta.dirname, '..', 'node_modules', '@dopame', 'acde-api', 'package.json')
+    const api = join(import.meta.dirname, '..', 'node_modules', '@acde', 'api', 'package.json')
     expect(sdk).toBe(`sdk ${JSON.parse(readFileSync(api, 'utf8')).version} (contract level ${API_LEVEL})`)
     const s = standIn()
     const found = await cli(['-v'], APP, { ACDEV_RUNTIME: s.env['ACDEV_RUNTIME']! })

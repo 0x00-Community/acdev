@@ -164,19 +164,19 @@ describe('acdev doctor', () => {
   test('an older SDK: one line, under dependencies, with acdev sdk update as the fix', async () => {
     const s = standIn()
     const old = 'https://pkgs.example.test/acdert/0.0.1/acde-api-0.0.1.tar.gz'
-    const sdkLines = (out: string) => out.split('\n').filter((text) => text.includes('@dopame/acde-api'))
-    const said = `warn   dependencies: @dopame/acde-api: the project has 0.0.1; this acdev pairs with ${Versions.sdk()} `
+    const sdkLines = (out: string) => out.split('\n').filter((text) => text.includes('@acde/api'))
+    const said = `warn   dependencies: @acde/api: the project has 0.0.1; this acdev pairs with ${Versions.sdk()} `
     writeFileSync(join(s.project, 'package.json'), JSON.stringify({
-      name: 'alpha', packageManager: 'bun@1.4.4', devDependencies: { '@dopame/acde-api': old },
+      name: 'alpha', packageManager: 'bun@1.4.4', devDependencies: { '@acde/api': old },
     }))
     const missing = await doctor([], s.project, s.env)
     expect(sdkLines(missing.stdout)).toHaveLength(1)
     expect(sdkLines(missing.stdout)[0]).toStartWith(said)
     expect(fixAfter(missing.stdout, 'dependencies')).toBe('run acdev sdk update')
     expect(line(missing.stdout, 'project')).toMatch(/^ok     project: /)
-    const installed = join(dirname(s.project), 'node_modules', '@dopame', 'acde-api')
+    const installed = join(dirname(s.project), 'node_modules', '@acde', 'api')
     mkdirSync(installed, { recursive: true })
-    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@dopame/acde-api', version: '0.0.1' }))
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name: '@acde/api', version: '0.0.1' }))
     const stale = await doctor([], s.project, s.env)
     expect(sdkLines(stale.stdout)).toHaveLength(1)
     expect(line(stale.stdout, 'dependencies')).toStartWith(said)

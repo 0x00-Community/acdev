@@ -63,11 +63,11 @@ const version = values.version!
 const out = resolve(values.out!)
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`--version ${version}: x.y.z`)
 if (!existsSync(join(api, 'package.json')) || !existsSync(join(api, 'src', 'index.d.ts'))) {
-  throw new Error(`--api ${api}: not the @dopame/acde-api package (package.json and src/index.d.ts)`)
+  throw new Error(`--api ${api}: not the @acde/api package (package.json and src/index.d.ts)`)
 }
 const sdk = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { name?: string; version?: string }
-if (sdk.name !== '@dopame/acde-api' || (values.sdk !== undefined && sdk.version !== values.sdk)) {
-  throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
+if (sdk.name !== '@acde/api' || (values.sdk !== undefined && sdk.version !== values.sdk)) {
+  throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @acde/api ${values.sdk}`)
 }
 const runtime = values.runtime === undefined ? null : resolve(values.runtime)
 if (runtime !== null && !existsSync(runtime)) throw new Error(`--runtime ${runtime}: no such directory`)

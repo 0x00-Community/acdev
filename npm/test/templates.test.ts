@@ -42,10 +42,10 @@ describe('templates at contract level 1', () => {
       const text = readFileSync(file, 'utf8')
       expect(text, file).not.toContain('copyIn')
       expect(text, file).not.toContain('apps.launch')
-      expect(text, file).not.toMatch(/reference types="@dopame\/acde-api"/)
+      expect(text, file).not.toMatch(/reference types="@acde\/api"/)
     }
     expect(readFileSync(join(TEMPLATES, 'desktop/src/desktop.js'), 'utf8')).toContain(
-      '/// <reference types="@dopame/acde-api/shell" />',
+      '/// <reference types="@acde/api/shell" />',
     )
   })
 

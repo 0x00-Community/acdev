@@ -136,7 +136,7 @@ Use this only when the installer cannot set up the runtime, for example without 
 | `acdevtools-<triple>.tar.xz` (`.tar.gz` on Windows) | `acdevtool`, a helper of `acdev vm` |
 | `acdev-guest-<version>.tar.gz` | acdevd, the device daemon `acdev vm` puts in the guest, for x86_64 and aarch64 |
 | `acdev-<version>.tar.gz` | acdev itself (what the installer puts in `~/.acdev`) |
-| `acde-api-<version>.tar.gz` | The SDK, `@dopame/acde-api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
+| `acde-api-<version>.tar.gz` | The SDK, `@acde/api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
 | `SHA256SUMS` | Checksums of the files above |
 
 Each runtime archive holds only the runtime binary, `acdev` (`acdev.exe` on Windows).

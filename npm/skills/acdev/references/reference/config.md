@@ -1,6 +1,6 @@
 # acde.config.jsonc
 
-The project configuration. The JSON Schema is `acde.config.schema.json`, which `acdev new` puts next to it (it comes with acdev), and the TypeScript type is `AcdeConfig` (from `@dopame/acde-api`):
+The project configuration. The JSON Schema is `acde.config.schema.json`, which `acdev new` puts next to it (it comes with acdev), and the TypeScript type is `AcdeConfig` (from `@acde/api`):
 
 ```ts
 type AcdeConfig = AppConfig | DesktopConfig

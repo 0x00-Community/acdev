@@ -12,7 +12,7 @@ export class Versions {
 
   static sdk(): string {
     if (typeof ACDEV_SDK_VERSION === 'string') return ACDEV_SDK_VERSION
-    const file = join(packageRoot(), 'node_modules', '@dopame', 'acde-api', 'package.json')
+    const file = join(packageRoot(), 'node_modules', '@acde', 'api', 'package.json')
     try {
       return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
     } catch {

@@ -61,14 +61,14 @@ On Node.js, acdev bundles with the project's own Vite (which is why the built-in
 
 ## SDK
 
-The project's dev dependencies include `@dopame/acde-api`, the SDK that comes with this acdev, by its path on this machine (`file:...`; the SDK is not on npm, and the project installs where acdev is). `acdev new` installs it. After upgrading acdev, `acdev check` and `acdev dev` say when the project's SDK is older; `acdev sdk update` brings it to the version this acdev pairs with. It provides:
+The project's dev dependencies include `@acde/api`, the SDK that comes with this acdev, by its path on this machine (`file:...`; the SDK is not on npm, and the project installs where acdev is). `acdev new` installs it. After upgrading acdev, `acdev check` and `acdev dev` say when the project's SDK is older; `acdev sdk update` brings it to the version this acdev pairs with. It provides:
 
 - TypeScript types for all `acde:` modules and the manifest (declarations only: the SDK has no JavaScript)
 
 To reference the types in a JS file:
 
 ```js
-/// <reference types="@dopame/acde-api/app" />
+/// <reference types="@acde/api/app" />
 ```
 
-In a TypeScript project, add `"@dopame/acde-api/app"` to `compilerOptions.types` in `tsconfig.json`. A desktop's pages use `@dopame/acde-api/shell` instead, which adds the modules only a desktop gets; `@dopame/acde-api` declares all of them.
+In a TypeScript project, add `"@acde/api/app"` to `compilerOptions.types` in `tsconfig.json`. A desktop's pages use `@acde/api/shell` instead, which adds the modules only a desktop gets; `@acde/api` declares all of them.

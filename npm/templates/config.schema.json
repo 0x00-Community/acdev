@@ -525,7 +525,7 @@
     "icon": {
       "type": "string",
       "minLength": 1,
-      "description": "Icon: a Dopame icon name (one of IconName in @dopame/acde-api: files, browser, editor, office, term, projects, dash, team, dopa, settings, store, app, timer, cards, list, chart, calc, music, video, photo, paint, game, chat, mail, calendar, code, book, map, weather), or an image in the project (.svg / .png, relative to the project directory, copied into the package by acdev build); acdev check warns about other values",
+      "description": "Icon: a Dopame icon name (one of IconName in @acde/api: files, browser, editor, office, term, projects, dash, team, dopa, settings, store, app, timer, cards, list, chart, calc, music, video, photo, paint, game, chat, mail, calendar, code, book, map, weather), or an image in the project (.svg / .png, relative to the project directory, copied into the package by acdev build); acdev check warns about other values",
       "examples": [
         "files",
         "browser",

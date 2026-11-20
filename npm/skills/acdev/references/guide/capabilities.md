@@ -125,15 +125,15 @@ await capabilities.request('camera') // asks the user for the camera or micropho
 
 ## Types
 
-Types for every module ship in the SDK, `@dopame/acde-api`. Reference the entry point that fits the project and your editor understands the `acde:*` modules it can import:
+Types for every module ship in the SDK, `@acde/api`. Reference the entry point that fits the project and your editor understands the `acde:*` modules it can import:
 
 ```js
-/// <reference types="@dopame/acde-api/app" />
+/// <reference types="@acde/api/app" />
 ```
 
-- `@dopame/acde-api/app`: the modules of an app (`acde:fs`, `acde:window`, `acde:open`, ...).
-- `@dopame/acde-api/shell`: those plus the shell modules, for a desktop and its bundled apps.
-- `@dopame/acde-api`: all of them.
+- `@acde/api/app`: the modules of an app (`acde:fs`, `acde:window`, `acde:open`, ...).
+- `@acde/api/shell`: those plus the shell modules, for a desktop and its bundled apps.
+- `@acde/api`: all of them.
 
 ## In a browser
 

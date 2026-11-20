@@ -35,7 +35,7 @@ export function brokenSdk(): string {
   const dir = tmp()
   const { version } = JSON.parse(readFileSync(join(import.meta.dir, '../../../libacde/acde-api/package.json'), 'utf8')) as { version: string }
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
-    name: '@dopame/acde-api', version, dependencies: { 'acde-missing': `file:${join(dir, 'missing')}` },
+    name: '@acde/api', version, dependencies: { 'acde-missing': `file:${join(dir, 'missing')}` },
   }))
   return dir
 }

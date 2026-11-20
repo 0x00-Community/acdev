@@ -1,4 +1,4 @@
-import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@acde/api'
 import type { Logs } from './logs.ts'
 
 export interface Web {

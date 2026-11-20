@@ -1,4 +1,4 @@
-import type { InspectNode } from '@dopame/acde-api'
+import type { InspectNode } from '@acde/api'
 import type { PermissionDecision, PermissionPrompt } from './acde.ts'
 import type { ConsoleEntry, Permissions, QueryResult, RequestEntry, Snapshot, Web } from './acde.ts'
 import { Locator } from './locator.ts'

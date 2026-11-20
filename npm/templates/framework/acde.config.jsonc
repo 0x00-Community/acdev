@@ -2,11 +2,11 @@
   "$schema": "./acde.config.schema.json",
   // A window app: a {{framework}} project; acdev build uses its own build. System features come from
   // acde:* modules (import { fs } from 'acde:fs'), granted by capabilities. For editor types write
-  // /// <reference types="@dopame/acde-api/app" /> (the app modules; shell modules are only for desktops and their own apps).
+  // /// <reference types="@acde/api/app" /> (the app modules; shell modules are only for desktops and their own apps).
   "type": "app",
   "id": "{{id}}",
   "label": "{{label}}",
-  // icon: an icon name (app, timer, chart … see @dopame/acde-api) or an .svg / .png in the project (like "icon.svg"),
+  // icon: an icon name (app, timer, chart … see @acde/api) or an .svg / .png in the project (like "icon.svg"),
   // copied into the package at build time.
   "icon": "app",
   // capabilities: the system features the app uses. "fs": true gives the app's private folder and the folders the user

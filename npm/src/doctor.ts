@@ -367,10 +367,10 @@ export class Doctor {
       return Doctor.mend(Doctor.warn('dependencies', 'dependencies', `not installed: ${named}`, `${pm.name} install`),
         { action: 'dependencies', target: dir, ask: true, does: `install the project's dependencies (${pm.name} install in ${dir})` })
     }
-    const apiAt = Doctor.installedPackage(dir, '@dopame/acde-api')
+    const apiAt = Doctor.installedPackage(dir, '@acde/api')
     const api = apiAt === null ? null : Doctor.#json(apiAt)
     const theirs = typeof api?.['version'] === 'string' ? api['version'] : null
-    const sdkText = theirs ? `, @dopame/acde-api ${theirs}` : ''
+    const sdkText = theirs ? `, @acde/api ${theirs}` : ''
     return Doctor.ok('dependencies', 'dependencies', `installed with ${pm.name} (runs on ${runtime})${sdkText}`)
   }
 

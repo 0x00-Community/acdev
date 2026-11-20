@@ -27,7 +27,7 @@ acdev dev
 - `services`: [desktop services](services.md) running in the background, name → module.
 - `apps`: apps that ship with this desktop, with the same fields as an app project (`id` and `entry` are required). They are [system apps](#system-apps).
 
-For editor types in a desktop project, reference the shell entry point of the SDK: `/// <reference types="@dopame/acde-api/shell" />`.
+For editor types in a desktop project, reference the shell entry point of the SDK: `/// <reference types="@acde/api/shell" />`.
 
 ## Apps
 

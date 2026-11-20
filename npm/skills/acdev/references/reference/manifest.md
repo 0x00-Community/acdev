@@ -15,7 +15,7 @@ The runtime only understands **packages**: a directory whose `package.json` has 
 }
 ```
 
-There is a single manifest validator: the runtime and `acdev check` / `acdev build` run the same code (`@dopame/acde-api/manifest`). `acdev check <dir>` checks a handwritten package.
+There is a single manifest validator: the runtime and `acdev check` / `acdev build` run the same code (`@acde/api/manifest`). `acdev check <dir>` checks a handwritten package.
 
 ## PackageManifest
 
@@ -29,7 +29,7 @@ There is a single manifest validator: the runtime and `acdev check` / `acdev bui
 
 ## Contract level
 
-`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@dopame/acde-api`; `acdev --version` prints its own and the runtime's, and the runtime binary (`libexec/acdev` of the install) prints its own with `--version`). The runtime loads only packages of its own level:
+`apiLevel` says which version of the contract between packages and the runtime a package follows. The current level is 1 (`API_LEVEL` in `@acde/api`; `acdev --version` prints its own and the runtime's, and the runtime binary (`libexec/acdev` of the install) prints its own with `--version`). The runtime loads only packages of its own level:
 
 | Package | What the runtime and `acdev check` say |
 | --- | --- |

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { InspectNode } from '@dopame/acde-api'
+import type { InspectNode } from '@acde/api'
 import type { Acde } from './acde.ts'
 import { Locator, type Source, type TextMatch, type Timeout } from './locator.ts'
 import { Png, type Image } from './png.ts'
