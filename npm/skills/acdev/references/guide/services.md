@@ -129,7 +129,7 @@ With one app window open, `clock.windows()` answers `[{ "id": 1048576, "appId": 
 `modules` takes the names of shell modules. Anything else is an error in `acdev check` and `acdev build`:
 
 ```text
-error: services in acde.config.jsonc: service "clock": modules lists shell modules (windows, packages, session, desktops, inspect, desktop, setDefault, permissions)
+error: services in acde.config.jsonc: service "clock": modules lists shell modules (windows, packages, session, desktops, inspect, desktop, setDefault, permissions, voice)
 ```
 
 `acdev build` writes the grant into the desktop's entry of the package manifest as `{ "name": "clock", "modules": ["windows"] }`; a handwritten package writes that entry itself (see [Manifest](../reference/manifest.md#desktopmanifest)).
