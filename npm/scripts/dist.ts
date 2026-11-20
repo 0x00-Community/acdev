@@ -14,6 +14,7 @@ import { API_LEVEL } from '../src/manifest/level.ts'
 import { Pkgs } from '../src/pkgs.ts'
 import { shipLeaks } from './shipped.ts'
 import { skillProblems } from './skill.ts'
+import { NOTICES } from './notices.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const INSTALLERS = resolve(ROOT, '..', 'scripts')
@@ -92,6 +93,8 @@ writeFileSync(join(top, 'bin', 'acdev.cmd'), cmd)
 for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
+if (!existsSync(NOTICES)) throw new Error(`no ${NOTICES}: bun run notices first (docs/release-distribution.md)`)
+for (const at of [top, lib]) copyFileSync(NOTICES, join(at, 'THIRD-PARTY-NOTICES.txt'))
 const preload = {
   ACDEV_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())),
   ACDEV_SDK_VERSION: JSON.stringify(sdk.version),

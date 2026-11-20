@@ -143,6 +143,25 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `libexec/acdev[.exe]` (旧装法是 `bin/acdert[.exe]`; `runtimeBeside` (旧名 `acdertBeside` 留一版), 同一版本目录), 最后 PATH; 检出跑的 acdev 只认 `ACDEV_RUNTIME` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 libacde 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
+## 第三方许可声明 (`THIRD-PARTY-NOTICES.txt`, 2026-11-20)
+
+发版产物都带仓库根的 `THIRD-PARTY-NOTICES.txt`: CLI 归档的顶层和 `lib/acdev/` (npm 包), 每个 `acdevrt-<triple>`、`acdevtools-<triple>` 和
+`acdev-guest-<版本>` 归档里和程序并列 (cicd.yaml 的 `pack` 和 guest 作业); 各平台 npm 包由这些归档解开拼成, 所以也都带着. `release-guard.ts`
+按“程序加这一个文件”核对归档, 并要求 CLI 归档的两处都有.
+
+- 内容: acdev 三份 Cargo.lock (工作区、`crates/tool`、`crates/devd`) 里的第三方 crate (含经 libacde 进来的, libacde 和 vendor/blitz 由
+  `--vendor` 认作第三方, 我们自己的包按 `--own` 跳过), `npm/` 的 `dependencies` 闭包 (devDependencies 不进产物, 不算), 以及 libacde 的
+  `scripts/notices/extra.json` 列的不在包里的组件 (V8 附带的组件、jemalloc、DXC、MPL 说明). 每项是许可全文和版权行.
+- 生成器在 libacde (`scripts/notices.ts`, 两边共用一个, acdev 不另写): `npm/scripts/notices.ts` 只是按上面的参数调它
+  (libacde 默认在 `../libacde`, `ACDEV_LIBACDE` 可改). 只读本机文件 (`~/.cargo/registry/src` 里的 crate 源码、`npm/node_modules`), 不联网.
+- 重新生成: 改了任何一份锁文件或 libacde 的 `extra.json` 后, 在 `npm/` 跑 `bun run notices`, 把 `THIRD-PARTY-NOTICES.txt` 和锁文件放进同一个提交.
+  本机要先有这些 crate 的源码 (`cargo fetch --locked`, 三个目录各一次) 和 `bun install`.
+- 检查: `bun run notices:check` (也在 `test/notices.test.ts` 里): 锁文件里有依赖没被声明覆盖、缺许可文件或源码、或者文件和重新生成的不一致,
+  都以 1 失败并列出原因; 没有并排的 libacde 生成器时这项测试跳过.
+- 待办: Windows 构建的 DXC 预编译库 (`mach-dxcompiler-rs` 的 build.rs 在编译时从 GitHub 下载, cargo-xwin 的 MSVC CRT/SDK/ATL 也来自微软的下载)
+  要改成从内网镜像取 (和“构建不从外网取东西”一致), 并核对 DXC 预编译库和静态链接的 MSVC CRT/ATL 的再分发条款
+  (后者是微软的许可, 不是开源许可).
+
 ## 执行机的工具链 (2026-11-18)
 
 ci-debian 执行机是 gitea-runner 6.0.0 (原名 act_runner, 2026-11-19 从 0.6.1 升上来) 的宿主模式 (不在容器里), capacity 2 (用户定, 2026-11-18): 同一台上的两个作业共用 cicd 的家目录.
