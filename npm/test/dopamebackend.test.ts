@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BACKEND_SCRIPT, backendPlan, stageBackend } from '../src/vm/dopamebackend.ts'
+import { BACKEND_SCRIPT, DROPIN_SCRIPT, backendPlan, dropIns, stageBackend, stageDropIns } from '../src/vm/dopamebackend.ts'
 import { PROVISION_SCRIPT } from '../src/vm/provision.ts'
 import { tmp } from './helpers.ts'
 
@@ -82,5 +82,42 @@ describe('acdev vm provision: the Dopame back end, as the dopame PKGBUILD builds
   test('the guest installs each staged file with its mode where the PKGBUILD puts it', () => {
     expect(PROVISION_SCRIPT).toContain(BACKEND_SCRIPT.join('\n'))
     expect(BACKEND_SCRIPT.join('\n')).toContain('install -Dm"$mode" "$here/dopame/$file" -t "$target"')
+  })
+})
+
+describe('acdev vm provision: the systemd drop-ins the dopame PKGBUILD installs', () => {
+  const DROPIN = `package() {
+  install -Dm644 packaging/arch/dopame-board.service -t "\${pkgdir}/usr/lib/systemd/user"
+  install -Dm644 packaging/arch/acdes-session-agent-dopame.conf \\
+    "\${pkgdir}/usr/lib/systemd/system/acdes-session-agent@.service.d/dopame.conf"
+  install -Dm644 "$x/a.conf" "\${pkgdir}/usr/lib/systemd/system/x.service.d/a.conf"
+}
+`
+
+  test('only plain drop-ins into /usr/lib/systemd/system/<unit>.service.d are read, a continued line too', () => {
+    expect(dropIns(DROPIN)).toEqual([
+      { mode: '644', source: 'packaging/arch/acdes-session-agent-dopame.conf', target: '/usr/lib/systemd/system/acdes-session-agent@.service.d/dopame.conf' },
+    ])
+    expect(dropIns(PKGBUILD)).toEqual([])
+  })
+
+  test('each is staged and listed with its mode and file; a missing one stops provision on the host', () => {
+    const dir = repo(DROPIN)
+    expect(() => stageDropIns(dir, tmp())).toThrow('acdes-session-agent-dopame.conf does not exist')
+    writeFileSync(join(dir, 'packaging', 'arch', 'acdes-session-agent-dopame.conf'), '[Service]\nExecStart=\n')
+    const out = tmp()
+    expect(stageDropIns(dir, out)).toBe(1)
+    expect(readFileSync(join(out, 'units', '0', 'acdes-session-agent-dopame.conf'), 'utf8')).toContain('ExecStart=')
+    expect(readFileSync(join(out, 'units.install'), 'utf8')).toBe(
+      '644\tunits/0/acdes-session-agent-dopame.conf\t/usr/lib/systemd/system/acdes-session-agent@.service.d/dopame.conf\n',
+    )
+    expect(stageDropIns(repo(PKGBUILD), tmp())).toBe(0)
+  })
+
+  test('the guest installs them at their path and reloads systemd', () => {
+    const script = DROPIN_SCRIPT.join('\n')
+    expect(PROVISION_SCRIPT).toContain(script)
+    expect(script).toContain('install -Dm"$mode" "$here/dopame/$file" "$target"')
+    expect(script).toContain('systemctl daemon-reload')
   })
 })

@@ -172,7 +172,11 @@ acdes (合成器 acompositor 在 acdes 里) 按 acdes 仓自己的 `packaging/ar
 用 acdev 所在的 Bun (不在 Bun 上时用 PATH 上的 `bun`) 照原参数在 dopame 检出里跑, 只把 `--outfile` 换到暂存目录 (不往检出里写); 再按 `package()`
 里 `install -Dm<权限> <文件…> -t "${pkgdir}/usr/lib/dopame/backend…"` 那些行 (文件名可以带 `*`) 暂存文件, 写下权限、文件、目标目录的清单
 (`dopame/backend.install`), 客户机里逐行 `install -Dm<权限> 文件 -t 目标`. 点到的文件不存在 (或 `*` 一个也没匹配上) 时在宿主上报错, 说出路径;
-PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
+PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 同样照 `package()` 里装进 `/usr/lib/systemd/system/<单元>.service.d/<名>.conf` 的那些行 (允许用 `\` 续行,
+文件名不带变量和引号) 暂存 systemd 的补充配置, 清单是 `dopame/units.install`, 客户机里按原路径装上, PATH 上没有 `bun` 时 `pacman -S bun`
+(装不上只提示), 再 `systemctl daemon-reload`: acdes 的 `acdes-session-agent@.service` 模板本身没有 `ExecStart`, 要靠 dopame 的
+`acdes-session-agent-dopame.conf` 补上 (`/usr/bin/bun /usr/lib/dopame/backend/main.js serve`, 路径和上面放后台服务的位置一致), 不装时登录后
+这个单元因为没有 `ExecStart` 不起. 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.

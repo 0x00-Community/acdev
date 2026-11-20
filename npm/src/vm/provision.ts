@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
-import { BACKEND_SCRIPT, stageBackend } from './dopamebackend.ts'
+import { BACKEND_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDropIns } from './dopamebackend.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -97,6 +97,7 @@ export const PROVISION_SCRIPT = [
   '  if [ -f "$here/dopame/dopame-harness" ]; then install -Dm755 "$here/dopame/dopame-harness" /usr/lib/dopame/dopame-harness; fi',
   '  if [ -f "$here/dopame/dopame-board.service" ]; then install -Dm644 "$here/dopame/dopame-board.service" /usr/lib/systemd/user/; fi',
   ...BACKEND_SCRIPT,
+  ...DROPIN_SCRIPT,
   'fi',
   '',
   'step "the user $user"',
@@ -212,6 +213,7 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
     const board = join(repo, 'packaging', 'arch', 'dopame-board.service')
     if (existsSync(board)) cpSync(board, join(out, 'dopame-board.service'))
     stageBackend(repo, out)
+    stageDropIns(repo, out)
   }
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }
