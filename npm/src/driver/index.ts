@@ -47,4 +47,4 @@ export { Screenshots, type Capturable, type Capture, type ScreenshotContext, typ
 export { Trace, type TraceStep } from './trace.ts'
 export { Video } from './video.ts'
 export { AppWindow, type WindowMatch } from './window.ts'
-export type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+export type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@acde/api'

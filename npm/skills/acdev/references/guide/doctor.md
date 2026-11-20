@@ -16,7 +16,7 @@ ok     gpu: Apple M3 Pro (Metal, integrated GPU): drew a test frame in 38 ms
 ok     acdev dev sessions: none running
 ok     project: notes, app (acde.config.jsonc): acdev check finds nothing wrong
 ok     platform: macos (desktop, standalone) has every required capability
-ok     dependencies: installed with bun (runs on Bun 1.4+), @dopame/acde-api X.Y.Z
+ok     dependencies: installed with bun (runs on Bun 1.4+), @acde/api X.Y.Z
 ok     git: .acde/ (the build output) is ignored
 ok     agent skill: current in /Users/me/.agents/skills/acdev, /Users/me/.claude/skills/acdev
 acdev doctor: everything acdev needs is here
@@ -46,7 +46,7 @@ The last line counts errors and warnings. The exit code is 1 when any check is a
 | `acdev dev sessions`, `approval` | The running `acdev dev` sessions, and every camera or microphone prompt that waits for an answer |
 | `project` | `acdev check` of the project |
 | `platform` | Whether this platform has every capability the project's apps require |
-| `dependencies` | The project's dependencies are installed (also when a workspace keeps them in a parent directory), its runtime is on PATH, and its `@dopame/acde-api` (in `package.json` and installed) is the version this acdev is built with; an older SDK is reported here once, fixed by `acdev sdk update` (followed by the directory when `acdev doctor` was given one) |
+| `dependencies` | The project's dependencies are installed (also when a workspace keeps them in a parent directory), its runtime is on PATH, and its `@acde/api` (in `package.json` and installed) is the version this acdev is built with; an older SDK is reported here once, fixed by `acdev sdk update` (followed by the directory when `acdev doctor` was given one) |
 | `git` | Whether git ignores `.acde/` |
 | `agent skill` | Whether the acdev skill is installed for coding agents and current |
 | `latest release` | With `--online`: whether a newer acdev is out |

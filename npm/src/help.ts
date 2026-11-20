@@ -112,7 +112,7 @@ export class Help {
         args: '[update] [dir]',
         summary: 'Show or update the project\'s SDK',
         about: [
-          'Shows the project\'s @dopame/acde-api and the version this acdev pairs with. update points the '
+          'Shows the project\'s @acde/api and the version this acdev pairs with. update points the '
             + 'dependency at that version\'s tarball and reinstalls with the project\'s package manager.',
         ],
         options: [],
@@ -346,7 +346,7 @@ export class Help {
             + 'and formatted FAT, which needs mkfs.vfat or mkfs.exfat), usb remove [IMAGE or ID] pulls it (default: the last one), '
             + 'usb list shows them; wake wakes a guest that went to sleep (S3); '
             + 'provision sets the guest up for testing (the user, its password, greetd on the acdes '
-            + 'login screen, acdes (winman included) laid out by the acdes PKGBUILD, the Dopame package) and can be run again.',
+            + 'login screen, acdes laid out by its PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
             + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and UEFI firmware (ACDEV_QEMU_DIR); without KVM, WHPX or HVF it emulates.',
         ],
@@ -375,7 +375,6 @@ export class Help {
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first; run provision again after it' },
           { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin' },
           { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
-          { flag: '--winman-bin FILE', about: 'provision: only for an older acdes whose PKGBUILD still installs a separate winman; ignored otherwise' },
           { flag: '--system-agent-bin FILE', about: 'provision: the acdes system-agent guest build (when the acdes PKGBUILD installs it)' },
           { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
           { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
@@ -410,7 +409,7 @@ export class Help {
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',
           'acdev vm logs 1234 --follow --grep error',
-          "acdev vm dev ../my-daemon --run 'my-daemon --verbose'",
+          "acdev vm dev ../acdes --bin acdes,acompositor-test-client --run 'systemctl stop greetd; acdes acompositor --card /dev/dri/card1 acompositor-test-client'",
           'acdev vm screenshot screen.png', 'acdev vm stop',
         ],
       },

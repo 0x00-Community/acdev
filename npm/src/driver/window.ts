@@ -1,4 +1,4 @@
-import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import {
   ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type Dialog,
   type DialogAnswer, type DialogType, type DropOptions, type Dropped, type NetworkOptions, type RequestEntry,

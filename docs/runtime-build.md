@@ -14,8 +14,8 @@ target/debug/acdev doctor
 
 ## 编译配置与产物目录 (总仓 `.scratch/acdev/build-time.md`, 2026-11-17)
 
-- 产物目录: 本机按仓共用一个, 检出和所有工作树都设 `CARGO_TARGET_DIR=<总仓>/logs/cargo-target/acdev` (system、winman 各用
-  `logs/cargo-target/system`、`logs/cargo-target/winman`, 总仓约定). 新工作树第一次编只重编改过的路径包, 依赖全部复用; 同一目录上
+- 产物目录: 本机按仓共用一个, 检出和所有工作树都设 `CARGO_TARGET_DIR=<总仓>/logs/cargo-target/acdev` (system 用
+  `logs/cargo-target/system`, 总仓约定). 新工作树第一次编只重编改过的路径包, 依赖全部复用; 同一目录上
   Cargo 加锁, 同一仓的两次编译自动排队. 产物目录不在工作树里, 删工作树不会删它.
 - `dev` (日常调试版): 只留行号级调试信息, 依赖包不带调试信息 (调试版二进制原来约 1.2 GB, 链接和推送都慢).
 - `guest` (进客户机的日常编译, `cargo build --profile guest`, 产物在 `<产物目录>/guest/`): 以 `release` 为底, 不做链接时

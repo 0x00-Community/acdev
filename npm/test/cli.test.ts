@@ -256,7 +256,7 @@ describe('acde.config.jsonc', () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')
     expect((await cli(['new', dir, '--label', 'Hi', '--no-install'], tmp())).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toBe(
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@acde/api']).toBe(
       Sdk.spec(),
     )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
@@ -337,7 +337,7 @@ describe('acde.config.jsonc', () => {
       { name: 'plain', modules: [] },
       { name: 'bare', modules: [] },
     ])
-    const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions'
+    const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions, voice'
     const refused: [string, string][] = [
       ['{ "clock": { "module": "clock.js", "modules": ["fs"] } }',
         `services in acde.config.jsonc: service "clock": modules lists shell modules (${shell})`],
@@ -481,7 +481,7 @@ describe('acde.config.jsonc', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe(page)
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Sdk.spec() })
+    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@acde/api': Sdk.spec() })
     expect(pkg.scripts).toEqual({ 'acde:dev': 'acdev dev', 'acde:build': 'acdev build', 'acde:check': 'acdev check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
@@ -657,9 +657,9 @@ describe('a project made by acde from its checkout', () => {
         expect(made.code, made.out).toBe(0)
         const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         expect(pkg.packageManager).toStartWith(`${pm}@`)
-        expect(pkg.devDependencies['@dopame/acde-api']).toBe(Sdk.spec())
+        expect(pkg.devDependencies['@acde/api']).toBe(Sdk.spec())
         expect(readFileSync(join(dir, LOCKS[pm]), 'utf8')).toContain('acde-api')
-        expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
+        expect(existsSync(join(dir, 'node_modules/@acde/api/package.json'))).toBe(true)
         const build = pm === 'bun' ? [process.execPath, 'run', 'build'] : [pm, 'run', 'build']
         const built = await run(build, dir, path)
         expect(built.out).toContain(`built app by-${pm}`)

@@ -30,7 +30,7 @@
 - **工程** (`Doctor.project`): 目录 (参数, 默认当前目录) 里有 `acde.config.jsonc` / `.json` 或 package.json 有 `acde` 字段才算工程; 不是时默认 `skip`,
   给了目录参数就是错误. `project` (`acdev check` 的第一个错误或警告加剩几条, fix `acdev check lists them`)、`platform` (缺必需能力是错误, 可选的写进内容)、
   `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
-  里提升到上层的也算装了; SDK 版本只报一次 (gitea acde#92): package.json 写的 (`Sdk.state`) 或装的 `@dopame/acde-api` 和这个 acdev 构建所用的版本不同时,
+  里提升到上层的也算装了; SDK 版本只报一次 (gitea acde#92): package.json 写的 (`Sdk.state`) 或装的 `@acde/api` 和这个 acdev 构建所用的版本不同时,
   `dependencies` 报这一行 (排在依赖没装之前), fix 是 `Doctor.sdkFix` (`run acdev sdk update`; `acdev doctor <目录>` 给的不是当前目录时
   后面跟上它, 当前目录里的写相对路径、外面的写绝对路径, 含空白加双引号, 不然照抄去跑会改当前目录), 这时 `project` 去掉 `acdev check` 里同一条 SDK 警告;
   运行时不在 PATH 上而轮不到这一行时, SDK 警告是 `project` 唯一一条就用同一个 fix; `PackageManager.of` 往上读到不是 JSON 的 package.json 时
@@ -45,7 +45,7 @@
   `PATH` 上的 `acdev` 是 `@dopame/acdev` 的 `acde.mjs` 而它解析到的平台包就是这一个 (`Doctor.npmWrapper`) 时算「是这一个」; 重装和升级的修法是
   `npm install -g @dopame/acdev[@<版本>]`, `pathFix` 指向 `npm prefix -g` 的 bin; 不挂 `reinstall` 修复 (安装器不该往 `node_modules` 里装).
 - **`acdev dev` 指向 doctor**: 找不到 acdev runtime 的错误末尾那句; acdev runtime 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
-  时打 `acdev: acdev runtime exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdebin-dbg.
+  时打 `acdev: acdev runtime exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdev runtime.
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
 - **`--fix`** (用户 2026-11-11 定的范围: 直接修 acdev 自己的、可撤销的; 下载 / 安装 / 结束进程的先问; 用户该做的决定一律不碰): 能修的检查带一个
   可序列化的 `repair` `{action, target, ask, does}` (和给人看的 `fix` 文字分开, 修的时候只看 `repair`, 不解析文字; 不该修的检查根本没有 `repair`,
@@ -67,7 +67,7 @@
   --fix in a terminal, or agrees to acdev doctor --fix --yes`). 不给它 `allow` 参数: 同意要来自用户本人 (终端里的确认, 或宿主对那条 shell 命令的权限确认),
   不该是 agent 自己填的参数 (安全审查 2026-11-11 提出; MCP 的 elicitation 在 SDK 2.4 里已标为废弃、要换成 2026-07-28 协议的 `inputRequired`,
   没为这一个工具做两套). 不修的: 待答的批准、GPU 驱动和系统库、macOS 隔离、PATH 上别的 acdev、工程的代码和配置
-  (含 `@dopame/acde-api` 版本不对, 要改 package.json).
+  (含 `@acde/api` 版本不对, 要改 package.json).
 - 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
   Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);
   一个不可执行的 `ACDEV_RUNTIME`、退出码 127 加动态库报错的、启动就退出的假运行时. 没在 Windows 上跑.

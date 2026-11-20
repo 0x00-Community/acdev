@@ -1,4 +1,4 @@
-/// <reference types="@dopame/acde-api/shell" />
+/// <reference types="@acde/api/shell" />
 import { apps } from 'acde:apps'
 import { t, translate } from './i18n.js'
 

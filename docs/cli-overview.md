@@ -4,7 +4,7 @@
 
 acdev 的开发者 CLI, 是 [acdev](http://gitea.dopamine/AC/acdev) 仓库的 `npm/` 子包 (原 gitea AC/acde-cli, 连历史并入).
 和运行时的关系像 wrangler 和 workerd: 并排检出的 [libacde](http://gitea.dopamine/AC/libacde) 是运行时库 (原 AC/acdert), 二进制是仓库根上的 `acdev runtime`
-(跨平台调试) 和 acdebin-system (Dopame OS 的会话); acdev 建工程、构建、装包, `acdev dev` 拉起 acdebin-dbg. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
+(跨平台调试) 和 acdes (Dopame OS 的会话); acdev 建工程、构建、装包, `acdev dev` 拉起 acdev runtime. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以仓库根 `AGENTS.md` 的第一原则和 libacde 的 `docs/runtime/`、`docs/web/` 为准, 这里只写工具.
 
 - 说明都在仓库根的 `AGENTS.md` 和 `docs/` 里 (没有 README). TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上: 这是装好的 acdev (`dist/cli.js`) 的要求. 从检出直接跑源码 (`node bin/acdev.mjs`, PATH 上没有 bun 时 launcher 用 Node 跑 `src/cli.ts`) 要 Node.js ≥ 22.18, 它起默认擦除类型 (https://nodejs.org/en/blog/release/v22.18.0 「Type stripping is enabled by default」); 更早的 22.x 要 `--experimental-strip-types`. 只擦除类型时不支持要转译的写法 (构造函数参数属性、`enum`、`namespace`), 所以 `tsconfig.json` 开了 `erasableSyntaxOnly`, 这类写法类型检查就报错 (2026-11-18 acdev-test 在 Windows 上用 Node 22 直跑时撞上过). 测试 `bun test`, 类型检查 `bun run typecheck`.

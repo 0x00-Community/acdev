@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import type { InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectNode, InspectWindow } from '@acde/api'
 import { Png, type Image } from './png.ts'
 
 export interface Capture {

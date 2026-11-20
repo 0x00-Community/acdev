@@ -1,6 +1,6 @@
 ---
 name: acdev
-description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdev runtime (built on libacde). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acdev, libacde, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
+description: Build, run, debug, and test apps and desktops for Dopame OS with the acdev CLI and its runtime, acdev runtime (built on libacde). Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @acde/api, and when the user mentions acdev, libacde, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
 ---
 
 # acdev

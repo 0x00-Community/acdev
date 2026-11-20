@@ -293,10 +293,10 @@ describe('acdev vm logs', () => {
   test('the filter keeps whole matching lines across chunks, ignoring case', () => {
     const seen: string[] = []
     const filter = new LineFilter('frame', (text) => seen.push(text))
-    filter.push(Buffer.from('winman: Frame 1\nother\nwinman: fra'))
+    filter.push(Buffer.from('acompositor: Frame 1\nother\nacompositor: fra'))
     filter.push(Buffer.from('me 2\nlast frame'))
     filter.end()
-    expect(seen).toEqual(['winman: Frame 1\n', 'winman: frame 2\n', 'last frame\n'])
+    expect(seen).toEqual(['acompositor: Frame 1\n', 'acompositor: frame 2\n', 'last frame\n'])
     const all: string[] = []
     new LineFilter(undefined, (text) => all.push(text)).push(Buffer.from('as is'))
     expect(all).toEqual(['as is'])
@@ -308,11 +308,11 @@ describe('acdev vm dev', () => {
     JSON.stringify({ reason: 'compiler-artifact', target: { name, kind: [kind] }, executable })
 
   test('the binaries come from cargo\'s artifacts, only those asked for; a missing one is an error', () => {
-    const lines = [artifact('detour', 'lib', null), artifact('winman', 'bin', '/t/winman'), 'Compiling ...',
-      artifact('winman-test-client', 'bin', '/t/winman-test-client'), JSON.stringify({ reason: 'build-finished', success: true })]
-    expect(executables(lines, [])).toEqual([{ name: 'winman', path: '/t/winman' },
-      { name: 'winman-test-client', path: '/t/winman-test-client' }])
-    expect(executables(lines, ['winman-test-client'])).toEqual([{ name: 'winman-test-client', path: '/t/winman-test-client' }])
+    const lines = [artifact('detour', 'lib', null), artifact('acompositor', 'bin', '/t/acompositor'), 'Compiling ...',
+      artifact('acompositor-test-client', 'bin', '/t/acompositor-test-client'), JSON.stringify({ reason: 'build-finished', success: true })]
+    expect(executables(lines, [])).toEqual([{ name: 'acompositor', path: '/t/acompositor' },
+      { name: 'acompositor-test-client', path: '/t/acompositor-test-client' }])
+    expect(executables(lines, ['acompositor-test-client'])).toEqual([{ name: 'acompositor-test-client', path: '/t/acompositor-test-client' }])
     expect(() => executables(lines, ['nope'])).toThrow('cargo built no binary nope')
   })
 
@@ -334,10 +334,10 @@ describe('acdev vm dev', () => {
     expect(snapshot(dir)).toBe(before)
     utimesSync(join(dir, 'src', 'main.rs'), new Date(), new Date(Date.now() + 5000))
     expect(snapshot(dir)).not.toBe(before)
-    const built = [{ name: 'winman', path: '/t/winman' }]
-    expect(startCommand({ dir, bins: [], run: null }, built)).toBe(`export PATH=${BIN}:$PATH; winman`)
-    expect(startCommand({ dir, bins: [], run: 'winman --card /dev/dri/card1 winman-test-client' }, built))
-      .toBe(`export PATH=${BIN}:$PATH; winman --card /dev/dri/card1 winman-test-client`)
+    const built = [{ name: 'acompositor', path: '/t/acompositor' }]
+    expect(startCommand({ dir, bins: [], run: null }, built)).toBe(`export PATH=${BIN}:$PATH; acompositor`)
+    expect(startCommand({ dir, bins: [], run: 'acompositor --card /dev/dri/card1 acompositor-test-client' }, built))
+      .toBe(`export PATH=${BIN}:$PATH; acompositor --card /dev/dri/card1 acompositor-test-client`)
   })
 })
 
@@ -921,7 +921,7 @@ describe('acdev vm provision', () => {
     mkdirSync(join(repo, 'dopame', 'packages', 'dopame', 'dist'), { recursive: true })
     writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'package.json'), '{}')
     writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'dist', 'index.js'), '')
-    for (const bin of ['acdes-bin', 'winman', 'harness']) writeFileSync(join(repo, bin), bin)
+    for (const bin of ['acdes-bin', 'harness']) writeFileSync(join(repo, bin), bin)
     const sources = {
       acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), libacde: null,
       dopame: join(repo, 'dopame'), harness: join(repo, 'harness'),
@@ -929,7 +929,7 @@ describe('acdev vm provision', () => {
     const stage = stageProvision(sources)
     try {
       for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes',
-        'acdes/src/acdebin-system/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
+        'acdes/src/acdes/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
         'dopame/dopame-harness']) {
         expect(existsSync(join(stage, file))).toBe(true)
       }
@@ -938,25 +938,16 @@ describe('acdev vm provision', () => {
       rmSync(stage, { recursive: true, force: true })
     }
     expect(() => stageProvision({ ...sources, acdesBin: null })).toThrow('--acdes needs --acdes-bin')
-    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { install "$(_target)/winman/release/winman"; }\n')
-    expect(() => stageProvision(sources)).toThrow('give --winman-bin')
-    const older = stageProvision({ ...sources, winmanBin: join(repo, 'winman') })
-    try {
-      expect(existsSync(join(older, 'acdes/src/target/winman/release/winman'))).toBe(true)
-    } finally {
-      rmSync(older, { recursive: true, force: true })
-    }
-    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { :; }\n')
     expect(() => stageProvision({ ...sources, acdes: null })).toThrow('needs --acdes')
-    const src = ['$', '{srcdir}/acdebin-system'].join('')
-    expect(pkgbuildPaths(`install -Dm644 "${src}/protocol/a/policy.json" x\ncp $srcdir/acdebin-system/docs/*.md y\n`
+    const src = ['$', '{srcdir}/acdes'].join('')
+    expect(pkgbuildPaths(`install -Dm644 "${src}/protocol/a/policy.json" x\ncp $srcdir/acdes/docs/*.md y\n`
       + `z "${src}/../etc/passwd" "${src}/protocol/a/policy.json"`)).toEqual(['protocol/a/policy.json', 'docs'])
     mkdirSync(join(repo, 'acdes', 'protocol'), { recursive: true })
     writeFileSync(join(repo, 'acdes', 'protocol', 'policy.json'), '{}')
     writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), `package() { install "${src}/protocol/policy.json"; }\n`)
     const used = stageProvision(sources)
     try {
-      expect(existsSync(join(used, 'acdes/src/acdebin-system/protocol/policy.json'))).toBe(true)
+      expect(existsSync(join(used, 'acdes/src/acdes/protocol/policy.json'))).toBe(true)
     } finally {
       rmSync(used, { recursive: true, force: true })
     }

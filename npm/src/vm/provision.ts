@@ -9,7 +9,6 @@ import { BACKEND_SCRIPT, stageBackend } from './dopamebackend.ts'
 export interface ProvisionSources {
   readonly acdes: string | null
   readonly acdesBin: string | null
-  readonly winmanBin?: string | null
   readonly libacde: string | null
   readonly dopame: string | null
   readonly harness: string | null
@@ -174,18 +173,17 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
     if (sources.acdesBin) throw new Error('vm provision: --acdes-bin needs --acdes (the acdes checkout, for its PKGBUILD)')
     return
   }
-  if (!sources.acdesBin) throw new Error('vm provision: --acdes needs --acdes-bin (the acdes guest build, winman included)')
+  if (!sources.acdesBin) throw new Error('vm provision: --acdes needs --acdes-bin (the guest build)')
   const repo = need(sources.acdes, '--acdes')
   const src = join(stage, 'acdes', 'src')
   cpSync(need(join(repo, 'packaging', 'arch', 'PKGBUILD'), 'the acdes PKGBUILD'), join(stage, 'acdes', 'PKGBUILD'))
-  cpSync(join(repo, 'packaging'), join(src, 'acdebin-system', 'packaging'), { recursive: true })
+  cpSync(join(repo, 'packaging'), join(src, 'acdes', 'packaging'), { recursive: true })
   for (const path of pkgbuildPaths(readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8'))) {
-    cpSync(need(join(repo, path), 'what the acdes PKGBUILD installs,'), join(src, 'acdebin-system', path), { recursive: true })
+    cpSync(need(join(repo, path), 'what the acdes PKGBUILD installs,'), join(src, 'acdes', path), { recursive: true })
   }
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
   const pkgbuild = readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8')
-  stageWinman(src, pkgbuild, sources.winmanBin ?? null)
   if (sources.systemAgentBin) cpSync(need(sources.systemAgentBin, '--system-agent-bin'), join(src, 'target', 'release', 'system-agent'))
   else if (pkgbuild.includes('release/system-agent')) {
     throw new Error('vm provision: this acdes PKGBUILD installs system-agent: give --system-agent-bin (cargo build -p acde-system-agent)')
@@ -196,18 +194,8 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   else writeFileSync(join(src, 'libacde', 'LICENSE'), '')
 }
 
-function stageWinman(src: string, pkgbuild: string, winmanBin: string | null): void {
-  if (pkgbuild.includes('winman/release/winman')) {
-    if (!winmanBin) throw new Error('vm provision: this acdes PKGBUILD still installs a separate winman: give --winman-bin, or take an acdes with winman in it')
-    mkdirSync(join(src, 'target', 'winman', 'release'), { recursive: true })
-    cpSync(need(winmanBin, '--winman-bin'), join(src, 'target', 'winman', 'release', 'winman'))
-  } else if (winmanBin) {
-    process.stderr.write('acdev vm provision: --winman-bin is ignored: winman is part of acdes now (acdes winman)\n')
-  }
-}
-
 export function pkgbuildPaths(pkgbuild: string): string[] {
-  const used = [...pkgbuild.matchAll(/\$\{?srcdir\}?\/acdebin-system\/([A-Za-z0-9._@/*-]+)/g)].map(([, path]) => path!)
+  const used = [...pkgbuild.matchAll(/\$\{?srcdir\}?\/acdes\/([A-Za-z0-9._@/*-]+)/g)].map(([, path]) => path!)
   const plain = used.map((path) => (path.includes('*') ? path.slice(0, path.indexOf('*')).replace(/[^/]*$/, '') : path).replace(/\/+$/, ''))
   return [...new Set(plain.filter((path) => path !== '' && !path.split('/').includes('..')))]
 }
@@ -268,6 +256,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
-    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'), winmanBin: get('winman-bin'),
+    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'),
   }
 }

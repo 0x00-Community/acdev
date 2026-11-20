@@ -562,7 +562,7 @@ export class Machine {
 
   static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with --gl, where QMP screendump reads the display surface that virgl '
     + 'does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest instead: '
-    + 'acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start without --gl'
+    + 'acdev screen --session vm -o FILE.png (the logged-in session, through acompositor), or start without --gl'
 
   async wake(): Promise<void> {
     this.running()

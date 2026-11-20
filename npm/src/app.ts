@@ -7,7 +7,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import type {
   AcdeConfig, AppManifest as AppEntry, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest,
   WindowAppConfig,
-} from '@dopame/acde-api'
+} from '@acde/api'
 import { API_LEVEL, Manifest, type ConfiguredService } from './manifest/index.ts'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
