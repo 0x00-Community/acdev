@@ -140,17 +140,17 @@ os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` �
 也重建覆盖盘.
 
 **`--fresh` 清掉什么, 之后要做什么**: 客户机里装的、配的东西都在覆盖盘 (`disk.qcow2`) 上, `--fresh` 连它和 UEFI 变量一起丢, 回到基础镜像:
-没有测试用户 `tester`, greetd 还是镜像里的旧登录命令, acdes / winman / Dopame 是镜像构建时的旧包, `/opt/acdev` 和 pacman 的同步数据库也没有.
+没有测试用户 `tester`, greetd 还是镜像里的旧登录命令, acdes / Dopame 是镜像构建时的旧包, `/opt/acdev` 和 pacman 的同步数据库也没有.
 覆盖盘没有备份, 所以 `--fresh` 之后先跑一遍 `acdev vm provision` (可以重复跑, 每次结果一样):
 
 ```sh
 acdev vm provision \
-  --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --winman-bin <winman 的 guest 构建> --libacde ~/ACDE/libacde \
+  --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --libacde ~/ACDE/libacde \
   --dopame ~/ACDE/dopame --harness <dopame-harness 的构建>
 ```
 
 它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
-acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
+acdes 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根 (winman 已并进 acdes 的 `crates/winman`, 以 `/usr/lib/acdes/acdes winman` 运行, winman 仓归档, 不再要单独的 winman 构建; 只有 PKGBUILD 还装 `$(_target)/winman/release/winman` 的旧 acdes 才要 `--winman-bin`, 缺了在宿主上报错, 新 acdes 给了会提示一句并忽略); 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 后台服务照 dopame 自己的
@@ -417,6 +417,8 @@ libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDev
 的严重线在它上面). 包: `upower` (镜像里没有).
 
 ## 把 winman 和测试客户端放进去跑
+
+(历史记录: winman 仓已归档, winman 现在是 acdes 的 `crates/winman`, 随 acdes 以 `acdes winman` 运行, 改它就改 acdes 再 provision; 下面的命令是 winman 还是单独仓库时的用法, `acdev vm dev` 和 `push` 对任何 Cargo 项目照样适用.)
 
 一条命令 (改了 winman 的源码就自动重编、推送、重启):
 
