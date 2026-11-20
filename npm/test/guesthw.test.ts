@@ -7,7 +7,7 @@ import {
 } from '../src/vm/guesthw.ts'
 import { PROVISION_SCRIPT, PRUNED, stageProvision } from '../src/vm/provision.ts'
 
-const NONE = { acdes: null, acdesBin: null, winmanBin: null, libacde: null, dopame: null, harness: null }
+const NONE = { acdes: null, acdesBin: null, libacde: null, dopame: null, harness: null }
 
 describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () => {
   test('all three are on unless --no-<name>; --wifi and the like change nothing', () => {

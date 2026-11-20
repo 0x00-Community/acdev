@@ -4,7 +4,7 @@
 
 ## 是什么
 
-acdev 分三个仓库 (测试期间的架构, 用户定 2026-11-13): libacde (通用运行时 lib)、acdev runtime (本仓库, 跨平台调试运行时)、acdebin-system
+acdev 分三个仓库 (测试期间的架构, 用户定 2026-11-13): libacde (通用运行时 lib)、acdev runtime (本仓库, 跨平台调试运行时)、acdes
 (Dopame OS 特化运行时), 开发者 CLI `acdev` 在本仓库的 `npm/` (bun, 说明见 `docs/cli-overview.md`). acdev runtime 产出二进制 `acdev runtime`: 在 Linux / Windows / macOS 的别人桌面里开宿主原生窗口,
 跑一个应用 (`acdev runtime app <id>`) 或一个桌面 (`acdev runtime desktop <id|包目录>`); `acdev dev` 拉起的就是它 (`acdev` 先找 `ACDEV_RUNTIME`,
 再找装在旁边的、PATH 上的 `acdev runtime`, 最后才是旧的 `libacde`).

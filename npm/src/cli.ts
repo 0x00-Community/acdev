@@ -62,7 +62,7 @@ class Cli {
       args: [1, Infinity],
       flags: [
         'image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output',
-        'acdes', 'acdes-bin', 'winman-bin', 'system-agent-bin', 'libacde', 'dopame', 'harness', 'user',
+        'acdes', 'acdes-bin', 'system-agent-bin', 'libacde', 'dopame', 'harness', 'user',
         'audio', 'size', 'vga', 'resolution', 'btvirt', 'kernel-pkgs',
       ],
       switches: [

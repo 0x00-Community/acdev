@@ -135,22 +135,22 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 
 `fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
 AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
-根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdev 的登录页 (acdebin-system). 用户 `dopame` 的密码是
+根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdes 的登录页. 用户 `dopame` 的密码是
 os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
 
 **`--fresh` 清掉什么, 之后要做什么**: 客户机里装的、配的东西都在覆盖盘 (`disk.qcow2`) 上, `--fresh` 连它和 UEFI 变量一起丢, 回到基础镜像:
-没有测试用户 `tester`, greetd 还是镜像里的旧登录命令, acdes / winman / Dopame 是镜像构建时的旧包, `/opt/acdev` 和 pacman 的同步数据库也没有.
+没有测试用户 `tester`, greetd 还是镜像里的旧登录命令, acdes / Dopame 是镜像构建时的旧包, `/opt/acdev` 和 pacman 的同步数据库也没有.
 覆盖盘没有备份, 所以 `--fresh` 之后先跑一遍 `acdev vm provision` (可以重复跑, 每次结果一样):
 
 ```sh
 acdev vm provision \
-  --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --winman-bin <winman 的 guest 构建> --libacde ~/ACDE/libacde \
+  --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --libacde ~/ACDE/libacde \
   --dopame ~/ACDE/dopame --harness <dopame-harness 的构建>
 ```
 
 它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
-acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
+acdes (合成器 winman 在 acdes 里, `acdes winman`) 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 后台服务照 dopame 自己的
@@ -160,8 +160,8 @@ acdes 和 winman 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()
 (`dopame/backend.install`), 客户机里逐行 `install -Dm<权限> 文件 -t 目标`. 点到的文件不存在 (或 `*` 一个也没匹配上) 时在宿主上报错, 说出路径;
 PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
-把 `greeter` 用户加进 video、input 组 (登录页的 winman 直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
-acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdebin-system/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
+把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
+acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
 acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧.
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
@@ -416,12 +416,13 @@ libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDev
 默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
 的严重线在它上面). 包: `upower` (镜像里没有).
 
-## 把 winman 和测试客户端放进去跑
+## 把合成器 (acdes winman) 和测试客户端放进去跑
 
-一条命令 (改了 winman 的源码就自动重编、推送、重启):
+合成器 winman 已并入 acdes (`crates/winman`, 以 `acdes winman` 运行, 2026-11-20), 测试客户端 `winman-test-client` 也在那里.
+一条命令 (改了 acdes 的源码就自动重编、推送、重启):
 
 ```sh
-acdev vm dev ../winman --run 'systemctl stop greetd; winman --card /dev/dri/card1 winman-test-client'
+acdev vm dev ../acdes --bin acdes,winman-test-client --run 'systemctl stop greetd; acdes winman --card /dev/dri/card1 winman-test-client'
 ```
 
 也可以一步一步来:
@@ -430,13 +431,13 @@ acdev vm dev ../winman --run 'systemctl stop greetd; winman --card /dev/dri/card
   `CONFIG_NET_9P_VIRTIO=m`, `mount` 先 `modprobe`).
 - **拷进去**: `push <文件或目录> [客户机路径]`.
 
-客户机里默认跑着 greetd 和 acdebin-system, 占着 DRM 和输入设备. 换成 winman 时先停掉它:
+客户机里默认跑着 greetd 和 acdes 的会话, 占着 DRM 和输入设备. 单独跑合成器时先停掉它:
 
 ```sh
-acdev vm push target/release/winman /opt/acdev/winman
+acdev vm push target/release/acdes /opt/acdev/acdes
 acdev vm push target/release/winman-test-client /opt/acdev/winman-test-client
 acdev vm run -- 'systemctl stop greetd'
-pid=$(acdev vm run --detach -- '/opt/acdev/winman --card /dev/dri/card1 /opt/acdev/winman-test-client')
+pid=$(acdev vm run --detach -- '/opt/acdev/acdes winman --card /dev/dri/card1 /opt/acdev/winman-test-client')
 acdev vm logs "$pid"
 acdev vm screenshot winman.png
 acdev vm kill "$pid"

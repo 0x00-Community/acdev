@@ -45,7 +45,7 @@
   `PATH` 上的 `acdev` 是 `@dopame/acdev` 的 `acde.mjs` 而它解析到的平台包就是这一个 (`Doctor.npmWrapper`) 时算「是这一个」; 重装和升级的修法是
   `npm install -g @dopame/acdev[@<版本>]`, `pathFix` 指向 `npm prefix -g` 的 bin; 不挂 `reinstall` 修复 (安装器不该往 `node_modules` 里装).
 - **`acdev dev` 指向 doctor**: 找不到 acdev runtime 的错误末尾那句; acdev runtime 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
-  时打 `acdev: acdev runtime exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdebin-dbg.
+  时打 `acdev: acdev runtime exited (<码>) before it was ready; acdev doctor checks the runtime, the GPU and this setup`, 退出码跟 acdev runtime.
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
 - **`--fix`** (用户 2026-11-11 定的范围: 直接修 acdev 自己的、可撤销的; 下载 / 安装 / 结束进程的先问; 用户该做的决定一律不碰): 能修的检查带一个
   可序列化的 `repair` `{action, target, ask, does}` (和给人看的 `fix` 文字分开, 修的时候只看 `repair`, 不解析文字; 不该修的检查根本没有 `repair`,
