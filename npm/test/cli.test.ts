@@ -337,7 +337,7 @@ describe('acde.config.jsonc', () => {
       { name: 'plain', modules: [] },
       { name: 'bare', modules: [] },
     ])
-    const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions'
+    const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions, voice'
     const refused: [string, string][] = [
       ['{ "clock": { "module": "clock.js", "modules": ["fs"] } }',
         `services in acde.config.jsonc: service "clock": modules lists shell modules (${shell})`],

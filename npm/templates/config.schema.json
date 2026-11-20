@@ -304,7 +304,8 @@
                         "inspect",
                         "desktop",
                         "setDefault",
-                        "permissions"
+                        "permissions",
+                        "voice"
                       ]
                     },
                     "description": "The shell modules this service may use, reached in the service with ctx.import('acde:<name>'); acdev build writes them into the desktop manifest as {name, modules}"
