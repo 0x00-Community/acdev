@@ -11,7 +11,10 @@ describe('THIRD-PARTY-NOTICES.txt', () => {
     expect(args[0]).toBe('/l/scripts/notices.ts')
     const locks = args.flatMap((arg, i) => (args[i - 1] === '--cargo' ? [arg] : []))
     expect(locks).toEqual(['/r/Cargo.lock', '/r/crates/tool/Cargo.lock', '/r/crates/devd/Cargo.lock'])
-    const given = [['--vendor', '/l/vendor'], ['--npm', '/r/npm'], ['--extra', '/l/scripts/notices/extra.json'], ['--out', '/r/THIRD-PARTY-NOTICES.txt']]
+    const given = [
+      ['--vendor', '/l/vendor'], ['--npm', '/r/npm'], ['--sources', '/r/npm/src'], ['--extra', '/l/scripts/notices/extra.json'],
+      ['--out', '/r/THIRD-PARTY-NOTICES.txt'],
+    ]
     for (const [flag, value] of given) {
       expect(args[args.indexOf(flag!) + 1]).toBe(value)
     }

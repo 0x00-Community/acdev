@@ -18,6 +18,7 @@ export function noticeArgs(repo: string, lib: string, check: boolean): string[] 
     '--vendor', join(lib, 'vendor'),
     '--own', OWN.join(','),
     '--npm', join(repo, 'npm'),
+    '--sources', join(repo, 'npm', 'src'),
     '--extra', join(lib, 'scripts', 'notices', 'extra.json'),
     '--title', 'acdev',
     '--out', join(repo, 'THIRD-PARTY-NOTICES.txt'),
