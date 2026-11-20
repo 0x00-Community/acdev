@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BACKEND_SCRIPT, DROPIN_SCRIPT, backendPlan, dropIns, stageBackend, stageDropIns } from '../src/vm/dopamebackend.ts'
+import {
+  BACKEND_SCRIPT, DEPENDS_SCRIPT, DROPIN_SCRIPT, backendPlan, dopameDepends, dropIns, stageBackend, stageDepends, stageDropIns,
+} from '../src/vm/dopamebackend.ts'
 import { PROVISION_SCRIPT } from '../src/vm/provision.ts'
 import { tmp } from './helpers.ts'
 
@@ -119,5 +121,25 @@ describe('acdev vm provision: the systemd drop-ins the dopame PKGBUILD installs'
     expect(PROVISION_SCRIPT).toContain(script)
     expect(script).toContain('install -Dm"$mode" "$here/dopame/$file" "$target"')
     expect(script).toContain('systemctl daemon-reload')
+  })
+})
+
+describe('acdev vm provision: the packages the dopame PKGBUILD depends on', () => {
+  test('depends= is read, without acdes, which provision lays out itself', () => {
+    const pkgbuild = "pkgname=dopame\ndepends=('acdes' 'bun' 'bubblewrap' 'openssl>=3' \"polkit\")\nmakedepends=('git')\n"
+    expect(dopameDepends(pkgbuild)).toEqual(['bun', 'bubblewrap', 'openssl>=3', 'polkit'])
+    expect(dopameDepends(`depends=(\n  'bun'\n  "\${x}"\n)\n`)).toEqual(['bun'])
+    expect(dopameDepends('pkgname=dopame\n')).toEqual([])
+  })
+
+  test('they are staged one a line; the guest installs the missing ones, one by one when the batch fails', () => {
+    const out = tmp()
+    expect(stageDepends(repo("depends=('acdes' 'bubblewrap')\n"), out)).toBe(1)
+    expect(readFileSync(join(out, 'depends'), 'utf8')).toBe('bubblewrap\n')
+    expect(stageDepends(tmp(), tmp())).toBe(0)
+    const script = DEPENDS_SCRIPT.join('\n')
+    expect(PROVISION_SCRIPT).toContain(script)
+    expect(script).toContain('pacman -T $(cat "$here/dopame/depends")')
+    expect(script).toContain('for pkg in $missing')
   })
 })

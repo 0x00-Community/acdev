@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
-import { BACKEND_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDropIns } from './dopamebackend.ts'
+import { BACKEND_SCRIPT, DEPENDS_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDepends, stageDropIns } from './dopamebackend.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -89,6 +89,7 @@ export const PROVISION_SCRIPT = [
   '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --acdes the first time" >&2; exit 3; }',
   '',
   'if [ -d "$here/dopame" ]; then',
+  ...DEPENDS_SCRIPT,
   '  step "the Dopame desktop package"',
   '  dir=/usr/share/acde/packages/dopame',
   '  mkdir -p "$dir"',
@@ -214,6 +215,7 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
     if (existsSync(board)) cpSync(board, join(out, 'dopame-board.service'))
     stageBackend(repo, out)
     stageDropIns(repo, out)
+    stageDepends(repo, out)
   }
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }

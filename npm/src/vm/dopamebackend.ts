@@ -156,7 +156,34 @@ export const DROPIN_SCRIPT = [
   '    while IFS="$(printf "\\t")" read -r mode file target; do',
   '      install -Dm"$mode" "$here/dopame/$file" "$target"',
   '    done <"$here/dopame/units.install"',
-  '    command -v bun >/dev/null || pacman -S --needed --noconfirm bun >/dev/null || step "warning: no bun, so the Dopame back end cannot start"',
   '    systemctl daemon-reload',
+  '  fi',
+]
+
+const LAID_OUT = ['acdes']
+
+export function dopameDepends(pkgbuild: string): string[] {
+  const found = /^depends=\(([^)]*)\)/m.exec(pkgbuild)
+  if (!found) return []
+  const words = found[1]!.split(/\s+/).map((word) => word.replace(/^['"]|['"]$/g, '')).filter(Boolean)
+  return words.filter((word) => plain(word) && !LAID_OUT.includes(word.split(/[<>=]/)[0]!))
+}
+
+export function stageDepends(repo: string, out: string): number {
+  const pkgbuild = join(repo, 'packaging', 'arch', 'PKGBUILD')
+  const depends = existsSync(pkgbuild) ? dopameDepends(readFileSync(pkgbuild, 'utf8')) : []
+  if (depends.length) writeFileSync(join(out, 'depends'), depends.map((name) => `${name}\n`).join(''))
+  return depends.length
+}
+
+export const DEPENDS_SCRIPT = [
+  '  if [ -f "$here/dopame/depends" ]; then',
+  '    missing=$(pacman -T $(cat "$here/dopame/depends") || true)',
+  '    if [ -n "$missing" ]; then',
+  '      step "the Dopame dependencies not installed yet: $(echo $missing)"',
+  '      pacman -S --needed --noconfirm $missing >/dev/null 2>&1 || for pkg in $missing; do',
+  '        pacman -S --needed --noconfirm "$pkg" >/dev/null 2>&1 || step "warning: could not install $pkg"',
+  '      done',
+  '    fi',
   '  fi',
 ]
