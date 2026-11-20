@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { KERNEL_SCRIPT, kernelPackage, kernelPackages } from '../src/vm/kernelpkgs.ts'
 import { PROVISION_SCRIPT, provisionSources, stageProvision } from '../src/vm/provision.ts'
 
-const NONE = { acdes: null, acdesBin: null, winmanBin: null, libacde: null, dopame: null, harness: null }
+const NONE = { acdes: null, acdesBin: null, libacde: null, dopame: null, harness: null }
 const WIFI = 'linux-ackernel-wifi-other-7.3.4-1-x86_64.pkg.tar.zst'
 const GPU = 'linux-ackernel-gpu-other-7.3.4-1-x86_64.pkg.tar.zst'
 
