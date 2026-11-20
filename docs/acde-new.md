@@ -14,20 +14,20 @@
   yarn 的工程写 `.yarnrc.yml` `nodeLinker: node-modules` (PnP 下 bun 和框架的构建找不到依赖).
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acdev <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acdev`, 工程里没有 `acdev` 依赖. 建好后的下一步提示 (`Creator.next`)
-  给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
+  给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@acde/api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
 - 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading` / `readmeReloading`): `adopt` 最后遍历工程 (跳过 `SKIPPED` 目录). 页面源码里
   `save to test HMR` / `to test HMR` 改成 `(and) save to reload the page`, `HMR` 可以包在 `<code>` 里、和前文隔着换行 (create-vite 9 的写法:
   `and save to test <code>HMR</code>`; lit 模板拆成两行). `README.md` 里删掉标题行 (`**…**`) 提到 HMR 的整节 (svelte 的问答), 把
   `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acdev dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
   (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
   `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
-- `@dopame/acde-api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acdev 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
+- `@acde/api` 的依赖写法 (用户 2026-11-17 定): 工程的依赖写成这个 acdev 自己那份 SDK 的本地路径 `file:<绝对路径>` (`Sdk.spec()`,
   `Sdk.dir()`): 检出跑的是 acdev 自己 `file:` 依赖的 SDK (并排检出的 `libacde/acde-api`), 全局装的是安装目录的 `current/lib/acde-api`; 设了
   `ACDEV_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
   开发 acdev 的人 `bun link` / `npm link` 把 `bin/acdev.mjs` 放上 PATH.
   版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读
   `node_modules` 里装的). 依赖不是这个 acdev 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acdev check` 打警告、`acdev dev` 开始时打一行
-  (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @dopame/acde-api is <写法>, but this acdev's SDK is file:<路径>: run acdev sdk update`;
+  (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @acde/api is <写法>, but this acdev's SDK is file:<路径>: run acdev sdk update`;
   路径对、版本和 `Sdk.paired()` 不同时报版本. `acdev sdk [dir]` 显示两边; `acdev sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进
   devDependencies) 改成 `Sdk.spec()`, 按 `PackageManager.of` (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找)
   装的是别的版本时, 警告改成 `package.json names … but X is installed: run <pm> install` (`SdkState.installed`). 以前为 npm 12 拒绝网址依赖
@@ -55,6 +55,6 @@
   `git init` 失败同样留着工程 (`... ready, but it is not a git repository yet: ...`).
 - 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
   `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 声明即授予 (运行时没有批准步骤, acdert#146), 新工程无界面也能启动;
-  类型引用分层: 应用写 `@dopame/acde-api/app`, 桌面页写 `@dopame/acde-api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
+  类型引用分层: 应用写 `@acde/api/app`, 桌面页写 `@acde/api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
   没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).
 - 模板的注释和默认文字用英文, 与 skill 一致 (acde#38); 有界面的模板 (`templates/app`、`templates/desktop`) 带最小的 i18n: 文案在 `src/locales/<语言>.js` (至少 en、zh, 键相同), `src/i18n.js` (两份相同) 按 `navigator.language` 精确标签→`Intl.Locale` 的基础语言→`en` 选表, 缺的键回落英文, 设 `<html lang>` 并填 `data-i18n`; 不用第三方库. `templates/` 里除 `locales/zh.js` 外不出现中日韩文字, 不写死 `lang="zh"` (测试检查). 框架模板的界面由各自脚手架生成, 不改.

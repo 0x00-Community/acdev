@@ -4,7 +4,7 @@
 
 发版 (`.github/workflows/cicd.yaml`, 在 Gitea 上手动跑或推标签 `v<版本>`, 说明在下文「分发」的「发布」): 一次发布、一个版本号, 把四个平台的
 `acdevrt-<triple>` (运行时)、`acdevtools-<triple>` (宿主小工具 `acdevtool`)、客户机守护进程 `acdev-guest-<版本>.tar.gz` (两个架构的 acdevd)、SDK `acde-api-<版本>.tar.gz`、`acdev` 命令行和安装器一起放进
-`pkgs.dopame.ai/acdev/<版本>/`, 同一版本也发到 npm (`@dopame/acdev`、`@dopame/acde-<os>-<cpu>`、`@dopame/acde-api`, 见「npm」), 标签 `v<版本>`
+`pkgs.dopame.ai/acdev/<版本>/`, 同一版本也发到 npm (`@dopame/acdev`、`@dopame/acde-<os>-<cpu>`、`@acde/api`, 见「npm」), 标签 `v<版本>`
 打在本仓库. 版本号不用先提交: 推的标签给出它, 否则用输入 `version`, 都没有时取 pkgs 的 `latest.json`、npm 上两个包和 `v*` 标签里最高的版本加一个
 补丁号; 各作业用 `scripts/set-version.sh <版本> acdev` 把它写进本仓库和旁边 libacde 的 `Cargo.toml` 的 `[workspace.package]`
 (crates/hostwin 跟本仓库的走, 运行时库跟 libacde 的走)、`npm/package.json` 和 SDK 的 `libacde/acde-api/package.json` (不提交).
@@ -36,7 +36,7 @@
 `scripts/dist.ts` 打包前用 `Pkgs.scriptProblems` 对两个脚本的默认值, 不一致就失败 (`test/pkgs.test.ts` 也查). 前缀 `acdev/` (桶里只有它和 `iso/`; 以前的 `acde/`、`acdert/`、`acde-dopame/` 连同旧版本 2026-11-18 删掉, 用户定): `acdev/install.sh`、
 `acdev/install.ps1`、`acdev/install.md` (给 agent 读的安装步骤, 见 `skills.md`)、`acdev/latest`、`acdev/latest.json`, 和版本目录 `acdev/<版本>/`:
 `SHA256SUMS` (下面每个文件一行)、`acdev-<版本>.tar.gz` (命令行, 一个通用包)、`acde-api-<版本>.tar.gz` (SDK, `package/` 布局, 只有类型
-声明, 工程的 `@dopame/acde-api` 指向它)、`acdevrt-<triple>.tar.xz` (Windows `.tar.gz`, 里面只有 `acdev[.exe]`)、
+声明, 工程的 `@acde/api` 指向它)、`acdevrt-<triple>.tar.xz` (Windows `.tar.gz`, 里面只有 `acdev[.exe]`)、
 `acdev-guest-<版本>.tar.gz` (`acdevd-x86_64`、`acdevd-aarch64`: 装进客户机的设备守护进程, 静态 musl, 和宿主平台无关)、
 `acdevtools-<triple>.tar.xz` (Windows `.tar.gz`, 里面只有 `acdevtool[.exe]`, 每个平台都有). `acdevtool` 是 `crates/tool` 的一个程序, 两个子命令:
 `relay SOCKET` (Windows 上命令行经它连 QMP 和客户机代理的 Unix 套接字) 和 `view` (客户机窗口, 见 `viewer.md`; 只在 unix 上编进去, 命令行目前只在 Linux 上用). 官网 `https://dopame.ai/install.*` 指向这里. 发布由仓库根 `.github/workflows/cicd.yaml` 完成 (见下). 本地托管目录就是
@@ -66,12 +66,12 @@ LICENSE             专有 LICENSE, 归档顶层 (和 lib/acdev/LICENSE 一样)
 lib/acdev/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩和轻度混淆)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、
                     skills/acdev/ (SKILL.md 和 references/, 原样; `acdev skills` 把它装给 agent)、
                     dist/cli.js、dist/driver/index.js、dist/e2e/index.js (acdev/driver、acdev/test) 和它们共用的 dist/chunk-*.js (压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
-lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
+lib/acde-api/       @acde/api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
 ```
 
 - `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist] [--runtime <目录>]` (`--api` 默认
   `../../libacde/acde-api` (并排检出的 libacde 的 SDK); 现在对不上: 新的 SDK 只有类型声明, 没有下面要求的 `src/index.js`, 见 libacde 的 `docs/acde-api.md`; 没有 `package.json` 和 `src/index.js`, 或包名不是
-  `@dopame/acde-api`、给了 `--sdk` 而版本不等时报错). 它把 `--api` 打成 `acde-api-<SDK 版本>.tar.gz`, 把 `--runtime` 目录里的文件 (发布时是各平台的
+  `@acde/api`、给了 `--sdk` 而版本不等时报错). 它把 `--api` 打成 `acde-api-<SDK 版本>.tar.gz`, 把 `--runtime` 目录里的文件 (发布时是各平台的
   `acdevrt-<triple>`、`acdevtools-<triple>` 和 `acdev-guest-<版本>` 包) 拷进版本目录, 最后按版本目录里的全部文件写 `SHA256SUMS`. Windows 上打的归档
   没有 unix 的可执行位, 只供 Windows 和测试用 (`.gitattributes` 让 `skills/**`、`bin/acdev.sh` 和仓库根 `scripts/` 的 `install.sh`、`install.md` 在 Windows 检出里也是 LF); 发布在 Linux 上打. 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):
   不许有 `lib/acdev/src`、`lib/acdev/test`、`lib/acde-api/test`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
@@ -100,7 +100,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `gitea-acde-release` 的 key, 它只能 assume 这个角色, 用 `aws sts assume-role` (GitHub 的 OIDC 那条路 2026-11-18 去掉了). 同一 concurrency 组的第二次运行在 Gitea 上被取消 (GitHub 排队);
   Gitea 的步骤默认 `bash -e -o pipefail`; 作业打的标签只在 Gitea 上, 不往 GitHub 推 (用户定 2026-11-14: GitHub 不再更新).
   `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、版本一致、每个平台编 acdev 和 acdevtool、作业不装工具、产物经 .127、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN、桶、前缀和区域).
-- **npm** (SDK `@dopame/acde-api` 是 `private`, 不发 npm: 工程按 `file:` 或 pkgs 上 `acde-api-<版本>.tar.gz` 的地址引用它; 主会话 2026-11-18 定)
+- **npm** (SDK `@acde/api` 是 `private`, 不发 npm: 工程按 `file:` 或 pkgs 上 `acde-api-<版本>.tar.gz` 的地址引用它; 主会话 2026-11-18 定)
   (`publish` 的最后一步, 只在正式发布时; 用 repo secret `NPM_TOKEN`, 没有时打一条 warning、什么都不发):
   每个要发的平台一个 `@dopame/acde-<os>-<cpu>` (`linux-x64`、`darwin-arm64`、`darwin-x64`、`win32-x64`; 内容按安装后的布局: 命令行归档、
   `libexec/acdev[.exe]`、`libexec/acdevd-*` 和该平台的 `acdevtools` 程序; 运行时包解进 `libexec/`, 以前误解进 `bin/`), 和

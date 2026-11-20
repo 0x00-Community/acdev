@@ -5,7 +5,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 
 - 运行时库不在本仓库: [libacde](http://gitea.dopamine/AC/libacde) (原 AC/acdert, 2026-11-17 并进本仓库的 `acdert/`, 2026-11-18 连历史拆出),
   和本仓库并排检出 (`../libacde`), 以 path 依赖链它 (Rust 包 `libacde`, 代码里 `use acde::…`); 虚拟机里的 [acdes](http://gitea.dopamine/AC/acdes) 也这样链它. 跨仓契约
-  (包清单与清单规则、SDK `@dopame/acde-api`、契约级别、`acde_*` 协议) 和运行时的文档都在 libacde, 见它的 AGENTS.md.
+  (包清单与清单规则、SDK `@acde/api`、契约级别、`acde_*` 协议) 和运行时的文档都在 libacde, 见它的 AGENTS.md.
 - 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdev runtime` (宿主窗口); 朝模拟器演进.
 - `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
 
@@ -17,7 +17,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 >   不给标准对象加私有方法 / 字段 / 事件, 不改标准语义. 做不到的就是缺口, 记成「还没有」, 不拿长得像的私有版本顶替.
 > - **全局只有两个**: `window` (web 兼容) 和 `globalThis` (node 兼容). 没有 `acdev` 全局, 不往全局上挂非标准的东西.
 > - 系统能力只有一个入口: `acde:` 内置模块, 照 `node:fs` 的写法导入 (`import { fs } from 'acde:fs'`、`import self from 'acde:window'` …;
->   类型在 SDK `@dopame/acde-api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
+>   类型在 SDK `@acde/api`). 清单的 capabilities 决定能导入哪些, 没开的导入直接失败. 「魔改」只许发生在 `acde:` 这一层.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 workerd 的 binding, 直接注入页面所在的 V8 isolate, 调用直接进 Rust 原生实现, 不经 socket /
 >   IPC / 别的进程代办.
 > - 兼容的是标准接口, 不是 Chromium: 渲染器是自研的 (Blitz 的 fork, libacde 的 `vendor/blitz` 子模块, 没有 JS 引擎), 页面 JS 在运行时库自己的 V8 里. 没有
@@ -26,7 +26,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 > - 现有的债 (不是先例, 新代码不许再加, 动到时往这个方向收): web 里除 fs / terminal / network / office / picker 以外的 `acde:` 模块
 >   还是经 `rpc.ts` / `remote.ts` 调到 Broker (见 libacde 的 `docs/runtime/webs.md`「通信」); acde-dopame 还直接用 napi 导出.
 
-SDK `@dopame/acde-api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的 `acde-api/`, 命令行以 `file:../../libacde/acde-api` 引用 (见 libacde 的
+SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的 `acde-api/`, 命令行以 `file:../../libacde/acde-api` 引用 (见 libacde 的
 `docs/acde-api.md`); 清单规则在 libacde 的 `manifest/` (运行时的页面一侧和命令行共用一份), `npm/src/manifest/` 只是转出它的薄壳; Vite 插件在
 `npm/src/vite-plugin.ts`. 文档里其余指向 `web/` 的地方按删除前写.
 

@@ -1,7 +1,7 @@
 import { afterAll, describe, expect as check, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { InspectMatch, InspectNode } from '@dopame/acde-api'
+import type { InspectMatch, InspectNode } from '@acde/api'
 import {
   Acde, ActError, AssertionError, Clock, expect, LaunchError, Locator, Modifiers, Png, Screenshots, type Query, type Source,
 } from '../src/driver/index.ts'

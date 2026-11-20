@@ -7,7 +7,7 @@ import { fs } from 'acde:fs'
 import fs from 'acde:fs'
 ```
 
-Types are in `@dopame/acde-api`: `@dopame/acde-api/app` declares the modules an app can import, `@dopame/acde-api/shell` adds the shell modules, and the package root declares all of them. For how capabilities are requested and approved, see [Capabilities](../guide/capabilities.md).
+Types are in `@acde/api`: `@acde/api/app` declares the modules an app can import, `@acde/api/shell` adds the shell modules, and the package root declares all of them. For how capabilities are requested and approved, see [Capabilities](../guide/capabilities.md).
 
 Who can import what. "App" is an app of its own package; a "system app" ships in a desktop's package (the `apps` of a desktop config). A name in a cell is the capability the app must declare:
 
@@ -39,7 +39,7 @@ Events are subscribed with `on(type, handler)`, which returns an unsubscribe fun
 
 ## Errors
 
-The system modules (`acde:network`, `acde:system`, `acde:bluetooth`, `acde:audio`, `acde:devices`, `acde:power`, `acde:input`, `acde:display`) fail with one kind of error, whether a method throws or its promise rejects: an `Error` with `name === 'AcdeError'` and `status`, `code` and `module` (the module's name without `acde:`). The cause is in `cause`, and a code of its own, when it has one, in the optional `reason`. The types are `AcdeError` and `AcdeErrorCode` in `@dopame/acde-api`; tell the error by `error.name === 'AcdeError'`. The codes:
+The system modules (`acde:network`, `acde:system`, `acde:bluetooth`, `acde:audio`, `acde:devices`, `acde:power`, `acde:input`, `acde:display`) fail with one kind of error, whether a method throws or its promise rejects: an `Error` with `name === 'AcdeError'` and `status`, `code` and `module` (the module's name without `acde:`). The cause is in `cause`, and a code of its own, when it has one, in the optional `reason`. The types are `AcdeError` and `AcdeErrorCode` in `@acde/api`; tell the error by `error.name === 'AcdeError'`. The codes:
 
 | `code` | `status` | When |
 | --- | --- | --- |
@@ -402,7 +402,7 @@ interface AcdeSystem {
 }
 ```
 
-The computer: `info()` (the host name and other facts), `storage()` (its volumes), `time()` (with `timezone` and `ntp`), `timezones()`, the settings `setTimezone`, `setNtp` and `setHostname`, and `user()`. `changed` gives `{storage, hostname, timezone, ntp}`, the whole set each time, when one of these changes; it is checked every 30 seconds while someone listens, and right after this page sets one of them. The state types are in `@dopame/acde-api`.
+The computer: `info()` (the host name and other facts), `storage()` (its volumes), `time()` (with `timezone` and `ntp`), `timezones()`, the settings `setTimezone`, `setNtp` and `setHostname`, and `user()`. `changed` gives `{storage, hostname, timezone, ntp}`, the whole set each time, when one of these changes; it is checked every 30 seconds while someone listens, and right after this page sets one of them. The state types are in `@acde/api`.
 
 ## acde:bluetooth
 
@@ -429,7 +429,7 @@ interface AcdeBluetooth {
 }
 ```
 
-The Bluetooth adapter and its devices (BlueZ). `changed` gives the whole `BluetoothState`; `pairing` asks the page to confirm a pairing, show or enter a PIN or passkey, or authorize a service, and the page answers with `answer(id, accept, pin?)`. The state types are in `@dopame/acde-api`.
+The Bluetooth adapter and its devices (BlueZ). `changed` gives the whole `BluetoothState`; `pairing` asks the page to confirm a pairing, show or enter a PIN or passkey, or authorize a service, and the page answers with `answer(id, accept, pin?)`. The state types are in `@acde/api`.
 
 ## acde:audio
 
@@ -449,7 +449,7 @@ interface AcdeAudio {
 }
 ```
 
-The sound cards, outputs, inputs and playing streams: the default device, volume, mute, balance, port and card profile, and which device a stream plays on. `changed` gives the whole `AudioState`. The state types are in `@dopame/acde-api`.
+The sound cards, outputs, inputs and playing streams: the default device, volume, mute, balance, port and card profile, and which device a stream plays on. `changed` gives the whole `AudioState`. The state types are in `@acde/api`.
 
 ## acde:devices
 
@@ -474,7 +474,7 @@ interface AcdeDevices {
 }
 ```
 
-Drives (USB sticks, cards, discs, phones, disks: mount, unmount, eject, and the automount settings) and printers (the default one, pause, resume, jobs). `changed` gives the whole `DevicesState`; `added` gives a drive when one is plugged in. The state types are in `@dopame/acde-api`.
+Drives (USB sticks, cards, discs, phones, disks: mount, unmount, eject, and the automount settings) and printers (the default one, pause, resume, jobs). `changed` gives the whole `DevicesState`; `added` gives a drive when one is plugged in. The state types are in `@acde/api`.
 
 ## acde:power
 
@@ -497,7 +497,7 @@ interface AcdePower {
 }
 ```
 
-Batteries, the power profile, what the lid, the power button and being idle do (on AC, on battery and on low battery), screen-off and sleep timers, suspend and hibernate, the backlight, and the charge limit. `changed` gives the whole `PowerState`; `prompt` (`{type: 'prompt'}`) asks the page to offer the power choices, and `critical` (`{type: 'critical', action, seconds}`) says the battery is critically low and what happens in how many seconds. The state types are in `@dopame/acde-api`.
+Batteries, the power profile, what the lid, the power button and being idle do (on AC, on battery and on low battery), screen-off and sleep timers, suspend and hibernate, the backlight, and the charge limit. `changed` gives the whole `PowerState`; `prompt` (`{type: 'prompt'}`) asks the page to offer the power choices, and `critical` (`{type: 'critical', action, seconds}`) says the battery is critically low and what happens in how many seconds. The state types are in `@acde/api`.
 
 ## acde:input
 
@@ -512,7 +512,7 @@ interface AcdeInput {
 }
 ```
 
-Keyboard (model, layouts, options, Num Lock), mouse and touchpad settings, and the input methods. `set()` takes the parts to change; `catalog()` lists the models, layouts, options and input methods to choose from. `changed` gives the whole `InputState`. The state types are in `@dopame/acde-api`.
+Keyboard (model, layouts, options, Num Lock), mouse and touchpad settings, and the input methods. `set()` takes the parts to change; `catalog()` lists the models, layouts, options and input methods to choose from. `changed` gives the whole `InputState`. The state types are in `@acde/api`.
 
 ## acde:display
 
@@ -528,7 +528,7 @@ interface AcdeDisplay {
 }
 ```
 
-The displays (mode, scale, rotation and the rest, set with `configure`), their brightness, and the night light. `changed` gives the whole `DisplayState`. The state types are in `@dopame/acde-api`.
+The displays (mode, scale, rotation and the rest, set with `configure`), their brightness, and the night light. `changed` gives the whole `DisplayState`. The state types are in `@acde/api`.
 
 ## acde:session
 

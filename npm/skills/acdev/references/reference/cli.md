@@ -112,7 +112,7 @@ The data of the package's apps and desktops (`storage/app-<id>/`, `storage/deskt
 acdev sdk [update] [dir]
 ```
 
-Shows the project's `@dopame/acde-api` and the SDK version this acdev pairs with. `acdev sdk update` points the dependency at this acdev's own SDK by its path on this machine (`file:...`) and reinstalls with the project's package manager (from its lock file or `packageManager`). If the package manager is not on PATH it changes nothing. If the install fails or is interrupted (Ctrl+C), it puts `package.json`, the lock file and `.npmrc` back as they were and says so, naming any file it could not put back; run the install again to bring `node_modules` back in line. `acdev check` also warns when `node_modules` holds another SDK version than `package.json` names. `acdev check` and `acdev dev` warn when the two differ, for example after upgrading acde.
+Shows the project's `@acde/api` and the SDK version this acdev pairs with. `acdev sdk update` points the dependency at this acdev's own SDK by its path on this machine (`file:...`) and reinstalls with the project's package manager (from its lock file or `packageManager`). If the package manager is not on PATH it changes nothing. If the install fails or is interrupted (Ctrl+C), it puts `package.json`, the lock file and `.npmrc` back as they were and says so, naming any file it could not put back; run the install again to bring `node_modules` back in line. `acdev check` also warns when `node_modules` holds another SDK version than `package.json` names. `acdev check` and `acdev dev` warn when the two differ, for example after upgrading acde.
 
 ### acdev dev
 

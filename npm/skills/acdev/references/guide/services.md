@@ -6,7 +6,7 @@ A desktop service is a JS module that starts and stops with the desktop and runs
 
 ```ts
 // services/clock.ts
-import type { ServiceFactory } from '@dopame/acde-api'
+import type { ServiceFactory } from '@acde/api'
 
 const clock: ServiceFactory = (ctx) => {
   ctx.log('clock started')
@@ -107,7 +107,7 @@ It asks its context for the shell modules the desktop grants it. Grant them in t
 
 ```ts
 // services/clock.ts
-import type { ServiceFactory } from '@dopame/acde-api'
+import type { ServiceFactory } from '@acde/api'
 
 const clock: ServiceFactory = async (ctx) => {
   const { windows } = await ctx.import('acde:windows')

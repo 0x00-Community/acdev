@@ -430,11 +430,11 @@ describe('the release archive and the installed CLI', () => {
     const wrongArgs = ['--api', API, '--sdk', '9.9.9', '--version', '0.0.3', '--out', join(root, 'x')]
     const wrong = await run([process.execPath, 'scripts/dist.ts', ...wrongArgs], {})
     expect(wrong.code).toBe(1)
-    expect(wrong.out).toContain('not @dopame/acde-api 9.9.9')
+    expect(wrong.out).toContain('not @acde/api 9.9.9')
     const missingArgs = ['--api', join(root, 'nope'), '--version', '0.0.3', '--out', join(root, 'x')]
     const missing = await run([process.execPath, 'scripts/dist.ts', ...missingArgs], {})
     expect(missing.code).toBe(1)
-    expect(missing.out).toContain('not the @dopame/acde-api package')
+    expect(missing.out).toContain('not the @acde/api package')
   }, 60_000)
 
   test('Windows x64: install.ps1 and the installed CLI work in paths containing spaces', async () => {
@@ -498,7 +498,7 @@ describe('the release archive and the installed CLI', () => {
     const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
       devDependencies?: Record<string, string>
     }
-    const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
+    const api = manifest.devDependencies?.['@acde/api'] ?? ''
     expect(api).toBe(`${Pkgs.ACDEV}/${SDK}/acde-api-${SDK}.tar.gz`)
     expect(api).not.toContain(home)
   }, 300_000)

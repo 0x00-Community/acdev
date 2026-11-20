@@ -149,7 +149,7 @@ self.on('request', (request) => {
 `entry` can also be a module whose default export is a `WindowApp`:
 
 ```ts
-import type { WindowApp } from '@dopame/acde-api'
+import type { WindowApp } from '@acde/api'
 
 const app: WindowApp = {
   mount(element, host) {

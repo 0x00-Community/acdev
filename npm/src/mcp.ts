@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
-import type { InspectAction } from '@dopame/acde-api'
+import type { InspectAction } from '@acde/api'
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
