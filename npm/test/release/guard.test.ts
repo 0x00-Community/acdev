@@ -42,13 +42,13 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   for (const target of TARGETS) {
     const windows = target.endsWith('-windows-msvc')
     const file = `acdevrt-${target}${windows ? '.tar.gz' : '.tar.xz'}`
-    pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev')], 'binary', windows ? '-czf' : '-cJf')
+    pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev'), 'THIRD-PARTY-NOTICES.txt'], 'binary', windows ? '-czf' : '-cJf')
     lines.push(`${sha(join(version, file))}  ${file}`)
     const tool = TOOLS[target]!
-    pack(root, join(version, tool.file), [tool.program], 'binary', tool.flag)
+    pack(root, join(version, tool.file), [tool.program, 'THIRD-PARTY-NOTICES.txt'], 'binary', tool.flag)
     lines.push(`${sha(join(version, tool.file))}  ${tool.file}`)
   }
-  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64'], 'binary', '-czf')
+  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64', 'THIRD-PARTY-NOTICES.txt'], 'binary', '-czf')
   pack(root, join(version, `acde-api-${VERSION}.tar.gz`), ['package/package.json'], '{}', '-czf')
   for (const file of [`acdev-guest-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {
@@ -63,6 +63,8 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
     write('lib/acdev/dist/cli.js', 'console.log(1)\n')
     write('lib/acdev/templates/app/index.html', '<!doctype html>')
     write('LICENSE', 'license')
+    write('THIRD-PARTY-NOTICES.txt', 'notices')
+    write('lib/acdev/THIRD-PARTY-NOTICES.txt', 'notices')
     for (const item of plant.filter((p) => p.where === 'archive' && (p.triple ?? triple) === triple)) {
       write(item.path, item.text ?? '')
     }

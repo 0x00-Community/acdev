@@ -146,6 +146,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const listed = (await run(['tar', '-tzf', tarball], {})).stdout.split('\n')
     for (const path of [
       'acdev-0.0.2/bin/acdev', 'acdev-0.0.2/bin/acdev.cmd', 'acdev-0.0.2/LICENSE',
+      'acdev-0.0.2/THIRD-PARTY-NOTICES.txt', 'acdev-0.0.2/lib/acdev/THIRD-PARTY-NOTICES.txt',
       'acdev-0.0.2/lib/acdev/package.json',
       'acdev-0.0.2/lib/acdev/launcher.mjs', 'acdev-0.0.2/lib/acdev/dist/cli.js', 'acdev-0.0.2/lib/acdev/dist/driver/index.js',
       'acdev-0.0.2/lib/acdev/dist/e2e/index.js', 'acdev-0.0.2/lib/acdev/templates/app/index.html',
@@ -172,7 +173,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(first.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
     for (const file of ['acdev-0.0.2.tar.gz', 'acdev-guest-0.0.2.tar.gz']) {
       expect(first.out, 'no terminal: the size first, then the checked file').toContain(`downloading ${file} (`)
-      expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: \\d+ [KM]B, SHA-256 matches`))
+      expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: [\\d.]+ [KM]B, SHA-256 matches`))
     }
     expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acdev', 'bin')}:$PATH"`)
     const libexec = join(home, '.acdev', 'current', 'libexec')

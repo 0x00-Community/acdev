@@ -219,13 +219,15 @@ jobs:
           esac
           cargo ${{ matrix.cargo }} --locked --profile dist -p acdev --target $T
           (cd crates/tool && cargo ${{ matrix.cargo }} --locked --release --target $T)
-      - name: the archives (one program each, fixed times and owner) and the split debug information, to the artifacts host
+      - name: the archives (one program each with the third-party notices, fixed times and owner) and the split debug information, to the artifacts host
         run: |
           case $T in *-windows-*) x=.exe ;; *) x= ;; esac
           mkdir -p out/symbols
           pack() {
-            rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3" && TZ=UTC touch -t 200001010000.00 "one/$3"
-            tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" > one.tar
+            rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3"
+            cp acdev/THIRD-PARTY-NOTICES.txt one/ && chmod 644 one/THIRD-PARTY-NOTICES.txt
+            TZ=UTC touch -t 200001010000.00 "one/$3" one/THIRD-PARTY-NOTICES.txt
+            tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" THIRD-PARTY-NOTICES.txt > one.tar
             if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$T.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz"; fi
           }
           pack acdevrt "acdev/target/$T/dist/acdev$x" "acdev$x"
@@ -253,8 +255,9 @@ jobs:
             cargo build --locked --release --target $a-unknown-linux-musl
             cp "target/$a-unknown-linux-musl/release/acdevd" "$s/acdevd-$a"
           done
-          (cd "$s" && chmod 755 * && TZ=UTC touch -t 200001010000.00 * &&
-            tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64) | gzip -9 -n \
+          cp ../../THIRD-PARTY-NOTICES.txt "$s/"
+          (cd "$s" && chmod 755 acdevd-* && chmod 644 THIRD-PARTY-NOTICES.txt && TZ=UTC touch -t 200001010000.00 * &&
+            tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64 THIRD-PARTY-NOTICES.txt) | gzip -9 -n \
             > "$o/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
           upload -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
 
@@ -419,6 +422,7 @@ jobs:
             deps="$deps\"$name\": \"$V\","
           done
           mkdir -p npm/acdev
+          tar -xzf "$rel/acdev-$V.tar.gz" -O "acdev-$V/THIRD-PARTY-NOTICES.txt" > npm/acdev/THIRD-PARTY-NOTICES.txt
           printf '%s\n' '#!/usr/bin/env node' \
             'import(`@dopame/acdev-${process.platform}-${process.arch}/lib/acdev/launcher.mjs`).then(async (m) => process.exit(await m.run(process.argv.slice(2))), (e) => { process.stderr.write(`acdev: no acdev for ${process.platform}-${process.arch} (${e.message})\n`); process.exit(1) })' \
             > npm/acdev/acdev.mjs
