@@ -4,7 +4,7 @@
 
 模拟器的第一块 (用户 2026-11-17: 虚拟机启动配置放在 acdev, 原型用 QEMU; 第一个里程碑只做 Linux KVM, 规范 gitea `AC/acde#103`):
 在 Linux 宿主上用 KVM 起一台 x86_64 的 Dopame OS 客户机, virtio-gpu 显示、virtio 键盘和平板、串口日志, 再把宿主上的文件
-(winman 和测试客户端的二进制) 送进去跑. 实现在命令行 `src/vm/`: `machine.ts` (目录、镜像、覆盖盘、QEMU 命令行、起停)、`channel.ts`
+(acompositor 和测试客户端的二进制) 送进去跑. 实现在命令行 `src/vm/`: `machine.ts` (目录、镜像、覆盖盘、QEMU 命令行、起停)、`channel.ts`
 (QMP 和 QEMU guest agent 的按行 JSON 协议)、`command.ts` (`acdev vm` 的子命令). 仓库根的 `scripts/vm.sh` 只是从检出跑 `acdev vm` 的入口
 (`scripts/vm.sh logs` 跟着看串口日志; 目录默认是仓库里的 `.vm/`). 以后加 vsock 上的设备守护进程 (工作项 02)、
 virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
@@ -38,7 +38,7 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   `-parallel none`. 默认监视器不会出来: 给了 `-qmp` 就不再配 (`default_monitor = 0`); 串口已经接到 `serial.log`.
 - `--gl` (virgl) 时 `acdev vm screenshot` 截不出图: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的 `qmp_screendump` →
   `qemu_console_surface`), virgl 的画面在 GL 纹理里, 不画进这个表面. 所以带 `--gl` 时 `vm screenshot` 直接报错并指路: 登录着的会话里用
-  `acdev screen --session vm -o FILE.png` (管家经 winman 截, 和 GL 无关), 或者不带 `--gl` 起. 是否 `--gl` 记在 `run/gl`.
+  `acdev screen --session vm -o FILE.png` (管家经 acompositor 截, 和 GL 无关), 或者不带 `--gl` 起. 是否 `--gl` 记在 `run/gl`.
 - SDL 窗口 (`ui/sdl2.c`、`sdl2-2d.c`): 窗口按客户机画面的大小开, 画面变了就跟着改窗口; 只在用户拉动窗口 (`SDL_WINDOWEVENT_RESIZED`) 时
   才把窗口尺寸报给显卡, 开窗时不报, 所以显卡的首选分辨率 1280×800 留着, 客户机直接用它. `--sdl`、`--gtk`、`--headless`、`--vnc`、`--viewer` 只能给一个.
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
@@ -131,7 +131,7 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 一切在 `$ACDEV_VM_DIR` (默认 `$XDG_DATA_HOME/acdev/vm`, 即 `~/.local/share/acdev/vm`; Windows 上没设 `XDG_DATA_HOME` 时是 `%LOCALAPPDATA%\acdev\vm`): `images/` (镜像和指向最新的 `latest.qcow2`)、
 `disk.qcow2` (以基础镜像为底的覆盖盘) 和 `disk.base`、`vars.fd` (UEFI 变量)、`run/` (`qemu.pid`、`qmp.sock`、`qga.sock`、`share`)、
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
-已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 winman-lead 共用, 起之前先 `acdev vm status`).
+已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 acompositor-lead 共用, 起之前先 `acdev vm status`).
 
 `fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
 AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
@@ -150,7 +150,7 @@ acdev vm provision \
 ```
 
 它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
-acdes (合成器 winman 在 acdes 里, `acdes winman`) 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
+acdes (合成器 acompositor 在 acdes 里) 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; Dopame 包放到
 `/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 后台服务照 dopame 自己的
@@ -170,7 +170,7 @@ acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 D
 ```sh
 acdev vm fetch                                  # 下载并校验最新镜像
 acdev vm start                                  # 后台起客户机, 开一个窗口, 等到 guest agent 和 acdevd 应答 (--wait 秒, 默认 300; 0 不等)
-acdev vm start --headless --share ~/winman/target/release
+acdev vm start --headless --share ~/acompositor/target/release
 acdev vm start --viewer                         # 画面在 acdev 自己的窗口 (acdevtool view, QEMU 的 D-Bus 显示, 见 docs/viewer.md)
 acdev vm start --gtk                            # Linux 上换成 QEMU 的 gtk 窗口 (默认是 SDL); 客户机先按开窗时的小窗口起
 acdev vm view                                   # 关掉之后再开一个 acdevtool view
@@ -180,7 +180,7 @@ acdev vm status                                 # 目录、镜像、KVM、客户
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
 acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个进程组的输出, 只留含 error 的行
-acdev vm push target/release/winman             # 拷进客户机 /opt/acdev/winman (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
+acdev vm push target/release/acompositor             # 拷进客户机 /opt/acdev/acompositor (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
 acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (只留读写执行位); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; --gl 时截不出, 用 acdev screen --session vm -o shot.png
@@ -227,7 +227,7 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   `screendump` 的 `device: "gpu0", head: K` (`head` 必须和 `device` 一起给, QEMU `qapi/ui.json`).
   - 第 1 个以后的输出要有显示前端"接上"才算连接: QEMU 8.2.2 的 virtio-gpu 起来时只打开第 0 个输出 (`hw/display/virtio-gpu-base.c`
     `enabled_output_bitmask = 1`), 其余要等前端经 `dpy_set_ui_info` 报一个非零大小 (`virtio_gpu_ui_info`). GTK 窗口为每个输出建一个标签页
-    并报大小, 所以都连上; `-display none` 不报, 第二个输出一直是 disconnected (2026-11-18 winman-test 实测).
+    并报大小, 所以都连上; `-display none` 不报, 第二个输出一直是 disconnected (2026-11-18 acompositor-test 实测).
   - 所以 `--headless --outputs N` (N ≥ 2) 不用 `-display none`, 改用 `-display dbus,p2p=yes` (不开窗口), 起来后 acdev 跑一次
     `acdevtool view --qmp … --outputs N`: 经 D-Bus 对 `Console_1`…`Console_{N-1}` 调 `SetUIInfo` (1280×800, 依次向右排), 就是 GTK 做的那件事
     (`ui/dbus-console.c` `dbus_console_set_ui_info` → `dpy_set_ui_info`), 然后退出; 打开的状态留在显卡里. 要 acdevtool view (同 `--viewer`).
@@ -293,7 +293,7 @@ x86_64 (q35) 上开 S3: `-global ICH9-LPC.disable_s3=0`. 上游 QEMU 本身默�
 
 **测睡眠、唤醒要用 `--vga std`**: 默认的 virtio-gpu 过不了 S3, 唤醒后黑屏. 这是 QEMU 的已知缺陷 (QEMU issue #1860): 复位时显卡销毁了显示
 资源, 客户机驱动恢复后还拿旧的资源编号提交, QEMU 报 `0x1203` (资源编号无效). `--vga std` 换成标准 VGA (x86_64 是 `-device VGA`,
-aarch64 是 `bochs-display`〔aarch64 未核实〕), 客户机里由 bochs-drm 驱动; winman 只要 dumb buffer, 它满足.
+aarch64 是 `bochs-display`〔aarch64 未核实〕), 客户机里由 bochs-drm 驱动; acompositor 只要 dumb buffer, 它满足.
 
 ```sh
 acdev vm start --vga std                       # 标准 VGA, 1280x800
@@ -416,13 +416,13 @@ libacde 读电池走 UPower 的 D-Bus (`src/runtime/power/bus.rs`: `EnumerateDev
 默认 2) 时拒绝: UPower 到这条线会执行 `CriticalPowerAction` (关机或休眠), 客户机就没了; 要试“严重线”倒计时, 用比它高的值 (Dopame
 的严重线在它上面). 包: `upower` (镜像里没有).
 
-## 把合成器 (acdes winman) 和测试客户端放进去跑
+## 把合成器 (acdes acompositor) 和测试客户端放进去跑
 
-合成器 winman 已并入 acdes (`crates/winman`, 以 `acdes winman` 运行, 2026-11-20), 测试客户端 `winman-test-client` 也在那里.
+合成器在 acdes 里 (`crates/acompositor`, 以 `acdes acompositor` 运行, 2026-11-20), 测试客户端 `acompositor-test-client` 也在那里.
 一条命令 (改了 acdes 的源码就自动重编、推送、重启):
 
 ```sh
-acdev vm dev ../acdes --bin acdes,winman-test-client --run 'systemctl stop greetd; acdes winman --card /dev/dri/card1 winman-test-client'
+acdev vm dev ../acdes --bin acdes,acompositor-test-client --run 'systemctl stop greetd; acdes acompositor --card /dev/dri/card1 acompositor-test-client'
 ```
 
 也可以一步一步来:
@@ -435,15 +435,15 @@ acdev vm dev ../acdes --bin acdes,winman-test-client --run 'systemctl stop greet
 
 ```sh
 acdev vm push target/release/acdes /opt/acdev/acdes
-acdev vm push target/release/winman-test-client /opt/acdev/winman-test-client
+acdev vm push target/release/acompositor-test-client /opt/acdev/acompositor-test-client
 acdev vm run -- 'systemctl stop greetd'
-pid=$(acdev vm run --detach -- '/opt/acdev/acdes winman --card /dev/dri/card1 /opt/acdev/winman-test-client')
+pid=$(acdev vm run --detach -- '/opt/acdev/acdes acompositor --card /dev/dri/card1 /opt/acdev/acompositor-test-client')
 acdev vm logs "$pid"
-acdev vm screenshot winman.png
+acdev vm screenshot acompositor.png
 acdev vm kill "$pid"
 ```
 
-guest agent 以 root 跑命令, 不在任何 logind 会话里, 对应 winman 调研 (总仓 `.scratch/winman/issues/04-session-start.md`) 的做法 A.
+guest agent 以 root 跑命令, 不在任何 logind 会话里, 对应 acompositor 调研 (总仓 `.scratch/winman/issues/04-session-start.md`) 的做法 A.
 显卡是 virtio-gpu, 内核先用 simpledrm, `virtio_gpu` 载入后换成真驱动 (`/dev/dri/card1`). 宿主上编的二进制一般能直接跑 (客户机 Arch 的
 glibc 较新); 不放心就静态链接 (musl).
 
@@ -461,13 +461,13 @@ QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有
 ## 验证过的 (2026-11-17, Ubuntu 24.04 的 WSL2, QEMU 8.2.2, OVMF 4M)
 
 - `acdev vm start --headless --share` 用 KVM 约 20 s 就绪 (登录页截图 1280×800); `run`、`mount`、`push` (文件和目录)、`screenshot`、`stop` 都通.
-- winman (`--card /dev/dri/card1`, virtio_gpu) 和 `winman-test-client` 在客户机里跑起来, 认出 virtio 键盘和平板, 测试窗口画在屏幕中间
-  (当时经 `scripts/vm.sh` 的前身). 2026-11-17 又经 acdevd 验证: `push` 进 winman 和测试客户端, `run --detach` 跑起来 (日志里有 virtio_gpu
+- acompositor (`--card /dev/dri/card1`, virtio_gpu) 和 `acompositor-test-client` 在客户机里跑起来, 认出 virtio 键盘和平板, 测试窗口画在屏幕中间
+  (当时经 `scripts/vm.sh` 的前身). 2026-11-17 又经 acdevd 验证: `push` 进 acompositor 和测试客户端, `run --detach` 跑起来 (日志里有 virtio_gpu
   和输入设备, 截图有测试窗口), `kill` 后进程都退出.
 
 ## 已知问题
 
-- QEMU 8.2.2: 对 virtio 键盘执行 QMP `input-send-event` 时带上 `device` 参数, QEMU 会异常退出 (abort) (2026-11-18 winman-test 验收热插拔时
+- QEMU 8.2.2: 对 virtio 键盘执行 QMP `input-send-event` 时带上 `device` 参数, QEMU 会异常退出 (abort) (2026-11-18 acompositor-test 验收热插拔时
   发现). 不带 `device` 时发给默认的输入设备.
 
 ## 还没有

@@ -293,10 +293,10 @@ describe('acdev vm logs', () => {
   test('the filter keeps whole matching lines across chunks, ignoring case', () => {
     const seen: string[] = []
     const filter = new LineFilter('frame', (text) => seen.push(text))
-    filter.push(Buffer.from('winman: Frame 1\nother\nwinman: fra'))
+    filter.push(Buffer.from('acompositor: Frame 1\nother\nacompositor: fra'))
     filter.push(Buffer.from('me 2\nlast frame'))
     filter.end()
-    expect(seen).toEqual(['winman: Frame 1\n', 'winman: frame 2\n', 'last frame\n'])
+    expect(seen).toEqual(['acompositor: Frame 1\n', 'acompositor: frame 2\n', 'last frame\n'])
     const all: string[] = []
     new LineFilter(undefined, (text) => all.push(text)).push(Buffer.from('as is'))
     expect(all).toEqual(['as is'])
@@ -308,11 +308,11 @@ describe('acdev vm dev', () => {
     JSON.stringify({ reason: 'compiler-artifact', target: { name, kind: [kind] }, executable })
 
   test('the binaries come from cargo\'s artifacts, only those asked for; a missing one is an error', () => {
-    const lines = [artifact('detour', 'lib', null), artifact('winman', 'bin', '/t/winman'), 'Compiling ...',
-      artifact('winman-test-client', 'bin', '/t/winman-test-client'), JSON.stringify({ reason: 'build-finished', success: true })]
-    expect(executables(lines, [])).toEqual([{ name: 'winman', path: '/t/winman' },
-      { name: 'winman-test-client', path: '/t/winman-test-client' }])
-    expect(executables(lines, ['winman-test-client'])).toEqual([{ name: 'winman-test-client', path: '/t/winman-test-client' }])
+    const lines = [artifact('detour', 'lib', null), artifact('acompositor', 'bin', '/t/acompositor'), 'Compiling ...',
+      artifact('acompositor-test-client', 'bin', '/t/acompositor-test-client'), JSON.stringify({ reason: 'build-finished', success: true })]
+    expect(executables(lines, [])).toEqual([{ name: 'acompositor', path: '/t/acompositor' },
+      { name: 'acompositor-test-client', path: '/t/acompositor-test-client' }])
+    expect(executables(lines, ['acompositor-test-client'])).toEqual([{ name: 'acompositor-test-client', path: '/t/acompositor-test-client' }])
     expect(() => executables(lines, ['nope'])).toThrow('cargo built no binary nope')
   })
 
@@ -334,10 +334,10 @@ describe('acdev vm dev', () => {
     expect(snapshot(dir)).toBe(before)
     utimesSync(join(dir, 'src', 'main.rs'), new Date(), new Date(Date.now() + 5000))
     expect(snapshot(dir)).not.toBe(before)
-    const built = [{ name: 'winman', path: '/t/winman' }]
-    expect(startCommand({ dir, bins: [], run: null }, built)).toBe(`export PATH=${BIN}:$PATH; winman`)
-    expect(startCommand({ dir, bins: [], run: 'winman --card /dev/dri/card1 winman-test-client' }, built))
-      .toBe(`export PATH=${BIN}:$PATH; winman --card /dev/dri/card1 winman-test-client`)
+    const built = [{ name: 'acompositor', path: '/t/acompositor' }]
+    expect(startCommand({ dir, bins: [], run: null }, built)).toBe(`export PATH=${BIN}:$PATH; acompositor`)
+    expect(startCommand({ dir, bins: [], run: 'acompositor --card /dev/dri/card1 acompositor-test-client' }, built))
+      .toBe(`export PATH=${BIN}:$PATH; acompositor --card /dev/dri/card1 acompositor-test-client`)
   })
 })
 
