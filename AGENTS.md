@@ -30,6 +30,9 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
 `docs/acde-api.md`); 清单规则在 libacde 的 `manifest/` (运行时的页面一侧和命令行共用一份), `npm/src/manifest/` 只是转出它的薄壳; Vite 插件在
 `npm/src/vite-plugin.ts`. 文档里其余指向 `web/` 的地方按删除前写.
 
+`acde:` 模块接口的版本化标准、接口验证器和一致性测试在 [AC/acde-RFC](http://gitea.dopamine/AC/acde-RFC) (说明见 libacde 的 AGENTS.md); 宿主窗口运行时的
+一致性用它的 `runner/` 验 (`acdev dev` 跑这个应用).
+
 ## 代码约定
 
 - 闭源 (用户定 2026-11-08): 自己的代码是专有的 (`npm/LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`.
