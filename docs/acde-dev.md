@@ -50,7 +50,7 @@
   (不看 `ACDE_STORAGE`), 会互相改写. 给 agent 的那个会话照 `acdev test` 的做法 (`E2eRun.env`) 设 `ACDE_STORAGE=` (空: 前三样只在内存),
   要连批准决定也分开再设自己的 `XDG_CONFIG_HOME`. 推荐用户的有窗口会话跑主检出, agent 的无头会话跑各自的工作树: 目录不同就不用 `--force`,
   监听互不触发, 半成品也不会出现在用户屏幕上.
-- acdev runtime 退出 acdev 跟着退出 (退出码跟它; 有窗口的会话崩溃时重起, 见上), acdev 的连接断了 acdev runtime 也退出. SIGTERM / SIGHUP 转给 acdebin-dbg. SIGINT (acde#91) 和 SIGTERM 一样:
+- acdev runtime 退出 acdev 跟着退出 (退出码跟它; 有窗口的会话崩溃时重起, 见上), acdev 的连接断了 acdev runtime 也退出. SIGTERM / SIGHUP 转给 acdev runtime. SIGINT (acde#91) 和 SIGTERM 一样:
   unix 上给 acdev runtime 发 SIGTERM (只发给 acdev dev 进程的 SIGINT, 如 pm2、编辑器任务面板、agent 发的, 以前被吞掉, acdev dev 一直不退),
   第二次中断发 SIGKILL; Windows 上 Ctrl+C 同时到 acdev runtime, 先等它自己退 `DevSession.INTERRUPT_MS` (2 s), 再按强制结束, 第二次立刻结束.
   unix 上 `DevSession.SAME_INTERRUPT_MS` (500 ms) 内的几个 SIGINT 算同一次中断 (从上一次算数的那个起算): 经 launcher 跑时 (`bun run acdev`、

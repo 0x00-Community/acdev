@@ -346,7 +346,7 @@ export class Help {
             + 'and formatted FAT, which needs mkfs.vfat or mkfs.exfat), usb remove [IMAGE or ID] pulls it (default: the last one), '
             + 'usb list shows them; wake wakes a guest that went to sleep (S3); '
             + 'provision sets the guest up for testing (the user, its password, greetd on the acdes '
-            + 'login screen, acdes and winman laid out by the acdes PKGBUILD, the Dopame package) and can be run again.',
+            + 'login screen, acdes laid out by its PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
             + '~/.local/share/acdev/vm). Needs qemu-system-x86_64, qemu-img and UEFI firmware (ACDEV_QEMU_DIR); without KVM, WHPX or HVF it emulates.',
         ],
@@ -373,9 +373,8 @@ export class Help {
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first; run provision again after it' },
-          { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin and --winman-bin' },
+          { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin' },
           { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
-          { flag: '--winman-bin FILE', about: 'provision: the winman guest build' },
           { flag: '--system-agent-bin FILE', about: 'provision: the acdes system-agent guest build (when the acdes PKGBUILD installs it)' },
           { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
           { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
@@ -410,7 +409,7 @@ export class Help {
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',
           'acdev vm logs 1234 --follow --grep error',
-          "acdev vm dev ../winman --run 'systemctl stop greetd; winman --card /dev/dri/card1 winman-test-client'",
+          "acdev vm dev ../acdes --bin acdes,winman-test-client --run 'systemctl stop greetd; acdes winman --card /dev/dri/card1 winman-test-client'",
           'acdev vm screenshot screen.png', 'acdev vm stop',
         ],
       },

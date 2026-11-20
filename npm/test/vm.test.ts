@@ -921,15 +921,15 @@ describe('acdev vm provision', () => {
     mkdirSync(join(repo, 'dopame', 'packages', 'dopame', 'dist'), { recursive: true })
     writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'package.json'), '{}')
     writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'dist', 'index.js'), '')
-    for (const bin of ['acdes-bin', 'winman', 'harness']) writeFileSync(join(repo, bin), bin)
+    for (const bin of ['acdes-bin', 'harness']) writeFileSync(join(repo, bin), bin)
     const sources = {
-      acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), winmanBin: join(repo, 'winman'), libacde: null,
+      acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), libacde: null,
       dopame: join(repo, 'dopame'), harness: join(repo, 'harness'),
     }
     const stage = stageProvision(sources)
     try {
-      for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes', 'acdes/src/target/winman/release/winman',
-        'acdes/src/acdebin-system/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
+      for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes',
+        'acdes/src/acdes/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
         'dopame/dopame-harness']) {
         expect(existsSync(join(stage, file))).toBe(true)
       }
@@ -937,17 +937,17 @@ describe('acdev vm provision', () => {
     } finally {
       rmSync(stage, { recursive: true, force: true })
     }
-    expect(() => stageProvision({ ...sources, winmanBin: null })).toThrow('--acdes needs --acdes-bin and --winman-bin')
-    expect(() => stageProvision({ ...sources, acdes: null })).toThrow('need --acdes')
-    const src = ['$', '{srcdir}/acdebin-system'].join('')
-    expect(pkgbuildPaths(`install -Dm644 "${src}/protocol/a/policy.json" x\ncp $srcdir/acdebin-system/docs/*.md y\n`
+    expect(() => stageProvision({ ...sources, acdesBin: null })).toThrow('--acdes needs --acdes-bin')
+    expect(() => stageProvision({ ...sources, acdes: null })).toThrow('needs --acdes')
+    const src = ['$', '{srcdir}/acdes'].join('')
+    expect(pkgbuildPaths(`install -Dm644 "${src}/protocol/a/policy.json" x\ncp $srcdir/acdes/docs/*.md y\n`
       + `z "${src}/../etc/passwd" "${src}/protocol/a/policy.json"`)).toEqual(['protocol/a/policy.json', 'docs'])
     mkdirSync(join(repo, 'acdes', 'protocol'), { recursive: true })
     writeFileSync(join(repo, 'acdes', 'protocol', 'policy.json'), '{}')
     writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), `package() { install "${src}/protocol/policy.json"; }\n`)
     const used = stageProvision(sources)
     try {
-      expect(existsSync(join(used, 'acdes/src/acdebin-system/protocol/policy.json'))).toBe(true)
+      expect(existsSync(join(used, 'acdes/src/acdes/protocol/policy.json'))).toBe(true)
     } finally {
       rmSync(used, { recursive: true, force: true })
     }

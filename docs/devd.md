@@ -3,7 +3,7 @@
 > 路径相对仓库根。
 
 acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-daemon.md`; 用户 2026-11-17 定: 原型阶段在 acdev 里做一个只用 std、
-和 acdebin-system 无关的独立小程序, 经 vsock 与 acdev 通信, 以后并入 acdebin-system). 作用类似安卓的 adbd. `crates/devd` 是独立的 Cargo
+和 acdes 无关的独立小程序, 经 vsock 与 acdev 通信, 以后并入 acdes). 作用类似安卓的 adbd. `crates/devd` 是独立的 Cargo
 工作区 (根工作区把它 `exclude` 掉): 不依赖任何库, 编一下不到一秒, 客户机和宿主用同一个二进制.
 
 - `acdevd serve [--port PORT] [--allow-socket PATTERN]...`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
