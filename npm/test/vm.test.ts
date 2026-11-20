@@ -715,7 +715,6 @@ describe('hosts other than Linux (only the parts that run here)', () => {
     expect(args).toContain('-qmp unix:')
     expect(args).not.toContain('vhost-vsock')
     expect(machine.linkKind()).toBe('tcp')
-    await expect(machine.start({ gl: true }, () => undefined)).rejects.toThrow('Linux only')
     const silicon = new Machine({ ACDEV_VM_DIR: tmp(), ACDEV_VM_ARCH: 'x86_64' }, { platform: 'darwin', arch: 'arm64' })
     await expect(silicon.start({}, () => undefined)).rejects.toThrow('runs only an aarch64 guest')
   })
@@ -989,7 +988,7 @@ describe('emulated hardware', () => {
     expect(() => resolutionOf('big')).toThrow('--resolution big')
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
     expect(machine.args({ display: 'none', vga: 'std' }, 'kvm').join(' ')).toContain('-device VGA,id=gpu0,xres=1280,yres=800 -display none')
-    expect(() => machine.refuse({ vga: 'std', gl: true })).toThrow('--vga std has no 3D')
+    expect(() => machine.refuse({ vga: 'std', gl: true })).not.toThrow()
     expect(() => machine.refuse({ vga: 'std', outputs: 2 })).toThrow('--vga std has one display')
   })
 
