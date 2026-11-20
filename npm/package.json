@@ -26,9 +26,7 @@
     "test:host": "ACDEV_HOST_E2E=1 bun test test/host",
     "typecheck": "tsc --noEmit -p .",
     "dist": "bun scripts/dist.ts",
-    "startup": "bun scripts/startup.ts",
-    "notices": "bun scripts/notices.ts",
-    "notices:check": "bun scripts/notices.ts --check"
+    "startup": "bun scripts/startup.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

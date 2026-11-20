@@ -25,7 +25,6 @@ function fail(message: string): never {
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) fail(`--version ${version || '(missing)'}: x.y.z`)
 if (!existsSync(dir)) fail(`${dir}: no such directory`)
 
-const NOTICES = 'THIRD-PARTY-NOTICES.txt'
 const TARGETS = ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc']
 const targets = values.targets!.split(',').filter(Boolean)
 if (targets.length === 0) fail('--targets: the triples this release ships, comma-separated')
@@ -97,9 +96,9 @@ if (problems.length === 0) {
       problems.push(`${archive}: not exactly the files ${wanted.join(', ')}`)
     }
   }
-  for (const [index, runtime] of runtimes.entries()) programs(runtime, [exe('acdev', targets[index]!), NOTICES])
-  programs(guest, ['acdevd-x86_64', 'acdevd-aarch64', NOTICES])
-  for (const tool of tools) programs(tool.file, [...tool.programs, NOTICES])
+  for (const [index, runtime] of runtimes.entries()) programs(runtime, [exe('acdev', targets[index]!)])
+  programs(guest, ['acdevd-x86_64', 'acdevd-aarch64'])
+  for (const tool of tools) programs(tool.file, tool.programs)
   const sdkNames = systemTar(['-tzf', join(dir, version, sdk)])
   const sdkList = sdkNames.status === 0 ? sdkNames.stdout.split('\n').filter(Boolean) : []
   if (!sdkList.includes('package/package.json')) problems.push(`${sdk}: no package/package.json`)
@@ -133,9 +132,6 @@ if (problems.length === 0) {
       if (extracted.status !== 0) {
         problems.push(`${archive}: cannot be unpacked`)
         continue
-      }
-      for (const at of [NOTICES, `lib/acdev/${NOTICES}`]) {
-        if (!existsSync(join(target, top, at))) problems.push(`${archive}: no ${at}`)
       }
       const leaks = shipLeaks(join(target, top))
       for (const leak of leaks) problems.push(`${archive}: ${leak}`)
