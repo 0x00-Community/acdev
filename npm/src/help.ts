@@ -409,7 +409,7 @@ export class Help {
         examples: [
           'acdev vm fetch', 'acdev vm start --headless --share target/release', 'acdev vm run -- uname -a', 'acdev vm shell',
           'acdev vm logs 1234 --follow --grep error',
-          "acdev vm dev ../acdes --bin acdes,winman-test-client --run 'systemctl stop greetd; acdes winman --card /dev/dri/card1 winman-test-client'",
+          "acdev vm dev ../acdes --bin acdes,acompositor-test-client --run 'systemctl stop greetd; acdes acompositor --card /dev/dri/card1 acompositor-test-client'",
           'acdev vm screenshot screen.png', 'acdev vm stop',
         ],
       },
