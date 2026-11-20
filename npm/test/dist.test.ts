@@ -173,7 +173,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(first.out).toContain('installed acdev 0.0.2 with acdev runtime 0.0.2')
     for (const file of ['acdev-0.0.2.tar.gz', 'acdev-guest-0.0.2.tar.gz']) {
       expect(first.out, 'no terminal: the size first, then the checked file').toContain(`downloading ${file} (`)
-      expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: \\d+ [KM]B, SHA-256 matches`))
+      expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: [\\d.]+ [KM]B, SHA-256 matches`))
     }
     expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acdev', 'bin')}:$PATH"`)
     const libexec = join(home, '.acdev', 'current', 'libexec')
