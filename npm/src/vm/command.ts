@@ -61,7 +61,7 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
     ...(flags.has('image') && { image: flags.get('image')! }),
     ...(flags.has('share') && { share: Machine.directory(flags.get('share')!) }),
     ...(flags.has('fresh') && { fresh: true }),
-    ...(flags.has('gl') && { gl: true }),
+    ...(flags.has('no-gl') ? { gl: false } : flags.has('gl') ? { gl: true } : {}),
     display,
     outputs: outputsFor(flags, display),
     audio: audioOf(flags.get('audio')),

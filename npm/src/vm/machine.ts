@@ -18,6 +18,7 @@ import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
 import { Usb } from './usb.ts'
+import { GL_FAILED, glChoice, qemuDevices, renderNode, windowed } from './gl.ts'
 
 export interface StartOptions {
   readonly image?: string
@@ -303,7 +304,7 @@ export class Machine {
   }
 
   #display(display: NonNullable<StartOptions['display']>, gl: boolean, outputs: number): string {
-    if (display === 'none') return outputs > 1 ? 'dbus,p2p=yes' : 'none'
+    if (display === 'none') return outputs > 1 ? 'dbus,p2p=yes' : gl ? 'egl-headless' : 'none'
     if (display === 'vnc') return 'vnc=127.0.0.1:0'
     if (display === 'viewer') return 'dbus,p2p=yes'
     if (display === 'sdl') return gl ? 'sdl,gl=on' : 'sdl'
@@ -328,15 +329,11 @@ export class Machine {
   }
 
   refuse(options: StartOptions): void {
-    const windowed = options.display === undefined || ['window', 'sdl', 'gtk'].includes(options.display)
-    if (options.gl && !windowed) throw new Error('vm: --gl needs a window')
-    if (options.vga === 'std' && options.gl) throw new Error('vm: --vga std has no 3D: leave out --gl (virgl needs the virtio GPU)')
     if (options.vga === 'std' && (options.outputs ?? 1) > 1) {
       throw new Error(`vm: --vga std has one display: leave out --outputs ${options.outputs} (more displays need the virtio GPU)`)
     }
     if (options.display === 'sdl' && this.host.platform !== 'linux') throw new Error('vm: --sdl (QEMU\'s SDL window) is Linux only')
     if (options.display === 'gtk' && this.host.platform !== 'linux') throw new Error('vm: --gtk is for Linux, where SDL is the default window')
-    if (options.gl && this.host.platform !== 'linux') throw new Error('vm: --gl (virgl in a GTK window) is Linux only')
     if (this.host.platform === 'darwin' && this.host.arch === 'arm64' && this.guest !== 'aarch64') {
       throw new Error('vm: Apple silicon runs only an aarch64 guest (unset ACDEV_VM_ARCH)')
     }
@@ -378,7 +375,7 @@ export class Machine {
     this.refuse(given)
     const qemu = this.qemu()
     const display = this.window(given.display ?? 'window', Machine.displays(qemu.system), say, given.outputs ?? 1)
-    const options = { ...given, display }
+    let options: StartOptions = { ...given, display, gl: this.#gl(given, display, qemu.system, say) }
     const image = realpathSync(options.image ?? this.image() ?? join(this.images, 'latest.qcow2'))
     mkdirSync(this.run, { recursive: true })
     mkdirSync(this.logs, { recursive: true })
@@ -388,16 +385,37 @@ export class Machine {
     writeFileSync(join(this.run, 'share'), `${options.share ?? ''}\n`)
     writeFileSync(join(this.run, 'display'), `${options.display ?? 'window'}\n`)
     writeFileSync(join(this.run, 'outputs'), `${options.outputs ?? 1}\n`)
-    writeFileSync(join(this.run, 'gl'), `${options.gl ? 'on' : 'off'}\n`)
+    this.#noteGl(options)
     const preferred = preferredAccel(this.host, Machine.kvm())
     if (preferred === 'tcg') say('no hardware acceleration (/dev/kvm does not open): emulating (TCG), much slower')
-    const tried = await this.#boot(qemu, options, preferred)
+    let tried = await this.#boot(qemu, options, preferred)
     if (tried.pid !== null) return tried.pid
+    if (options.gl && GL_FAILED.test(tried.log)) {
+      say(`3D did not start (${Machine.#firstLine(tried.log, GL_FAILED.source)}): starting again without it (--no-gl)`)
+      options = { ...options, gl: false }
+      this.#noteGl(options)
+      tried = await this.#boot(qemu, options, preferred)
+      if (tried.pid !== null) return tried.pid
+    }
     if (preferred === 'tcg' || !new RegExp(preferred, 'i').test(tried.log)) throw new Error(`vm: qemu did not start: ${tried.log}`)
     say(`${preferred.toUpperCase()} did not start (${Machine.#firstLine(tried.log, preferred)}): emulating (TCG), much slower`)
     const fallback = await this.#boot(qemu, options, 'tcg')
     if (fallback.pid !== null) return fallback.pid
     throw new Error(`vm: qemu did not start: ${fallback.log}`)
+  }
+
+  #gl(given: StartOptions, display: NonNullable<StartOptions['display']>, system: string, say: (line: string) => void): boolean {
+    const devices = guestDevices(this.guest, 'kvm')
+    const choice = glChoice({
+      asked: given.gl, platform: this.host.platform, vga: given.vga ?? 'virtio', display, outputs: given.outputs ?? 1, device: devices.gpuGl,
+      devices: () => qemuDevices(system), renderNode: () => renderNode(),
+    })
+    if (choice.note) say(choice.note)
+    return choice.gl
+  }
+
+  #noteGl(options: StartOptions): void {
+    writeFileSync(join(this.run, 'gl'), `${options.gl && windowed(options.display ?? 'window') ? 'on' : 'off'}\n`)
   }
 
   static #firstLine(log: string, word: string): string {
@@ -560,9 +578,10 @@ export class Machine {
     return existsSync(file) && readFileSync(file, 'utf8').trim() === 'on'
   }
 
-  static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with --gl, where QMP screendump reads the display surface that virgl '
-    + 'does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest instead: '
-    + 'acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start without --gl'
+  static readonly GL_SCREENSHOT = 'vm screenshot: the guest runs with 3D (virgl, the default) in a window, where QMP screendump reads the '
+    + 'display surface that virgl does not draw into (the picture lives in a GL texture), so it gives no picture; take it inside the guest '
+    + 'instead: acdev screen --session vm -o FILE.png (the logged-in session, through winman), or start with --headless (3D, readable) '
+    + 'or --no-gl'
 
   async wake(): Promise<void> {
     this.running()
