@@ -972,6 +972,16 @@ describe('acdev vm provision', () => {
       rmSync(withNode, { recursive: true, force: true })
     }
     expect(provisionSources(new Map([['manager-node', '/m.so']])).managerNode).toBe('/m.so')
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { install -Dm755 "$(_target)/release/proxy" x; }\n')
+    expect(() => stageProvision(sources)).toThrow('proxy: give --proxy-bin (cargo build -p acde-proxy)')
+    writeFileSync(join(repo, 'proxy'), 'proxy')
+    const withProxy = stageProvision({ ...sources, proxyBin: join(repo, 'proxy') })
+    try {
+      expect(readFileSync(join(withProxy, 'acdes/src/target/release/proxy'), 'utf8')).toBe('proxy')
+    } finally {
+      rmSync(withProxy, { recursive: true, force: true })
+    }
+    expect(provisionSources(new Map([['proxy-bin', '/p']])).proxyBin).toBe('/p')
   })
 
   test('the script lays out acdes by package(), sets the user and greetd, and takes the defaults it is told', () => {

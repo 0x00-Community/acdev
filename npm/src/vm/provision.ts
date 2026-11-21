@@ -15,11 +15,13 @@ export interface ProvisionSources {
   readonly kernelPkgs?: string | null
   readonly systemAgentBin?: string | null
   readonly managerNode?: string | null
+  readonly proxyBin?: string | null
 }
 
 const ACDES_BUILDS = [
   { file: 'system-agent', source: 'systemAgentBin', flag: '--system-agent-bin', build: 'cargo build -p acde-system-agent' },
   { file: 'libacdes_manager_node.so', source: 'managerNode', flag: '--manager-node', build: 'cargo build -p acdes-manager-node' },
+  { file: 'proxy', source: 'proxyBin', flag: '--proxy-bin', build: 'cargo build -p acde-proxy' },
 ] as const
 
 export interface ProvisionOptions {
@@ -268,5 +270,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
     kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
+    proxyBin: get('proxy-bin'),
   }
 }

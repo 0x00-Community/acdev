@@ -184,7 +184,8 @@ acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路�
 acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
 `libacdes_manager_node.so` (到 `/usr/lib/acdes/manager.node`, 桌面后台服务经它连管家; acdes Akira/supervisor-broker 起) 时要给
 `--manager-node FILE` (`cargo build -p acdes-manager-node` 的产物), 放进 `src/target/release/libacdes_manager_node.so`, 没给时 provision 先报错.
-这两项在 `src/vm/provision.ts` 的 `ACDES_BUILDS` 里列着, acdes 再多一个这样的产物只加一行.
+系统代理同样: acdes 的 PKGBUILD 装 `release/proxy` (到 `/usr/lib/acdes/proxy`, acdes-proxy; acdes Akira/restricted-run 起) 时要给 `--proxy-bin FILE`
+(`cargo build -p acde-proxy` 的产物). 这三项在 `src/vm/provision.ts` 的 `ACDES_BUILDS` 里列着, acdes 再多一个这样的产物只加一行.
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
 ## 命令

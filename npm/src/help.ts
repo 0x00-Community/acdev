@@ -376,6 +376,7 @@ export class Help {
           { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin' },
           { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
           { flag: '--system-agent-bin FILE', about: 'provision: the acdes system-agent guest build (when the acdes PKGBUILD installs it)' },
+          { flag: '--proxy-bin FILE', about: 'provision: the acdes system proxy (acdes-proxy) guest build when the acdes PKGBUILD installs it' },
           { flag: '--manager-node FILE', about: 'provision: the acdes manager Node-API module (libacdes_manager_node.so) when the acdes PKGBUILD installs it' },
           { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
           { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
