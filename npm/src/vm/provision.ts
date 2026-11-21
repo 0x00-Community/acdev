@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
-import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
+import { KERNEL_SCRIPT, PKGS_SCRIPT, stageKernel, stagePkgs } from './kernelpkgs.ts'
 import { BACKEND_SCRIPT, DEPENDS_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDepends, stageDropIns } from './dopamebackend.ts'
 
 export interface ProvisionSources {
@@ -13,6 +13,7 @@ export interface ProvisionSources {
   readonly dopame: string | null
   readonly harness: string | null
   readonly kernelPkgs?: string | null
+  readonly pkgs?: string | null
   readonly systemAgentBin?: string | null
   readonly managerNode?: string | null
   readonly proxyBin?: string | null
@@ -43,6 +44,9 @@ export const PROVISION_SCRIPT = [
   'here=$(cd "$(dirname "$0")" && pwd)',
   'user=$1 password=$2 restart=$3',
   'step() { echo "acdev provision: $*"; }',
+  'warned="$here/warnings"',
+  ': >"$warned"',
+  'warn() { echo "acdev provision: warning: $*" >&2; echo "$*" >>"$warned"; }',
   '',
   'step "the package database"',
   'synced=0',
@@ -50,19 +54,20 @@ export const PROVISION_SCRIPT = [
   '  if pacman -Sy --noconfirm >/dev/null; then synced=1; break; fi',
   '  step "pacman -Sy failed (try $try of 3)"; sleep 5',
   'done',
-  '[ "$synced" = 1 ] || step "pacman -Sy kept failing (no network?): installing from what is there"',
+  '[ "$synced" = 1 ] || warn "pacman -Sy kept failing (no network?): installing from what is there"',
   'for pkg in greetd xdg-user-dirs fcitx5 fcitx5-rime rime-pinyin-simp foot xdg-desktop-portal-gtk; do',
-  '  pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "could not install $pkg"',
+  '  pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || warn "could not install $pkg"',
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
   '',
   ...KERNEL_SCRIPT,
+  ...PKGS_SCRIPT,
   'restore() {',
   '  modinfo "$1" >/dev/null 2>&1 && return 0',
   '  step "the $1 module is missing (agentos-drivers prune removes $2): installing $2 back"',
-  '  pacman -S --needed --noconfirm "$2" >/dev/null || { step "warning: could not install $2"; return 0; }',
+  '  pacman -S --needed --noconfirm "$2" >/dev/null || { warn "could not install $2"; return 0; }',
   '  modinfo "$1" >/dev/null 2>&1 || depmod -a || true',
-  '  modinfo "$1" >/dev/null 2>&1 || step "warning: $2 is installed but there is still no $1 module"',
+  '  modinfo "$1" >/dev/null 2>&1 || warn "$2 is installed but there is still no $1 module"',
   '}',
   `restore ${PRUNED.bochs.module} ${PRUNED.bochs.package}`,
   '',
@@ -77,7 +82,7 @@ export const PROVISION_SCRIPT = [
   `    missing=$(pacman -T "\${depends[@]}" || true)`,
   '    if [ -n "$missing" ]; then',
   '      step "the acdes dependencies not installed yet: $(echo $missing)"',
-  '      pacman -S --needed --noconfirm $missing >/dev/null || step "warning: could not install all of: $(echo $missing)"',
+  '      pacman -S --needed --noconfirm $missing >/dev/null || warn "could not install all of: $(echo $missing)"',
   '    fi',
   '    package',
   '  )',
@@ -90,11 +95,11 @@ export const PROVISION_SCRIPT = [
   '  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true',
   '  if [ -x /usr/lib/acdes/system-agent ] && [ -f /usr/lib/systemd/system/acdes-system-agent.service ]; then',
   '    systemctl daemon-reload',
-  '    systemctl enable acdes-system-agent >/dev/null 2>&1 || step "warning: could not enable acdes-system-agent"',
-  '    systemctl restart acdes-system-agent || step "warning: acdes-system-agent did not start"',
+  '    systemctl enable acdes-system-agent >/dev/null 2>&1 || warn "could not enable acdes-system-agent"',
+  '    systemctl restart acdes-system-agent || warn "acdes-system-agent did not start"',
   '  fi',
   'fi',
-  '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --acdes the first time" >&2; exit 3; }',
+  '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --pkgs (an acdes package) or --acdes the first time" >&2; exit 3; }',
   '',
   'if [ -d "$here/dopame" ]; then',
   ...DEPENDS_SCRIPT,
@@ -123,7 +128,7 @@ export const PROVISION_SCRIPT = [
   `  if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore ${PRUNED.hwsim.module} ${PRUNED.hwsim.package}; fi`,
   '  while read -r pkg; do',
   '    [ -n "$pkg" ] || continue',
-  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || step "warning: could not install $pkg"',
+  '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || warn "could not install $pkg"',
   '  done <"$here/hw/packages"',
   '  for script in "$here"/hw/acdev-*; do',
   '    if [ -f "$script" ]; then install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; fi',
@@ -131,7 +136,7 @@ export const PROVISION_SCRIPT = [
   '  if [ -f "$here/hw/btvirt" ]; then install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt; fi',
   '  if [ -f "$here/hw/acdev-btvirt-build" ] && ! command -v btvirt >/dev/null; then',
   '    step "btvirt (no Arch package has it): building emulator/btvirt from the source of the installed bluez"',
-  '    /usr/local/bin/acdev-btvirt-build || step "warning: no btvirt, so the simulated Bluetooth stays off"',
+  '    /usr/local/bin/acdev-btvirt-build || warn "no btvirt, so the simulated Bluetooth stays off"',
   '  fi',
   '  while read -r unit; do',
   '    [ -n "$unit" ] || continue',
@@ -146,8 +151,8 @@ export const PROVISION_SCRIPT = [
   '  for unit in "$here"/hw/units/*.service; do',
   '    [ -f "$unit" ] || continue',
   '    name=$(basename "$unit")',
-  '    systemctl enable "$name" >/dev/null 2>&1 || step "warning: could not enable $name"',
-  '    systemctl restart "$name" || step "warning: $name did not start"',
+  '    systemctl enable "$name" >/dev/null 2>&1 || warn "could not enable $name"',
+  '    systemctl restart "$name" || warn "$name did not start"',
   '    journalctl -u "$name" -n 2 --no-pager -o cat 2>/dev/null | grep "^acdev-" | sed "s/^/acdev provision: /" || true',
   '  done',
   'fi',
@@ -167,6 +172,11 @@ export const PROVISION_SCRIPT = [
   'if [ "$restart" = 1 ]; then',
   '  step "restarting greetd"',
   '  systemctl restart greetd',
+  'fi',
+  'if [ -s "$warned" ]; then',
+  '  echo "acdev provision: done with $(wc -l <"$warned") warning(s), so it exits 4:" >&2',
+  '  sed "s/^/acdev provision:   /" "$warned" >&2',
+  '  exit 4',
   'fi',
   'step "done: log in as $user"',
   '',
@@ -253,6 +263,7 @@ export function stageProvision(sources: ProvisionSources, hardware: HardwareChoi
     stageDopame(stage, sources)
     stageHardware(stage, hardware)
     if (sources.kernelPkgs) stageKernel(stage, sources.kernelPkgs)
+    if (sources.pkgs) stagePkgs(stage, sources.pkgs)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })
     return stage
   } catch (error) {
@@ -269,7 +280,7 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
-    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
+    kernelPkgs: get('kernel-pkgs'), pkgs: get('pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
     proxyBin: get('proxy-bin'),
   }
 }

@@ -94,7 +94,8 @@ export class Sdk {
   static warning(state: SdkState, pm: () => string, dir = ''): string | null {
     if (state.spec === null) return null
     const path = Sdk.path(dir, state.spec)
-    if (path === null || path !== Sdk.dir()) {
+    const mine = Sdk.dir()
+    if (path === null || path !== (existsSync(mine) ? realpathSync(mine) : mine)) {
       return `package.json: ${Sdk.NAME} is ${state.spec}, but this acdev's SDK is ${Sdk.spec()}: run acdev sdk update`
     }
     if (state.version !== state.paired) {

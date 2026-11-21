@@ -26,7 +26,7 @@
   `ACDEV_SDK` (一个 SDK 目录) 时用它. SDK 只有类型声明, 不发 npm、不再写 pkgs 上的 tarball 地址; 工程因此只在有 acdev 的机器上装得上.
   开发 acdev 的人 `bun link` / `npm link` 把 `bin/acdev.mjs` 放上 PATH.
   版本配对 (`src/sdk.ts`): `Sdk.state` 的版本取依赖指向的那份 SDK 的 `package.json` (`Sdk.path`; tarball 地址从文件名取, 别的写法读
-  `node_modules` 里装的). 依赖不是这个 acdev 的那份 SDK 时 (别的路径、旧工程的 tarball 地址) `acdev check` 打警告、`acdev dev` 开始时打一行
+  `node_modules` 里装的). 依赖不是这个 acdev 的那份 SDK 时 (别的路径、旧工程的 tarball 地址; 两边都解析软链后比, 全局装的 `current` 是软链, #109) `acdev check` 打警告、`acdev dev` 开始时打一行
   (`Sdk.warning`, `AppPackage.sdkWarning`): `package.json: @acde/api is <写法>, but this acdev's SDK is file:<路径>: run acdev sdk update`;
   路径对、版本和 `Sdk.paired()` 不同时报版本. `acdev sdk [dir]` 显示两边; `acdev sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进
   devDependencies) 改成 `Sdk.spec()`, 按 `PackageManager.of` (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找)

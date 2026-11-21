@@ -620,8 +620,11 @@ export class Machine {
     this.running()
     const from = resolve(local)
     if (!existsSync(from)) throw new Error(`vm: no ${local}`)
-    const to = remote ?? posix.join('/opt/acdev', basename(from))
-    await this.devd().push(Devd.files(from, to))
+    const devd = this.devd()
+    const into = remote !== undefined && !statSync(from).isDirectory()
+      && (remote.endsWith('/') || await devd.run(['test', '-d', remote]) === 0)
+    const to = remote === undefined ? posix.join('/opt/acdev', basename(from)) : into ? posix.join(remote, basename(from)) : remote
+    await devd.push(Devd.files(from, to))
     return to
   }
 

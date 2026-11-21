@@ -63,7 +63,7 @@ class Cli {
       flags: [
         'image', 'share', 'wait', 'grep', 'lines', 'bin', 'run', 'profile', 'outputs', 'output',
         'acdes', 'acdes-bin', 'system-agent-bin', 'manager-node', 'proxy-bin', 'libacde', 'dopame', 'harness', 'user',
-        'audio', 'size', 'vga', 'resolution', 'btvirt', 'kernel-pkgs',
+        'audio', 'size', 'vga', 'resolution', 'btvirt', 'kernel-pkgs', 'pkgs',
       ],
       switches: [
         'fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'no-gl', 'detach', 'force', 'follow', 'no-restart',
