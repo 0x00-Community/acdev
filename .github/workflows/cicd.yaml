@@ -28,11 +28,6 @@ on:
         required: false
         default: ''
         type: string
-      release_run:
-        description: 'publish what an earlier run of the same commit and version built (its run number) instead of building again'
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
@@ -73,7 +68,6 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       targets: ${{ steps.version.outputs.targets }}
-      release_run: ${{ steps.version.outputs.release_run }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -88,7 +82,6 @@ jobs:
           COMMIT: ${{ github.event.inputs.commit }}
           VERSION_INPUT: ${{ github.event.inputs.version }}
           SKIP: ${{ github.event.inputs.skip_targets }}
-          RELEASE_RUN: ${{ github.event.inputs.release_run }}
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
         run: |
           # Gitea gives inputs.publish as false even when ticked; in the environment it is the text true
@@ -133,6 +126,14 @@ jobs:
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           lib=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
           [ -n "$lib" ] || { echo "::error::no main in AC/libacde"; exit 1; }
+          # a publish of a commit and version pkgs already made takes that libacde, so every job reuses its output (built/ on .127)
+          if [ "$PUBLISH" = true ]; then
+            was=$(printf 'acdev/built/libacde-%s-%s\n' "$sha" "$v" | nc $PULL | tar -xO 2>/dev/null || true)
+            if printf '%s' "$was" | grep -qxE '[0-9a-f]{40}' && [ "$was" != "$lib" ]; then
+              echo "::notice::libacde $was, as when $sha was last built as $v (main is $lib)"
+              lib=$was
+            fi
+          fi
           all="x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc"
           for s in $(echo "${SKIP:-}" | tr , ' '); do
             case " $all " in *" $s "*) ;; *) echo "::error::unknown target to skip: $s (one of $all)"; exit 1 ;; esac
@@ -140,9 +141,7 @@ jobs:
           left=
           for t in $all; do case ",${SKIP:-}," in *",$t,"*) ;; *) left="$left,$t" ;; esac; done
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
-          case ${RELEASE_RUN:-} in '') ;; *[!0-9]*) echo "::error::release_run $RELEASE_RUN is not a run number"; exit 1 ;; esac
-          [ -z "${RELEASE_RUN:-}" ] || [ "$PUBLISH" = true ] || { echo "::error::release_run only publishes: run it with publish=true"; exit 1; }
-          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\nrelease_run=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" "${RELEASE_RUN:-}" | tee -a "$GITHUB_OUTPUT"
+          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" | tee -a "$GITHUB_OUTPUT"
 
   # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
   # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on any aarch64-debian runner (user)
@@ -158,33 +157,13 @@ jobs:
           - { triple: x86_64-pc-windows-msvc, cargo: xwin build, runner: x86_64-debian }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    if: needs.plan.outputs.release_run == '' && contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
+    if: contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple))
     env:
       T: ${{ matrix.triple }}
       V: ${{ needs.plan.outputs.version }}
+      D: build-${{ matrix.triple }}
+      SOURCES: ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.libacde }} ${{ needs.plan.outputs.version }} ${{ matrix.triple }}
     steps:
-      - &checkout
-        uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - &libacde
-        name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
-        env:
-          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
-          REF: ${{ needs.plan.outputs.libacde }}
-        run: |
-          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
-          rm -rf libacde
-          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
-          if [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
-            g -C libacde fetch --quiet --depth 1 origin "$REF"
-            git -C libacde checkout --quiet --detach "$REF"
-          fi
-          g -C libacde submodule update --init --depth 1
-          echo "libacde $REF" | tee -a "$GITHUB_STEP_SUMMARY"
       - &ssh
         name: the upload key for the artifacts host
         env:
@@ -201,7 +180,49 @@ jobs:
             '  echo "upload: rsync exited $s (try $n of 6), again in $((n * 5)) s" >&2' '  sleep $((n * 5)); n=$((n + 1))' 'done' > "$k/upload"
           chmod 755 "$k/upload"
           echo "$k" >> "$GITHUB_PATH"
+      - &reuse
+        name: built already? (the run that built this key, recorded under built/ on the artifacts host, copied into this run)
+        id: reuse
+        run: |
+          n=$D-$(printf '%s' "$SOURCES" | sha256sum | cut -c1-16)
+          echo "record=$n" >> "$GITHUB_OUTPUT"
+          was=$(printf 'acdev/built/%s\n' "$n" | nc $PULL | tar -xO 2>/dev/null || true)
+          r=$RUNNER_TEMP/reuse
+          rm -rf "$r" && mkdir -p "$r"
+          case $was in '' | *[!0-9]*) was= ;; esac
+          if [ -n "$was" ] && printf 'acdev/%s/%s\n' "$was" "$D" | nc $PULL | tar -x -C "$r" --strip-components=2 2>/dev/null &&
+            [ -n "$(ls -A "$r/$D" 2>/dev/null)" ]; then
+            upload -rt --mkpath --chmod=D755,F644 "$r/$D/" "$TO:$GITHUB_RUN_NUMBER/$D/"
+            echo "$D: run $was built it, copied" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - &checkout
+        if: steps.reuse.outputs.build == 'true'
+        uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acdev
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - &libacde
+        if: steps.reuse.outputs.build == 'true'
+        name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
+          REF: ${{ needs.plan.outputs.libacde }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
+          rm -rf libacde
+          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
+          if [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
+            g -C libacde fetch --quiet --depth 1 origin "$REF"
+            git -C libacde checkout --quiet --detach "$REF"
+          fi
+          g -C libacde submodule update --init --depth 1
+          echo "libacde $REF" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: acdev (dist profile, split debug information) and acdevtool
+        if: steps.reuse.outputs.build == 'true'
         working-directory: acdev
         env:
           CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
@@ -220,6 +241,7 @@ jobs:
           cargo ${{ matrix.cargo }} --locked --profile dist -p acdev --target $T
           (cd crates/tool && cargo ${{ matrix.cargo }} --locked --release --target $T)
       - name: the archives (one program each, fixed times and owner) and the split debug information, to the artifacts host
+        if: steps.reuse.outputs.build == 'true'
         run: |
           case $T in *-windows-*) x=.exe ;; *) x= ;; esac
           mkdir -p out/symbols
@@ -234,17 +256,27 @@ jobs:
           [ -n "$(ls -A out/symbols)" ] || { echo "::error::no split debug information was produced"; exit 1; }
           ls -la out out/symbols
           upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/build-$T/"
+      - &record
+        name: record this run as the one that built this key
+        if: steps.reuse.outputs.build == 'true'
+        run: |
+          rm -rf built && mkdir built && echo "$GITHUB_RUN_NUMBER" > "built/${{ steps.reuse.outputs.record }}"
+          upload -rt --mkpath --chmod=D755,F644 built/ "$TO:built/"
 
   # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
   guest:
     needs: plan
-    if: needs.plan.outputs.release_run == ''
     runs-on: x86_64-debian
     timeout-minutes: 30
+    env:
+      D: guest
+      SOURCES: ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.version }}
     steps:
-      - *checkout
       - *ssh
+      - *reuse
+      - *checkout
       - name: acdevd-x86_64 and acdevd-aarch64, to the artifacts host
+        if: steps.reuse.outputs.build == 'true'
         working-directory: acdev/crates/devd
         run: |
           s=$GITHUB_WORKSPACE/stage o=$GITHUB_WORKSPACE/out
@@ -257,21 +289,26 @@ jobs:
             tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64) | gzip -9 -n \
             > "$o/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
           upload -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
+      - *record
 
   # the release (out/: <version>/, latest, latest.json, install.*) from the builds, guarded, kept as <run>/acdev-release
   pkgs:
     needs: [plan, build, guest]
-    if: ${{ !cancelled() && needs.plan.outputs.release_run == '' && needs.guest.result == 'success' && needs.build.result != 'failure' }}
+    if: ${{ !cancelled() && needs.guest.result == 'success' && needs.build.result != 'failure' }}
     runs-on: x86_64-debian
     env:
       V: ${{ needs.plan.outputs.version }}
       SHA: ${{ needs.plan.outputs.sha }}
       TARGETS: ${{ needs.plan.outputs.targets }}
+      D: acdev-release
+      SOURCES: ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.libacde }} ${{ needs.plan.outputs.version }} ${{ needs.plan.outputs.targets }}
     steps:
+      - *ssh
+      - *reuse
       - *checkout
       - *libacde
-      - *ssh
       - name: dist (the CLI archive, the SDK from libacde/acde-api, the built archives beside them) and latest.json
+        if: steps.reuse.outputs.build == 'true'
         working-directory: acdev/npm
         run: |
           w=$GITHUB_WORKSPACE
@@ -294,12 +331,14 @@ jobs:
       - name: to the artifacts host (acdev-release, run.json)
         env:
           PUBLISH: ${{ needs.plan.outputs.publish }}
+          FRESH: ${{ steps.reuse.outputs.build }}
         run: |
-          upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
+          [ "$FRESH" != true ] || upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
           mkdir -p run && printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > run/run.json
           upload -t --mkpath --chmod=F644 run/run.json "$TO:$GITHUB_RUN_NUMBER/"
           echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
       - name: the release is exactly the allow-list and the shipped content is clean
+        if: steps.reuse.outputs.build == 'true'
         working-directory: acdev/npm
         run: bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$V" --targets "$TARGETS"
       - name: latest on the artifacts host
@@ -307,11 +346,20 @@ jobs:
           echo "$GITHUB_RUN_NUMBER" > run/latest
           upload -t --chmod=F644 run/latest "$TO:"
           [ "${{ needs.plan.outputs.publish }}" = true ] || echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
+      - name: record this run as the one that built this key, and its libacde for a publish of this commit and version
+        if: steps.reuse.outputs.build == 'true'
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+          LIB: ${{ needs.plan.outputs.libacde }}
+        run: |
+          rm -rf built && mkdir built && echo "$GITHUB_RUN_NUMBER" > "built/${{ steps.reuse.outputs.record }}"
+          echo "$LIB" > "built/libacde-$SHA-$V"
+          upload -rt --mkpath --chmod=D755,F644 built/ "$TO:built/"
 
   # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
   publish:
     needs: [plan, pkgs]
-    if: ${{ !cancelled() && needs.plan.outputs.publish == 'true' && (needs.pkgs.result == 'success' || (needs.plan.outputs.release_run != '' && needs.pkgs.result == 'skipped')) }}
+    if: needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'
     runs-on: x86_64-debian
     permissions:
       contents: write
@@ -319,7 +367,6 @@ jobs:
       V: ${{ needs.plan.outputs.version }}
       TAG: ${{ needs.plan.outputs.tag }}
       SHA: ${{ needs.plan.outputs.sha }}
-      RUN: ${{ needs.plan.outputs.release_run || github.run_number }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -329,8 +376,8 @@ jobs:
       - name: the release from the artifacts host
         run: |
           rm -rf out && mkdir out
-          printf 'acdev/%s/acdev-release\n' "$RUN" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
-          [ -f out/latest ] || { echo "::error::the artifacts host has no $RUN/acdev-release"; exit 1; }
+          printf 'acdev/%s/acdev-release\n' "$GITHUB_RUN_NUMBER" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
+          [ -f out/latest ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/acdev-release"; exit 1; }
           [ "$(cat out/latest)" = "$V" ] || { echo "::error::the release is $(cat out/latest), not $V"; exit 1; }
           (cd "out/$V" && sha256sum -c SHA256SUMS)
       - &aws
