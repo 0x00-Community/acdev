@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 import { KERNEL_SCRIPT, stageKernel } from './kernelpkgs.ts'
-import { BACKEND_SCRIPT, stageBackend } from './dopamebackend.ts'
+import { BACKEND_SCRIPT, DEPENDS_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDepends, stageDropIns } from './dopamebackend.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
@@ -14,7 +14,13 @@ export interface ProvisionSources {
   readonly harness: string | null
   readonly kernelPkgs?: string | null
   readonly systemAgentBin?: string | null
+  readonly managerNode?: string | null
 }
+
+const ACDES_BUILDS = [
+  { file: 'system-agent', source: 'systemAgentBin', flag: '--system-agent-bin', build: 'cargo build -p acde-system-agent' },
+  { file: 'libacdes_manager_node.so', source: 'managerNode', flag: '--manager-node', build: 'cargo build -p acdes-manager-node' },
+] as const
 
 export interface ProvisionOptions {
   readonly user: string
@@ -89,6 +95,7 @@ export const PROVISION_SCRIPT = [
   '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --acdes the first time" >&2; exit 3; }',
   '',
   'if [ -d "$here/dopame" ]; then',
+  ...DEPENDS_SCRIPT,
   '  step "the Dopame desktop package"',
   '  dir=/usr/share/acde/packages/dopame',
   '  mkdir -p "$dir"',
@@ -97,6 +104,7 @@ export const PROVISION_SCRIPT = [
   '  if [ -f "$here/dopame/dopame-harness" ]; then install -Dm755 "$here/dopame/dopame-harness" /usr/lib/dopame/dopame-harness; fi',
   '  if [ -f "$here/dopame/dopame-board.service" ]; then install -Dm644 "$here/dopame/dopame-board.service" /usr/lib/systemd/user/; fi',
   ...BACKEND_SCRIPT,
+  ...DROPIN_SCRIPT,
   'fi',
   '',
   'step "the user $user"',
@@ -184,9 +192,10 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
   const pkgbuild = readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8')
-  if (sources.systemAgentBin) cpSync(need(sources.systemAgentBin, '--system-agent-bin'), join(src, 'target', 'release', 'system-agent'))
-  else if (pkgbuild.includes('release/system-agent')) {
-    throw new Error('vm provision: this acdes PKGBUILD installs system-agent: give --system-agent-bin (cargo build -p acde-system-agent)')
+  for (const { file, source, flag, build } of ACDES_BUILDS) {
+    const given = sources[source]
+    if (given) cpSync(need(given, flag), join(src, 'target', 'release', file))
+    else if (pkgbuild.includes(`release/${file}`)) throw new Error(`vm provision: this acdes PKGBUILD installs ${file}: give ${flag} (${build})`)
   }
   const license = sources.libacde ? join(resolve(sources.libacde), 'LICENSE') : null
   mkdirSync(join(src, 'libacde'), { recursive: true })
@@ -212,6 +221,8 @@ function stageDopame(stage: string, sources: ProvisionSources): void {
     const board = join(repo, 'packaging', 'arch', 'dopame-board.service')
     if (existsSync(board)) cpSync(board, join(out, 'dopame-board.service'))
     stageBackend(repo, out)
+    stageDropIns(repo, out)
+    stageDepends(repo, out)
   }
   if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
 }
@@ -256,6 +267,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
-    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'),
+    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
   }
 }

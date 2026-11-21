@@ -118,3 +118,72 @@ export const BACKEND_SCRIPT = [
   '    done <"$here/dopame/backend.install"',
   '  fi',
 ]
+
+export interface DropIn {
+  readonly mode: string
+  readonly source: string
+  readonly target: string
+}
+
+export function dropIns(pkgbuild: string): DropIn[] {
+  const line = /^\s*install\s+-Dm(\d{3,4})\s+(\S+)\s+"\$\{pkgdir\}(\/usr\/lib\/systemd\/system\/[^/"]+\.service\.d\/[^/"]+\.conf)"\s*$/
+  const found: DropIn[] = []
+  for (const text of body(pkgbuild, 'package').replace(/\\\n\s*/g, ' ').split('\n')) {
+    const match = line.exec(text)
+    if (match && plain(match[2]!)) found.push({ mode: match[1]!, source: match[2]!, target: match[3]! })
+  }
+  return found
+}
+
+export function stageDropIns(repo: string, out: string): number {
+  const pkgbuild = join(repo, 'packaging', 'arch', 'PKGBUILD')
+  if (!existsSync(pkgbuild)) return 0
+  const lines: string[] = []
+  for (const { mode, source, target } of dropIns(readFileSync(pkgbuild, 'utf8'))) {
+    const from = join(repo, source)
+    if (!existsSync(from)) throw new Error(`vm provision: the dopame PKGBUILD installs ${source} as ${target}, but ${from} does not exist`)
+    const staged = join('units', String(lines.length), basename(source))
+    mkdirSync(dirname(join(out, staged)), { recursive: true })
+    cpSync(from, join(out, staged))
+    lines.push(`${mode}\t${staged}\t${target}`)
+  }
+  if (lines.length) writeFileSync(join(out, 'units.install'), lines.map((l) => `${l}\n`).join(''))
+  return lines.length
+}
+
+export const DROPIN_SCRIPT = [
+  '  if [ -f "$here/dopame/units.install" ]; then',
+  '    while IFS="$(printf "\\t")" read -r mode file target; do',
+  '      install -Dm"$mode" "$here/dopame/$file" "$target"',
+  '    done <"$here/dopame/units.install"',
+  '    systemctl daemon-reload',
+  '  fi',
+]
+
+const LAID_OUT = ['acdes']
+
+export function dopameDepends(pkgbuild: string): string[] {
+  const found = /^depends=\(([^)]*)\)/m.exec(pkgbuild)
+  if (!found) return []
+  const words = found[1]!.split(/\s+/).map((word) => word.replace(/^['"]|['"]$/g, '')).filter(Boolean)
+  return words.filter((word) => plain(word) && !LAID_OUT.includes(word.split(/[<>=]/)[0]!))
+}
+
+export function stageDepends(repo: string, out: string): number {
+  const pkgbuild = join(repo, 'packaging', 'arch', 'PKGBUILD')
+  const depends = existsSync(pkgbuild) ? dopameDepends(readFileSync(pkgbuild, 'utf8')) : []
+  if (depends.length) writeFileSync(join(out, 'depends'), depends.map((name) => `${name}\n`).join(''))
+  return depends.length
+}
+
+export const DEPENDS_SCRIPT = [
+  '  if [ -f "$here/dopame/depends" ]; then',
+  '    missing=$(pacman -T $(cat "$here/dopame/depends") || true)',
+  '    if [ -n "$missing" ]; then',
+  '      step "the Dopame dependencies not installed yet: $(echo $missing)"',
+  '      pacman -S --needed --noconfirm $missing >/dev/null 2>&1 || for pkg in $missing; do',
+  '        pacman -S --needed --noconfirm "$pkg" >/dev/null 2>&1 || step "warning: could not install $pkg"',
+  '      done',
+  '    fi',
+  '  fi',
+]

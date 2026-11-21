@@ -172,11 +172,19 @@ acdes (合成器 acompositor 在 acdes 里) 按 acdes 仓自己的 `packaging/ar
 用 acdev 所在的 Bun (不在 Bun 上时用 PATH 上的 `bun`) 照原参数在 dopame 检出里跑, 只把 `--outfile` 换到暂存目录 (不往检出里写); 再按 `package()`
 里 `install -Dm<权限> <文件…> -t "${pkgdir}/usr/lib/dopame/backend…"` 那些行 (文件名可以带 `*`) 暂存文件, 写下权限、文件、目标目录的清单
 (`dopame/backend.install`), 客户机里逐行 `install -Dm<权限> 文件 -t 目标`. 点到的文件不存在 (或 `*` 一个也没匹配上) 时在宿主上报错, 说出路径;
-PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
+PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 同样照 `package()` 里装进 `/usr/lib/systemd/system/<单元>.service.d/<名>.conf` 的那些行 (允许用 `\` 续行,
+文件名不带变量和引号) 暂存 systemd 的补充配置, 清单是 `dopame/units.install`, 客户机里按原路径装上, 再 `systemctl daemon-reload`: acdes 的 `acdes-session-agent@.service` 模板本身没有 `ExecStart`, 要靠 dopame 的
+`acdes-session-agent-dopame.conf` 补上 (`/usr/bin/bun /usr/lib/dopame/backend/main.js serve`, 路径和上面放后台服务的位置一致), 不装时登录后
+这个单元因为没有 `ExecStart` 不起. dopame PKGBUILD 的 `depends=(…)` (去掉 provision 自己摆好的 `acdes`, 只认不带变量的) 写进 `dopame/depends`,
+客户机里先用 `pacman -T` 挑出没装的, 一起 `pacman -S`, 整批失败 (如某个包仓库里没有) 再逐个装, 装不上的逐个提示: 以前只装 acdes 的依赖,
+dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不在沙箱里跑 (batch2-2 联调). 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
-acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧.
+acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
+`libacdes_manager_node.so` (到 `/usr/lib/acdes/manager.node`, 桌面后台服务经它连管家; acdes Akira/supervisor-broker 起) 时要给
+`--manager-node FILE` (`cargo build -p acdes-manager-node` 的产物), 放进 `src/target/release/libacdes_manager_node.so`, 没给时 provision 先报错.
+这两项在 `src/vm/provision.ts` 的 `ACDES_BUILDS` 里列着, acdes 再多一个这样的产物只加一行.
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
 ## 命令

@@ -89,6 +89,20 @@ describe('cicd.yaml', () => {
     expect(names.lastIndexOf(CREDENTIALS)).toBe(names.indexOf('the pointers, latest.json last, then the CDN') - 1)
   })
 
+  test('build, guest and pkgs reuse what an earlier run built for the same inputs (built/ on .127), skipping steps, not the job', () => {
+    for (const job of ['build', 'guest', 'pkgs']) {
+      const steps = jobs[job]!.steps
+      const reuse = steps.findIndex((item) => item.id === 'reuse')
+      expect(reuse, job).toBe(steps.findIndex((item) => item.name === 'the upload key for the artifacts host') + 1)
+      expect(jobs[job]!.env?.['SOURCES'], job).toContain('${{ needs.plan.outputs.sha }}')
+      for (const item of steps.slice(reuse + 1)) {
+        if (/(^|\/)checkout@/.test(item.uses ?? '') || /cargo|bun |record this run/.test(item.run ?? '')) expect(item.if, `${job}: ${item.name}`).toBe("steps.reuse.outputs.build == 'true'")
+      }
+    }
+    expect(runs('build')).toContain('"$r/$D/" "$TO:$GITHUB_RUN_NUMBER/$D/"')
+    expect(runs('plan')).toContain("acdev/built/libacde-%s-%s")
+  })
+
   test('a preview (publish=false) says so after the guard', () => {
     const pkgs = runs('pkgs')
     expect(indexIn(pkgs, 'release-guard.ts')).toBeLessThan(indexIn(pkgs, 'preview only'))
