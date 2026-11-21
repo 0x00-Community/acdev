@@ -180,6 +180,10 @@ PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 同样照 `packa
 dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不在沙箱里跑 (batch2-2 联调). 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
+`--pkgs <宿主目录>` (`stagePkgs`/`PKGS_SCRIPT`, `src/vm/kernelpkgs.ts`, #111): 目录里所有 `*.pkg.tar.zst` (制品站的 acdes、dopame 包) 暂存进 `pkgs/`, 客户机里在 `pacman -Sy` 之后先 `pacman -Rdd`
+掉旧包 `acdebin-system`、`acde-dopame` (`LEGACY_PACKAGES`, 文件和新包冲突), 再一次 `pacman -U`; 失败退出 3, pacman 自己的报错照常输出. 镜像 dopameos-20261114 里还是旧包, 测新包走这条.
+provision 里没停下的失败 (装不上包、btvirt 编不过、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上).
+`push` 一个文件时, 目标以 `/` 结尾或在客户机里是目录 (经 acdevd 跑 `test -d`) 就放进去 (`<目标>/<文件名>`), 和 `cp` 一样.
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
 acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
 `libacdes_manager_node.so` (到 `/usr/lib/acdes/manager.node`, 桌面后台服务经它连管家; acdes Akira/supervisor-broker 起) 时要给
@@ -341,7 +345,7 @@ acdev vm run --detach systemctl suspend    # 后台跑, 不等它; 睡下后再 
 
 QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 默认都带 (用户 2026-11-19): `acdev vm provision` 把要的包
 (`hw/packages`)、脚本 (`hw/acdev-*`) 和 systemd 单元 (`hw/units/acdev-wifi.service`、`acdev-bt.service`、`acdev-battery.service`) 放进
-暂存目录; provision 脚本装包 (装不上只打一行 warning)、把脚本装到 `/usr/local/bin`、单元装到 `/etc/systemd/system`, `daemon-reload`
+暂存目录; provision 脚本装包 (装不上打一行 warning, provision 最后退出 4)、把脚本装到 `/usr/local/bin`、单元装到 `/etc/systemd/system`, `daemon-reload`
 后 `enable` 并立即 `restart` 一次, 再把单元日志里脚本自己的那两行 (`acdev-…: …`) 转到 provision 的输出. 以后每次开机由单元启用.
 
 - 关掉: `--no-wifi` / `--no-bluetooth` / `--no-battery`. 关掉的那项不装包、不装单元; 客户机里已有的单元 `disable --now` 后删掉

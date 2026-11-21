@@ -43,6 +43,30 @@ export function stageKernel(stage: string, dir: string): KernelPackages {
   return found
 }
 
+export const LEGACY_PACKAGES = ['acdebin-system', 'acde-dopame'] as const
+
+export function stagePkgs(stage: string, dir: string): string[] {
+  const from = resolve(dir)
+  if (!existsSync(from)) throw new Error(`vm provision: --pkgs ${dir} does not exist`)
+  const files = readdirSync(from).filter((file) => file.endsWith('.pkg.tar.zst'))
+  if (!files.length) throw new Error(`vm provision: --pkgs ${dir} has no *.pkg.tar.zst`)
+  const out = join(stage, 'pkgs')
+  mkdirSync(out, { recursive: true })
+  for (const file of files) cpSync(join(from, file), join(out, file))
+  return files
+}
+
+export const PKGS_SCRIPT = [
+  'if [ -d "$here/pkgs" ]; then',
+  `  for old in ${LEGACY_PACKAGES.join(' ')}; do`,
+  '    if pacman -Q "$old" >/dev/null 2>&1; then step "removing $old (replaced by acdes and dopame)"; pacman -Rdd --noconfirm "$old" >/dev/null; fi',
+  '  done',
+  '  step "the packages from --pkgs: $(cd "$here/pkgs" && echo *.pkg.tar.zst)"',
+  '  pacman -U --noconfirm "$here"/pkgs/*.pkg.tar.zst >/dev/null || { echo "acdev provision: pacman -U of the --pkgs packages failed (see pacman above)" >&2; exit 3; }',
+  'fi',
+  '',
+]
+
 export const KERNEL_SCRIPT = [
   'if [ -d "$here/kernel" ]; then',
   '  want=$(cat "$here/kernel/version")',

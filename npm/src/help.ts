@@ -373,6 +373,7 @@ export class Help {
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first; run provision again after it' },
+          { flag: '--pkgs DIR', about: 'provision: install every *.pkg.tar.zst in DIR (acdes, dopame from the artifact site) with pacman -U, removing the old acdebin-system and acde-dopame first' },
           { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin' },
           { flag: '--acdes-bin FILE', about: 'provision: the acdes guest build' },
           { flag: '--system-agent-bin FILE', about: 'provision: the acdes system-agent guest build (when the acdes PKGBUILD installs it)' },
