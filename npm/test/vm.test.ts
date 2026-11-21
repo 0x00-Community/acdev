@@ -18,7 +18,7 @@ import { Forward } from '../src/vm/forward.ts'
 import { guestPassword, prepareGuest, stageInGuest } from '../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from './helpers.ts'
-import { PROVISION_SCRIPT, pkgbuildPaths, provisionOptions, stageProvision } from '../src/vm/provision.ts'
+import { PROVISION_SCRIPT, pkgbuildPaths, provisionOptions, provisionSources, stageProvision } from '../src/vm/provision.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -961,6 +961,17 @@ describe('acdev vm provision', () => {
     } finally {
       rmSync(withAgent, { recursive: true, force: true })
     }
+    const node = `install -Dm755 "$(_target)/release/libacdes_manager_node.so" "${['$', '{pkgdir}'].join('')}/usr/lib/acdes/manager.node"`
+    writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), `package() { ${node}; }\n`)
+    expect(() => stageProvision(sources)).toThrow('libacdes_manager_node.so: give --manager-node (cargo build -p acdes-manager-node)')
+    writeFileSync(join(repo, 'manager.so'), 'node module')
+    const withNode = stageProvision({ ...sources, managerNode: join(repo, 'manager.so') })
+    try {
+      expect(readFileSync(join(withNode, 'acdes/src/target/release/libacdes_manager_node.so'), 'utf8')).toBe('node module')
+    } finally {
+      rmSync(withNode, { recursive: true, force: true })
+    }
+    expect(provisionSources(new Map([['manager-node', '/m.so']])).managerNode).toBe('/m.so')
   })
 
   test('the script lays out acdes by package(), sets the user and greetd, and takes the defaults it is told', () => {
