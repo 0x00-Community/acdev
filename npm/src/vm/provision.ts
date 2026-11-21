@@ -14,7 +14,13 @@ export interface ProvisionSources {
   readonly harness: string | null
   readonly kernelPkgs?: string | null
   readonly systemAgentBin?: string | null
+  readonly managerNode?: string | null
 }
+
+const ACDES_BUILDS = [
+  { file: 'system-agent', source: 'systemAgentBin', flag: '--system-agent-bin', build: 'cargo build -p acde-system-agent' },
+  { file: 'libacdes_manager_node.so', source: 'managerNode', flag: '--manager-node', build: 'cargo build -p acdes-manager-node' },
+] as const
 
 export interface ProvisionOptions {
   readonly user: string
@@ -186,9 +192,10 @@ function stageAcdes(stage: string, sources: ProvisionSources): void {
   mkdirSync(join(src, 'target', 'release'), { recursive: true })
   cpSync(need(sources.acdesBin, '--acdes-bin'), join(src, 'target', 'release', 'acdes'))
   const pkgbuild = readFileSync(join(stage, 'acdes', 'PKGBUILD'), 'utf8')
-  if (sources.systemAgentBin) cpSync(need(sources.systemAgentBin, '--system-agent-bin'), join(src, 'target', 'release', 'system-agent'))
-  else if (pkgbuild.includes('release/system-agent')) {
-    throw new Error('vm provision: this acdes PKGBUILD installs system-agent: give --system-agent-bin (cargo build -p acde-system-agent)')
+  for (const { file, source, flag, build } of ACDES_BUILDS) {
+    const given = sources[source]
+    if (given) cpSync(need(given, flag), join(src, 'target', 'release', file))
+    else if (pkgbuild.includes(`release/${file}`)) throw new Error(`vm provision: this acdes PKGBUILD installs ${file}: give ${flag} (${build})`)
   }
   const license = sources.libacde ? join(resolve(sources.libacde), 'LICENSE') : null
   mkdirSync(join(src, 'libacde'), { recursive: true })
@@ -260,6 +267,6 @@ export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionS
   const get = (name: string) => flags.get(name) ?? null
   return {
     acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
-    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'),
+    kernelPkgs: get('kernel-pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
   }
 }
