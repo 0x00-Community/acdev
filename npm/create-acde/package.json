@@ -1,0 +1,18 @@
+{
+  "name": "create-acde",
+  "version": "0.1.0",
+  "description": "bun create acde / npm create acde: make a Dopame OS app or desktop with acdev new",
+  "license": "UNLICENSED",
+  "type": "module",
+  "homepage": "https://docs.dopame.ai/start/first-app/",
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.0"
+  },
+  "bin": {
+    "create-acde": "./index.mjs"
+  },
+  "files": [
+    "index.mjs"
+  ]
+}

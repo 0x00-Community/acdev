@@ -58,3 +58,11 @@
   类型引用分层: 应用写 `@acde/api/app`, 桌面页写 `@acde/api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
   没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).
 - 模板的注释和默认文字用英文, 与 skill 一致 (acde#38); 有界面的模板 (`templates/app`、`templates/desktop`) 带最小的 i18n: 文案在 `src/locales/<语言>.js` (至少 en、zh, 键相同), `src/i18n.js` (两份相同) 按 `navigator.language` 精确标签→`Intl.Locale` 的基础语言→`en` 选表, 缺的键回落英文, 设 `<html lang>` 并填 `data-i18n`; 不用第三方库. `templates/` 里除 `locales/zh.js` 外不出现中日韩文字, 不写死 `lang="zh"` (测试检查). 框架模板的界面由各自脚手架生成, 不改.
+- **`bun create acde`** (`create-acde/`, 2026-11-22): `bun create acde` / `npm create acde` / `pnpm create acde` / `yarn create acde` 都去 npm 取
+  `create-acde` 跑它的 bin, 所以发了一个公开的 npm 包 `create-acde` (只有 `index.mjs`, 不压缩不混淆, 没有依赖; Node ≥ 18 或 bun 都跑). 它不带 acdev:
+  先找 acdev (PATH, 再 `$ACDEV_INSTALL/bin`, 默认 `~/.acdev/bin`; Windows 认 `acdev.cmd` / `.exe` / `.bat`), 找到就原样跑 `acdev new <参数…>`,
+  退出码照传, 信号转给子进程. 不依赖 npm 上的 `@dopame/acdev`: 工程的 `@acde/api` 写成 acdev 自己那份 SDK 的 `file:` 路径, 从 bunx / npx 的缓存跑
+  会指进缓存目录. 找不到时: 在终端里 (stdin、stdout 都是 TTY, 没给 `--yes` / `-y`) 问 `Install acdev now? (Y/n)`, 同意就跑官方安装器
+  (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows `irm …/install.ps1 | iex`, `ACDEV_DIST` 默认 `https://pkgs.dopame.ai/acdev`), 装好再找一次;
+  不在终端里打出安装命令、退出码 1. 包管理器: create 命令设了 `npm_config_user_agent`, 子进程继承, `acdev new` 照它选 (见上「运行时和包管理器」).
+  版本独立于 acdev (只在这个文件变了时发), 手动 `npm publish --access public` (在 `create-acde/`), 不在 cicd 的 npm 步骤里.

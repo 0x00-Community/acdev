@@ -8,6 +8,12 @@ acdev new my-app
 
 In a terminal, `acdev new` asks for whatever is missing: the directory, app or desktop, template, display name, whether to add a backend, Bun or Node.js (when both are installed), whether to install dependencies, and whether to run `git init`. Press Enter at each prompt to accept the defaults.
 
+`bun create acde` (or `npm create acde`, `pnpm create acde`, `yarn create acde`) does the same: it runs `acdev new` with the same options, and the project uses the package manager you ran it with. If acdev is not installed yet, it offers to run the [installer](install.md) first (in a terminal; otherwise it prints the install command and exits).
+
+```sh
+bun create acde my-app
+```
+
 To skip the prompts, pass everything as options and add `--yes` (it still installs the dependencies; add `--no-install` to skip that):
 
 ```sh
