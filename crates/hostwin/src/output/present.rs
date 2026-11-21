@@ -272,7 +272,7 @@ impl Presenter {
         if plane.layers.is_empty() {
             let drawing = std::mem::take(&mut plane.drawing);
             let bounds = Some(Rect::new(0.0, 0.0, f64::from(width), f64::from(height)));
-            plane.layers.push(Layer { drawing, bounds, backdrop: None, filter: None });
+            plane.layers.push(Layer { drawing, bounds, areas: Vec::new(), backdrop: None, filter: None });
         }
         plane
     }
