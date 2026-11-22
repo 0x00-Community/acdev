@@ -27,8 +27,8 @@ describe('acdev vm start: 3D (virgl) by default', () => {
       expect(choice.note).toContain(said)
       expect(choice.note).toContain('the guest runs without 3D')
     }
-    off({ platform: 'darwin' }, 'needs a Linux host')
-    off({ platform: 'win32' }, 'needs a Linux host')
+    off({ platform: 'darwin' }, 'only on Linux hosts so far')
+    off({ platform: 'win32' }, 'only on Linux hosts so far')
     off({ display: 'vnc' }, '--vnc')
     off({ display: 'viewer' }, '--viewer')
     off({ display: 'none', outputs: 2, asked: true }, '--headless with --outputs 2')

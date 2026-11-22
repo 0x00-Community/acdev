@@ -44,12 +44,18 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 3D (virgl, 用户 2026-11-20 定为窗口里默认, `src/vm/gl.ts`): 有窗口时默认用带 GL 的 virtio 显卡 (`virtio-vga-gl`, aarch64 是 `virtio-gpu-gl-pci`),
   窗口是 `sdl,gl=on` / `gtk,gl=on`; `--no-gl` 关掉. `--headless` 默认不带 3D (原因见下一条), `--headless --gl` 才带, 用 `egl-headless`
   (在宿主的渲染节点上离屏画), 起的时候说一句截图用不了. 起之前判断宿主行不行, 不行就说一句并退回不带 GL (不报错): 不是 Linux 宿主
-  (macOS 的 cocoa、Windows 没接 GL); `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view
+  (acdev 只在 Linux 上接了 GL; 不是 QEMU 做不到, 见下一条); `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view
   只收共享内存的画面, 而 `egl-headless` 不报大小, 见下面「多个显示输出」), 先不带 GL; `-device help` 里没有 `virtio-vga-gl`; 宿主没有
   `/dev/dri/renderD*` (WSL2 有, 经 `/dev/dxg` 走 mesa 的 d3d12). `--vga std` 本来就没有 3D, 静默不开. 起了以后 QEMU 才失败、日志里提到
   EGL / OpenGL / virgl / 渲染节点 / gbm / epoxy 的, 说一句后不带 GL 再起一次. 核对 (本机 QEMU 8.2.2, 只查没起): `-display help` 有
   `egl-headless`、`dbus`、`sdl`、`gtk`; `-device help` 有 `virtio-vga-gl`、`virtio-gpu-gl-pci`; Ubuntu 的包里 `-device virtio-vga-gl,help`
   单独跑会因为 GL 模块的符号 (`qemu_egl_display`) 没载入而报错, 所以只看 `-device help` 的列表.
+- Windows 宿主上的 3D (2026-11-22 调研, 总仓 `.scratch/acdev/windows-3d.md`): QEMU 11.1.0 的 Windows 安装包 (Stefan Weil) 带着 `virtio-vga-gl`、
+  `-display sdl,gl=on|core|es`、`gtk,gl=on`、virglrenderer 和 ANGLE 的 `libEGL.dll` / `libGLESv2.dll` (把 OpenGL ES 翻成 D3D11), 社区报告 WHPX 下
+  `-device virtio-vga-gl -display sdl,gl=es` 能跑; acdev 在 Windows 上用 gtk、不带 GL, 还没接这条路, 也没验证, 所以起的时候说一句并不带 3D.
+  接了也只有 OpenGL / OpenGL ES (virgl): 客户机里的 Vulkan 要 venus, 它要宿主的 blob 内存共享, QEMU 文档只列了 Linux 宿主的条件; 页面的 WebGPU
+  只用 Vulkan, 所以 Windows 上的 virgl 帮不上 WebGPU (那时能用的只有客户机里 CPU 上的 lavapipe). `egl-headless` 要渲染节点, Windows 上没有.
+  macOS 的 cocoa 显示能不能接 GL 没查.
 - 带 3D 时 `acdev vm screenshot` 截不出图, 窗口和 `egl-headless` 都一样: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的
   `qmp_screendump` → `ui/console.c` 的 `qemu_console_surface`), 而 `qemu_console_surface` 在扫描输出是 GL 纹理 (virgl) 时返回空, 只在
   `SCANOUT_SURFACE` 时才有表面. `egl-headless` 把 GL 画面读回到它自己的表面 (`ui/egl-headless.c` 的 `egl_fb_read` 写进 `edpy->ds`,
