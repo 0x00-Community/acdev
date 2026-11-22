@@ -91,9 +91,11 @@ export class Machine {
     return join(this.logs, 'serial.log')
   }
 
+  static readonly SOCKET_PATH_MOST = 100
+
   get sockets(): string {
-    if (this.host.platform !== 'win32') return this.run
-    const temp = this.env['TEMP'] || this.env['TMP'] || tmpdir()
+    if (this.host.platform !== 'win32' && join(this.run, 'devd.sock').length <= Machine.SOCKET_PATH_MOST) return this.run
+    const temp = this.host.platform === 'win32' ? this.env['TEMP'] || this.env['TMP'] || tmpdir() : this.env['XDG_RUNTIME_DIR'] || tmpdir()
     return join(temp, `acdev-${createHash('sha256').update(this.dir).digest('hex').slice(0, 12)}`)
   }
 

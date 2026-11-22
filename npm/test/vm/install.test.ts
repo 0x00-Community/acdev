@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
+import { Machine } from '../../src/vm/machine.ts'
 import { emptyDisk, FIX_BOOT, InstallerChanged, installPlan, installStatus, isoIsNewer, stamp } from '../../src/vm/image/install.ts'
 
 describe('acdev vm fetch from the ISO', () => {
@@ -42,5 +44,23 @@ describe('acdev vm fetch from the ISO', () => {
     expect(plan['portable']).toBe(true)
     expect(plan['password']).toBe('secret')
     expect(FIX_BOOT('/dev/vda')).toContain("lsblk -lnpo NAME,PARTTYPE /dev/vda")
+  })
+})
+
+describe('socket paths stay under the AF_UNIX limit', () => {
+  const long = '/home/Akira/.local/share/acdev/vm/images/.install-dopameos-20261122T062717Z-x86_64.from-iso.qcow2'
+
+  test('a deep VM directory puts its sockets in a short directory of their own', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: long, XDG_RUNTIME_DIR: '/run/user/1000' }, { platform: 'linux', arch: 'x64' })
+    expect(join(long, 'run', 'qmp.sock').length).toBeGreaterThan(Machine.SOCKET_PATH_MOST)
+    for (const path of [machine.qmp, machine.qga, join(machine.sockets, 'devd.sock')]) {
+      expect(path.length).toBeLessThanOrEqual(Machine.SOCKET_PATH_MOST)
+      expect(path.startsWith('/run/user/1000/acdev-')).toBe(true)
+    }
+  })
+
+  test('a short VM directory keeps them in run/', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: '/tmp/vm' }, { platform: 'linux', arch: 'x64' })
+    expect(machine.qmp).toBe('/tmp/vm/run/qmp.sock')
   })
 })

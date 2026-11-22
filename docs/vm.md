@@ -69,6 +69,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
   x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
 - 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」).
+- 套接字路径的长度 (所有平台, 2026-11-22): AF_UNIX 的路径上限是 107 字节 (macOS 103), `run/` 下的 `devd.sock` 超过 100 字节时 (目录放得深, 如 `vm fetch` 装 ISO 用的
+  `images/.install-<ISO 名>/`, acdev-test 实测在默认目录下正好 108 字节, QEMU 起不来), 套接字改放 `$XDG_RUNTIME_DIR` (没有就是系统临时目录) 下的
+  `acdev-<目录哈希 12 位>/` (`Machine.sockets`, `SOCKET_PATH_MOST`), 和 Windows 一样.
 - QMP 和 guest agent 和别的平台一样是 Unix 套接字, 但 Windows 上不放在 `run/` 下, 而放在 `%TEMP%\acdev-<目录哈希 12 位>\` (`qmp.sock`、
   `qga.sock`, 端口转发选 unix 时还有 `devd.sock`; `Machine.sockets`), 镜像、覆盖盘等大文件仍在 `ACDEV_VM_DIR`. 原因: 2026-11-18
   acdev-test 实测, 默认目录 `%LOCALAPPDATA%\acdev\vm` 下 QEMU 能建套接字, 但 connect 报 10022 (WSAEINVAL); `%TEMP%`、`C:\acdev-test` 等处
