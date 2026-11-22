@@ -462,7 +462,7 @@ impl Thread {
             if brightness != 1.0 {
                 effect.matrix(acde::gpu::ColorMatrix::brightness(brightness as f32).0);
             }
-            (!effect.is_none()).then_some(acde::gpu::Backdrop { rect, radius: radius as f32, exponent: 2.0, effect })
+            (!effect.is_none()).then_some(acde::gpu::Backdrop { rect, radius: radius as f32, exponent: 2.0, glass: None, effect })
         };
         Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
     }

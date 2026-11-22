@@ -589,6 +589,7 @@ impl Presenter {
                 rect: [r.x0 as f32, r.y0 as f32 + dy, r.width().max(0.0) as f32, r.height().max(0.0) as f32],
                 radius: b.radius() as f32,
                 exponent: b.exponent() as f32,
+                glass: b.glass().copied(),
                 effect: b.effect(),
             }
         });
