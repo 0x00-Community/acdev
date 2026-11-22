@@ -66,7 +66,7 @@ class Cli {
         'audio', 'size', 'vga', 'resolution', 'btvirt', 'kernel-pkgs', 'pkgs',
       ],
       switches: [
-        'fresh', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'no-gl', 'detach', 'force', 'follow', 'no-restart',
+        'fresh', 'from-iso', 'qcow2', 'headless', 'vnc', 'viewer', 'sdl', 'gtk', 'gl', 'no-gl', 'detach', 'force', 'follow', 'no-restart',
         'wifi', 'bluetooth', 'battery', 'no-wifi', 'no-bluetooth', 'no-battery',
       ],
     },

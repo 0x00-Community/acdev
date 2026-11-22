@@ -182,9 +182,10 @@ const STOPPED: Readonly<Record<Stopped, string>> = {
 }
 
 const HANDLERS: Readonly<Record<string, Handler>> = {
-  async fetch(machine, rest) {
+  async fetch(machine, rest, flags) {
     count('fetch', rest, 0, 0, 'no arguments')
-    console.log(await machine.fetch(say))
+    if (flags.has('from-iso') && flags.has('qcow2')) throw new Error('vm fetch: --from-iso or --qcow2, not both')
+    console.log(await machine.fetch(say, flags.has('from-iso') ? 'iso' : flags.has('qcow2') ? 'qcow2' : 'newest'))
     return 0
   },
   start,

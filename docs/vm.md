@@ -164,7 +164,25 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 `fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
 AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
 根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdes 的登录页. 用户 `dopame` 的密码是
-os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
+os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑.
+
+**从 ISO 装出镜像** (`src/vm/image/install.ts`, `image/fetch.ts`, 2026-11-22): os 的发布只往下载站发 ISO 并更新 `iso/latest`, `iso/latest-qcow2` 停在 20261114 不再更新.
+`fetch` 先比两个指针里文件名的时间戳 (`dopameos-<YYYYMMDDTHHMMSSZ>-<架构>`): 镜像不比 ISO 旧就照旧下载镜像; ISO 更新时下载 ISO (同样核对
+`.sha256`), 在一台自己的虚拟机里把它装成 `images/<ISO 名>.from-iso.qcow2`, 同一个 ISO 只装一次 (文件在就直接用), 装好后删掉 ISO. `--from-iso` /
+`--qcow2` 强制走其中一条. 做法照 os 仓 `image/from-iso.sh` (那里是 CI 出云镜像用的), 收进 acdev, 运行时不依赖 os 仓、python3 或 dash:
+1. 工作目录 `images/.install-<名>/` (一台独立的 `Machine`: 自己的 `run/`、`logs/`、套接字, 不碰正在用的客户机), 建 32G 的空 qcow2, 拷一份 UEFI 变量模板;
+2. 用 ISO 启动 live 系统 (q35、`-vga std -display none`、光驱 `ide-cd`, 加速器照 `start` 选: KVM / WHPX / HVF, 起不来退回 TCG 并说一声), 等 guest agent (最多 600 s);
+3. 经 guest agent 跑 `acinstall probe`, 取唯一一块不忙、没有分区的盘; 写安装计划 `/run/acinstaller-plan.json` (只经 agent 的文件写入, 不上命令行):
+   `{where: {mode: disk, disk}, user, fullName, password (随机, 不留存; provision 另建测试用户), host, timezone, locale, sudoNoPassword: false, portable: true}`;
+4. 后台跑 `acinstall install < 计划`, 每 10 s 读 `/run/acinstaller/status.json` (`{state, step, steps}`, `step` 从 0 起, `steps` 是名字或 `{name}` 的列表),
+   打 `installing: step N of M (名字)`, 直到 `state` 不是 `running` (最多 3600 s); 不是 `done` 就报「the installation failed」并打出安装日志最后 30 行;
+5. 挂上装好的盘, 去掉 initramfs 的 `autodetect`、内核参数加串口, `arch-chroot` 里 `mkinitcpio -P && sdboot-manage gen` (同 from-iso.sh), 关机;
+6. 换新的 UEFI 变量、`-snapshot` 再启动一次, 查根是 acfs (`findmnt`), 关机;
+7. `qemu-img convert -c -O qcow2 -o compression_type=zstd` 写出镜像.
+全程写 `logs/install-<名>.log`. 对着的安装器格式: os `f866410` (2026-11-22) 时的 `acinstall probe` (`{disks: [{path, busy, partitions}]}`)、上面的计划、
+`status.json`; 回来的形状对不上时 (不是 JSON、缺字段) 报「the installer's format changed」(`InstallerChanged`), 和装机本身失败分开, 那时要更新 acdev.
+aarch64 (Apple 芯片) 没有 ISO 也没有镜像: 直接说没有本架构的 ISO, 让用 `start --image FILE` 给一个已有的镜像.
+未核实: WHPX、HVF 下 live ISO 能不能起、装机多久 (Linux KVM 上 from-iso.sh 约 10 到 20 分钟). `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
 
 **`--fresh` 清掉什么, 之后要做什么**: 客户机里装的、配的东西都在覆盖盘 (`disk.qcow2`) 上, `--fresh` 连它和 UEFI 变量一起丢, 回到基础镜像:
