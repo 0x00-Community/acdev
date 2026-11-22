@@ -33,6 +33,8 @@ export interface ProvisionOptions {
 
 export const PROVISION_DIR = '/opt/acdev/provision'
 
+export const ACDES_SERVICES = ['acdes-system-agent', 'acdes-proxy'] as const
+
 export const PRUNED = {
   bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
   hwsim: { module: 'mac80211_hwsim', package: 'linux-ackernel-wifi-other' },
@@ -93,13 +95,15 @@ export const PROVISION_SCRIPT = [
   '  done',
   '  chown -R greeter:greeter /var/lib/acde/greeter',
   '  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true',
-  '  if [ -x /usr/lib/acdes/system-agent ] && [ -f /usr/lib/systemd/system/acdes-system-agent.service ]; then',
-  '    systemctl daemon-reload',
-  '    systemctl enable acdes-system-agent >/dev/null 2>&1 || warn "could not enable acdes-system-agent"',
-  '    systemctl restart acdes-system-agent || warn "acdes-system-agent did not start"',
-  '  fi',
   'fi',
   '[ -x /usr/bin/acdes ] || { echo "acdev provision: /usr/bin/acdes is missing: give --pkgs (an acdes package) or --acdes the first time" >&2; exit 3; }',
+  'systemctl daemon-reload',
+  `for unit in ${ACDES_SERVICES.join(' ')}; do`,
+  '  [ -f "/usr/lib/systemd/system/$unit.service" ] || continue',
+  '  step "$unit (the acdes package leaves it off for the OS to turn on)"',
+  '  systemctl enable "$unit" >/dev/null 2>&1 || warn "could not enable $unit"',
+  '  systemctl restart "$unit" || warn "$unit did not start"',
+  'done',
   '',
   'if [ -d "$here/dopame" ]; then',
   ...DEPENDS_SCRIPT,

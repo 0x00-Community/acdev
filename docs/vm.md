@@ -185,12 +185,15 @@ dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不�
 provision 里没停下的失败 (装不上包、btvirt 编不过、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上).
 `push` 一个文件时, 目标以 `/` 结尾或在客户机里是目录 (经 acdevd 跑 `test -d`) 就放进去 (`<目标>/<文件名>`), 和 `cp` 一样.
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
-acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里); 装好后 provision 启用并启动 `acdes-system-agent` 服务 (以系统用户 `acdes-agent` 运行). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
+acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
 `libacdes_manager_node.so` (到 `/usr/lib/acdes/manager.node`, 桌面后台服务经它连管家; acdes Akira/supervisor-broker 起) 时要给
 `--manager-node FILE` (`cargo build -p acdes-manager-node` 的产物), 放进 `src/target/release/libacdes_manager_node.so`, 没给时 provision 先报错.
 系统代理同样: acdes 的 PKGBUILD 装 `release/proxy` (到 `/usr/lib/acdes/proxy`, acdes-proxy; acdes Akira/restricted-run 起) 时要给 `--proxy-bin FILE`
 (`cargo build -p acde-proxy` 的产物). 这三项在 `src/vm/provision.ts` 的 `ACDES_BUILDS` 里列着, acdes 再多一个这样的产物只加一行.
 这三个选项只配 `--acdes` (按检出里的 PKGBUILD 摆放) 用; 用 `--pkgs` 装制品站的 acdes 包时, 包里已经有这些文件, 不用给.
+acdes 装好后 (`--acdes` 和 `--pkgs` 两条路一样, `ACDES_SERVICES`), provision 启用并 (重新) 启动系统总管 `acdes-system-agent` (以系统用户 `acdes-agent` 运行)
+和系统代理 `acdes-proxy`: acdes 的包把它们装好但不启用, 留给 os 打开 (PKGBUILD 的注释), 而 dopameos-20261114 镜像不打开; 不开时总管的风险审查和
+`network: proxy` 的 Agent 联网都用不了. 单元文件不在 (旧的 acdes) 就跳过; 启用或启动失败记一条 warning (provision 最后退出 4).
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
 
 ## 命令
