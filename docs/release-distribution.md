@@ -51,7 +51,7 @@ dist.ts 的 `--out`: `install.sh`、`install.ps1`、`install.md`、`latest` (版
 命令行和 acdert 分开发的 (版本目录里有 `acdert-version`), 现在的安装器不装它们, 提示去掉 `--version` 装最新的. 没有这个平台的构建 (报出有哪些
 平台)、下载或校验失败, 都在动安装目录之前失败, 之前装的版本和 `current` 照旧. Dopame 桌面包不随 acdev 安装.
 
-装好后一个版本目录 (`versions/<版本>`; 归档里的顶层目录 `acde-<版本>/` 加上安装器放的两项) 是:
+装好后一个版本目录 (`versions/<版本>`; 归档里的顶层目录 `acdev-<版本>/` 加上安装器放的两项) 是:
 
 ```
 bin/acdev            bin/acdev.sh 跑 lib/acdev/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
