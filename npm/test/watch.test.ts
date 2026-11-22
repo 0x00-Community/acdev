@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { TreeWatch } from '../src/watch.ts'
+import { Settled, TreeWatch } from '../src/watch.ts'
 import { cleanup, tmp } from './helpers.ts'
 
 afterAll(cleanup)
@@ -48,4 +48,45 @@ describe('TreeWatch (the Linux way: one watch per directory)', () => {
       }
       expect(tree.watched).toEqual([])
     }, 30_000)
+})
+
+describe('Settled (events whose file did not change)', () => {
+  test('a file untouched since the watch began is not a change; writes, renames and deletes are', async () => {
+    const root = tmp()
+    const file = join(root, 'worker')
+    writeFileSync(file, 'a')
+    await Bun.sleep(20)
+    const settled = new Settled()
+    expect(settled.changed(file)).toBe(false)
+    expect(settled.changed(file)).toBe(false)
+    writeFileSync(file, 'ab')
+    expect(settled.changed(file)).toBe(true)
+    expect(settled.changed(file)).toBe(false)
+    renameSync(file, join(root, 'moved'))
+    expect(settled.changed(file)).toBe(true)
+    expect(settled.changed(join(root, 'moved'))).toBe(true)
+    rmSync(join(root, 'moved'))
+    expect(settled.changed(join(root, 'moved'))).toBe(true)
+    expect(settled.changed(join(root, 'never'))).toBe(true)
+  })
+
+  test.skipIf(process.platform !== 'darwin')('copying a file out of the project (an APFS clone) does not report the source', async () => {
+    const root = tmp()
+    const out = tmp()
+    mkdirSync(join(root, 'public', 'bin'), { recursive: true })
+    writeFileSync(join(root, 'public', 'bin', 'worker'), Buffer.alloc(1 << 20, 7))
+    await Bun.sleep(50)
+    const seen: string[] = []
+    const watching = TreeWatch.start(root, () => false, (file) => seen.push(file))
+    try {
+      await Bun.sleep(100)
+      for (let i = 0; i < 3; i++) cpSync(join(root, 'public'), join(out, `web${i}`), { recursive: true })
+      await Bun.sleep(400)
+      expect(seen).toEqual([])
+      writeFileSync(join(root, 'public', 'bin', 'worker'), Buffer.alloc(1 << 20, 8))
+      await until('the real write', () => seen.includes(join('public', 'bin', 'worker')))
+    } finally {
+      watching.close()
+    }
+  })
 })

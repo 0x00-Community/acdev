@@ -7,6 +7,28 @@ export interface Watching {
 
 export type Changed = (file: string) => void
 
+export class Settled {
+  readonly #since: number
+  readonly #seen = new Map<string, string>()
+
+  constructor(since = Date.now()) {
+    this.#since = since
+  }
+
+  changed(path: string): boolean {
+    let mark = 'gone'
+    let old = false
+    try {
+      const stat = statSync(path)
+      mark = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
+      old = stat.mtimeMs < this.#since && stat.ctimeMs < this.#since
+    } catch {}
+    const before = this.#seen.get(path)
+    this.#seen.set(path, mark)
+    return before === undefined ? !old : before !== mark
+  }
+}
+
 export class TreeWatch implements Watching {
   readonly #root: string
   readonly #skip: (dir: string) => boolean
@@ -22,8 +44,9 @@ export class TreeWatch implements Watching {
 
   static start(root: string, skip: (dir: string) => boolean, changed: Changed, platform = process.platform): Watching {
     if (platform !== 'linux') {
+      const settled = new Settled()
       const watcher = watch(root, { recursive: true }, (_, file) => {
-        if (file !== null) changed(String(file))
+        if (file !== null && settled.changed(join(root, String(file)))) changed(String(file))
       })
       return { close: () => watcher.close() }
     }
