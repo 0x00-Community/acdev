@@ -7,7 +7,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{DeviceEvent, DeviceId, ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::window::{CursorGrabMode, Fullscreen, ResizeDirection, Window, WindowId};
+use winit::window::{CursorGrabMode, CursorIcon, Fullscreen, ResizeDirection, Window, WindowId};
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
@@ -26,9 +26,26 @@ pub(crate) struct Host {
     window: Arc<Window>,
     exit: Cell<Option<i32>>,
     state: Cell<WindowState>,
+    cursor: Cell<&'static str>,
+    locked: Cell<bool>,
 }
 
 impl Host {
+    fn show_cursor(&self) {
+        if self.locked.get() {
+            return;
+        }
+        let cursor = self.cursor.get();
+        if cursor == "none" {
+            return self.window.set_cursor_visible(false);
+        }
+        self.window.set_cursor(cursor.parse::<CursorIcon>().unwrap_or_else(|_| {
+            log::debug!("host window: no system cursor for {cursor}, showing the default one");
+            CursorIcon::Default
+        }));
+        self.window.set_cursor_visible(true);
+    }
+
     fn state_now(&self) -> WindowState {
         if self.window.is_minimized() == Some(true) {
             WindowState::Minimized
@@ -128,11 +145,13 @@ impl super::Host for Host {
             if let Err(e) = self.window.set_cursor_grab(CursorGrabMode::None) {
                 log::warn!("host window: release the pointer: {e}");
             }
-            self.window.set_cursor_visible(true);
+            self.locked.set(false);
+            self.show_cursor();
             return true;
         }
         match self.window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined)) {
             Ok(()) => {
+                self.locked.set(true);
                 self.window.set_cursor_visible(false);
                 true
             }
@@ -141,6 +160,12 @@ impl super::Host for Host {
                 false
             }
         }
+    }
+
+    fn set_cursor(&self, cursor: &'static str) {
+        log::debug!("host window: cursor {cursor}");
+        self.cursor.set(cursor);
+        self.show_cursor();
     }
 
     fn set_size(&self, [w, h]: [f64; 2]) -> Option<(u32, u32)> {
@@ -243,7 +268,7 @@ impl ApplicationHandler<Cmd> for Loop {
         window.set_ime_allowed(true);
         let size = window.inner_size();
         let scale = window.scale_factor();
-        let host = Host { window, exit: Cell::new(None), state: Cell::new(WindowState::Normal) };
+        let host = Host { window, exit: Cell::new(None), state: Cell::new(WindowState::Normal), cursor: Cell::new("default"), locked: Cell::new(false) };
         self.handler.started(&host, super::Proxy::Native(Proxy(self.proxy.clone())), monitor, (size.width.max(1), size.height.max(1)), scale);
         if let Some(code) = host.exit.take() {
             self.code = code;

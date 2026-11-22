@@ -229,6 +229,8 @@ struct App {
     edges: u8,
     focused: bool,
     lock: Option<Lock>,
+    cursors: HashMap<u32, &'static str>,
+    cursor: Option<&'static str>,
 }
 
 enum MenuHit {
@@ -331,6 +333,23 @@ impl Handler for App {
 
     fn event(&mut self, host: &dyn Host, event: HostEvent) {
         let Some(server) = server() else { return };
+        self.handle(server, host, event);
+        self.show_cursor(server, host);
+    }
+}
+
+impl App {
+    fn show_cursor(&mut self, server: &Server, host: &dyn Host) {
+        let cursor = match self.hover {
+            Some(window) if self.drag.is_none() && Self::open_menu(server).is_none() => self.cursors.get(&window).copied().unwrap_or("default"),
+            _ => "default",
+        };
+        if self.cursor.replace(cursor) != Some(cursor) {
+            host.set_cursor(cursor);
+        }
+    }
+
+    fn handle(&mut self, server: &Server, host: &dyn Host, event: HostEvent) {
         match event {
             HostEvent::Resized { size, scale } => self.resized(server, size, scale),
             HostEvent::CloseRequested => server.broker.push(Event { kind: "windowcloserequest".into(), window: Some(0), ..Default::default() }),
@@ -411,6 +430,7 @@ impl Handler for App {
                     self.unlock(server, host, false);
                 }
             }
+            HostEvent::Cmd(Cmd::Cursor { window, cursor }) => _ = self.cursors.insert(window, cursor),
             HostEvent::Cmd(Cmd::FocusMoved) => {
                 let focus = server.state().focus;
                 if self.lock.as_ref().is_some_and(|lock| focus != Some(lock.window)) {

@@ -142,6 +142,7 @@ impl Surface {
         };
         let wake = link.clone();
         render.set_waker(Box::new(move || wake.send(Msg::Wake)));
+        render.on_cursor(Box::new(move |cursor| server.send(Cmd::Cursor { window, cursor })));
         let gpu = server.gpu();
         let events = inbox.clone();
         let thread = std::thread::Builder::new()

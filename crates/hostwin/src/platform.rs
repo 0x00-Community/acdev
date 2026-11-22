@@ -22,6 +22,7 @@ pub(crate) enum Cmd {
     Resize { size: [f64; 2], reply: ResizeReply },
     Device,
     PointerLock { window: u32, on: bool },
+    Cursor { window: u32, cursor: &'static str },
     FocusMoved,
     Exit(i32),
 }
@@ -118,6 +119,8 @@ pub(crate) trait Host {
     fn lock_pointer(&self, _: bool) -> bool {
         false
     }
+
+    fn set_cursor(&self, _: &'static str) {}
 
     fn drag(&self, _: u32) -> bool {
         false

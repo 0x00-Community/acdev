@@ -63,7 +63,9 @@
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner; 窗口有模态子窗口时 `Hit.blocked`, 只激活模态子窗口, 指针、滚轮、拖放都不给它), 给它焦点、提前,
   之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
   (`Msg::Scroll` → `RenderHandle::scroll_at`) 做默认滚动, 和会话里 crates/window 一样; 指针的位置也交给它 (`Msg::Pointer` →
-  `RenderHandle::pointer`, 离开是 -1, -1), CSS 的 `:hover` 才跟着变. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
+  `RenderHandle::pointer`, 离开是 -1, -1), CSS 的 `:hover` 和光标才跟着变. 每个 `CursorMoved` (和注入的 `move`) 都是一个 `pointermove`
+  排进那个窗口的队列 (libacde model `Inbox` 不合并), 页面按帧派发一次、其余的作为 `getCoalescedEvents()` 的样本 (libacde `docs/web/web-apps.md`「指针事件」);
+  winit 0.30 不给 NSEvent 的时间戳, 样本的 `timeStamp` 是主线程排队的时刻; AppKit 自己在主线程忙时合并鼠标事件 (`NSEvent.isMouseCoalescingEnabled`, winit 没关) 这一层没有动. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
   `deactivate`. 面板不单独拿焦点: 给面板焦点 (`State::focus_target`) 落到它的 owner, 面板每次放置时的重新显示也不抢焦点, 所以焦点在桌面页面和它的面板之间
   移动时桌面页面不收 `deactivate` (不发 `blur`). 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
@@ -110,6 +112,17 @@
   (src/model `Clicks`: 同一个窗口、平台双击时间内、平台双击矩形内; Windows 是 `GetDoubleClickTime` / `SM_CXDOUBLECLK`, headless 和 winit 是
   500 ms、4 × 4); 第二下按照桌面声明的动作 (`State.double_click`, model `DoubleClick`: `fill` 铺满 / 还原, `minimize`, `none`; 默认 `fill`)
   请求状态, 这一下不开始拖动, 计数归零. 只有 `free` 窗口照做, `fixed` 吃掉这一下不动, `pinned`、桌面、面板不算. 按住拖动照常移动.
+- **光标** (页面一侧见 libacde `docs/web/web-apps.md`「光标」): `Surface::claim` 给页面的 render 装 `RenderHandle::on_cursor`, 光标变了时
+  (render 线程) 发 `Cmd::Cursor {window, cursor}` 到主线程, `App.cursors` 按窗口记下. 每个宿主事件处理完后 `App::show_cursor` 取指针下的窗口
+  (`App.hover`) 的光标; 不在页面上 (窗框、标题栏、窗口外)、在拖窗口或开着窗框菜单时是 `default`; 变了才调 `Host::set_cursor`. winit
+  (`host_winit.rs`): CSS 名字照 `CursorIcon::from_str` (cursor-icon 的名字就是 CSS 的, 认不出的用默认箭头), `none` 是 `set_cursor_visible(false)`;
+  指针锁着时只记下, 放开时按记下的恢复 (`none` 仍然藏着). macOS 上 winit 把 `move` / `cell` 映射到 HIServices 里 WebKit 的光标,
+  `help` / `zoom-in` / `zoom-out` / 斜向改大小映射到 AppKit 的私有光标, `wait` / `progress` 是 `busyButClickableCursor`. debug 日志
+  `host window: cursor <名字>` (`RUST_LOG=acde_hostwin=debug`). headless 和 Win32 (`Host::set_cursor` 缺省什么都不做) 还没有, Win32 一直是箭头.
+- **数位板** (2026-11-21 查): 还没有. winit 0.30.13 (`Cargo.lock`) 的 macOS 后端 (`platform_impl/macos/view.rs`) 把笔当鼠标, `CursorMoved` 只有位置,
+  不读 NSEvent 的 `pressure` / `tilt` / `subtype` (`NSEventSubtypeTabletPoint`), 也不处理 `tabletPoint:` / `tabletProximity:`; 有压力的只有
+  `WindowEvent::TouchpadPressure` (Force Touch 触控板的按压力度和档位, 不是指针的压力, 不拿来顶替) 和 `Touch.force` (Windows / iOS / Android / Web
+  的触摸, macOS 不发). 要做得自己在 `NSView` 上接 tablet 事件, 或等 winit 的新指针事件接口.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
 - **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
