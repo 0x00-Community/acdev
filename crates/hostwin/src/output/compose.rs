@@ -60,7 +60,7 @@ pub(crate) struct Page {
 pub(crate) struct Layer {
     pub id: u32,
     pub rect: [f64; 4],
-    pub backdrop: Option<([f64; 4], [f64; 4])>,
+    pub backdrop: Option<([f64; 4], [f64; 5])>,
     pub look: acde::model::Look,
 }
 
@@ -451,7 +451,7 @@ impl Thread {
             self.gpu.shared.queue.write_buffer(&bound.place, 0, &bytes);
         }
         let backdrop = |layer: &Layer| {
-            let ([x, y, w, h], [radius, blur, saturate, brightness]) = layer.backdrop?;
+            let ([x, y, w, h], [radius, blur, saturate, brightness, exponent]) = layer.backdrop?;
             let origin = [(layer.rect[0] * scale).round(), (layer.rect[1] * scale).round()];
             let rect = [(origin[0] + x) as f32, (origin[1] + y) as f32, w as f32, h as f32];
             let mut effect = acde::gpu::Effect::default();
@@ -462,7 +462,7 @@ impl Thread {
             if brightness != 1.0 {
                 effect.matrix(acde::gpu::ColorMatrix::brightness(brightness as f32).0);
             }
-            (!effect.is_none()).then_some(acde::gpu::Backdrop { rect, radius: radius as f32, exponent: 2.0, glass: None, effect })
+            (!effect.is_none()).then_some(acde::gpu::Backdrop { rect, radius: radius as f32, exponent: exponent as f32, glass: None, effect })
         };
         Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
     }

@@ -75,7 +75,7 @@ pub(crate) struct Entry {
     pub input: Option<[f64; 4]>,
     pub reserve: Option<(u32, f64)>,
     pub frame: f64,
-    pub backdrop: Option<([f64; 4], [f64; 4])>,
+    pub backdrop: Option<([f64; 4], [f64; 5])>,
     pub pending: Option<([f64; 4], [f64; 4])>,
     pub drawn: (u32, u32),
     pub menus: Vec<menu::Menu>,

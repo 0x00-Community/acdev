@@ -296,7 +296,7 @@ impl Presenter {
                 let r = b.bounds.intersect(b.clip);
                 (
                     [r.x0.floor(), r.y0.floor(), r.width().ceil().max(0.0), r.height().ceil().max(0.0)],
-                    [b.radius(), b.blur(), f64::from(b.saturate()), f64::from(b.brightness())],
+                    [b.radius(), b.blur(), f64::from(b.saturate()), f64::from(b.brightness()), b.exponent()],
                 )
             })
             .filter(|([.., w, h], _)| *w > 0.0 && *h > 0.0)

@@ -248,7 +248,7 @@ impl Surface {
         }
     }
 
-    fn set_backdrop(&self, [x, y, w, h]: [i32; 4], effect: [f64; 4]) {
+    fn set_backdrop(&self, [x, y, w, h]: [i32; 4], effect: [f64; 5]) {
         let Some(server) = server() else { return };
         let mut state = server.state();
         let scale = state.screen[2];
