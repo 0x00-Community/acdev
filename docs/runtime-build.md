@@ -35,6 +35,12 @@ napi-rs 在 MSVC 上经 `GetProcAddress` 在本进程里找 `napi_*`, 所以 `ac
 `LoadLibraryExW failed`, 接着 `panic in a function that cannot unwind`). 名单由 libacde 的 `build.rs` 生成 (`napi.def`, 见它的 `docs/runtime/ffi.md`),
 经 `links = "acde"` 的元数据 `DEP_ACDE_NAPI_DEF` 交过来, 本仓库的 `build.rs` 给 bin 加 `/DEF:`. 别的平台没有这个变量, 什么也不做.
 
+## macOS 的 Info.plist (2026-11-22)
+
+`acdev` 可执行文件的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription` (macOS 没有它们时拒绝或结束要摄像头、
+麦克风的进程), 由本仓库的 `build.rs` 写进 `OUT_DIR/Info.plist` 再 `-sectcreate` 链进去. 原来在 libacde 的 `crates/host/build.rs`,
+9605b20 并成一个包时随之丢了, 2026-11-22 搬到这里 (只有链出程序的包能给 bin 加链接参数).
+
 ## DXC 钉版本 (2026-11-18)
 
 Windows 目标经 wgpu-hal 的 `static-dxc` 依赖 `mach-dxcompiler-rs`, 它的 build.rs 在编译时从 GitHub 下预编译的 DXC.
