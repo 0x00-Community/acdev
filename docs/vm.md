@@ -201,7 +201,7 @@ dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不�
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 `--pkgs <宿主目录>` (`stagePkgs`/`PKGS_SCRIPT`, `src/vm/kernelpkgs.ts`, #111): 目录里所有 `*.pkg.tar.zst` (制品站的 acdes、dopame 包) 暂存进 `pkgs/`, 客户机里在 `pacman -Sy` 之后先 `pacman -Rdd`
 掉旧包 `acdebin-system`、`acde-dopame` (`LEGACY_PACKAGES`, 文件和新包冲突), 再一次 `pacman -U`; 失败退出 3, pacman 自己的报错照常输出. 镜像 dopameos-20261114 里还是旧包, 测新包走这条.
-provision 里没停下的失败 (装不上包、btvirt 编不过、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上).
+provision 里没停下的失败 (装不上包、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上). 例外是 btvirt 编不过 (主会话 2026-11-22 定): 经 `note` 打一行 `acdev provision: note: btvirt could not be built …`, 说明模拟蓝牙关着、可以用 `--btvirt FILE` 给编好的, 不计入 `warnings`, 不让 provision 退出 4. 起因是基底镜像 dopameos-20261114 的包数据库比镜像站旧, 装 `base-devel` 时 gcc 下载 404; provision 不为它做 `pacman -Syu` 那样的部分升级.
 `push` 一个文件时, 目标以 `/` 结尾或在客户机里是目录 (经 acdevd 跑 `test -d`) 就放进去 (`<目标>/<文件名>`), 和 `cp` 一样.
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
 acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
@@ -445,7 +445,7 @@ NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager �
    装 `base-devel glib2 dbus curl xz`, 下载 `https://www.kernel.org/pub/linux/bluetooth/bluez-<版本>.tar.xz`,
    `./configure --enable-testing` 并关掉用不到、要额外依赖的部分 (`--disable-manpages --disable-obex --disable-cups --disable-client
    --disable-mesh --disable-midi --disable-udev --disable-systemd --disable-hid2hci`), 只 `make emulator/btvirt`, 装到 `/usr/local/bin/btvirt`.
-   失败 (没网、缺依赖、编不过) 只打一行 warning, 蓝牙那一项照旧以 4 记日志.
+   失败 (没网、缺依赖、编不过, 包括包数据库比镜像站旧时 gcc 404) 只打一行 note, 不算 provision 的 warning, 蓝牙那一项照旧以 4 记日志.
 没选自己写 `/dev/vhci` 的小程序: 要让 bluetoothd 认出适配器, 得回答内核初始化时的整套 HCI 命令 (复位、读特性、版本、地址、缓冲区…),
 还要能扫到对面设备, 等于重写 btvirt 背后的 `emulator/btdev.c`; 用和已装 bluez 同版本的源码编 btvirt 最省事也最贴近真实.
 〔未核实〕: 这组 configure 选项在客户机的 bluez 版本上能不能过、`make emulator/btvirt` 需不需要别的依赖, 要等客户机里跑一次.
