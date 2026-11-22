@@ -327,6 +327,11 @@ jobs:
             | tee latest.json
           mkdir smoke && tar -xzf "$V/acdev-$V.tar.gz" -C smoke
           "smoke/acdev-$V/bin/acdev" --help 2>&1 | grep -q 'Usage: acdev <command>' || { echo "::error::bin/acdev does not start the CLI"; exit 1; }
+          # --help loads no manifest code; check does (the contract levels, the validator), as a real command would
+          mkdir smoke/app
+          printf '<!doctype html><title>smoke</title>\n' > smoke/app/index.html
+          printf '{"type": "app", "id": "smoke", "entry": "index.html", "capabilities": {}}\n' > smoke/app/acde.config.jsonc
+          (cd smoke/app && "../acdev-$V/bin/acdev" check) || { echo "::error::acdev check fails from the archive"; exit 1; }
           rm -rf smoke
       - name: to the artifacts host (acdev-release, run.json)
         env:
