@@ -9,6 +9,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { libexecBeside } from 'acdev/launcher'
+import { Pkgs } from '../pkgs.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
   accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
@@ -52,7 +53,7 @@ export function defaultLink(platform: NodeJS.Platform): Link['kind'] {
 }
 
 export class Machine {
-  static readonly DIST = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/iso'
+  static readonly DIST = `${Pkgs.BASE}/iso`
   static readonly MOUNT_TAG = 'acdev'
   static readonly SHARE = '/mnt/acdev'
   readonly dir: string

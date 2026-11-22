@@ -161,8 +161,8 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 acompositor-lead 共用, 起之前先 `acdev vm status`).
 
-`fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
-AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
+`fetch` 取 os 仓 CI 最新的磁盘镜像 (`Machine.DIST` = `https://pkgs.dopame.ai/iso` 下 `latest-qcow2` 指的那个, 约 1.7 GB; `ACDEV_VM_DIST` 可换.
+2026-11-22 起是 Cloudflare R2, 之前在腾讯 COS (已弃用); os 的 `scripts/publish-iso.sh` 现在只往这里传 ISO 和 `latest`, 还不传 qcow2 和 `latest-qcow2`), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
 根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdes 的登录页. 用户 `dopame` 的密码是
 os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
