@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use acde_hostwin::{FileFilter, Grant, InjectEvent, Injected, OpenRequest, SaveRequest, Shell};
+use acde_hostwin::{Grant, InjectEvent, Injected, Shell};
 
 use acde::Msg;
 use acde::v8;
@@ -20,11 +20,6 @@ pub fn exports<'s>(scope: &mut v8::PinScope<'s, '_>, native: Option<v8::Local<'s
     let hosted = v8::Boolean::new(scope, true);
     acde::set(scope, shell, "hosted", hosted.into());
     acde::set(scope, obj, "Shell", shell.into());
-    let chooser = v8::Object::new(scope);
-    acde::methods!(scope, chooser,
-        "open" => chooser_open,
-    );
-    acde::set(scope, obj, "FileChooser", chooser.into());
     obj.into()
 }
 
@@ -539,98 +534,6 @@ fn answer_save(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     let answer = args.get(0);
     let path = (!answer.is_null_or_undefined()).then(|| std::path::PathBuf::from(acde::arg_string(scope, &args, 0)));
     with(scope, |_| acde_hostwin::answer_save(path));
-}
-
-fn chooser_open(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let chooser = v8::Object::new(scope);
-    acde::methods!(scope, chooser,
-        "openFile" => open_file,
-        "saveFile" => save_file,
-    );
-    let Some(resolver) = v8::PromiseResolver::new(scope) else { return };
-    resolver.resolve(scope, chooser.into());
-    rv.set(resolver.get_promise(scope).into());
-}
-
-fn chooser_options<'s>(scope: &mut v8::PinScope, value: v8::Local<'s, v8::Value>, method: &str) -> Option<v8::Local<'s, v8::Object>> {
-    let options = v8::Local::<v8::Object>::try_from(value).ok();
-    if options.is_none() {
-        acde::throw_type_error(scope, &format!("{method}: the options are an object"));
-    }
-    options
-}
-
-fn flag(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> bool {
-    acde::get(scope, obj, name).is_some_and(|v| v.is_true())
-}
-
-fn file_filters(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>) -> Vec<FileFilter> {
-    let Some(list) = acde::get(scope, obj, "filters").and_then(|v| v8::Local::<v8::Array>::try_from(v).ok()) else {
-        return Vec::new();
-    };
-    (0..list.length())
-        .filter_map(|i| {
-            let filter = list.get_index(scope, i).and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())?;
-            let mut strings = |name: &str| acde::get(scope, filter, name).and_then(|v| acde::strings(scope, v)).unwrap_or_default();
-            let globs = strings("globs");
-            let mimes = strings("mimes");
-            Some(FileFilter { name: acde::get_string(scope, filter, "name").unwrap_or_default(), globs, mimes })
-        })
-        .collect()
-}
-
-fn open_file(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(options) = chooser_options(scope, args.get(0), "openFile") else { return };
-    let request = OpenRequest {
-        title: acde::get_string(scope, options, "title").unwrap_or_default(),
-        multiple: flag(scope, options, "multiple"),
-        directory: flag(scope, options, "directory"),
-        filters: file_filters(scope, options),
-    };
-    acde::offload(scope, &mut rv, "acde-chooser", move || crate::chooser::open(request), settle_open);
-}
-
-fn save_file(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(options) = chooser_options(scope, args.get(0), "saveFile") else { return };
-    let request = SaveRequest {
-        title: acde::get_string(scope, options, "title").unwrap_or_default(),
-        name: acde::get_string(scope, options, "name").unwrap_or_default(),
-        filters: file_filters(scope, options),
-    };
-    acde::offload(scope, &mut rv, "acde-chooser", move || crate::chooser::save(request), settle_save);
-}
-
-fn chooser_failed(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, error: &str) {
-    let error = acde::failure(scope, error, None, "chooser");
-    resolver.reject(scope, error);
-}
-
-fn settle_open(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, picked: Result<Option<Vec<String>>, String>) {
-    match picked {
-        Ok(Some(paths)) => {
-            let paths: Vec<v8::Local<v8::Value>> = paths.iter().map(|path| acde::string(scope, path).into()).collect();
-            let list = v8::Array::new_with_elements(scope, &paths);
-            resolver.resolve(scope, list.into());
-        }
-        Ok(None) => {
-            let null = v8::null(scope).into();
-            resolver.resolve(scope, null);
-        }
-        Err(e) => chooser_failed(scope, resolver, &e),
-    }
-}
-
-fn settle_save(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, picked: Result<Option<String>, String>) {
-    match picked {
-        Ok(picked) => {
-            let value = match picked {
-                Some(path) => acde::string(scope, &path).into(),
-                None => v8::null(scope).into(),
-            };
-            resolver.resolve(scope, value);
-        }
-        Err(e) => chooser_failed(scope, resolver, &e),
-    }
 }
 
 fn approve(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
