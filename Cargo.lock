@@ -2899,6 +2899,7 @@ dependencies = [
  "kurbo",
  "libc",
  "log",
+ "mach2",
  "naga",
  "napi",
  "napi-derive",

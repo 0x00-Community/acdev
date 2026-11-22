@@ -7,6 +7,10 @@ mod platform;
 #[global_allocator]
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+#[cfg(target_os = "macos")]
+#[global_allocator]
+static ALLOCATOR: acde::memory::Alloc = acde::memory::Alloc;
+
 const USAGE: &str = "\
 usage: acdev app <id> | desktop <id|dir> [options]
        acdev desktops [--desktop <id>] [--package <dir>]

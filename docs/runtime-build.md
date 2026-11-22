@@ -67,3 +67,15 @@ SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxco
   (`build: cargo update ...`, 正文写升了哪些要紧的包); 交测试 Agent 编过并跑过测试再推. 只升某一个包用 `cargo update -p <包>`.
 - libacde 改了依赖 (Cargo.toml 增删或改版本要求) 时, acdev 的锁文件要跟着更新, 否则 CI 的 `--locked` 失败: 在 acdev 里
   `cargo update -p libacde` (必要时加上新依赖的名字), 和 libacde 的那次改动一起排进同一个测试点.
+
+## 全局分配器 (`src/main.rs`)
+
+| 平台 | Rust 的全局分配器 | 为什么 |
+|---|---|---|
+| Linux | jemalloc (`tikv-jemallocator`) | 原有 |
+| macOS | libacde 的 `acde::memory::Alloc`: 小于 1 MiB 的交给系统 malloc, 1 MiB 及以上直接 `mach_vm_allocate`, 释放时立刻还给系统 | 系统的 xzone malloc 把释放掉的大块留着 (`vmmap` 里 `MALLOC_LARGE (empty)`, 算进 footprint), 页面 ⇄ 后端的大块请求 / 响应跑久了多出几百 MB |
+| Windows | 系统 (`System`) | 没改 |
+
+V8 的 ArrayBuffer 在 macOS 上也按同样的规则分配, 那部分在 libacde 里 (建 isolate 时设), 不归这里管. 机制、代价和测量见 libacde 的
+`docs/runtime/architecture.md`「大块内存 (macOS)」. macOS 上也换 jemalloc 不行: jemalloc 在 macOS 上没有后台线程, 脏页只在分配器再被调用时才按
+`dirty_decay_ms` 归还, 进程一闲下来就一直留着, 和要解决的问题一样.
