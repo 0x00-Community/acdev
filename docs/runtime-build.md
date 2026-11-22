@@ -48,7 +48,9 @@ SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxco
   `crates/tool`、`crates/tool` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`test.yml` 的 `cargo fetch --locked`,
   release 的 build 和 tools); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
 - 发版时 `scripts/set-version.sh` 改了 acdev、libacde 的工作区版本号, 也同步改两边 `Cargo.lock` 里 `acdev`、`acde-hostwin`、`libacde`
-  这三项的 version, 所以 `--locked` 照样过.
+  这三项的 version, 所以 `--locked` 照样过. 两边 `[workspace.dependencies]` 里点名这类包的版本要求也一起改成 `=<版本>`: libacde 把
+  `acde-scene` 钉成 `version = "=0.1.0"`, 工作区版本号一改, 不跟着改就选不到版本 (cicd run 31 两格 build 都败在
+  `failed to select a version for the requirement acde-scene = "=0.1.0"`).
 - 更新依赖: 定期在工作树里 `cargo update` (三个小程序各在自己目录里跑), 只提交锁文件的变化, 单独一个提交
   (`build: cargo update ...`, 正文写升了哪些要紧的包); 交测试 Agent 编过并跑过测试再推. 只升某一个包用 `cargo update -p <包>`.
 - libacde 改了依赖 (Cargo.toml 增删或改版本要求) 时, acdev 的锁文件要跟着更新, 否则 CI 的 `--locked` 失败: 在 acdev 里
