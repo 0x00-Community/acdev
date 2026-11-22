@@ -61,6 +61,8 @@ pub(crate) struct Layer {
     pub id: u32,
     pub rect: [f64; 4],
     pub backdrop: Option<([f64; 4], [f64; 5])>,
+    pub material: Option<acde::render::WindowMaterial>,
+    pub frame: f64,
     pub look: acde::model::Look,
 }
 
@@ -424,7 +426,7 @@ impl Thread {
         Bound { page, place, bind }
     }
 
-    fn prepare(&mut self) -> Option<Vec<(u32, Option<acde::gpu::Backdrop>)>> {
+    fn prepare(&mut self) -> Option<Vec<(u32, Vec<acde::gpu::Backdrop>)>> {
         let server = server()?;
         let (layers, scale, done, moving) = {
             let mut state = server.state();
@@ -464,7 +466,18 @@ impl Thread {
             }
             (!effect.is_none()).then_some(acde::gpu::Backdrop { rect, radius: radius as f32, exponent: exponent as f32, effect, ..Default::default() })
         };
-        Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
+        let material = |layer: &Layer| Self::material(layer, self.pages[&layer.id].page.size, scale);
+        Some(shown.iter().map(|l| (l.id, material(l).into_iter().chain(backdrop(l)).collect())).collect())
+    }
+
+    fn material(layer: &Layer, (w, h): (u32, u32), scale: f64) -> Option<acde::gpu::Backdrop> {
+        let given = layer.material.as_ref()?;
+        let material = acde::gpu::material::Material::resolve(&given.name, |warning| log::warn!("window material: {warning}"));
+        let glass = material.with_overrides(given.role, acde::gpu::glass::preference(), &given.overrides)?.scaled(scale);
+        let height = if given.titlebar { (layer.frame * scale).round() } else { f64::from(h) };
+        let origin = [(layer.rect[0] * scale).round() as f32, (layer.rect[1] * scale).round() as f32];
+        let rect = [origin[0], origin[1], w as f32, height as f32];
+        (height > 0.0).then_some(acde::gpu::Backdrop { rect, glass: Some(glass), ..Default::default() })
     }
 
     fn pass<'a>(
@@ -527,17 +540,21 @@ impl Thread {
         canvas.texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Option<acde::gpu::Backdrop>)]) -> wgpu::TextureView {
+    fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Vec<acde::gpu::Backdrop>)]) -> wgpu::TextureView {
         let shown = self.meter();
         let canvas = self.canvas();
         let mut from = 0;
         let mut clear = true;
-        for (at, (_, backdrop)) in layers.iter().enumerate() {
-            let Some(backdrop) = backdrop else { continue };
+        for (at, (_, backdrops)) in layers.iter().enumerate() {
+            if backdrops.is_empty() {
+                continue;
+            }
             Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..at].iter().map(|(id, _)| &self.pages[id].bind));
             clear = false;
             from = at;
-            self.composer.backdrop(encoder, &canvas, backdrop);
+            for backdrop in backdrops {
+                self.composer.backdrop(encoder, &canvas, backdrop);
+            }
         }
         let meter = self.meter.as_ref().filter(|_| shown).map(|m| &m.layer.bind);
         Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..].iter().map(|(id, _)| &self.pages[id].bind).chain(meter));

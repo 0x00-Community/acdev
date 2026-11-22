@@ -27,6 +27,10 @@
   模糊画布上已经画好的部分, 最后把画布贴到 surface; `screenshot` 读的也是这张画布.
   页面图层里的磨砂按元素的 CSS 角形画 (`present.rs` `part` 交 `Backdrop::exponent()`, 超椭圆指数 `n`, 见 libacde `docs/graphics/render-gpu.md`);
   窗口级的 `setBackdrop` 也带角形 (libacde issue 16: `SurfaceCommand::Backdrop` 的第 5 个数是指数, `Entry.backdrop` 照存, `compose.rs` 交给 `gpu::Backdrop`). 系统玻璃 (`Backdrop::glass()`) 也交给 `gpu::Backdrop`, 但 libacde 的进程内合成这一版仍按普通磨砂画. 桌面的 `setWindowLook` (窗口外圆角与阴影, 由 acdes 的合成器画) 宿主窗口不画, `SurfaceCommand::WindowLook` 直接忽略.
+- **窗口背景材质** (2026-11-23, libacde `acde.window.setMaterial`): `SurfaceCommand::Material(WindowMaterial)` 记在 `Entry.material` (`none` 即清掉), 合成时
+  `compose.rs` 的 `material` 按名字查 acde-scene 的材质表 (`Material::resolve(..).with_overrides(role, preference(), overrides)`, 查不到按 none 不画),
+  得到的 `Glass` 乘缩放后作为这一层的第一块 `gpu::Backdrop` 画在窗口内容之下: 铺满整扇窗口 (页面纹理大小, 含窗框), `titlebar` 时只铺窗框高度. `glass` 和 `blur` 都走玻璃管线
+  (blur 的参数没有透镜和高光). 跨窗口融合 (`group` / `spacing`) 宿主窗口这一版不做, 各窗口各画各的; 材质按直角铺满, 还不跟窗口外形走.
 - **面板挪位置等内容**: `placePanel` 的新 rect 先挂在 `Entry.pending`, 出帧线程画出这个尺寸 (差 1 px 以内) 的面板后才换上
   (`State::place_when_drawn`; 已经画好了就立刻换). 不然新位置先生效、旧内容 (相对旧原点画的) 贴过去一帧, Dock 放大时整条往旁边跳一下.
   纹理同理: 尺寸变了要新建的页面纹理 (`present.rs` `target`) 先只记在出帧线程里, 第一帧画完并提交后才交给合成线程 (`publish`), 之前合成器继续用旧纹理.
