@@ -583,16 +583,7 @@ impl Presenter {
     }
 
     fn part(layer: &Layer, dy: f32) -> Part {
-        let backdrop = layer.backdrop.as_ref().map(|b| {
-            let r = b.bounds.intersect(b.clip);
-            Backdrop {
-                rect: [r.x0 as f32, r.y0 as f32 + dy, r.width().max(0.0) as f32, r.height().max(0.0) as f32],
-                radius: b.radius() as f32,
-                exponent: b.exponent() as f32,
-                glass: b.glass().copied(),
-                effect: b.effect(),
-            }
-        });
+        let backdrop = layer.backdrop.as_ref().map(|b| b.compose().moved((0.0, dy)));
         let mut shadows = Vec::new();
         let mut effect = Effect::default();
         for (e, scale) in layer.filter.iter().flat_map(|f| f.filter.effects().iter().map(|e| (e, f.scale as f32))) {
