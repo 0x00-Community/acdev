@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use acde::gpu::{Backdrop, Effect, FilterEffect, Px, Scene, Shadow, wgpu};
 use acde::model::{Inbox, Pacer};
 use acde::render::{Bar, Decoration, Layer, Plane, RenderHandle};
-use acde::vello::{Composer, Op, Overrides, Vello, vello};
+use acde::vello::{Composer, Hole, Kept, Op, Overrides, Vello, vello};
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::Color;
 
@@ -28,6 +28,13 @@ struct Scratch {
     size: (u32, u32),
     view: wgpu::TextureView,
     drawn: bool,
+    held: Option<Held>,
+}
+
+struct Held {
+    kept: Kept,
+    over: Vec<(Scene, Affine)>,
+    above: Option<Option<wgpu::TextureView>>,
 }
 
 type Part = (Option<Backdrop>, Vec<Shadow>, Effect, Px);
@@ -55,6 +62,8 @@ pub(crate) struct Presenter {
     menu: Option<acde::render::MenuList>,
     menu_closed: bool,
     trim_at: Option<Instant>,
+    idle_at: Option<Instant>,
+    velloed: bool,
 }
 
 impl Presenter {
@@ -97,6 +106,8 @@ impl Presenter {
             menu: None,
             menu_closed: false,
             trim_at: None,
+            idle_at: None,
+            velloed: false,
         })
     }
 
@@ -151,6 +162,10 @@ impl Presenter {
             if self.trim_at.is_some_and(|at| at <= Instant::now()) {
                 self.trim();
             }
+            if self.idle_at.is_some_and(|at| at <= Instant::now()) {
+                self.idle_at = None;
+                self.forget_held();
+            }
             if let Some(vsync) = &self.vsync {
                 vsync.want(self.pacer.wants());
             }
@@ -174,7 +189,7 @@ impl Presenter {
                 self.size = (width.max(1), height.max(1));
                 self.scale = scale;
                 self.pacer.tell_size(&self.inbox, self.size, self.scale);
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Pointer(at) => {
@@ -202,32 +217,32 @@ impl Presenter {
                         }
                     }
                 }
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Title(title) => {
                 self.bar.title = title;
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Fullscreen(fullscreen) => {
                 self.bar.fullscreen = fullscreen;
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Theme(theme) => {
                 self.bar.theme = theme;
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Active(active) => {
                 self.bar.active = active;
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::PageDark(dark) => {
                 self.bar.dark_page = dark;
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Menu(labels, open) => {
@@ -235,7 +250,7 @@ impl Presenter {
                 self.bar.menus = labels;
                 self.bar.open = open.as_ref().map(|(index, _)| *index);
                 self.menu = open.map(|(_, list)| list);
-                self.render.invalidate();
+                self.invalidate();
                 self.dirty = true;
             }
             Msg::Refresh(hz) => {
@@ -251,6 +266,17 @@ impl Presenter {
         false
     }
 
+    fn invalidate(&mut self) {
+        self.render.invalidate();
+        self.forget_held();
+    }
+
+    fn forget_held(&mut self) {
+        for scratch in self.scratch.values_mut() {
+            scratch.held = None;
+        }
+    }
+
     fn paint(&mut self) {
         if self.gpu.shared.gone() {
             return;
@@ -262,6 +288,7 @@ impl Presenter {
         }
         self.pacer.animating = frame.animating;
         let started = Instant::now();
+        self.velloed = false;
         let (decoration, size) = self.framed(Vec::new());
         let top = size.1 - self.size.1;
         if (self.menu.is_some() || std::mem::take(&mut self.menu_closed))
@@ -283,8 +310,11 @@ impl Presenter {
             log::warn!("web window: {e}");
             true
         });
-        if drawn {
+        if self.velloed {
             self.trim_at = Some(Instant::now() + IDLE_TRIM);
+        }
+        if drawn {
+            self.idle_at = Some(Instant::now() + IDLE_TRIM);
         }
         if let Some(compositor) = server().and_then(|s| s.compositor()).filter(|_| drawn) {
             compositor.dirty();
@@ -362,7 +392,8 @@ impl Presenter {
         let now = Instant::now();
         let capture = self.captures.iter().map(|(_, deadline)| deadline.saturating_duration_since(now)).min();
         let trim = self.trim_at.map(|at| at.saturating_duration_since(now));
-        [self.pacer.wait(), capture, trim].into_iter().flatten().min()
+        let idle = self.idle_at.map(|at| at.saturating_duration_since(now));
+        [self.pacer.wait(), capture, trim, idle].into_iter().flatten().min()
     }
 
     fn trim(&mut self) {
@@ -449,8 +480,6 @@ impl Presenter {
         let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
         let (started, mut redrawn) = (Instant::now(), 0);
         let room = self.composer.layer_view(size).texture().size();
-        let [r, g, b, a] = base.components;
-        self.composer.fill_rects(&mut encoder, &view, [r * a, g * a, b * a, a], [target.xywh()]);
         let jobs: Vec<Option<(Px, Px)>> = parts
             .iter()
             .map(|(_, (_, shadows, effect, bounds))| {
@@ -467,6 +496,17 @@ impl Presenter {
                 Some(layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy))).filter(|scene| !scene.commands.is_empty())
             })
             .collect();
+        if let Some(hole) = Self::hole(fresh, &parts, &scenes, &shared, top, full.intersection(target)) {
+            if let Some(scene) = &scenes[0]
+                && self.canvas_only(window, &page, &view, scene, &hole, top, &over)?
+            {
+                return Ok(true);
+            }
+        } else if let Some(scratch) = self.scratch.get_mut(&window) {
+            scratch.held = None;
+        }
+        let [r, g, b, a] = base.components;
+        self.composer.fill_rects(&mut encoder, &view, [r * a, g * a, b * a, a], [target.xywh()]);
         let gap = parts.iter().flat_map(|(_, (_, shadows, ..))| shadows).map(|s| (3.0 * s.blur).ceil() as u32).max().unwrap_or(0);
         let slots = Self::pack(
             scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())),
@@ -503,6 +543,7 @@ impl Presenter {
                     items.push((scene, place, Some(Rect::new(sx, sy, sx + f64::from(w), sy + f64::from(h)))));
                     redrawn += 1;
                 }
+                self.velloed = true;
                 self.vello.render_clipped(items, &mut self.overrides, &canvas, extent, Color::TRANSPARENT, Some(&shared))?;
             }
             let [ox, oy, ..] = drawn.xywh();
@@ -534,6 +575,7 @@ impl Presenter {
             for (scene, _) in &mut over {
                 acde::vello::clear_stale_images(scene, &self.gpu.shared);
             }
+            self.velloed = true;
             self.vello.render(over, &mut self.overrides, &canvas, size, Color::TRANSPARENT, Some(&shared))?;
             self.composer.place(&mut encoder, &view, [0, 0], [0, 0], target.xywh());
         }
@@ -553,6 +595,92 @@ impl Presenter {
         }
         let ms = acde::log::since_ms(started);
         log::debug!(target: "perf::layers", "window={window} region={:?} layers={redrawn}/{} ms={ms:.3}", target.xywh(), parts.len());
+        Ok(true)
+    }
+
+    fn hole(fresh: bool, parts: &[(&Layer, Part)], scenes: &[Option<Scene>], shared: &acde::gpu::Gpu, top: u32, target: Option<Px>) -> Option<Hole> {
+        let ([(_, (None, shadows, effect, _))], [Some(scene)], Some(target)) = (parts, scenes, target) else { return None };
+        if fresh || !shadows.is_empty() || !effect.is_none() {
+            return None;
+        }
+        let hole = Hole::find(scene, &shared.images)?;
+        let [x, y, w, h] = hole.rect;
+        let rect = Px { x: x as i32, y: (y + top) as i32, w: w as i32, h: h as i32 };
+        target.contains(rect).then_some(hole)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn canvas_only(
+        &mut self,
+        window: u32,
+        page: &Page,
+        view: &wgpu::TextureView,
+        scene: &Scene,
+        hole: &Hole,
+        top: u32,
+        over: &[(Scene, Affine)],
+    ) -> Result<bool, String> {
+        let shared = self.gpu.shared.clone();
+        let Some(scratch) = self.scratch.get_mut(&window) else { return Ok(false) };
+        let mut held = match scratch.held.take() {
+            Some(held) if held.over == over && held.kept.matches(scene, hole, &shared.images) => held,
+            _ => {
+                scratch.held = Some(Held { kept: hole.keep(scene, &shared.images), over: over.to_vec(), above: None });
+                return Ok(false);
+            }
+        };
+        let (started, [x, y, w, h]) = (Instant::now(), hole.rect);
+        let at = [x, y + top];
+        if held.above.is_none() {
+            let above = match hole.above(scene) {
+                None => None,
+                Some(mut above) => {
+                    acde::vello::clear_stale_images(&mut above, &shared);
+                    let usage = wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC;
+                    let texture = acde::gpu::texture(&shared.device, (w, h), usage, "acde host above");
+                    let target = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    let place = Affine::translate((-f64::from(x), -f64::from(y)));
+                    self.velloed = true;
+                    self.vello.render(vec![(above, place)], &mut self.overrides, &target, (w, h), Color::TRANSPARENT, Some(&shared))?;
+                    Some(target)
+                }
+            };
+            held.above = Some(above);
+        }
+        let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host canvas") });
+        let generation = hole.image.generation();
+        let extent = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        let origin = wgpu::Origin3d { x: at[0], y: at[1], z: 0 };
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &hole.image.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: hole.texel[0], y: hole.texel[1], z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo { texture: view.texture(), mip_level: 0, origin, aspect: wgpu::TextureAspect::All },
+            extent,
+        );
+        if let Some(Some(above)) = &held.above {
+            self.composer.place_from(&mut encoder, view, above, at, [at[0], at[1], w, h]);
+        }
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo { texture: view.texture(), mip_level: 0, origin, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &page.texture, mip_level: 0, origin, aspect: wgpu::TextureAspect::All },
+            extent,
+        );
+        self.flush(&mut encoder);
+        hole.image.mark_copied(generation);
+        self.straight(window, false);
+        self.composer.end_frame();
+        self.publish(window);
+        let above = matches!(held.above, Some(Some(_)));
+        if let Some(scratch) = self.scratch.get_mut(&window) {
+            scratch.drawn = true;
+            scratch.held = Some(held);
+        }
+        let ms = acde::log::since_ms(started);
+        log::debug!(target: "perf::layers", "window={window} canvas {:?} above={above} ms={ms:.3}", [at[0], at[1], w, h]);
         Ok(true)
     }
 
@@ -606,7 +734,7 @@ impl Presenter {
                 | wgpu::TextureUsages::COPY_DST;
             let texture = acde::gpu::texture(&self.gpu.shared.device, size, usage, "acde host layers");
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.scratch.insert(window, Scratch { size, view, drawn: false });
+            self.scratch.insert(window, Scratch { size, view, drawn: false, held: None });
         }
         self.scratch[&window].view.clone()
     }

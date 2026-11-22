@@ -34,6 +34,16 @@
   (`Composer::trim`) 和 vello 的中间缓冲 (`Vello::trim` 重建 renderer: vello 的每个 renderer 画过一次就一直留着约 165 MiB 的缓冲和图片图集,
   见 libacde 的 `docs/graphics/render-gpu.md`「vello 的中间缓冲」), 设备丢了时不做. 草稿和页面纹理留着 (下一帧只重画损坏区, 合成器要读).
   之后的第一帧重新分配这些缓冲. 帧率面板自己的 Vello (`compose.rs` `Meter`, 只在调试时开) 和合成线程的离屏画布不放.
+  「2 秒」从最后一次 **vello 画** 算起 (`trim_at`, `velloed`), 不是从最后一次出帧: 只有 WebGPU canvas 在变、DOM 没变的帧不经 vello (下一条), 所以
+  canvas 一直在动 (比如选区的蚂蚁线每 100 ms 一帧) 时 vello 的中间缓冲照样在 2 秒后放掉. 最后一次出帧 2 秒后 (`idle_at`) 再放掉下一条留的上层纹理.
+- **只有 WebGPU canvas 变了的帧** (`Presenter::canvas_only`, libacde `vello::Hole` / `Kept`): 一个窗口的这一帧只有一层、没有 backdrop / 滤镜 / 投影,
+  要重画的范围里恰好有一个不透明 (`alphaMode: 'opaque'`, `GpuImage::opaque`) 的 GPU 图片, 一像素对一像素、整像素位置地铺满一个矩形, 外面只套着
+  矩形裁剪 (不透明度 1、普通混合), 而且这块范围里的场景除了这张图片是哪一张以外和上一帧完全一样 (`Kept::matches`: 逐条命令比, 别的 GPU 图片还比
+  `generation`; 标题栏场景也比): 不画 vello, 把 canvas 的纹理直接拷进草稿的那个矩形 (`copy_texture_to_texture`), 再把盖在 canvas 上面的内容
+  (`Hole::above`: 图片之后的命令, 套上同样的裁剪) 贴上去 (`Composer::place_from`, 预乘 over), 拷到页面纹理. 上层内容在场景第二次相同的那一帧用
+  vello 画一次, 留在 `acde host above` 纹理里 (矩形大小), 之后的帧直接用; 场景一变、窗口改大小、标题栏或菜单变了 (`invalidate`) 都扔掉, 走原来的路.
+  拷完 `GpuImage::mark_copied`, 页面那边才复用这张图片 (和 vello 拷进图集后一样). 条件不满足 (半透明 canvas、带圆角或变换、
+  两个 WebGPU canvas、DOM 也在变) 时照旧整块用 vello 画. 和 vello 画的结果比, 只在上层内容半透明的像素 (抗锯齿边、阴影) 上差 1 (多量化一次).
 - **窗口之间的毛玻璃**: 钉住的面板里 backdrop-filter 最大的那块 (同 window crate 的 `Panel::backdrops`) 和页面的 `acde.window.setBackdrop`
   (窗口本地物理像素, 加窗框高度) 记在 `Entry.backdrop`. 合成器先把各层画进一张离屏画布, 画到带 backdrop 的层之前调 `Composer::backdrop`
   模糊画布上已经画好的部分, 最后把画布贴到 surface; `screenshot` 读的也是这张画布.
