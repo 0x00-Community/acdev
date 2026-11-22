@@ -233,6 +233,7 @@ impl Surface {
             }
             C::Title(title) => self.set_title(&title),
             C::ImeArea(rect) => self.set_ime_area(rect),
+            C::WindowLook(_) => {}
         }
     }
 

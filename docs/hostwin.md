@@ -25,6 +25,8 @@
 - **窗口之间的毛玻璃**: 钉住的面板里 backdrop-filter 最大的那块 (同 window crate 的 `Panel::backdrops`) 和页面的 `acde.window.setBackdrop`
   (窗口本地物理像素, 加窗框高度) 记在 `Entry.backdrop`. 合成器先把各层画进一张离屏画布, 画到带 backdrop 的层之前调 `Composer::backdrop`
   模糊画布上已经画好的部分, 最后把画布贴到 surface; `screenshot` 读的也是这张画布.
+  页面图层里的磨砂按元素的 CSS 角形画 (`present.rs` `part` 交 `Backdrop::exponent()`, 超椭圆指数 `n`, 见 libacde `docs/graphics/render-gpu.md`);
+  窗口级的 `setBackdrop` 照旧是圆弧 (`compose.rs` 交 2). 桌面的 `setWindowLook` (窗口外圆角与阴影, 由 acdes 的合成器画) 宿主窗口不画, `SurfaceCommand::WindowLook` 直接忽略.
 - **面板挪位置等内容**: `placePanel` 的新 rect 先挂在 `Entry.pending`, 出帧线程画出这个尺寸 (差 1 px 以内) 的面板后才换上
   (`State::place_when_drawn`; 已经画好了就立刻换). 不然新位置先生效、旧内容 (相对旧原点画的) 贴过去一帧, Dock 放大时整条往旁边跳一下.
   纹理同理: 尺寸变了要新建的页面纹理 (`present.rs` `target`) 先只记在出帧线程里, 第一帧画完并提交后才交给合成线程 (`publish`), 之前合成器继续用旧纹理.
