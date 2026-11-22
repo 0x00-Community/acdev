@@ -59,7 +59,9 @@ export function stagePkgs(stage: string, dir: string): string[] {
 export const PKGS_SCRIPT = [
   'if [ -d "$here/pkgs" ]; then',
   `  for old in ${LEGACY_PACKAGES.join(' ')}; do`,
-  '    if pacman -Q "$old" >/dev/null 2>&1; then step "removing $old (replaced by acdes and dopame)"; pacman -Rdd --noconfirm "$old" >/dev/null; fi',
+  '    [ "$(pacman -Qq "$old" 2>/dev/null)" = "$old" ] || continue',
+  '    step "removing $old (replaced by acdes and dopame)"',
+  '    pacman -Rdd --noconfirm "$old" >/dev/null',
   '  done',
   '  step "the packages from --pkgs: $(cd "$here/pkgs" && echo *.pkg.tar.zst)"',
   '  pacman -U --noconfirm "$here"/pkgs/*.pkg.tar.zst >/dev/null || { echo "acdev provision: pacman -U of the --pkgs packages failed (see pacman above)" >&2; exit 3; }',
