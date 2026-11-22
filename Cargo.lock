@@ -2928,6 +2928,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "signal-hook",
+ "skrifa 0.44.0",
  "symphonia",
  "thiserror 2.0.21",
  "unicode-xid",
