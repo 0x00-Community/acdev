@@ -23,7 +23,10 @@ pub(crate) struct Gpu {
 
 impl Gpu {
     pub fn open() -> Result<Self, String> {
-        let (instance, adapter, shared) = acde::gpu::Gpu::open("acde host")?;
+        let fits = |device: &wgpu::Device, queue: &wgpu::Queue, adapter: &wgpu::Adapter| {
+            acde::vello::Vello::probe(device, queue, &adapter.get_downlevel_capabilities())
+        };
+        let (instance, adapter, shared) = acde::gpu::Gpu::open_with("acde host", &fits)?;
         _ = shared.set_compositor(std::sync::Arc::new(acde::vello::VelloCompositor));
         log::info!("web layer uses {} ({:?}, {:?})", shared.info.name, shared.info.device_type, shared.info.backend);
         shared.on_lost(recover);
