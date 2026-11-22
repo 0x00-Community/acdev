@@ -347,6 +347,7 @@ export class Help {
             + 'port from the next boot; usb add IMAGE [--size SIZE] plugs a disk image in as a USB stick (a new image is made '
             + 'and formatted FAT, which needs mkfs.vfat or mkfs.exfat), usb remove [IMAGE or ID] pulls it (default: the last one), '
             + 'usb list shows them; wake wakes a guest that went to sleep (S3); '
+            + 'login [USER] logs USER (default tester, password ACDEV_VM_PASSWORD) in at the login page (acdes greeter login); '
             + 'provision sets the guest up for testing (the user, its password, greetd on the acdes '
             + 'login screen, acdes laid out by its PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '

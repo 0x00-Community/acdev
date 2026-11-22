@@ -51,6 +51,49 @@ async function script(devd: Runs, what: string, text: string, args: readonly str
   return lines
 }
 
+export const LOGIN_USER = 'tester'
+
+const LOGIN = [
+  'faillock --user "$1" --reset 2>/dev/null || true',
+  'code=0',
+  'acdes greeter login "$1" < "$2" || code=$?',
+  'rm -f "$2"',
+  'exit $code',
+].join('\n')
+
+const LOGIN_ANSWERS: Readonly<Record<number, string>> = {
+  1: 'the login page turned the password down, or no session came up within 30 s',
+  2: 'acdes refused: not a guest acdev started, or an acdes without "greeter login" (update acdes)',
+  3: 'no login page is waiting (the guest is still starting, or another user is logged in)',
+  127: 'this acdes has no "greeter login" (update acdes)',
+}
+
+export class LoginRefused extends Error {
+  readonly code: number
+
+  constructor(code: number, detail: string) {
+    super(`vm login: ${LOGIN_ANSWERS[code] ?? `acdes greeter login exited ${code}`}${detail ? ` (${detail})` : ''}`)
+    this.code = code
+  }
+}
+
+export async function loginGuest(devd: Pick<Devd, 'run' | 'push'>, user: string, password: string): Promise<string> {
+  const file = posix.join('/run', `acdev-login-${randomBytes(6).toString('hex')}`)
+  await devd.push([{ path: file, mode: 0o600, data: Buffer.from(`${password}\n`) }])
+  let out = ''
+  let err = ''
+  const code = await devd.run(['/bin/sh', '-c', LOGIN, 'sh', user, file], {
+    stdout: (chunk) => {
+      out += chunk.toString()
+    },
+    stderr: (chunk) => {
+      err += chunk.toString()
+    },
+  })
+  if (code !== 0) throw new LoginRefused(code, err.trim().split('\n').at(-1) ?? '')
+  return out.trim() || `logged in: ${user}`
+}
+
 export function guestPassword(env: NodeJS.ProcessEnv = process.env): string {
   return env[GUEST_PASSWORD_ENV] || GUEST_PASSWORD
 }

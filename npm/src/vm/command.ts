@@ -6,6 +6,7 @@ import { Usb } from './usb.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
 import { guestHardware } from './guesthw.ts'
+import { guestPassword, LOGIN_USER, loginGuest } from './guest.ts'
 
 type Flags = ReadonlyMap<string, string>
 type Handler = (machine: Machine, rest: readonly string[], flags: Flags) => Promise<number>
@@ -204,6 +205,12 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   async screenshot(machine, rest, flags) {
     count('screenshot', rest, 1, 1, 'FILE.png')
     console.log(await machine.screenshot(rest[0]!, whole('output', flags.get('output'), 0, Machine.MAX_OUTPUTS - 1, 0)))
+    return 0
+  },
+  async login(machine, rest) {
+    count('login', rest, 0, 1, '[USER]')
+    machine.running()
+    console.log(await loginGuest(machine.devd(), rest[0] ?? LOGIN_USER, guestPassword()))
     return 0
   },
   async run(machine, rest, flags) {

@@ -253,9 +253,15 @@ acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目�
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; 带 3D (窗口里默认) 时截不出, 用 acdev screen --session vm -o shot.png 或不加 --gl 的 --headless
 acdev vm console                                # 客户机内核日志从下次启动起进串口
+acdev vm login                                  # 在登录页登录 tester (密码 ACDEV_VM_PASSWORD, 缺省 dopame-dev); acdev vm login qa 换用户
 acdev vm stop                                   # 让客户机自己关机 (acdevd → guest agent → ACPI), 都不行才杀掉 QEMU
 ```
 
+- `login [USER]` (`src/vm/guest.ts` `loginGuest`, 2026-11-22): 不按键登录. 密码 (`ACDEV_VM_PASSWORD`, 缺省 `dopame-dev`) 经 acdevd 推成 `/run/acdev-login-<随机>`
+  (0600, 不上命令行), 以 root 跑 `faillock --user USER --reset` 和 `acdes greeter login USER < 文件`, 再删文件. acdes 那条命令只在 acdev 起的客户机里可用,
+  交给正等着的登录页, 最多等 30 s 到 logind 里有这个用户的会话 (acdes `docs/packaging.md`「开发登录」). 退出码: 0 已登录 (本来就登录着也是 0), 1 密码错或没等到会话,
+  2 用法错或不是开发客户机 (旧 acdes 没有这条命令也落在 2 或 127), 3 没有正等着的登录页; acdev 把它们换成一句说明. `acdev test --vm` 开头先登录一次: 1 照旧报错,
+  2、3、127 只说一句、接着按原来的办法找会话.
 - `acdev vm stop` (`Machine.stop` / `Machine.shutdown`) 按四级依次退, 输出写明是哪一级关掉的, 一眼看出是不是退到了强杀:
   1. acdevd 在场 (先 `version` 探一下) 时经它以 root 跑 `systemctl poweroff --check-inhibitors=no`: 不让会话里的抑制锁拦住, 也不经桌面
      (Dopame 的电源键默认是「问我要做什么」, 只按 ACPI 电源键时客户机只弹出询问, 原来要等满 60 s 再杀). 关机会把 acdevd 自己停掉,

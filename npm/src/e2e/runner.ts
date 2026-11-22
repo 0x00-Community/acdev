@@ -138,8 +138,15 @@ export class TestRunner {
 
   static async #guest(options: RunnerOptions): Promise<string> {
     if (options.desktop !== undefined || options.headed) throw new Error('acdev test --vm: the guest shows its own desktop; leave out --desktop and --headed')
-    const [{ Machine }, { guestPassword, prepareGuest }] = await Promise.all([import('../vm/machine.ts'), import('../vm/guest.ts')])
-    const guest = await prepareGuest(new Machine().devd(), guestPassword())
+    const [{ Machine }, { guestPassword, loginGuest, LoginRefused, LOGIN_USER, prepareGuest }] = await Promise.all([
+      import('../vm/machine.ts'), import('../vm/guest.ts'),
+    ])
+    const devd = new Machine().devd()
+    await loginGuest(devd, LOGIN_USER, guestPassword()).then(console.log, (error: unknown) => {
+      if (!(error instanceof LoginRefused) || error.code === 1) throw error
+      console.log(`acdev test: not logging in for you: ${error.message}`)
+    })
+    const guest = await prepareGuest(devd, guestPassword())
     console.log(`acdev test: in the guest as ${guest.user} (home ${guest.home}); its password is set for the lock page checks`)
     return guest.home
   }
