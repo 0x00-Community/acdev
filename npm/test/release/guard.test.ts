@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, tmp } from '../helpers.ts'
-import { systemTar } from '../../scripts/shipped.ts'
+import { compression, systemTar } from '../../scripts/shipped.ts'
 
 const ROOT = join(import.meta.dir, '..', '..')
 const VERSION = '0.0.5'
@@ -17,20 +17,20 @@ function sha(file: string): string {
 
 const TARGETS = ['x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc']
 
-function pack(root: string, file: string, members: readonly string[], text: string, flag: string): void {
+function pack(root: string, file: string, members: readonly string[], text: string): void {
   const stage = join(root, `.${members.join('+').replaceAll('/', '_')}`)
   for (const member of members) {
     mkdirSync(join(stage, member, '..'), { recursive: true })
     writeFileSync(join(stage, member), text)
   }
-  const made = systemTar([flag, file, '-C', stage, ...new Set(members.map((member) => member.split('/')[0]!))])
+  const made = systemTar([...compression(file), '-cf', file, '-C', stage, ...new Set(members.map((member) => member.split('/')[0]!))])
   if (made.status !== 0) throw new Error(`tar failed: ${made.stderr}`)
   rmSync(stage, { recursive: true, force: true })
 }
 
-const TOOLS: Readonly<Record<string, { file: string; program: string; flag: string }>> = {
-  'x86_64-unknown-linux-gnu': { file: 'acdevtools-x86_64-unknown-linux-gnu.tar.xz', program: 'acdevtool', flag: '-cJf' },
-  'x86_64-pc-windows-msvc': { file: 'acdevtools-x86_64-pc-windows-msvc.tar.gz', program: 'acdevtool.exe', flag: '-czf' },
+const TOOLS: Readonly<Record<string, { file: string; program: string }>> = {
+  'x86_64-unknown-linux-gnu': { file: 'acdevtools-x86_64-unknown-linux-gnu.tar.zst', program: 'acdevtool' },
+  'x86_64-pc-windows-msvc': { file: 'acdevtools-x86_64-pc-windows-msvc.tar.gz', program: 'acdevtool.exe' },
 }
 
 function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): string {
@@ -41,15 +41,15 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
   const lines: string[] = []
   for (const target of TARGETS) {
     const windows = target.endsWith('-windows-msvc')
-    const file = `acdevrt-${target}${windows ? '.tar.gz' : '.tar.xz'}`
-    pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev')], 'binary', windows ? '-czf' : '-cJf')
+    const file = `acdevrt-${target}${windows ? '.tar.gz' : '.tar.zst'}`
+    pack(root, join(version, file), [runtimeMember || (windows ? 'acdev.exe' : 'acdev')], 'binary')
     lines.push(`${sha(join(version, file))}  ${file}`)
     const tool = TOOLS[target]!
-    pack(root, join(version, tool.file), [tool.program], 'binary', tool.flag)
+    pack(root, join(version, tool.file), [tool.program], 'binary')
     lines.push(`${sha(join(version, tool.file))}  ${tool.file}`)
   }
-  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64'], 'binary', '-czf')
-  pack(root, join(version, `acde-api-${VERSION}.tar.gz`), ['package/package.json'], '{}', '-czf')
+  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64'], 'binary')
+  pack(root, join(version, `acde-api-${VERSION}.tar.gz`), ['package/package.json'], '{}')
   for (const file of [`acdev-guest-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
@@ -119,7 +119,7 @@ describe('release guard', () => {
   test('fails when a build holds anything but the acdev runtime, or a target or the guest daemons are missing', () => {
     const wrong = guard(release([], false, 'acdert'))
     expect(wrong.code).toBe(1)
-    expect(wrong.out).toContain('acdevrt-x86_64-unknown-linux-gnu.tar.xz: not exactly the files acdev')
+    expect(wrong.out).toContain('acdevrt-x86_64-unknown-linux-gnu.tar.zst: not exactly the files acdev')
     const guestless = release()
     rmSync(join(guestless, VERSION, `acdev-guest-${VERSION}.tar.gz`))
     expect(guard(guestless).out).toContain(`${VERSION}/acdev-guest-${VERSION}.tar.gz: missing from the release`)

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { listFiles, shipLeaks, systemTar } from '../npm/scripts/shipped.ts'
+import { compression, listFiles, shipLeaks, systemTar } from '../npm/scripts/shipped.ts'
 
 const { values } = parseArgs({
   options: {
@@ -31,7 +31,8 @@ if (targets.length === 0) fail('--targets: the triples this release ships, comma
 for (const target of targets) if (!TARGETS.includes(target)) fail(`--targets: unknown target ${target} (one of ${TARGETS.join(', ')})`)
 const archives = [`acdev-${version}.tar.gz`]
 const windows = (target: string) => target.endsWith('-windows-msvc')
-const archive = (name: string, target: string) => `${name}-${target}${windows(target) ? '.tar.gz' : '.tar.xz'}`
+const packed = (target: string) => (windows(target) ? '.tar.gz' : target.includes('-linux-') ? '.tar.zst' : '.tar.xz')
+const archive = (name: string, target: string) => `${name}-${target}${packed(target)}`
 const exe = (name: string, target: string) => (windows(target) ? `${name}.exe` : name)
 const runtimes = targets.map((target) => archive('acdevrt', target))
 const guest = `acdev-guest-${version}.tar.gz`
@@ -88,7 +89,7 @@ if (problems.length === 0) {
     problems.push(`SHA256SUMS lists ${listed.size} files, expected ${checked.length}`)
   }
   const programs = (archive: string, wanted: string[]) => {
-    const listing = systemTar([archive.endsWith('.xz') ? '-tvJf' : '-tvzf', join(dir, version, archive)])
+    const listing = systemTar([...compression(archive), '-tvf', join(dir, version, archive)])
     const rows = listing.status === 0 ? listing.stdout.split('\n').filter(Boolean) : []
     const plain = rows.every((row) => row[0] === '-')
     const names = rows.map((row) => row.split(/\s+/).at(-1)).sort()

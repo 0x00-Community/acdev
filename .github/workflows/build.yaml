@@ -1,39 +1,51 @@
-name: cicd
+name: build
 
-# By hand on Gitea: build, check and preview. Publish: tick publish and give commit=<sha>, or push a tag v<x.y.z>.
+# Every push to main, or by hand: build, pack and guard acdev on the artifacts host (.127), then test.yaml on this run.
+# tag.yaml calls it for a release (github.event_name is workflow_call there): a release build; otherwise a preview.
 # What ships, where and in which order: docs/release-distribution.md. The runners' toolchains: scripts/runner-setup.sh.
 # Every job's output goes to the artifacts host (.127): written with rsync over ssh, read with nc + tar.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
-      publish:
-        description: 'false: build and check only. true: tag v<version> and publish (main only, commit required)'
+      test:
+        description: 'run test.yaml after the build'
         required: false
-        default: false
+        default: true
         type: boolean
-      commit:
-        description: 'full or short SHA of a commit on origin/main (required for publish=true)'
+      version:
+        description: 'x.y.z to build as; empty counts up from the highest released version'
         required: false
         default: ''
         type: string
+      skip_targets:
+        description: 'targets not to build this time, comma-separated without spaces (e.g. aarch64-apple-darwin)'
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      test:
+        description: 'run test.yaml after the build'
+        required: false
+        default: true
+        type: boolean
       version:
         description: 'x.y.z to release as; empty counts up from the highest released version'
         required: false
         default: ''
         type: string
-      skip_targets:
-        description: 'targets not to build or ship this time, comma-separated without spaces (e.g. aarch64-apple-darwin)'
-        required: false
-        default: ''
-        type: string
+    outputs:
+      version:
+        description: 'the version this build packed'
+        value: ${{ jobs.plan.outputs.version }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: acdev-release
+  group: acdev-build-${{ github.event_name }}
   cancel-in-progress: false
 
 defaults:
@@ -42,14 +54,7 @@ defaults:
 
 env:
   PKGS: https://pkgs.dopame.ai
-  AWS_REGION: ap-southeast-1
-  ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
-  BUCKET: dopame-pkgs
   PREFIX: acdev
-  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
-  # the runners' uplink is slow: run 2558 timed out reading S3's answer to a large part (the CLI's default is 60 s)
-  AWS_RETRY_MODE: standard
-  AWS_MAX_ATTEMPTS: '10'
   RUSTUP_HOME: /opt/rust/rustup
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: always
@@ -62,11 +67,10 @@ jobs:
   plan:
     runs-on: x86_64-debian
     outputs:
-      publish: ${{ steps.version.outputs.publish }}
+      release: ${{ steps.version.outputs.release }}
       sha: ${{ steps.version.outputs.sha }}
       libacde: ${{ steps.version.outputs.libacde }}
       version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
       targets: ${{ steps.version.outputs.targets }}
     steps:
       - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -74,40 +78,34 @@ jobs:
           path: acdev
           fetch-depth: 0
           persist-credentials: false
-      - name: the commit (a full SHA on origin/main), the version, libacde's main and the targets
+      - name: release or preview, the version, libacde's main and the targets
         id: version
         working-directory: acdev
         env:
-          PUBLISH_INPUT: ${{ github.event.inputs.publish }}
-          COMMIT: ${{ github.event.inputs.commit }}
-          VERSION_INPUT: ${{ github.event.inputs.version }}
-          SKIP: ${{ github.event.inputs.skip_targets }}
+          EVENT: ${{ github.event_name }}
+          CALL_VERSION: ${{ inputs.version }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          DISPATCH_SKIP: ${{ github.event.inputs.skip_targets }}
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
         run: |
-          # Gitea gives inputs.publish as false even when ticked; in the environment it is the text true
-          if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi
-          PUSHED_TAG=
-          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
-            push:refs/tags/v*) PUBLISH=true; COMMIT=$GITHUB_SHA; PUSHED_TAG=${GITHUB_REF#refs/tags/} ;;
-          esac
-          if [ -z "${COMMIT:-}" ]; then
-            [ "$PUBLISH" = true ] && { echo "::error::a publish needs a commit: run it with -f commit=<sha>"; exit 1; }
-            sha=$GITHUB_SHA
+          # tag.yaml is the only caller: a called build is a release; a push or a run by hand is a preview
+          # (a dispatch's inputs are read from github.event.inputs: this Gitea leaves inputs.* at their defaults)
+          if [ "$EVENT" = workflow_call ]; then
+            RELEASE=true VERSION_INPUT=${CALL_VERSION:-} SKIP=
           else
-            sha=$(git rev-parse --verify --quiet "$COMMIT^{commit}") || { echo "::error::$COMMIT is not a commit in this repository"; exit 1; }
+            RELEASE=false VERSION_INPUT=${DISPATCH_VERSION:-} SKIP=${DISPATCH_SKIP:-}
           fi
-          if [ "$PUBLISH" = true ] || [ -n "${COMMIT:-}" ]; then
+          sha=$GITHUB_SHA
+          if [ "$RELEASE" = true ]; then
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::a release is made from main only; this run is on $GITHUB_REF"; exit 1; }
             git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is neither origin/main nor one of its ancestors"; exit 1; }
           fi
-          if [ "$PUBLISH" = true ] && [ -z "$PUSHED_TAG" ] && [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error::a release is published from main only; this run is on $GITHUB_REF"
-            exit 1
-          fi
-          git checkout --quiet --detach "$sha"
-          if [ -n "$PUSHED_TAG" ]; then
-            v=${PUSHED_TAG#v}
-          elif [ -n "${VERSION_INPUT:-}" ]; then
+          tagged_as=$(git tag --points-at "$sha" --list 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+          if [ -n "${VERSION_INPUT:-}" ]; then
             v=${VERSION_INPUT#v}
+          elif [ -n "$tagged_as" ]; then
+            # a commit tagged already builds as that version: a rerun of tag.yaml continues the same release
+            v=$tagged_as
           else
             # one patch past the highest version released anywhere: pkgs' latest.json, npm, and the v* tags
             seen=$( {
@@ -118,16 +116,16 @@ jobs:
             v=$(echo "${seen:-0.0.0}" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
           fi
           case $v in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::version $v is not x.y.z"; exit 1 ;; esac
-          if [ "$PUBLISH" = true ] && tagged=$(git rev-parse --verify --quiet "refs/tags/v$v^{commit}") && [ "$tagged" != "$sha" ]; then
-            echo "::error::v$v already exists and points at $tagged, not at $sha"
+          if [ "$RELEASE" = true ] && tagged=$(git rev-parse --verify --quiet "refs/tags/v$v^{commit}") && [ "$tagged" != "$sha" ]; then
+            echo "::error::v$v already exists and points at $tagged, not at $sha: bump the version"
             exit 1
           fi
           # libacde's main, the one commit every job builds
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           lib=$(git -c http.extraHeader="Authorization: basic ${auth}" ls-remote "$GITHUB_SERVER_URL/AC/libacde.git" refs/heads/main | cut -f 1)
           [ -n "$lib" ] || { echo "::error::no main in AC/libacde"; exit 1; }
-          # a publish of a commit and version pkgs already made takes that libacde, so every job reuses its output (built/ on .127)
-          if [ "$PUBLISH" = true ]; then
+          # a release of a commit and version a preview built already takes that libacde, so every job reuses its output (built/ on .127)
+          if [ "$RELEASE" = true ]; then
             was=$(printf 'acdev/built/libacde-%s-%s\n' "$sha" "$v" | nc $PULL | tar -xO 2>/dev/null || true)
             if printf '%s' "$was" | grep -qxE '[0-9a-f]{40}' && [ "$was" != "$lib" ]; then
               echo "::notice::libacde $was, as when $sha was last built as $v (main is $lib)"
@@ -141,7 +139,7 @@ jobs:
           left=
           for t in $all; do case ",${SKIP:-}," in *",$t,"*) ;; *) left="$left,$t" ;; esac; done
           [ -n "$left" ] || { echo "::error::skip_targets leaves no target to build"; exit 1; }
-          printf 'publish=%s\nsha=%s\nversion=%s\ntag=v%s\nlibacde=%s\ntargets=%s\n' "$PUBLISH" "$sha" "$v" "$v" "$lib" "${left#,}" | tee -a "$GITHUB_OUTPUT"
+          printf 'release=%s\nsha=%s\nversion=%s\nlibacde=%s\ntargets=%s\n' "$RELEASE" "$sha" "$v" "$lib" "${left#,}" | tee -a "$GITHUB_OUTPUT"
 
   # per target on a Linux runner: the runtime (acdevrt-<triple>) and the host helper (acdevtools-<triple>);
   # Windows with cargo-xwin, macOS with cargo-zigbuild and the MacOSX15.5 SDK; Apple silicon on any aarch64-debian runner (user)
@@ -248,7 +246,12 @@ jobs:
           pack() {
             rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3" && TZ=UTC touch -t 200001010000.00 "one/$3"
             tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" > one.tar
-            if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$T.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz"; fi
+            # Linux zstd -3 (install.sh asks for zstd); Windows 10's tar.exe reads neither xz nor zstd, macOS's bsdtar no zstd
+            case $T in
+              *-windows-*) gzip -9 -n -c one.tar > "out/$1-$T.tar.gz" ;;
+              *-linux-*) zstd -q -T0 -3 -c one.tar > "out/$1-$T.tar.zst" ;;
+              *) xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz" ;;
+            esac
           }
           pack acdevrt "acdev/target/$T/dist/acdev$x" "acdev$x"
           pack acdevtools "acdev/crates/tool/target/$T/release/acdevtool$x" "acdevtool$x"
@@ -335,11 +338,12 @@ jobs:
           rm -rf smoke
       - name: to the artifacts host (acdev-release, run.json)
         env:
-          PUBLISH: ${{ needs.plan.outputs.publish }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          LIB: ${{ needs.plan.outputs.libacde }}
           FRESH: ${{ steps.reuse.outputs.build }}
         run: |
           [ "$FRESH" != true ] || upload -rt --mkpath --chmod=D755,F644 out/ "$TO:$GITHUB_RUN_NUMBER/acdev-release/"
-          mkdir -p run && printf '{"version":"%s","commit":"%s","publish":"%s","run":%s}\n' "$V" "$SHA" "$PUBLISH" "$GITHUB_RUN_NUMBER" > run/run.json
+          mkdir -p run && printf '{"version":"%s","commit":"%s","libacde":"%s","release":"%s","run":%s}\n' "$V" "$SHA" "$LIB" "$RELEASE" "$GITHUB_RUN_NUMBER" > run/run.json
           upload -t --mkpath --chmod=F644 run/run.json "$TO:$GITHUB_RUN_NUMBER/"
           echo "artifacts: 192.168.10.127:/srv/artifacts/acdev/$GITHUB_RUN_NUMBER/" >> "$GITHUB_STEP_SUMMARY"
       - name: the release is exactly the allow-list and the shipped content is clean
@@ -347,11 +351,20 @@ jobs:
         working-directory: acdev/npm
         run: bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$V" --targets "$TARGETS"
       - name: latest on the artifacts host
+        env:
+          RELEASE: ${{ needs.plan.outputs.release }}
         run: |
-          echo "$GITHUB_RUN_NUMBER" > run/latest
-          upload -t --chmod=F644 run/latest "$TO:"
-          [ "${{ needs.plan.outputs.publish }}" = true ] || echo "preview only, the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
-      - name: record this run as the one that built this key, and its libacde for a publish of this commit and version
+          # a build of another event may run beside this one: latest only moves forward
+          cur=$(printf 'acdev/latest\n' | nc $PULL | tar -xO 2>/dev/null || true)
+          case $cur in '' | *[!0-9]*) cur=0 ;; esac
+          if [ "$GITHUB_RUN_NUMBER" -gt "$cur" ]; then
+            echo "$GITHUB_RUN_NUMBER" > run/latest
+            upload -t --chmod=F644 run/latest "$TO:"
+          else
+            echo "latest stays $cur, newer than $GITHUB_RUN_NUMBER"
+          fi
+          [ "$RELEASE" = true ] || echo "preview only, the archive passed the guard; a release is tag.yaml" >> "$GITHUB_STEP_SUMMARY"
+      - name: record this run as the one that built this key, and its libacde for a release of this commit and version
         if: steps.reuse.outputs.build == 'true'
         env:
           SHA: ${{ needs.plan.outputs.sha }}
@@ -361,126 +374,11 @@ jobs:
           echo "$LIB" > "built/libacde-$SHA-$V"
           upload -rt --mkpath --chmod=D755,F644 built/ "$TO:built/"
 
-  # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
-  publish:
-    needs: [plan, pkgs]
-    if: needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'
-    runs-on: x86_64-debian
-    permissions:
-      contents: write
-    env:
-      V: ${{ needs.plan.outputs.version }}
-      TAG: ${{ needs.plan.outputs.tag }}
-      SHA: ${{ needs.plan.outputs.sha }}
-    steps:
-      - uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acdev
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: true
-      - name: the release from the artifacts host
-        run: |
-          rm -rf out && mkdir out
-          printf 'acdev/%s/acdev-release\n' "$GITHUB_RUN_NUMBER" | nc $PULL | tar -x -C out --strip-components=3 2>/dev/null || true
-          [ -f out/latest ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/acdev-release"; exit 1; }
-          [ "$(cat out/latest)" = "$V" ] || { echo "::error::the release is $(cat out/latest), not $V"; exit 1; }
-          (cd "out/$V" && sha256sum -c SHA256SUMS)
-      - &aws
-        name: credentials for the role
-        env:
-          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: |
-          # the second time the role session of the first is in the environment: its token must not go with the long-term key
-          creds=$(env -u AWS_SESSION_TOKEN AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
-            --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
-          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
-          printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
-      - name: upload every file SHA256SUMS lists, then SHA256SUMS, each read back
-        working-directory: out/${{ needs.plan.outputs.version }}
-        run: |
-          # a published version is identical or refused, never overwritten; a rerun skips the identical files
-          publish_once() {
-            case $1 in *.tar.gz) type=application/gzip ;; *.tar.xz) type=application/x-xz ;; *) type='text/plain; charset=utf-8' ;; esac
-            key="$PREFIX/$V/$1"
-            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> "$RUNNER_TEMP/head.err"; then
-              aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/published" --only-show-errors
-              cmp -s "$RUNNER_TEMP/published" "$1" || { echo "::error::$1 is already published with different content: a version is never overwritten"; exit 1; }
-              echo "already published, identical: $1"
-            elif grep -qE 'Not Found|NotFound|404' "$RUNNER_TEMP/head.err"; then
-              aws s3 cp "$1" "s3://$BUCKET/$key" --cli-read-timeout 600 --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
-            else
-              echo "::error::cannot check $1: $(cat "$RUNNER_TEMP/head.err")"; exit 1
-            fi
-            aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/readback" --only-show-errors
-            cmp -s "$RUNNER_TEMP/readback" "$1" || { echo "::error::$1 does not read back as uploaded"; exit 1; }
-          }
-          for f in $(awk '{ sub(/^\*/, "", $2); print $2 }' SHA256SUMS); do
-            case $f in *[!A-Za-z0-9._-]*) echo "::error::bad file name $f"; exit 1 ;; esac
-            publish_once "$f"
-          done
-          publish_once SHA256SUMS
-      - name: the annotated tag points at the commit, or already does
-        working-directory: acdev
-        run: |
-          test "$(git rev-parse HEAD)" = "$SHA"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
-            peeled=${peeled:-$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)}
-            [ "$peeled" = "$SHA" ] || { echo "::error::$TAG already exists and points at $peeled, not at $SHA: bump the version"; exit 1; }
-            echo "$TAG already points at $SHA: a rerun continues"
-          else
-            git -c user.name=gitea-actions -c user.email=gitea-actions@gitea.dopamine tag -a "$TAG" -m "acdev $TAG" "$SHA"
-            git push origin "refs/tags/$TAG"
-          fi
-      # the upload can take most of an hour on the runners' uplink: fresh credentials for the pointers
-      - *aws
-      - name: the pointers, latest.json last, then the CDN
-        working-directory: out
-        run: |
-          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$1" --only-show-errors --content-type "$2" --cache-control 'public, max-age=0, must-revalidate'; }
-          put install.sh 'text/plain; charset=utf-8'
-          put install.ps1 'text/plain; charset=utf-8'
-          put install.md 'text/markdown; charset=utf-8'
-          put latest 'text/plain; charset=utf-8'
-          put latest.json application/json
-          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" --query Invalidation.Id --output text \
-            --paths /$PREFIX/latest /$PREFIX/latest.json /$PREFIX/install.sh /$PREFIX/install.ps1 /$PREFIX/install.md "/$PREFIX/$V/*"
-          printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"
-      # @dopame/acdev (starts its platform package) and @dopame/acdev-<os>-<cpu> (laid out as an install); the SDK is not on npm
-      - name: npm (platforms, then @dopame/acdev)
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          [ -n "${NPM_TOKEN:-}" ] || { echo "::warning::no NPM_TOKEN secret: nothing published to npm"; exit 0; }
-          rel="$GITHUB_WORKSPACE/out/$V"
-          deps=
-          for t in $(echo "${{ needs.plan.outputs.targets }}" | tr , ' '); do
-            case $t in
-              x86_64-unknown-linux-gnu) os=linux cpu=x64 ;;
-              aarch64-apple-darwin) os=darwin cpu=arm64 ;;
-              x86_64-apple-darwin) os=darwin cpu=x64 ;;
-              x86_64-pc-windows-msvc) os=win32 cpu=x64 ;;
-            esac
-            name="@dopame/acdev-$os-$cpu" dir="npm/acdev-$os-$cpu"
-            mkdir -p "$dir.stage" "$dir/libexec"
-            tar -xzf "$rel/acdev-$V.tar.gz" -C "$dir.stage" && cp -a "$dir.stage/acdev-$V/." "$dir/" && rm -rf "$dir.stage"
-            for f in "$rel/acdevrt-$t".tar.* "$rel/acdevtools-$t".tar.* "$rel/acdev-guest-$V.tar.gz"; do tar -xf "$f" -C "$dir/libexec"; done
-            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime, the acdev CLI, the guest daemons and acdevtool`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
-              "$name" "$V" "$os" "$cpu" > "$dir/package.json"
-            deps="$deps\"$name\": \"$V\","
-          done
-          mkdir -p npm/acdev
-          printf '%s\n' '#!/usr/bin/env node' \
-            'import(`@dopame/acdev-${process.platform}-${process.arch}/lib/acdev/launcher.mjs`).then(async (m) => process.exit(await m.run(process.argv.slice(2))), (e) => { process.stderr.write(`acdev: no acdev for ${process.platform}-${process.arch} (${e.message})\n`); process.exit(1) })' \
-            > npm/acdev/acdev.mjs
-          node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
-            "$V" "$deps" > npm/acdev/package.json
-          du -sh npm/*
-          printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"
-          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
-          for dir in npm/acdev-*-* npm/acdev; do
-            name=$(node -p "require('./$dir/package.json').name")
-            if npm view "$name@$V" version > /dev/null 2>&1; then echo "$name@$V is already on npm"; continue; fi
-            (cd "$dir" && npm publish --access public) && echo "published $name@$V"
-          done
+  # test.yaml on this run's artifacts: always after a push, after a run by hand unless test is unticked, when tag.yaml asks
+  test:
+    needs: pkgs
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test != 'false') || (github.event_name == 'workflow_call' && inputs.test)
+    uses: ./.github/workflows/test.yaml
+    with:
+      run: ${{ github.run_number }}
+    secrets: inherit

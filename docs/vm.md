@@ -164,12 +164,12 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 acompositor-lead 共用, 起之前先 `acdev vm status`).
 
-`fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
-AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
+`fetch` 取 os 仓 CI 最新的系统 (`Machine.DIST` = `https://pkgs.dopame.ai/iso`, `ACDEV_VM_DIST` 可换; 2026-11-22 起是 Cloudflare R2, 之前在腾讯 COS (已弃用)):
+磁盘镜像是 `latest-qcow2` 指的那个 (约 1.7 GB), 下载站上没有或比 ISO 旧时从 ISO 装出来 (见下「从 ISO 装出镜像」). 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
 根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdes 的登录页. 用户 `dopame` 的密码是
 os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑.
 
-**从 ISO 装出镜像** (`src/vm/image/install.ts`, `image/fetch.ts`, 2026-11-22): os 的发布只往下载站发 ISO 并更新 `iso/latest`, `iso/latest-qcow2` 停在 20261114 不再更新.
+**从 ISO 装出镜像** (`src/vm/image/install.ts`, `image/fetch.ts`, 2026-11-22): os 的 `scripts/publish-iso.sh` 只往下载站发 ISO 并更新 `iso/latest`, 不发 qcow2 和 `latest-qcow2` (没有这个指针时当作没有镜像).
 `fetch` 先比两个指针里文件名的时间戳 (`dopameos-<YYYYMMDDTHHMMSSZ>-<架构>`): 镜像不比 ISO 旧就照旧下载镜像; ISO 更新时下载 ISO (同样核对
 `.sha256`), 在一台自己的虚拟机里把它装成 `images/<ISO 名>.from-iso.qcow2`, 同一个 ISO 只装一次 (文件在就直接用), 装好后删掉 ISO. `--from-iso` /
 `--qcow2` 强制走其中一条. 做法照 os 仓 `image/from-iso.sh` (那里是 CI 出云镜像用的), 收进 acdev, 运行时不依赖 os 仓、python3 或 dash:

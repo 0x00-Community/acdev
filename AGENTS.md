@@ -60,7 +60,9 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
 
 - CI 与发版不在云端试错 (用户定 2026-11-18): 改 CI 工作流或准备发版前, 先读 `~/.agents/references/github-release.md`; 先在本机或执行机上
   复现 (本机用 `cargo xwin` 等把各平台构建与打包跑一遍, 执行机环境先登录核对或问用户), 全部通过后才动云端; 云端 CI 只用于本地通过后的一次
-  不发布预演和正式打标签发版, 失败就回本地修, 不连续重跑. CI 的触发 (手动运行、推发版标签) 只由测试 Agent 或主会话做, 开发 Agent 只改代码.
+  不发布预演和正式发版, 失败就回本地修, 不连续重跑. 工作流是 `.github/workflows/` 的四个: `build.yaml` (推 main 就自动跑, 预演, 接着
+  `test.yaml`)、`test.yaml`、`tag.yaml` (发版的唯一手动入口)、`release.yaml` (只被 `tag.yaml` 调, 传 R2), 见 `docs/release-distribution.md`.
+  手动触发 CI (手动运行 `build.yaml` / `test.yaml`、跑 `tag.yaml` 发版) 只由测试 Agent 或主会话做, 开发 Agent 只改代码.
 - 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdev.git`, 网页 `http://gitea.dopamine/AC/acdev`), 只推这里 (用户定 2026-11-14:
   GitHub 不再更新).
 - 远端只有 `main` (加发版和存档的 tag), 不推别的分支. 本地需要时在总仓 `.worktrees/acdev-<后缀>` 开工作树和本地分支 `Akira/<后缀>` (基于
@@ -98,7 +100,7 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
 | 改 `acdev doctor` 的检查项、修法文字或 `--fix` | `docs/acde-doctor.md` |
 | 改 `acdev dev`: 契约级别检查、stderr 过滤、监听重建、热重载、信号、一个工程一个会话、会话文件、dev IPC 连接 | `docs/acde-dev.md` |
 | 改 `webs` / `eval` / `shot` / `inspect` / `act` 等会话命令、批准命令、devtools、driver、截图、trace、MCP 工具或 `acdev test` | `docs/devtools-driver-mcp.md` |
-| 发版, 改 `.github/workflows/cicd.yaml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
+| 发版, 改 `.github/workflows/` 的 `build.yaml` / `test.yaml` / `tag.yaml` / `release.yaml`、`npm/scripts/dist.ts`、`scripts/install.sh` / `install.ps1`、launcher 或安装目录布局 | `docs/release-distribution.md` |
 | 改 `npm/skills/acdev/`、`acdev skills`、`scripts/install.md`, 或对外行为变了要同步文档 | `docs/skills.md` |
 | 改命令行和运行时之间的东西: 清单校验、运行时命令行与环境变量、后端启动、Windows 后端契约 | `docs/contract-with-libacde.md` |
 | 跑或加命令行的测试, 在 Windows 上跑 `bun test` | `docs/cli-tests.md` |

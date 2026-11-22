@@ -224,6 +224,20 @@ main() {
     say "$2: $(size "$3"), SHA-256 matches"
   }
 
+  untar() {
+    case $1 in
+      *.tar.zst)
+        if command -v zstd >/dev/null 2>&1; then
+          zstd -dcq "$1" >"$1.tar" && tar -xf "$1.tar" -C "$2" && rm -f "$1.tar"
+        else
+          tar -xf "$1" -C "$2"
+        fi
+        ;;
+      *.tar.xz) tar -xJf "$1" -C "$2" ;;
+      *) tar -xzf "$1" -C "$2" ;;
+    esac
+  }
+
   file=acdev-$version.tar.gz
   say "installing acdev $version"
   fetch "$ACDEV_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
@@ -232,7 +246,11 @@ main() {
   download "$ACDEV_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDEV_DIST/$version/$file"
   got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
   binary=acdevrt-$triple
-  if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
+  if [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.zst")" ]; then
+    binary=$binary.tar.zst
+    command -v zstd >/dev/null 2>&1 || tar --version 2>/dev/null | grep -q libzstd ||
+      die "needs zstd to unpack $binary: install the zstd package and run this again"
+  elif [ -n "$(listed "$tmp/SHA256SUMS" "$binary.tar.xz")" ]; then
     binary=$binary.tar.xz
     tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
       die "needs xz to unpack $binary: install the xz (or xz-utils) package and run this again"
@@ -240,7 +258,7 @@ main() {
     die "acdev $version comes from before acdev and its runtime were released together: leave out --version for the latest"
   else
     supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdevrt-/) {
-      sub(/^acdevrt-/, "", f); sub(/\.tar\.[gx]z$/, "", f); print f } }' "$tmp/SHA256SUMS" |
+      sub(/^acdevrt-/, "", f); sub(/\.tar\.(gz|xz|zst)$/, "", f); print f } }' "$tmp/SHA256SUMS" |
       sort -u | tr '\n' ' ')
     die "acdev $version has no acdev runtime for this platform ($triple); it is built for: ${supported% }"
   fi
@@ -248,7 +266,7 @@ main() {
   download "$ACDEV_DIST/$version/$binary" "$tmp/$binary" "$binary" || die "could not download $ACDEV_DIST/$version/$binary"
   got "$tmp/SHA256SUMS" "$binary" "$tmp/$binary"
   extras=
-  for extra in "acdev-guest-$version.tar.gz" "acdevtools-$triple.tar.xz" "acde-host-$version.tar.gz"; do
+  for extra in "acdev-guest-$version.tar.gz" "acdevtools-$triple.tar.zst" "acdevtools-$triple.tar.xz" "acde-host-$version.tar.gz"; do
     [ -n "$(listed "$tmp/SHA256SUMS" "$extra")" ] || continue
     download "$ACDEV_DIST/$version/$extra" "$tmp/$extra" "$extra" || die "could not download $ACDEV_DIST/$version/$extra"
     got "$tmp/SHA256SUMS" "$extra" "$tmp/$extra"
@@ -267,16 +285,13 @@ main() {
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
   unpacked=$stage/acdev-$version
   [ -x "$unpacked/bin/acdev" ] || die "$file does not hold bin/acdev"
-  mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
+  mkdir "$stage/runtime" && untar "$tmp/$binary" "$stage/runtime" || die "could not unpack $binary"
   [ -f "$stage/runtime/acdev" ] && [ ! -h "$stage/runtime/acdev" ] || die "$binary does not hold the runtime acdev"
   mkdir -p "$unpacked/libexec" && mv "$stage/runtime/acdev" "$unpacked/libexec/acdev" && chmod 755 "$unpacked/libexec/acdev" ||
     die "could not place acdev runtime"
   for extra in $extras; do
     rm -rf "$stage/extra" && mkdir "$stage/extra" || die "cannot unpack $extra"
-    case $extra in
-      *.tar.xz) tar -xJf "$tmp/$extra" -C "$stage/extra" ;;
-      *) tar -xzf "$tmp/$extra" -C "$stage/extra" ;;
-    esac || die "could not unpack $extra"
+    untar "$tmp/$extra" "$stage/extra" || die "could not unpack $extra"
     case $extra in
       acde-host-*)
         [ -f "$stage/extra/app/dist/broker.js" ] || die "$extra does not hold app/dist/broker.js"

@@ -65,4 +65,4 @@
   会指进缓存目录. 找不到时: 在终端里 (stdin、stdout 都是 TTY, 没给 `--yes` / `-y`) 问 `Install acdev now? (Y/n)`, 同意就跑官方安装器
   (`curl -fsSL $ACDEV_DIST/install.sh | sh`, Windows `irm …/install.ps1 | iex`, `ACDEV_DIST` 默认 `https://pkgs.dopame.ai/acdev`), 装好再找一次;
   不在终端里打出安装命令、退出码 1. 包管理器: create 命令设了 `npm_config_user_agent`, 子进程继承, `acdev new` 照它选 (见上「运行时和包管理器」).
-  版本独立于 acdev (只在这个文件变了时发), 手动 `npm publish --access public` (在 `create-acde/`), 不在 cicd 的 npm 步骤里.
+  版本独立于 acdev (只在这个文件变了时发), 手动 `npm publish --access public` (在 `create-acde/`), 不在 tag.yaml 的 npm 作业里.

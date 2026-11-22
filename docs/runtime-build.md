@@ -45,8 +45,8 @@ SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxco
 ## 依赖与 Cargo.lock (用户定 2026-11-18)
 
 - `Cargo.lock` 进 git: 根工作区 (acdev、crates/hostwin, 加上并排 `../libacde` 及其 `vendor/blitz` 的全部依赖) 一份, 另编的 `crates/devd`、
-  `crates/tool`、`crates/tool` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`test.yml` 的 `cargo fetch --locked`,
-  release 的 build 和 tools); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
+  `crates/tool`、`crates/tool` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`build.yaml` 的 `build` 和 `guest`;
+  `test.yaml` 不编, 测的是构建出的产物); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
 - 发版时 `scripts/set-version.sh` 改了 acdev、libacde 的工作区版本号, 也同步改两边 `Cargo.lock` 里 `acdev`、`acde-hostwin`、`libacde`
   这三项的 version, 所以 `--locked` 照样过. 两边 `[workspace.dependencies]` 里点名这类包的版本要求也一起改成 `=<版本>`: libacde 把
   `acde-scene` 钉成 `version = "=0.1.0"`, 工作区版本号一改, 不跟着改就选不到版本 (cicd run 31 两格 build 都败在
