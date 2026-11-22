@@ -181,6 +181,16 @@ describe('the acdevd protocol, host side', () => {
     await expect(new Devd(refused).kill(7)).rejects.toThrow('acdevd: no room')
   })
 
+  test('push modes: the execute bits on unix; on Windows, which has none, ELF files and #! scripts are 755', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'tool'), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]), { mode: 0o644 })
+    writeFileSync(join(dir, 'run.sh'), '#!/bin/sh\necho hi\n', { mode: 0o644 })
+    writeFileSync(join(dir, 'notes.txt'), 'ELF #!', { mode: 0o755 })
+    const modes = (platform: NodeJS.Platform) => Object.fromEntries(Devd.files(dir, '/opt/d', platform).map((f) => [f.path, f.mode]))
+    expect(modes('win32')).toEqual({ '/opt/d/tool': 0o755, '/opt/d/run.sh': 0o755, '/opt/d/notes.txt': 0o644 })
+    expect(modes('linux')).toEqual({ '/opt/d/tool': 0o644, '/opt/d/run.sh': 0o644, '/opt/d/notes.txt': 0o755 })
+  })
+
   test('pull writes each file under LOCAL with its mode; a single file lands at LOCAL; .. is refused', async () => {
     const dir = tmp()
     const header = (mode: number, name: string) => Buffer.concat([u32(mode), Buffer.from(name)])

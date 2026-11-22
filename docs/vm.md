@@ -78,6 +78,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - acdevd 要的是客户机 (Linux x86_64) 的程序, Windows、macOS 上既跑不了也编不出它: 不是 Linux 的宿主必须设 `ACDEV_DEVD` 指向一个在 Linux
   上编好的 acdevd (`crates/devd` 里 `cargo build --release`, 或 `--target x86_64-unknown-linux-musl`), 否则 `start` 一开始就报错. 宿主上
   跑不了 `acdevd --version`, 所以版本改在装进客户机后核对: 客户机里的 acdevd 回答的版本和 `crates/devd/Cargo.toml` 不同就报错 (所有平台).
+- `push` 的权限位: 别的平台按宿主文件有没有执行位定 755 或 644; Windows 的文件没有执行位 (Node 22.20 在 Windows 上 `stat` 出的 `mode` 连 `.exe` 都是 666, 2026-11-22 实测),
+  原来推进去的一律是 644, 推进去的 Linux 程序跑不起来. 所以 Windows 上看内容: 开头是 ELF 魔数 (`\x7fELF`) 或 `#!` 的给 755, 其余 644
+  (`Devd.runnable`, `src/vm/devd.ts`).
 - 没有 9p: `--share` 直接报错, 用 `acdev vm push`. 没有 acdevtool view: `--viewer`、`--headless --outputs N` 报错.
 - `fetch` 不建 `latest.qcow2` 符号链接 (Windows 上要管理员或开发者模式), 最新镜像的名字写在 `images/latest` (所有平台都写).
 
@@ -211,7 +214,7 @@ acdev vm status                                 # 目录、镜像、KVM、客户
 acdev vm run -- 'uname -a; systemctl is-active greetd'   # 退出码就是客户机里命令的退出码
 acdev vm shell                                  # 交互终端 (root 的登录 shell); acdev vm shell -- htop 只开一个程序
 acdev vm logs 1234 --follow --grep error         # 跟着看 run --detach 那个进程组的输出, 只留含 error 的行
-acdev vm push target/release/acompositor             # 拷进客户机 /opt/acdev/acompositor (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644
+acdev vm push target/release/acompositor             # 拷进客户机 /opt/acdev/acompositor (目录也行: 打 tar 过去再解开); 可执行 755, 其余 644 (Windows 上按内容: ELF 和 #! 脚本是 755)
 acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目录 (只留读写执行位); LOCAL 是已有目录时放进 LOCAL/<名字>
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; 带 3D (窗口里默认) 时截不出, 用 acdev screen --session vm -o shot.png 或不加 --gl 的 --headless

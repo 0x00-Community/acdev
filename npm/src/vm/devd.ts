@@ -9,6 +9,7 @@ import type { Guest } from './host.ts'
 export const PORT = 5252
 const MAX = 16 << 20
 const CHUNK = 1 << 20
+const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46])
 
 export const Kind = {
   AUTH: 'A', VERSION: 'V', PUSH: 'P', PULL: 'G', DATA: 'D', END: 'E', DONE: 'Z', RUN: 'R', KILL: 'K', SHELL: 'S', RESIZE: 'W',
@@ -429,10 +430,15 @@ export class Devd {
     }
   }
 
-  static files(local: string, remote: string): PushFile[] {
+  static runnable(data: Buffer): boolean {
+    return data.subarray(0, 4).equals(ELF_MAGIC) || data.subarray(0, 2).toString('latin1') === '#!'
+  }
+
+  static files(local: string, remote: string, platform: NodeJS.Platform = process.platform): PushFile[] {
     const file = (path: string, to: string): PushFile => {
-      const mode = statSync(path).mode & 0o111 ? 0o755 : 0o644
-      return { path: to, mode, data: readFileSync(path) }
+      const data = readFileSync(path)
+      const runnable = platform === 'win32' ? Devd.runnable(data) : (statSync(path).mode & 0o111) !== 0
+      return { path: to, mode: runnable ? 0o755 : 0o644, data }
     }
     if (!statSync(local).isDirectory()) return [file(local, remote)]
     const out: PushFile[] = []
