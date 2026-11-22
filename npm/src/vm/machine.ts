@@ -1,14 +1,14 @@
 import { spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  copyFileSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, renameSync,
-  rmSync, statSync, symlinkSync, writeFileSync,
+  copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix, resolve } from 'node:path'
-import { Readable } from 'node:stream'
 import { libexecBeside } from 'acdev/launcher'
+import { Pkgs } from '../pkgs.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
   accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
@@ -18,6 +18,7 @@ import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
 import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
 import { Usb } from './usb.ts'
+import { getImage, newestImage, type FetchFrom } from './image/fetch.ts'
 import { GL_FAILED, glChoice, qemuDevices, renderNode } from './gl.ts'
 
 export interface StartOptions {
@@ -52,7 +53,7 @@ export function defaultLink(platform: NodeJS.Platform): Link['kind'] {
 }
 
 export class Machine {
-  static readonly DIST = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/iso'
+  static readonly DIST = `${Pkgs.BASE}/iso`
   static readonly MOUNT_TAG = 'acdev'
   static readonly SHARE = '/mnt/acdev'
   readonly dir: string
@@ -91,9 +92,11 @@ export class Machine {
     return join(this.logs, 'serial.log')
   }
 
+  static readonly SOCKET_PATH_MOST = 100
+
   get sockets(): string {
-    if (this.host.platform !== 'win32') return this.run
-    const temp = this.env['TEMP'] || this.env['TMP'] || tmpdir()
+    if (this.host.platform !== 'win32' && join(this.run, 'devd.sock').length <= Machine.SOCKET_PATH_MOST) return this.run
+    const temp = this.host.platform === 'win32' ? this.env['TEMP'] || this.env['TMP'] || tmpdir() : this.env['XDG_RUNTIME_DIR'] || tmpdir()
     return join(temp, `acdev-${createHash('sha256').update(this.dir).digest('hex').slice(0, 12)}`)
   }
 
@@ -170,49 +173,20 @@ export class Machine {
     return pid
   }
 
-  async fetch(say: (line: string) => void): Promise<string> {
+  async fetch(say: (line: string) => void, from: FetchFrom = 'newest'): Promise<string> {
     const dist = (this.env['ACDEV_VM_DIST'] || Machine.DIST).replace(/\/+$/, '')
     mkdirSync(this.images, { recursive: true })
-    const pointer = `${dist}/${Machine.latestName(this.guest)}`
-    const name = (await Machine.#text(pointer)).trim()
-    if (!/^[\w.-]+\.qcow2$/.test(name) || !name.includes(this.guest)) throw new Error(`vm: ${pointer} names no ${this.guest} qcow2 image (${name})`)
+    const name = await newestImage(this, Machine.latestName(this.guest), dist, from, say)
     const file = join(this.images, name)
+    const work = () => new Machine({ ...this.env, ACDEV_VM_DIR: join(this.images, `.install-${name}`) }, this.host)
     if (existsSync(file)) say(`${name} is already here`)
-    else await this.#download(`${dist}/${name}`, file, say)
+    else await getImage({ machine: this, work, kvm: Machine.kvm() }, dist, name, file, say)
     writeFileSync(join(this.images, this.#latestFile()), `${name}\n`)
     if (this.guest !== 'x86_64' || this.host.platform === 'win32') return file
     const latest = join(this.images, 'latest.qcow2')
     rmSync(latest, { force: true })
     symlinkSync(name, latest)
     return file
-  }
-
-  async #download(url: string, file: string, say: (line: string) => void): Promise<void> {
-    const want = (await Machine.#text(`${url}.sha256`)).trim().split(/\s+/, 1)[0]
-    say(`downloading ${url}`)
-    const response = await fetch(url)
-    if (!response.ok || !response.body) throw new Error(`vm: ${url}: HTTP ${response.status}`)
-    const part = `${file}.part`
-    const hash = createHash('sha256')
-    const out = createWriteStream(part)
-    for await (const chunk of Readable.fromWeb(response.body as never)) {
-      hash.update(chunk as Buffer)
-      if (!out.write(chunk)) await new Promise((done) => out.once('drain', done))
-    }
-    await new Promise<void>((done, fail) => out.end((error?: Error | null) => (error ? fail(error) : done())))
-    const got = hash.digest('hex')
-    if (got !== want) {
-      rmSync(part, { force: true })
-      throw new Error(`vm: ${basename(file)}: SHA-256 is ${got}, not ${want}`)
-    }
-    renameSync(part, file)
-    say(`${basename(file)}: SHA-256 matches`)
-  }
-
-  static async #text(url: string): Promise<string> {
-    const response = await fetch(url)
-    if (!response.ok) throw new Error(`vm: ${url}: HTTP ${response.status}`)
-    return response.text()
   }
 
   firmware(): readonly [string, string] {

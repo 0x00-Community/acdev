@@ -69,6 +69,11 @@ export function shipLeaks(root: string): string[] {
   return found
 }
 
+export function compression(file: string): string[] {
+  if (file.endsWith('.zst')) return ['--zstd']
+  return file.endsWith('.xz') ? ['-J'] : ['-z']
+}
+
 export function systemTar(args: string[]) {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows'
   const exe = process.platform === 'win32' ? join(systemRoot, 'System32', 'tar.exe') : 'tar'

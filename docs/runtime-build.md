@@ -29,6 +29,12 @@ target/debug/acdev doctor
 构建运行时库要有 bun: libacde 的 `build.rs` 把它的 `js/` 的页面包打进二进制 (`ACDEV_BUN` 指定 bun 的路径). 管理中枢 (broker.js) 随
 `web/` 删除 (acdert 91e7dd1e) 后没有取回, 原来进它的入口现在是单应用启动器 (`target/debug/acdev app <目录>`), 桌面起不来. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.
 
+## Windows 的 N-API 导出 (2026-11-22)
+
+napi-rs 在 MSVC 上经 `GetProcAddress` 在本进程里找 `napi_*`, 所以 `acdev.exe` 要导出它们, 否则启动即 panic (`napi-sys` 的
+`LoadLibraryExW failed`, 接着 `panic in a function that cannot unwind`). 名单由 libacde 的 `build.rs` 生成 (`napi.def`, 见它的 `docs/runtime/ffi.md`),
+经 `links = "acde"` 的元数据 `DEP_ACDE_NAPI_DEF` 交过来, 本仓库的 `build.rs` 给 bin 加 `/DEF:`. 别的平台没有这个变量, 什么也不做.
+
 ## DXC 钉版本 (2026-11-18)
 
 Windows 目标经 wgpu-hal 的 `static-dxc` 依赖 `mach-dxcompiler-rs`, 它的 build.rs 在编译时从 GitHub 下预编译的 DXC.
@@ -45,8 +51,8 @@ SHA-256 校验, 所以根包在 Windows MSVC (x86_64) 上直接依赖 `mach-dxco
 ## 依赖与 Cargo.lock (用户定 2026-11-18)
 
 - `Cargo.lock` 进 git: 根工作区 (acdev、crates/hostwin, 加上并排 `../libacde` 及其 `vendor/blitz` 的全部依赖) 一份, 另编的 `crates/devd`、
-  `crates/tool`、`crates/tool` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`test.yml` 的 `cargo fetch --locked`,
-  release 的 build 和 tools); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
+  `crates/tool`、`crates/tool` 各一份. CI 不再 `cargo update`, 取包和构建都带 `--locked` (`build.yaml` 的 `build` 和 `guest`;
+  `test.yaml` 不编, 测的是构建出的产物); 锁文件和 Cargo.toml 对不上就直接失败, 不会悄悄解析到新版本.
 - 发版时 `scripts/set-version.sh` 改了 acdev、libacde 的工作区版本号, 也同步改两边 `Cargo.lock` 里 `acdev`、`acde-hostwin`、`libacde`
   这三项的 version, 所以 `--locked` 照样过. 两边 `[workspace.dependencies]` 里点名这类包的版本要求也一起改成 `=<版本>`: libacde 把
   `acde-scene` 钉成 `version = "=0.1.0"`, 工作区版本号一改, 不跟着改就选不到版本 (cicd run 31 两格 build 都败在

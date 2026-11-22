@@ -131,9 +131,9 @@ Use this only when the installer cannot set up the runtime, for example without 
 | --- | --- |
 | `acdevrt-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
 | `acdevrt-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
-| `acdevrt-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
+| `acdevrt-x86_64-unknown-linux-gnu.tar.zst` | The runtime for Linux x86_64 |
 | `acdevrt-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
-| `acdevtools-<triple>.tar.xz` (`.tar.gz` on Windows) | `acdevtool`, a helper of `acdev vm` |
+| `acdevtools-<triple>.tar.zst` on Linux (`.tar.xz` on macOS, `.tar.gz` on Windows) | `acdevtool`, a helper of `acdev vm` |
 | `acdev-guest-<version>.tar.gz` | acdevd, the device daemon `acdev vm` puts in the guest, for x86_64 and aarch64 |
 | `acdev-<version>.tar.gz` | acdev itself (what the installer puts in `~/.acdev`) |
 | `acde-api-<version>.tar.gz` | The SDK, `@acde/api`, that projects install as a dev dependency (see [Project layout](project.md#sdk)); not needed to run the runtime |
@@ -141,19 +141,20 @@ Use this only when the installer cannot set up the runtime, for example without 
 
 Each runtime archive holds only the runtime binary, `acdev` (`acdev.exe` on Windows).
 
-Download the archive for your platform and `SHA256SUMS`, check it and extract it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
+Download the archive for your platform and `SHA256SUMS`, check it and extract it. On Linux, extracting the `.tar.zst` needs `zstd` (the `zstd` package).
 
-On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux.
+On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux; on Linux also set `ext=zst`.
 
 ```sh
 (
 target=aarch64-apple-darwin
+ext=xz
 base=https://pkgs.dopame.ai/acdev
 version=$(curl -fsSL "$base/latest" | tr -d ' \r\n')
 mkdir -p ~/.acdev-runtime && cd ~/.acdev-runtime
-curl -fsSLO "$base/$version/acdevrt-$target.tar.xz" -O "$base/$version/SHA256SUMS"
-grep -E " acdevrt-$target\.tar\.xz\$" SHA256SUMS | sha256sum -c - &&
-  tar -xJf "acdevrt-$target.tar.xz"
+curl -fsSLO "$base/$version/acdevrt-$target.tar.$ext" -O "$base/$version/SHA256SUMS"
+grep -E " acdevrt-$target\.tar\.$ext\$" SHA256SUMS | sha256sum -c - &&
+  if [ "$ext" = zst ]; then zstd -dc "acdevrt-$target.tar.zst" | tar -xf -; else tar -xJf "acdevrt-$target.tar.xz"; fi
 )
 ```
 

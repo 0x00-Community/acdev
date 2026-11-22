@@ -4,7 +4,7 @@ import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { Machine } from '../../src/vm/machine.ts'
 import { Forward } from '../../src/vm/forward.ts'
-import { guestPassword, prepareGuest, stageInGuest } from '../../src/vm/guest.ts'
+import { guestPassword, loginGuest, LoginRefused, prepareGuest, stageInGuest } from '../../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from '../helpers.ts'
 import { CLI, IMAGE, QEMU, devLoop } from './helpers.ts'
@@ -228,5 +228,45 @@ describe('drop in the guest session', () => {
       },
     }
     await expect(stageInGuest(devd, [join(dir, 'a.txt')])).rejects.toThrow('drop: could not put the files into the guest: acdevd: No space left')
+  })
+})
+
+describe('acdev vm login', () => {
+  const fake = (code: number, stderr = '') => {
+    const pushed: { path: string; mode: number; data: string }[] = []
+    const ran: string[][] = []
+    const devd = {
+      push: async (files: readonly { path: string; mode: number; data: Buffer }[]) => {
+        pushed.push(...files.map((f) => ({ path: f.path, mode: f.mode, data: f.data.toString() })))
+        return files.length
+      },
+      run: async (argv: readonly string[], handlers: { stdout?: (b: Buffer) => void; stderr?: (b: Buffer) => void } = {}) => {
+        ran.push([...argv])
+        if (code === 0) handlers.stdout?.(Buffer.from('logged in: tester\n'))
+        if (stderr) handlers.stderr?.(Buffer.from(stderr))
+        return code
+      },
+    }
+    return { devd, pushed, ran }
+  }
+
+  test('the password goes in a 0600 file, never on a command line; acdes reads it on stdin', async () => {
+    const { devd, pushed, ran } = fake(0)
+    expect(await loginGuest(devd as never, 'tester', 'pw')).toBe('logged in: tester')
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]!.mode).toBe(0o600)
+    expect(pushed[0]!.data).toBe('pw\n')
+    expect(ran[0]!.join(' ')).not.toContain('pw')
+    expect(ran[0]!.slice(-2)).toEqual(['tester', pushed[0]!.path])
+    expect(ran[0]![2]).toContain('acdes greeter login "$1" < "$2"')
+  })
+
+  test('each exit code of acdes greeter login says what went wrong', async () => {
+    for (const [code, said] of [[1, 'turned the password down'], [2, 'not a guest acdev started'], [3, 'no login page is waiting']] as const) {
+      const error = await loginGuest(fake(code, 'detail').devd as never, 'tester', 'pw').catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(LoginRefused)
+      expect((error as LoginRefused).code).toBe(code)
+      expect((error as Error).message).toContain(said)
+    }
   })
 })

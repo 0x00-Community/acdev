@@ -25,7 +25,7 @@ const OFF = (note: string): GlChoice => ({ gl: false, note: `${note}: the guest 
 export function glChoice(facts: GlFacts): GlChoice {
   if (facts.asked === false || facts.vga === 'std') return { gl: false, note: null }
   if (facts.display === 'none' && facts.asked !== true) return { gl: false, note: null }
-  if (facts.platform !== 'linux') return OFF(`3D needs a Linux host (QEMU on ${facts.platform} has no GL display acdev uses)`)
+  if (facts.platform !== 'linux') return OFF(`acdev turns 3D on only on Linux hosts so far (QEMU's GL displays on ${facts.platform} are not wired up or tried)`)
   if (facts.display === 'vnc') return OFF('--vnc has no GL display')
   if (facts.display === 'viewer') return OFF('--viewer (acdevtool view) shows no GL scanouts')
   if (facts.display === 'none' && facts.outputs > 1) return OFF(`--headless with --outputs ${facts.outputs} uses the D-Bus display, without GL`)

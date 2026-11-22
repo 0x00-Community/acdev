@@ -328,6 +328,7 @@ describe('hosts other than Linux (only the parts that run here)', () => {
       .toEqual(['/opt/homebrew/share/qemu/edk2-aarch64-code.fd', '/opt/homebrew/share/qemu/edk2-arm-vars.fd'])
     expect(Machine.latestName('aarch64')).toBe('latest-qcow2-aarch64')
     expect(Machine.latestName('x86_64')).toBe('latest-qcow2')
+    expect(Machine.DIST).toBe('https://pkgs.dopame.ai/iso')
   })
 
   test('the guest CPU must have the x86-64-v3 features', () => {

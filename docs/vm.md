@@ -44,12 +44,18 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 3D (virgl, 用户 2026-11-20 定为窗口里默认, `src/vm/gl.ts`): 有窗口时默认用带 GL 的 virtio 显卡 (`virtio-vga-gl`, aarch64 是 `virtio-gpu-gl-pci`),
   窗口是 `sdl,gl=on` / `gtk,gl=on`; `--no-gl` 关掉. `--headless` 默认不带 3D (原因见下一条), `--headless --gl` 才带, 用 `egl-headless`
   (在宿主的渲染节点上离屏画), 起的时候说一句截图用不了. 起之前判断宿主行不行, 不行就说一句并退回不带 GL (不报错): 不是 Linux 宿主
-  (macOS 的 cocoa、Windows 没接 GL); `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view
+  (acdev 只在 Linux 上接了 GL; 不是 QEMU 做不到, 见下一条); `--vnc`; `--viewer` 和 `--headless --outputs N` (N ≥ 2): 这两种用 D-Bus 显示 (acdevtool view
   只收共享内存的画面, 而 `egl-headless` 不报大小, 见下面「多个显示输出」), 先不带 GL; `-device help` 里没有 `virtio-vga-gl`; 宿主没有
   `/dev/dri/renderD*` (WSL2 有, 经 `/dev/dxg` 走 mesa 的 d3d12). `--vga std` 本来就没有 3D, 静默不开. 起了以后 QEMU 才失败、日志里提到
   EGL / OpenGL / virgl / 渲染节点 / gbm / epoxy 的, 说一句后不带 GL 再起一次. 核对 (本机 QEMU 8.2.2, 只查没起): `-display help` 有
   `egl-headless`、`dbus`、`sdl`、`gtk`; `-device help` 有 `virtio-vga-gl`、`virtio-gpu-gl-pci`; Ubuntu 的包里 `-device virtio-vga-gl,help`
   单独跑会因为 GL 模块的符号 (`qemu_egl_display`) 没载入而报错, 所以只看 `-device help` 的列表.
+- Windows 宿主上的 3D (2026-11-22 调研, 总仓 `.scratch/acdev/windows-3d.md`): QEMU 11.1.0 的 Windows 安装包 (Stefan Weil) 带着 `virtio-vga-gl`、
+  `-display sdl,gl=on|core|es`、`gtk,gl=on`、virglrenderer 和 ANGLE 的 `libEGL.dll` / `libGLESv2.dll` (把 OpenGL ES 翻成 D3D11), 社区报告 WHPX 下
+  `-device virtio-vga-gl -display sdl,gl=es` 能跑; acdev 在 Windows 上用 gtk、不带 GL, 还没接这条路, 也没验证, 所以起的时候说一句并不带 3D.
+  接了也只有 OpenGL / OpenGL ES (virgl): 客户机里的 Vulkan 要 venus, 它要宿主的 blob 内存共享, QEMU 文档只列了 Linux 宿主的条件; 页面的 WebGPU
+  只用 Vulkan, 所以 Windows 上的 virgl 帮不上 WebGPU (那时能用的只有客户机里 CPU 上的 lavapipe). `egl-headless` 要渲染节点, Windows 上没有.
+  macOS 的 cocoa 显示能不能接 GL 没查.
 - 带 3D 时 `acdev vm screenshot` 截不出图, 窗口和 `egl-headless` 都一样: QMP `screendump` 读的是控制台的显示表面 (`ui/ui-qmp-cmds.c` 的
   `qmp_screendump` → `ui/console.c` 的 `qemu_console_surface`), 而 `qemu_console_surface` 在扫描输出是 GL 纹理 (virgl) 时返回空, 只在
   `SCANOUT_SURFACE` 时才有表面. `egl-headless` 把 GL 画面读回到它自己的表面 (`ui/egl-headless.c` 的 `egl_fb_read` 写进 `edpy->ds`,
@@ -63,6 +69,9 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
 - 先开"Windows 虚拟机监控程序平台": `DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All` (管理员), 再重启;
   x86_64 宿主要 Windows 10 2004 以上 (QEMU 文档 `docs/system/whpx.rst`).
 - 调试通道走 `127.0.0.1` 上的 TCP 端口转发加密钥 (见上面「调试通道」).
+- 套接字路径的长度 (所有平台, 2026-11-22): AF_UNIX 的路径上限是 107 字节 (macOS 103), `run/` 下的 `devd.sock` 超过 100 字节时 (目录放得深, 如 `vm fetch` 装 ISO 用的
+  `images/.install-<ISO 名>/`, acdev-test 实测在默认目录下正好 108 字节, QEMU 起不来), 套接字改放 `$XDG_RUNTIME_DIR` (没有就是系统临时目录) 下的
+  `acdev-<目录哈希 12 位>/` (`Machine.sockets`, `SOCKET_PATH_MOST`), 和 Windows 一样.
 - QMP 和 guest agent 和别的平台一样是 Unix 套接字, 但 Windows 上不放在 `run/` 下, 而放在 `%TEMP%\acdev-<目录哈希 12 位>\` (`qmp.sock`、
   `qga.sock`, 端口转发选 unix 时还有 `devd.sock`; `Machine.sockets`), 镜像、覆盖盘等大文件仍在 `ACDEV_VM_DIR`. 原因: 2026-11-18
   acdev-test 实测, 默认目录 `%LOCALAPPDATA%\acdev\vm` 下 QEMU 能建套接字, 但 connect 报 10022 (WSAEINVAL); `%TEMP%`、`C:\acdev-test` 等处
@@ -155,10 +164,28 @@ https://learn.microsoft.com/en-us/windows/wsl/wsl-config ). 在 WSL2 的 Linux �
 `logs/` (`serial.log` 串口、`qemu.log` QEMU 自己的输出、`qemu.cmd` 实际的命令行). 一个目录一台客户机, `start` 前看 `qemu.pid`,
 已有在跑的就报错. 本机总仓约定共用 `logs/acdev-vm` (和 acompositor-lead 共用, 起之前先 `acdev vm status`).
 
-`fetch` 取 os 仓 CI 最新的磁盘镜像 (`iso/latest-qcow2` 指的那个, 现在是 `dopameos-20261114T054429Z-x86_64.qcow2`, 约 1.7 GB; 地址见 os 仓
-AGENTS.md「CI」, `ACDEV_VM_DIST` 可换), 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
+`fetch` 取 os 仓 CI 最新的系统 (`Machine.DIST` = `https://pkgs.dopame.ai/iso`, `ACDEV_VM_DIST` 可换; 2026-11-22 起是 Cloudflare R2, 之前在腾讯 COS (已弃用)):
+磁盘镜像是 `latest-qcow2` 指的那个 (约 1.7 GB), 下载站上没有或比 ISO 旧时从 ISO 装出来 (见下「从 ISO 装出镜像」). 边下边算 SHA-256, 和 `.sha256` 对不上就删掉报错. 镜像是 acinstall 整盘装好的系统 (UEFI、systemd-boot、
 根在 acfs、内核 `linux-ackernel`), 装了 qemu-guest-agent, 启动后 greetd 在 tty1 起 acdes 的登录页. 用户 `dopame` 的密码是
-os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑. `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
+os CI 的 secret, 用不着: 所有操作经 guest agent 以 root 跑.
+
+**从 ISO 装出镜像** (`src/vm/image/install.ts`, `image/fetch.ts`, 2026-11-22): os 的 `scripts/publish-iso.sh` 只往下载站发 ISO 并更新 `iso/latest`, 不发 qcow2 和 `latest-qcow2` (没有这个指针时当作没有镜像).
+`fetch` 先比两个指针里文件名的时间戳 (`dopameos-<YYYYMMDDTHHMMSSZ>-<架构>`): 镜像不比 ISO 旧就照旧下载镜像; ISO 更新时下载 ISO (同样核对
+`.sha256`), 在一台自己的虚拟机里把它装成 `images/<ISO 名>.from-iso.qcow2`, 同一个 ISO 只装一次 (文件在就直接用), 装好后删掉 ISO. `--from-iso` /
+`--qcow2` 强制走其中一条. 做法照 os 仓 `image/from-iso.sh` (那里是 CI 出云镜像用的), 收进 acdev, 运行时不依赖 os 仓、python3 或 dash:
+1. 工作目录 `images/.install-<名>/` (一台独立的 `Machine`: 自己的 `run/`、`logs/`、套接字, 不碰正在用的客户机), 建 32G 的空 qcow2, 拷一份 UEFI 变量模板;
+2. 用 ISO 启动 live 系统 (q35、`-vga std -display none`、光驱 `ide-cd`, 加速器照 `start` 选: KVM / WHPX / HVF, 起不来退回 TCG 并说一声), 等 guest agent (最多 600 s);
+3. 经 guest agent 跑 `acinstall probe`, 取唯一一块不忙、没有分区的盘; 写安装计划 `/run/acinstaller-plan.json` (只经 agent 的文件写入, 不上命令行):
+   `{where: {mode: disk, disk}, user, fullName, password (随机, 不留存; provision 另建测试用户), host, timezone, locale, sudoNoPassword: false, portable: true}`;
+4. 后台跑 `acinstall install < 计划`, 每 10 s 读 `/run/acinstaller/status.json` (`{state, step, steps}`, `step` 从 0 起, `steps` 是名字或 `{name}` 的列表),
+   打 `installing: step N of M (名字)`, 直到 `state` 不是 `running` (最多 3600 s); 不是 `done` 就报「the installation failed」并打出安装日志最后 30 行;
+5. 挂上装好的盘, 去掉 initramfs 的 `autodetect`、内核参数加串口, `arch-chroot` 里 `mkinitcpio -P && sdboot-manage gen` (同 from-iso.sh), 关机;
+6. 换新的 UEFI 变量、`-snapshot` 再启动一次, 查根是 acfs (`findmnt`), 关机;
+7. `qemu-img convert -c -O qcow2 -o compression_type=zstd` 写出镜像.
+全程写 `logs/install-<名>.log`. 对着的安装器格式: os `f866410` (2026-11-22) 时的 `acinstall probe` (`{disks: [{path, busy, partitions}]}`)、上面的计划、
+`status.json`; 回来的形状对不上时 (不是 JSON、缺字段) 报「the installer's format changed」(`InstallerChanged`), 和装机本身失败分开, 那时要更新 acdev.
+aarch64 (Apple 芯片) 没有 ISO 也没有镜像: 直接说没有本架构的 ISO, 让用 `start --image FILE` 给一个已有的镜像.
+未核实: WHPX、HVF 下 live ISO 能不能起、装机多久 (Linux KVM 上 from-iso.sh 约 10 到 20 分钟). `start` 不改基础镜像; `--fresh` 丢掉覆盖盘和 UEFI 变量重来, 换了 `--image`
 也重建覆盖盘.
 
 **`--fresh` 清掉什么, 之后要做什么**: 客户机里装的、配的东西都在覆盖盘 (`disk.qcow2`) 上, `--fresh` 连它和 UEFI 变量一起丢, 回到基础镜像:
@@ -194,8 +221,8 @@ dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不�
 客户机里没有 sudo (`/etc/sudoers.d`、`visudo`) 时也只记 warning. 只有 acdev 起、provision 过的开发客户机有这个文件, 正式系统没有;
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 `--pkgs <宿主目录>` (`stagePkgs`/`PKGS_SCRIPT`, `src/vm/kernelpkgs.ts`, #111): 目录里所有 `*.pkg.tar.zst` (制品站的 acdes、dopame 包) 暂存进 `pkgs/`, 客户机里在 `pacman -Sy` 之后先 `pacman -Rdd`
-掉旧包 `acdebin-system`、`acde-dopame` (`LEGACY_PACKAGES`, 文件和新包冲突), 再一次 `pacman -U`; 失败退出 3, pacman 自己的报错照常输出. 镜像 dopameos-20261114 里还是旧包, 测新包走这条.
-provision 里没停下的失败 (装不上包、btvirt 编不过、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上).
+掉旧包 `acdebin-system`、`acde-dopame` (`LEGACY_PACKAGES`, 文件和新包冲突; 只在 `pacman -Qq` 回的正是这个名字时才卸: 新的 acdes、dopame 包 `provides` 了旧名, `pacman -Q acdebin-system` 在装过新包后也成功, 回的却是 `acdes`, 原来照样去卸, pacman 报找不到目标、provision 不能重复跑), 再一次 `pacman -U`; 失败退出 3, pacman 自己的报错照常输出. 镜像 dopameos-20261114 里还是旧包, 测新包走这条.
+provision 里没停下的失败 (装不上包、单元起不来、`pacman -Sy` 一直失败) 都经 `warn` 打 `acdev provision: warning: …` 并记进暂存目录的 `warnings`, 最后有一条就列出来、退出 4 (#111: 原来只打一行, 退出 0, QA 看不出蓝牙没装上). 例外是 btvirt 编不过 (主会话 2026-11-22 定): 经 `note` 打一行 `acdev provision: note: btvirt could not be built …`, 说明模拟蓝牙关着、可以用 `--btvirt FILE` 给编好的, 不计入 `warnings`, 不让 provision 退出 4. 起因是基底镜像 dopameos-20261114 的包数据库比镜像站旧, 装 `base-devel` 时 gcc 下载 404; provision 不为它做 `pacman -Syu` 那样的部分升级.
 `push` 一个文件时, 目标以 `/` 结尾或在客户机里是目录 (经 acdevd 跑 `test -d`) 就放进去 (`<目标>/<文件名>`), 和 `cp` 一样.
 acdes 的源码只暂存 `packaging/` 和 PKGBUILD 里用 `${srcdir}/acdes/<路径>` 点到的文件或目录 (带 `*` 的取它所在的目录; 点到的不存在时在宿主上报错), acdes 以后在 `package()` 里多装文件也不用改 provision.
 acdes 的 PKGBUILD 也装 `system-agent` (从 acdes Akira/system-agent b93072d 起, `cargo build --release --locked -p acde-system-agent`) 时要给 `--system-agent-bin FILE`, 它和 acdes 一起放进 `src/target/release/`; PKGBUILD 用到它而没给时 provision 先报错 (不让 `package()` 失败在客户机里). PKGBUILD 里没有它时照旧. 同样的规矩用于管家的 Node-API 模块: acdes 的 PKGBUILD 装
@@ -229,9 +256,15 @@ acdev vm pull /tmp/shots ./shots               # 从客户机拉回文件或目�
 acdev vm mount                                  # 把 --share 的目录经 9p 挂到客户机 /mnt/acdev
 acdev vm screenshot shot.png                    # QMP screendump, 无窗口也行; 带 3D (窗口里默认) 时截不出, 用 acdev screen --session vm -o shot.png 或不加 --gl 的 --headless
 acdev vm console                                # 客户机内核日志从下次启动起进串口
+acdev vm login                                  # 在登录页登录 tester (密码 ACDEV_VM_PASSWORD, 缺省 dopame-dev); acdev vm login qa 换用户
 acdev vm stop                                   # 让客户机自己关机 (acdevd → guest agent → ACPI), 都不行才杀掉 QEMU
 ```
 
+- `login [USER]` (`src/vm/guest.ts` `loginGuest`, 2026-11-22): 不按键登录. 密码 (`ACDEV_VM_PASSWORD`, 缺省 `dopame-dev`) 经 acdevd 推成 `/run/acdev-login-<随机>`
+  (0600, 不上命令行), 以 root 跑 `faillock --user USER --reset` 和 `acdes greeter login USER < 文件`, 再删文件. acdes 那条命令只在 acdev 起的客户机里可用,
+  交给正等着的登录页, 最多等 30 s 到 logind 里有这个用户的会话 (acdes `docs/packaging.md`「开发登录」). 退出码: 0 已登录 (本来就登录着也是 0), 1 密码错或没等到会话,
+  2 用法错或不是开发客户机 (旧 acdes 没有这条命令也落在 2 或 127), 3 没有正等着的登录页; acdev 把它们换成一句说明. `acdev test --vm` 开头先登录一次: 1 照旧报错,
+  2、3、127 只说一句、接着按原来的办法找会话.
 - `acdev vm stop` (`Machine.stop` / `Machine.shutdown`) 按四级依次退, 输出写明是哪一级关掉的, 一眼看出是不是退到了强杀:
   1. acdevd 在场 (先 `version` 探一下) 时经它以 root 跑 `systemctl poweroff --check-inhibitors=no`: 不让会话里的抑制锁拦住, 也不经桌面
      (Dopame 的电源键默认是「问我要做什么」, 只按 ACPI 电源键时客户机只弹出询问, 原来要等满 60 s 再杀). 关机会把 acdevd 自己停掉,
@@ -439,7 +472,7 @@ NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager �
    装 `base-devel glib2 dbus curl xz`, 下载 `https://www.kernel.org/pub/linux/bluetooth/bluez-<版本>.tar.xz`,
    `./configure --enable-testing` 并关掉用不到、要额外依赖的部分 (`--disable-manpages --disable-obex --disable-cups --disable-client
    --disable-mesh --disable-midi --disable-udev --disable-systemd --disable-hid2hci`), 只 `make emulator/btvirt`, 装到 `/usr/local/bin/btvirt`.
-   失败 (没网、缺依赖、编不过) 只打一行 warning, 蓝牙那一项照旧以 4 记日志.
+   失败 (没网、缺依赖、编不过, 包括包数据库比镜像站旧时 gcc 404) 只打一行 note, 不算 provision 的 warning, 蓝牙那一项照旧以 4 记日志.
 没选自己写 `/dev/vhci` 的小程序: 要让 bluetoothd 认出适配器, 得回答内核初始化时的整套 HCI 命令 (复位、读特性、版本、地址、缓冲区…),
 还要能扫到对面设备, 等于重写 btvirt 背后的 `emulator/btdev.c`; 用和已装 bluez 同版本的源码编 btvirt 最省事也最贴近真实.
 〔未核实〕: 这组 configure 选项在客户机的 bluez 版本上能不能过、`make emulator/btvirt` 需不需要别的依赖, 要等客户机里跑一次.

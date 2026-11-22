@@ -328,7 +328,9 @@ export class Help {
         args: '<subcommand> [args]',
         summary: 'Run a Dopame OS guest under QEMU (KVM, WHPX or HVF)',
         about: [
-          'fetch downloads the newest Dopame OS x86_64 disk image. start boots it in the background under an overlay '
+          'fetch gets the newest Dopame OS x86_64 disk image: it downloads the published image, or, when the published ISO is '
+            + 'newer, downloads the ISO and installs it into an image in a VM of its own (minutes; once per ISO). '
+            + 'start boots it in the background under an overlay '
             + 'disk (the image stays as it is) and waits until the guest is ready; stop powers it off; status, wait. '
             + 'screenshot FILE.png takes the guest screen. start also puts acdevd, the device daemon, in the guest; '
             + 'over vsock (Linux) or a forwarded port (elsewhere), with a fresh key each start, '
@@ -345,6 +347,7 @@ export class Help {
             + 'port from the next boot; usb add IMAGE [--size SIZE] plugs a disk image in as a USB stick (a new image is made '
             + 'and formatted FAT, which needs mkfs.vfat or mkfs.exfat), usb remove [IMAGE or ID] pulls it (default: the last one), '
             + 'usb list shows them; wake wakes a guest that went to sleep (S3); '
+            + 'login [USER] logs USER (default tester, password ACDEV_VM_PASSWORD) in at the login page (acdes greeter login); '
             + 'provision sets the guest up for testing (the user, its password, greetd on the acdes '
             + 'login screen, acdes laid out by its PKGBUILD, the Dopame package) and can be run again.',
           'The images, the overlay disk, the sockets and the logs live in $ACDEV_VM_DIR (default '
@@ -372,6 +375,8 @@ export class Help {
           },
           { flag: '--share DIR', about: 'start: export DIR to the guest over 9p (then acdev vm mount)' },
           { flag: '--image FILE', about: 'start: the base disk image (default: the newest fetched)' },
+          { flag: '--from-iso', about: 'fetch: install the newest ISO into an image even when a published image is as new' },
+          { flag: '--qcow2', about: 'fetch: download the published image even when the ISO is newer' },
           { flag: '--fresh', about: 'start: drop the guest\'s changes (overlay disk, UEFI variables) first; run provision again after it' },
           { flag: '--pkgs DIR', about: 'provision: install every *.pkg.tar.zst in DIR (acdes, dopame from the artifact site) with pacman -U, removing the old acdebin-system and acde-dopame first' },
           { flag: '--acdes DIR', about: 'provision: the acdes checkout (its PKGBUILD lays acdes out), with --acdes-bin' },

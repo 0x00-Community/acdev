@@ -1,9 +1,17 @@
 name: test
 
-# By hand for now (libacde's docs/dev/testing.md); WPT runs without --app (scripts/wpt/run.ts).
+# Tests the artifacts of build run `run` on the artifacts host (.127): its Linux runtime (acdevrt-x86_64-unknown-linux-gnu) with
+# the CLI and libacde of the commits that build packed (run.json). Never builds. build.yaml calls it after a build (the gate);
+# by hand it takes any run (empty: the newest that passed the guard, acdev/latest) and the WPT mode. WPT runs without --app
+# (libacde's scripts/wpt/run.ts; libacde's docs/dev/testing.md).
 on:
   workflow_dispatch:
     inputs:
+      run:
+        description: 'the build run to test (its number); empty: the newest that passed the guard'
+        required: false
+        default: ''
+        type: string
       wpt:
         description: 'gate: the tests the expectations say pass; full: every applicable test but those recorded as timing out; baseline: every applicable test, then the gate twice more, and expectations from the three runs'
         type: choice
@@ -13,38 +21,75 @@ on:
         description: 'parallel WPT sessions per job (most waiting is on timeouts, not CPU)'
         type: string
         default: '20'
+  workflow_call:
+    inputs:
+      run:
+        description: 'the build run to test (its number)'
+        required: true
+        type: string
 
-concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 defaults:
   run:
     shell: bash --noprofile --norc -eu {0}
 
 env:
-  RUSTUP_HOME: /opt/rust/rustup
-  CARGO_INCREMENTAL: '0'
-  CARGO_TERM_COLOR: always
   GIT_TERMINAL_PROMPT: '0'
-  # results go to artifacts@.127:/srv/artifacts/acdev/test-<run>/ (rsync over ssh) and come back with nc + tar
+  # the build's artifacts come from .127 with nc + tar; results go to artifacts@.127:/srv/artifacts/acdev/test-<run>/ (rsync over ssh)
   TO: artifacts@192.168.10.127
   PULL: 192.168.10.127 9127
   WPT_STATE: ${{ github.workspace }}/wpt-state
   LABEL: ci-${{ github.run_number }}
-  ACDEV_RUNTIME: ${{ github.workspace }}/acdev/target/release/acdev
+  ACDEV_RUNTIME: ${{ github.workspace }}/runtime/acdev
+  WORKERS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.workers || '20' }}
 
 jobs:
-  # the setup steps (anchored here, reused by the other jobs; the toolchains are the runner's, scripts/runner-setup.sh): runtime built, libacde beside it, WPT ready
+  # which build run, and the commits it packed (its run.json), once for every job
+  pick:
+    runs-on: x86_64-debian
+    outputs:
+      run: ${{ steps.pick.outputs.run }}
+      commit: ${{ steps.pick.outputs.commit }}
+      libacde: ${{ steps.pick.outputs.libacde }}
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - name: the build run (the input, else acdev/latest on the artifacts host) and its run.json
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          CALL_RUN: ${{ inputs.run }}
+          DISPATCH_RUN: ${{ github.event.inputs.run }}
+        run: |
+          if [ "$EVENT" = workflow_call ]; then run=${CALL_RUN:-}; else run=${DISPATCH_RUN:-}; fi
+          [ -n "$run" ] || run=$(printf 'acdev/latest\n' | nc $PULL | tar -xO 2>/dev/null || true)
+          case $run in '' | *[!0-9]*) echo "::error::no build run to test: '$run' (the input, else acdev/latest on the artifacts host)"; exit 1 ;; esac
+          meta=$(printf 'acdev/%s/run.json\n' "$run" | nc $PULL | tar -xO 2>/dev/null || true)
+          [ -n "$meta" ] || { echo "::error::the artifacts host has no $run/run.json: run $run packed nothing"; exit 1; }
+          commit=$(printf '%s' "$meta" | jq -r '.commit // empty')
+          lib=$(printf '%s' "$meta" | jq -r '.libacde // empty')
+          version=$(printf '%s' "$meta" | jq -r '.version // empty')
+          printf '%s' "$commit" | grep -qxE '[0-9a-f]{40}' || { echo "::error::run $run's run.json names no commit"; exit 1; }
+          printf '%s' "$lib" | grep -qxE '[0-9a-f]{40}' || { echo "::error::run $run's run.json names no libacde (built before build.yaml): build it again"; exit 1; }
+          printf 'run=%s\ncommit=%s\nlibacde=%s\nversion=%s\n' "$run" "$commit" "$lib" "$version" | tee -a "$GITHUB_OUTPUT"
+          echo "build run $run: acdev $commit, libacde $lib, version $version" >> "$GITHUB_STEP_SUMMARY"
+
+  # the setup steps (anchored here, reused by the other jobs; the toolchains are the runner's, scripts/runner-setup.sh):
+  # the run's runtime, the CLI and libacde of its commits beside it, WPT ready
   gate:
-    if: github.event.inputs.wpt == 'gate'
+    needs: pick
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.wpt == 'gate'
     runs-on: x86_64-debian
     timeout-minutes: 175
+    env:
+      RUN: ${{ needs.pick.outputs.run }}
     steps:
       - &checkout
         uses: http://gitea.dopamine/mirror/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acdev
+          ref: ${{ needs.pick.outputs.commit }}
           persist-credentials: false
       - &cleanup
         name: end what an earlier test job left running (a cancelled job's wptserve group and runtime sessions outlive it)
@@ -57,7 +102,7 @@ jobs:
             return 1
           }
           serve='/hostexecutor/libacde/scripts/wpt/serve\.py'
-          ours='/hostexecutor/acdev/target/release/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
+          ours='/hostexecutor/runtime/acdev |/hostexecutor/wpt-state/|/hostexecutor/acde-demo/apps/|/hostexecutor/acdev/npm/src/cli\.ts'
           ports=$(ss -ltnpH 'sport >= :18000 and sport <= :18009' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true)
           left=""
           for pid in $(pgrep -f "$ours|$serve" || true) $ports; do gone "$pid" && left="$left $pid"; done
@@ -77,25 +122,31 @@ jobs:
           done
           for pid in $left; do kill -KILL "$pid" 2>/dev/null || true; done
       - &libacde
-        name: libacde beside acdev (the runtime library acdev links as ../libacde), with its vendor/blitz
+        name: libacde beside acdev, the commit the run built with (its scripts/wpt; the SDK and manifest rules the CLI links)
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
+          REF: ${{ needs.pick.outputs.libacde }}
         run: |
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          g() { git -c http.extraHeader="Authorization: basic ${auth}" "$@"; }
           rm -rf libacde
-          git -c http.extraHeader="Authorization: basic ${auth}" clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
-          git -c http.extraHeader="Authorization: basic ${auth}" -C libacde submodule update --init --depth 1
+          g clone --quiet --depth 1 "$GITHUB_SERVER_URL/AC/libacde.git" libacde
+          if [ "$(git -C libacde rev-parse HEAD)" != "$REF" ]; then
+            g -C libacde fetch --quiet --depth 1 origin "$REF"
+            git -C libacde checkout --quiet --detach "$REF"
+          fi
           printf 'acdev %s\nlibacde %s\n' "$(git -C acdev rev-parse HEAD)" "$(git -C libacde rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - &fetch
-        name: download the crates Cargo.lock names (the only step with the registry token)
-        env:
-          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
-        run: cd acdev && cargo fetch --locked
       - &runtime
-        name: build acdev runtime (release, offline, no token; build.rs bundles libacde/js with bun); link the acdev CLI
+        name: the run's Linux runtime from the artifacts host (no build); link the acdev CLI of its commit
         run: |
-          (cd libacde/js && bun install --frozen-lockfile)
-          (cd acdev && ACDEV_BUN="$(command -v bun)" cargo build --release --offline --locked -p acdev)
+          r=$GITHUB_WORKSPACE/runtime d=build-x86_64-unknown-linux-gnu
+          rm -rf "$r" && mkdir -p "$r"
+          printf 'acdev/%s/%s\n' "$RUN" "$d" | nc $PULL | tar -x -C "$r" --strip-components=2 2>/dev/null || true
+          a=$r/$d/acdevrt-x86_64-unknown-linux-gnu.tar.zst
+          [ -f "$a" ] || { echo "::error::the artifacts host has no $RUN/$d/acdevrt-x86_64-unknown-linux-gnu.tar.zst (was the target skipped?)"; exit 1; }
+          zstd -q -dc "$a" | tar -x -C "$r"
+          [ -x "$ACDEV_RUNTIME" ] || { echo "::error::no acdev in $a"; exit 1; }
+          "$ACDEV_RUNTIME" --version | tee -a "$GITHUB_STEP_SUMMARY"
           (cd acdev/npm && bun install --frozen-lockfile && bun link)
           (cd libacde/scripts/wpt && bun install --frozen-lockfile)
       - &ssh
@@ -112,20 +163,21 @@ jobs:
         name: WPT checkout at scripts/wpt/revision, manifest, wptserve's Python environment, runner apps
         run: |
           libacde/scripts/wpt/wpt.sh fetch
-          libacde/scripts/wpt/wpt.sh prepare --workers ${{ github.event.inputs.workers }}
+          libacde/scripts/wpt/wpt.sh prepare --workers "$WORKERS"
       - name: run the gate and check it against expectations/linux
         run: |
           w=libacde/scripts/wpt/wpt.sh
           $w expectations gate --platform linux --out "$WPT_STATE/gate.json"
-          $w run --runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --tests "$WPT_STATE/gate.json"
+          $w run --runtime "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL" --tests "$WPT_STATE/gate.json"
           $w expectations check "$LABEL" --platform linux --max 100
       - name: the results to the artifacts host (acdev/test-<run>/wpt-gate)
         if: always()
         run: '[ ! -d "$WPT_STATE/results" ] || rsync -rt --mkpath --chmod=D755,F644 "$WPT_STATE/results/" "$TO:test-$GITHUB_RUN_NUMBER/wpt-gate/"'
 
-  # full and baseline: four shards one after another (one job stops at Gitea's 3-hour limit)
+  # full and baseline (by hand): four shards one after another (one job stops at Gitea's 3-hour limit)
   wpt:
-    if: github.event.inputs.wpt != 'gate'
+    needs: pick
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.wpt != 'gate'
     runs-on: x86_64-debian
     timeout-minutes: 175
     strategy:
@@ -133,11 +185,12 @@ jobs:
       max-parallel: 1
       matrix:
         shard: [1, 2, 3, 4]
+    env:
+      RUN: ${{ needs.pick.outputs.run }}
     steps:
       - *checkout
       - *cleanup
       - *libacde
-      - *fetch
       - *runtime
       - *ssh
       - *wpt
@@ -146,7 +199,7 @@ jobs:
           MODE: ${{ github.event.inputs.wpt }}
         run: |
           w=libacde/scripts/wpt/wpt.sh
-          args=(--runtime "$ACDEV_RUNTIME" --workers "${{ github.event.inputs.workers }}" --label "$LABEL" --shard "${{ matrix.shard }}/4")
+          args=(--runtime "$ACDEV_RUNTIME" --workers "$WORKERS" --label "$LABEL" --shard "${{ matrix.shard }}/4")
           if [ "$MODE" = full ]; then args+=(--skip-slow libacde/scripts/wpt/expectations/linux); fi
           $w run "${args[@]}"
           if [ "$MODE" = full ]; then $w expectations check "$LABEL" --platform linux --max 100; fi
@@ -156,15 +209,16 @@ jobs:
 
   # baseline: the shards together, the passing tests twice more, expectations from the three runs
   expectations:
-    needs: wpt
-    if: always() && github.event.inputs.wpt == 'baseline'
+    needs: [pick, wpt]
+    if: always() && needs.pick.result == 'success' && github.event_name == 'workflow_dispatch' && github.event.inputs.wpt == 'baseline'
     runs-on: x86_64-debian
     timeout-minutes: 175
+    env:
+      RUN: ${{ needs.pick.outputs.run }}
     steps:
       - *checkout
       - *cleanup
       - *libacde
-      - *fetch
       - *runtime
       - *ssh
       - *wpt
@@ -175,8 +229,6 @@ jobs:
             printf 'acdev/test-%s/wpt-shard-%s\n' "$GITHUB_RUN_NUMBER" $n | nc $PULL | tar -x -C shards --strip-components=2 2>/dev/null || true
           done
       - name: merge the shards, run the gate twice, write expectations/linux
-        env:
-          WORKERS: ${{ github.event.inputs.workers }}
         run: |
           w=libacde/scripts/wpt/wpt.sh
           mkdir -p "$WPT_STATE/results/$LABEL"
@@ -196,19 +248,21 @@ jobs:
           set -- expectation[s] results/*/report.md
           [ $# = 0 ] || rsync -rtR --mkpath --chmod=D755,F644 "$@" "$TO:test-$GITHUB_RUN_NUMBER/wpt-expectations/"
 
-  # full and baseline: acde-demo's apps and its regression cells
+  # full and baseline (by hand): acde-demo's apps and its regression cells, on the run's runtime
   demo:
-    if: github.event.inputs.wpt != 'gate'
+    needs: pick
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.wpt != 'gate'
     runs-on: x86_64-debian
     timeout-minutes: 120
+    env:
+      RUN: ${{ needs.pick.outputs.run }}
     steps:
       - *checkout
       - *cleanup
       - *libacde
-      - *fetch
       - *runtime
       - *ssh
-      - name: acde-demo beside acdev, its e2e
+      - name: acde-demo beside acdev (its main, not pinned by the run), its e2e
         env:
           TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
           CI: '1'
