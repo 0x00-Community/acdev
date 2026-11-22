@@ -38,6 +38,11 @@ describe('the QEMU command line', () => {
     await expect(machine.screenshot(join(tmp(), 'shot.png'))).rejects.toThrow('acdev screen --session vm -o FILE.png')
   })
 
+  test('QEMU starts with its window shown (windowsHide off) unless it has none: --headless, --vnc, --viewer', () => {
+    expect([undefined, 'window', 'sdl', 'gtk'].map((d) => Machine.windowed(d as never))).toEqual([true, true, true, true])
+    expect(['none', 'vnc', 'viewer'].map((d) => Machine.windowed(d as never))).toEqual([false, false, false])
+  })
+
   test('--sdl gives QEMU its SDL window (with GL when --gl), alone and on Linux only; --gtk the GTK one', () => {
     const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
     expect(machine.args({ display: 'sdl' }, 'kvm').join(' ')).toContain('-device virtio-vga,id=gpu0 -display sdl')

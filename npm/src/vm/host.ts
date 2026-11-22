@@ -141,10 +141,12 @@ export function missingFeatures(cpuinfo: string, wanted: readonly string[] = X86
   return wanted.filter((flag) => !flags.has(flag))
 }
 
-export function spawnDetached(argv: readonly string[], log: number, env: NodeJS.ProcessEnv): { pid: number; exited: () => boolean } {
+export function spawnDetached(
+  argv: readonly string[], log: number, env: NodeJS.ProcessEnv, windowed = false,
+): { pid: number; exited: () => boolean } {
   const [file, ...args] = argv
   if (!file) throw new Error('nothing to run')
-  const child = spawn(file, args, { detached: true, stdio: ['ignore', log, log], env, windowsHide: true })
+  const child = spawn(file, args, { detached: true, stdio: ['ignore', log, log], env, windowsHide: !windowed })
   child.unref()
   return { pid: child.pid ?? 0, exited: () => child.exitCode !== null || child.signalCode !== null }
 }

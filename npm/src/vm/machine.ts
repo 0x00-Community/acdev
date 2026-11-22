@@ -422,13 +422,17 @@ export class Machine {
     return log.split(/\r?\n/).find((line) => new RegExp(word, 'i').test(line))?.trim() ?? log.trim()
   }
 
+  static windowed(display: StartOptions['display']): boolean {
+    return display !== 'none' && display !== 'vnc' && display !== 'viewer'
+  }
+
   async #boot(qemu: Qemu, options: StartOptions, accel: Accel): Promise<{ pid: number | null; log: string }> {
     const args = this.args(options, accel, await this.#freshRun())
     writeFileSync(join(this.run, 'accel'), `${accel}\n`)
     writeFileSync(join(this.logs, 'qemu.cmd'), `${[qemu.system, ...args].join(' ')}\n`)
     writeFileSync(this.serial, '')
     const logFile = join(this.logs, 'qemu.log')
-    const child = spawnDetached([qemu.system, ...args], openSync(logFile, 'w'), this.env)
+    const child = spawnDetached([qemu.system, ...args], openSync(logFile, 'w'), this.env, Machine.windowed(options.display))
     for (let i = 0; i < 100; i++) {
       const pid = this.pid()
       if (pid !== null) return { pid, log: '' }
@@ -560,7 +564,7 @@ export class Machine {
     const viewer = this.#viewer()
     const log = openSync(join(this.logs, 'viewer.log'), 'a')
     const title = `acdev: ${basename(this.dir)}`
-    return spawnDetached([viewer, 'view', '--qmp', this.qmp, '--title', title], log, this.env).pid
+    return spawnDetached([viewer, 'view', '--qmp', this.qmp, '--title', title], log, this.env, true).pid
   }
 
   async ready(seconds: number): Promise<boolean> {

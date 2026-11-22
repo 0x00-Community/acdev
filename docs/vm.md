@@ -24,6 +24,11 @@ virtio-fs, 以及 Windows (WHPX)、macOS (Hypervisor.framework).
   (`-accel whpx -cpu max`), macOS 上 HVF (`-accel hvf -cpu host`). WHPX / HVF 起不来 (QEMU 马上退出, 输出里提到它) 时说一句原因,
   退回 TCG 重起一次; 慢得多. `start` 和 `status` 会说.
 - QEMU 进程用分离的子进程起 (Node 的 `detached`: POSIX 上是新会话, Windows 上不挂在当前控制台), 不随 `acdev` 退出, 不再要 `setsid`.
+  Windows 上 `windowsHide` 只在没有窗口时打开 (`--headless`、`--vnc`、`--viewer`, `Machine.windowed`): 它让 libuv 在 `STARTUPINFO` 里写
+  `SW_HIDE`, 而一个进程第一次 `ShowWindow` 时 Windows 用的是这个值, 不管程序自己要什么, 所以原来 QEMU 的 gtk 窗口一建出来就是隐藏的
+  (2026-11-22 acdev-test 在用户的 Windows 上看到: qemu 在用户的交互会话里, 可 `MainWindowHandle` 是 0, 桌面上找不到窗口). 不加它也不会多出
+  控制台窗口: `detached` 在 Windows 上是 `DETACHED_PROCESS`, 控制台程序 `qemu-system-x86_64.exe` 不分配控制台. 不论从 PowerShell、
+  cmd 还是 WSL 里的 `powershell.exe` 起, 窗口都在用户桌面上〔修复后未在 Windows 上复测〕.
 - 窗口: Linux 上默认用 QEMU 的 SDL 窗口 (`-display sdl`; 默认带 3D, 即 `sdl,gl=on`, 见下面「3D」), `--gtk` 换成 gtk 窗口; macOS 是 cocoa, Windows 是 gtk, 不变.
   理由见下面两条: gtk 开窗就拿窗口尺寸盖掉客户机的首选分辨率, SDL 不会, 客户机直接以 1280×800 起来, 之后照样跟着拉动的窗口变 (round21 后实测,
   WSLg 上 X11 窗口). QEMU 没编 SDL 时 (`Machine.displays` 看 `qemu-system -display help` 的列表) 默认退回 gtk 并提示一句; 明说 `--sdl` 而没有 SDL 时报错.
