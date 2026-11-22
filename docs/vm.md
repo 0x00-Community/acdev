@@ -182,6 +182,11 @@ PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 同样照 `packa
 客户机里先用 `pacman -T` 挑出没装的, 一起 `pacman -S`, 整批失败 (如某个包仓库里没有) 再逐个装, 装不上的逐个提示: 以前只装 acdes 的依赖,
 dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不在沙箱里跑 (batch2-2 联调). 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
+给这个用户写 `/etc/sudoers.d/acdev-dev` (root:root, 0440, `DEV_SUDOERS`): dopame 的客户机检查要临时替换桌面后台服务单元 (`acdes-session-agent@<UID>.service`) 的环境,
+所以只放行五条命令, `<UID>` 是这个用户的实际 UID, 不给别的 root 权限: `install -D -m 644 * <目录>/zz-dopame-check.conf`、`rm -f` 这个文件、`rmdir --ignore-fail-on-non-empty <目录>`
+(目录是 `/run/systemd/system/acdes-session-agent@<UID>.service.d`)、`systemctl daemon-reload`、`systemctl restart acdes-session-agent@<UID>.service`, 都是 NOPASSWD
+(主会话 2026-11-22 定, acdev 与 dopame 之间). 先写成 `acdev-dev.tmp` (名字带 `.`, sudo 不读), `visudo -cf` 过了才改名, 不过就删掉并记一条 warning;
+客户机里没有 sudo (`/etc/sudoers.d`、`visudo`) 时也只记 warning. 只有 acdev 起、provision 过的开发客户机有这个文件, 正式系统没有;
 把 `greeter` 用户加进 video、input 组 (登录页的合成器直接开 `/dev/input/event*`), `/var/lib/acde/greeter` 整个归 `greeter`; 写 `/etc/greetd/config.toml` 让 greetd 在 tty1 以 `greeter` 用户跑 `/usr/bin/acdes --greeter`, 最后重启 greetd (`--no-restart` 不重启).
 `--pkgs <宿主目录>` (`stagePkgs`/`PKGS_SCRIPT`, `src/vm/kernelpkgs.ts`, #111): 目录里所有 `*.pkg.tar.zst` (制品站的 acdes、dopame 包) 暂存进 `pkgs/`, 客户机里在 `pacman -Sy` 之后先 `pacman -Rdd`
 掉旧包 `acdebin-system`、`acde-dopame` (`LEGACY_PACKAGES`, 文件和新包冲突), 再一次 `pacman -U`; 失败退出 3, pacman 自己的报错照常输出. 镜像 dopameos-20261114 里还是旧包, 测新包走这条.

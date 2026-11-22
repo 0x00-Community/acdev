@@ -35,6 +35,8 @@ export const PROVISION_DIR = '/opt/acdev/provision'
 
 export const ACDES_SERVICES = ['acdes-system-agent', 'acdes-proxy'] as const
 
+export const DEV_SUDOERS = '/etc/sudoers.d/acdev-dev'
+
 export const PRUNED = {
   bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
   hwsim: { module: 'mac80211_hwsim', package: 'linux-ackernel-wifi-other' },
@@ -126,6 +128,26 @@ export const PROVISION_SCRIPT = [
   'printf \'%s:%s\\n\' "$user" "$password" | chpasswd',
   'faillock --user "$user" --reset 2>/dev/null || true',
   'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
+  '',
+  'step "sudo rules for $user: the dopame guest checks swap the environment of its session agent unit"',
+  `rules=${DEV_SUDOERS}`,
+  'if [ -d /etc/sudoers.d ] && command -v visudo >/dev/null; then',
+  '  uid=$(id -u "$user")',
+  '  dir="/run/systemd/system/acdes-session-agent@$uid.service.d"',
+  '  conf="$dir/zz-dopame-check.conf"',
+  '  cmds="/usr/bin/install -D -m 644 * $conf, /usr/bin/rm -f $conf, /usr/bin/rmdir --ignore-fail-on-non-empty $dir"',
+  '  cmds="$cmds, /usr/bin/systemctl daemon-reload, /usr/bin/systemctl restart acdes-session-agent@$uid.service"',
+  '  printf \'%s ALL=(root) NOPASSWD: %s\\n\' "$user" "$cmds" >"$rules.tmp"',
+  '  chown root:root "$rules.tmp" && chmod 0440 "$rules.tmp"',
+  '  if visudo -cf "$rules.tmp" >/dev/null; then',
+  '    mv -f "$rules.tmp" "$rules"',
+  '  else',
+  '    rm -f "$rules.tmp" "$rules"',
+  '    warn "visudo rejected the sudo rules for $user, so there is no $rules"',
+  '  fi',
+  'else',
+  '  warn "no sudo in the guest (/etc/sudoers.d, visudo), so there is no $rules"',
+  'fi',
   '',
   'if [ -d "$here/hw" ]; then',
   '  step "simulated hardware: packages, scripts in /usr/local/bin, units in /etc/systemd/system"',
