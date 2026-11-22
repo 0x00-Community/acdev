@@ -6,7 +6,7 @@
 set -eu
 apt-get -o DPkg::Lock::Timeout=600 update -qq
 apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends \
-  ca-certificates curl git unzip xz-utils jq awscli rsync netcat-openbsd openssh-client python3 python3-venv \
+  ca-certificates curl git unzip xz-utils zstd jq awscli rsync netcat-openbsd openssh-client python3 python3-venv \
   clang lld llvm pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev libpipewire-0.3-dev libspa-0.2-dev \
   libwayland-dev libxkbcommon-dev libfontconfig-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri fonts-dejavu-core fonts-liberation2 fonts-noto-cjk

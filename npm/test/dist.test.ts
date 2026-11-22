@@ -7,7 +7,7 @@ import {
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
-import { systemTar } from '../scripts/shipped.ts'
+import { compression, systemTar } from '../scripts/shipped.ts'
 import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
@@ -36,13 +36,18 @@ const BUILDS = [
 
 type RuntimeOptions = { builds?: readonly string[]; member?: string }
 
+function packing(build: string): string {
+  if (build.endsWith('-windows-msvc')) return '.tar.gz'
+  return build.includes('-linux-') ? '.tar.zst' : '.tar.xz'
+}
+
 function runtimeFile(build: string): string {
-  return `acdevrt-${build}${build.endsWith('-windows-msvc') ? '.tar.gz' : '.tar.xz'}`
+  return `acdevrt-${build}${packing(build)}`
 }
 
 function toolFile(build: string): { file: string; program: string } {
   const windows = build.endsWith('-windows-msvc')
-  return { file: `acdevtools-${build}${windows ? '.tar.gz' : '.tar.xz'}`, program: windows ? 'acdevtool.exe' : 'acdevtool' }
+  return { file: `acdevtools-${build}${packing(build)}`, program: windows ? 'acdevtool.exe' : 'acdevtool' }
 }
 
 function packed(at: string, file: string, programs: Record<string, string>): void {
@@ -52,7 +57,7 @@ function packed(at: string, file: string, programs: Record<string, string>): voi
     writeFileSync(join(inner, name), text)
     chmodSync(join(inner, name), 0o755)
   }
-  const archived = systemTar([file.endsWith('.xz') ? '-cJf' : '-czf', join(at, file), '-C', inner, ...Object.keys(programs)])
+  const archived = systemTar([...compression(file), '-cf', join(at, file), '-C', inner, ...Object.keys(programs)])
   if (archived.status !== 0) throw new Error(`tar: ${archived.stderr}`)
   rmSync(inner, { recursive: true, force: true })
 }
@@ -254,7 +259,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   test('install.sh: a progress bar in a terminal, none when captured, a line per checked file either way', async () => {
     const captured = await install(tmp(), ['--no-modify-path'])
     expect(captured.code, captured.out).toBe(0)
-    expect(captured.out).toMatch(/: acdevrt-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
+    expect(captured.out).toMatch(/: acdevrt-[\w-]+\.tar\.(xz|zst): \d+ KB, SHA-256 matches\n/)
     expect(captured.out).toMatch(/: acdev-guest-0\.0\.2\.tar\.gz: \d+ KB, SHA-256 matches\n/)
     expect(captured.out).not.toContain('%')
     const home = tmp()

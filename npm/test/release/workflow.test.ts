@@ -6,7 +6,11 @@ import { Pkgs } from '../../src/pkgs.ts'
 const GITHUB = join(import.meta.dir, '..', '..', '..', '.github')
 const TEXT = readFileSync(join(GITHUB, 'workflows', 'cicd.yaml'), 'utf8')
 const TEST = readFileSync(join(GITHUB, 'workflows', 'test.yml'), 'utf8')
-const CREDENTIALS = 'credentials for the role'
+const KEYS = {
+  R2_ACCOUNT_ID: '${{ secrets.R2_ACCOUNT_ID }}',
+  R2_ACCESS_KEY_ID: '${{ secrets.R2_ACCESS_KEY_ID }}',
+  R2_SECRET_ACCESS_KEY: '${{ secrets.R2_SECRET_ACCESS_KEY }}',
+}
 const LOCK = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
 type Step = {
   name?: string; id?: string; if?: string; uses?: string; run?: string
@@ -59,13 +63,16 @@ describe('cicd.yaml', () => {
   })
 
   test('the jobs and their needs; publish needs publish=true and pkgs to succeed', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'publish'])
+    expect(Object.keys(jobs)).toEqual(['plan', 'build', 'guest', 'pkgs', 'publish', 'pacman'])
     expect(needs('plan')).toEqual([])
     expect(needs('build')).toEqual(['plan'])
     expect(needs('guest')).toEqual(['plan'])
     expect(needs('pkgs')).toEqual(['plan', 'build', 'guest'])
     expect(needs('publish')).toEqual(['plan', 'pkgs'])
     expect(jobs['publish']!.if).toBe("needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'")
+    expect(needs('pacman')).toEqual(['plan', 'publish'])
+    expect(jobs['pacman']!.if).toContain("needs.plan.outputs.publish == 'true' && needs.publish.result == 'success'")
+    expect(jobs['pacman']!.if).toContain("',x86_64-unknown-linux-gnu,'")
     expect(TEXT).not.toMatch(/\$\{\{\s*!?inputs\./)
     expect(runs('plan')).toContain('if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi')
   })
@@ -76,17 +83,44 @@ describe('cicd.yaml', () => {
     expect(jobs['pkgs']!.if).toContain("needs.guest.result == 'success'")
   })
 
-  test('S3 gets the versioned files, then the tag is pushed, then the pointers and the CDN, then npm', () => {
+  test('R2 gets the versioned files, then the tag is pushed, then the pointers, then npm; no CDN to invalidate', () => {
     const run = runs('publish')
-    const order = ['publish_once "$f"', 'publish_once SHA256SUMS', 'git push origin "refs/tags/$TAG"', 'put install.sh', 'put install.ps1',
-      'put install.md', 'put latest ', 'put latest.json', 'create-invalidation', 'npm publish']
+    const order = ['publish_once "$f"', 'publish_once SHA256SUMS', 'git push origin "refs/tags/$TAG"', 'pointer install.sh', 'pointer install.ps1',
+      'pointer install.md', 'pointer latest ', 'pointer latest.json', 'npm publish']
     const at = order.map((needle) => indexIn(run, needle))
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(run).toContain('does not read back as uploaded')
-    const names = jobs['publish']!.steps.map((item) => item.name ?? '')
-    expect(names.filter((name) => name === CREDENTIALS)).toHaveLength(2)
-    expect(names.indexOf(CREDENTIALS)).toBeLessThan(names.indexOf('upload every file SHA256SUMS lists, then SHA256SUMS, each read back'))
-    expect(names.lastIndexOf(CREDENTIALS)).toBe(names.indexOf('the pointers, latest.json last, then the CDN') - 1)
+    expect(TEXT).not.toMatch(/cloudfront|invalidation|\baws (s3|s3api|sts)\b|AWS_|dopame-pkgs|myqcloud|amazonaws/i)
+    const keyed = jobs['publish']!.steps.filter((item) => item.env?.['R2_SECRET_ACCESS_KEY']).map((item) => item.name)
+    expect(keyed).toEqual(['upload every file SHA256SUMS lists, then SHA256SUMS, each read back', 'the pointers, latest.json last'])
+  })
+
+  test('R2 through its S3 API: curl --aws-sigv4, the key on stdin, the bucket and endpoint stated once', () => {
+    const helpers = step('publish', 'the R2 helpers, sourced by the steps that hold the key')!.run!
+    expect(helpers).toContain("| curl -K - --aws-sigv4 'aws:amz:auto:s3'")
+    expect(helpers).toContain('endpoint=https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com/$R2_BUCKET')
+    expect(helpers).not.toMatch(/curl[^\n]*\$R2_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)/)
+    expect(step('publish', 'the R2 helpers, sourced by the steps that hold the key')!.env).toBeUndefined()
+    for (const name of ['upload every file SHA256SUMS lists, then SHA256SUMS, each read back', 'the pointers, latest.json last']) {
+      expect(step('publish', name)!.run).toStartWith('. "$RUNNER_TEMP/r2.sh"\n')
+    }
+    expect(runs('publish')).toContain("pointer() { put \"$PREFIX/$1\" \"$1\" \"$2\" 'public, max-age=0, must-revalidate'; }")
+    expect(runs('publish')).toContain("put \"$key\" \"$1\" \"$type\" 'public, max-age=31536000, immutable'")
+    expect(runs('publish')).toContain('*.tar.zst) type=application/zstd ;;')
+  })
+
+  test('pacman: os\'s acdev-package.sh makes the package with zstd -3, os\'s publish.sh adds it to acdev, once per version', () => {
+    const run = runs('pacman')
+    expect(run).toContain('clone --depth 1 "${GITHUB_SERVER_URL}/AC/os.git" "$RUNNER_TEMP/os"')
+    expect(run).toContain("'COMPRESSZST=(zstd -c -T0 -3 -)' > \"$conf/pacman/makepkg.conf\"")
+    expect(run).toContain('XDG_CONFIG_HOME=$conf "$RUNNER_TEMP/os/scripts/ci/acdev-package.sh" "$RUNNER_TEMP/package" "$GITHUB_RUN_NUMBER"')
+    expect(run).toContain('"$RUNNER_TEMP/os/scripts/publish.sh" acdev "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst')
+    expect(indexIn(run, '"$PKGS/$PREFIX/$PREFIX.db"')).toBeLessThan(indexIn(run, 'acdev-package.sh'))
+    const pacman = jobs['pacman']!.steps
+    for (const item of pacman.filter((item) => item.name !== 'tools' && item.name !== 'clean up' && !item.id)) {
+      expect(item.if, item.name).toBe("steps.db.outputs.have != 'true'")
+    }
+    expect(pacman.find((item) => item.name === 'publish')!.env).toEqual(KEYS)
   })
 
   test('build, guest and pkgs reuse what an earlier run built for the same inputs (built/ on .127), skipping steps, not the job', () => {
@@ -181,6 +215,7 @@ describe('cicd.yaml', () => {
     expect(TEXT + TEST).not.toMatch(/apt-get|setup-bun|rust-toolchain@|rust-cache@|rustup |curl [^\n]*(zig|xwin|zigbuild|sdk)/i)
     for (const text of [TEXT, TEST]) expect((Bun.YAML.parse(text) as { env: Record<string, string> }).env['RUSTUP_HOME']).toBe('/opt/rust/rustup')
     expect(TEXT + TEST).not.toContain('RUNNER_TEMP/home')
+    for (const job of Object.keys(jobs).filter((id) => id !== 'pacman')) expect(runs(job), job).not.toContain('pacman -S')
   })
 
   test('npm publishes the platform packages and @dopame/acdev, not the private SDK', () => {
@@ -194,32 +229,32 @@ describe('cicd.yaml', () => {
     expect(LOCK).not.toContain('mirrors.cloud.tencent.com')
   })
 
-  test('every job runs on the x86_64-debian runners themselves, in no container; Apple silicon on aarch64-debian', () => {
+  test('every job runs on the x86_64-debian runners themselves, in no container; Apple silicon on aarch64-debian; pacman on x86_64-arch', () => {
+    const runner = (id: string) => (id === 'build' ? '${{ matrix.runner }}' : id === 'pacman' ? 'x86_64-arch' : 'x86_64-debian')
     for (const [id, job] of Object.entries(jobs)) {
-      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe(id === 'build' ? '${{ matrix.runner }}' : 'x86_64-debian')
+      expect((job as Job & { 'runs-on'?: string })['runs-on']).toBe(runner(id))
       expect((job as Job & { container?: string }).container).toBeUndefined()
     }
   })
 
-  test('the guard checks the exact allow-list; publish checks the checksums before S3', () => {
+  test('the guard checks the exact allow-list; publish checks the checksums before R2', () => {
     const pkgs = runs('pkgs')
     expect(pkgs).toContain('bun ../scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$V" --targets "$TARGETS"')
     expect(indexIn(pkgs, 'release-guard.ts')).toBeLessThan(indexIn(pkgs, 'run/latest "$TO:"'))
     const publish = runs('publish')
     expect(indexIn(publish, 'sha256sum -c SHA256SUMS')).toBeLessThan(indexIn(publish, 'publish_once "$f"'))
     expect(publish).toContain('*[!A-Za-z0-9._-]*) echo "::error::bad file name $f"')
-    expect(publish).toContain('"/$PREFIX/$V/*"')
   })
 
-  test('S3 is written file by file, with no sync, recursion or globs', () => {
+  test('R2 is written file by file, with no sync, recursion or globs', () => {
     const run = runs('publish')
-    expect(run).not.toMatch(/\bs3 sync\b|--recursive|\bcp -r\b/)
-    expect(run).not.toMatch(/s3 cp [^\n]*\*/)
+    expect(run).not.toMatch(/\bsync\b|--recursive|\bcp -r\b/)
+    expect(run).not.toMatch(/(put|pointer|publish_once) [^\n]*\*/)
   })
 
   test('a published version is identical or refused, never overwritten, and a rerun can continue', () => {
     const run = runs('publish')
-    expect(run).toContain('aws s3api head-object')
+    expect(run).toContain('if get "$key" "$RUNNER_TEMP/published"; then')
     expect(run).toContain('cmp -s "$RUNNER_TEMP/published" "$1"')
     expect(run).toContain('already published, identical')
     expect(run).toContain('a version is never overwritten')
@@ -227,20 +262,18 @@ describe('cicd.yaml', () => {
 
   test('credentials are masked before they are used, never echoed, and set -x is never used', () => {
     const secrets = [...TEXT.matchAll(/\bsecrets\.(\w+)/g)].map((match) => match[1])
-    expect([...new Set(secrets)].sort()).toEqual(['ACKERNEL_TOKEN', 'ARTIFACTS_UPLOAD_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'NPM_TOKEN'])
-    const item = step('publish', CREDENTIALS)
-    expect(item?.env).toEqual({ KEY_ID: '${{ secrets.AWS_ACCESS_KEY_ID }}', KEY_SECRET: '${{ secrets.AWS_SECRET_ACCESS_KEY }}' })
-    expect(indexIn(item!.run!, '::add-mask::')).toBeLessThan(indexIn(item!.run!, '>> "$GITHUB_ENV"'))
-    expect(item!.run).toContain('aws sts assume-role --role-arn "$ROLE"')
+    expect([...new Set(secrets)].sort()).toEqual(['ACKERNEL_TOKEN', 'ARTIFACTS_UPLOAD_KEY', 'NPM_TOKEN', 'R2_ACCESS_KEY_ID', 'R2_ACCOUNT_ID',
+      'R2_SECRET_ACCESS_KEY'])
+    expect(TEXT.match(/secrets\.R2_SECRET_ACCESS_KEY/g)).toHaveLength(1)
     expect(TEXT + TEST).not.toMatch(/set -x|bash -x|sh -x|aws-actions\//)
-    const printed = TEXT.split('\n').filter((line) => /echo|printf/.test(line) && !/add-mask|\| jq |>> "\$GITHUB_ENV"|> "\$k\/key"/.test(line))
-    expect(printed.filter((line) => /\$(token|secret|session|creds|KEY_ID|KEY_SECRET|KEY)\b/.test(line))).toEqual([])
+    const printed = TEXT.split('\n').filter((line) => /echo|printf/.test(line) && !/> "\$k\/key"|\| curl -K - /.test(line))
+    expect(printed.filter((line) => /\$(token|secret|session|creds|KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\b/.test(line))).toEqual([])
   })
 
   test('no .github/actions: the workflows say every step, the shared ones anchored once per file', () => {
     expect(existsSync(join(GITHUB, 'actions'))).toBe(false)
     expect(TEXT + TEST).not.toContain('.github/actions')
-    for (const anchor of ['&checkout', '&libacde', '&ssh', '&aws']) expect(TEXT.split(anchor).length - 1, anchor).toBe(1)
+    for (const anchor of ['&checkout', '&libacde', '&ssh', '&keys']) expect(TEXT.split(anchor).length - 1, anchor).toBe(1)
     for (const anchor of ['&checkout', '&cleanup', '&libacde', '&fetch', '&runtime', '&ssh', '&wpt']) {
       expect(TEST.split(anchor).length - 1, anchor).toBe(1)
     }
@@ -273,16 +306,11 @@ describe('cicd.yaml', () => {
     expect(TEXT.match(/@[0-9a-f]{40}(?! # v\d+)/g)).toBeNull()
   })
 
-  test('the release role, bucket, prefix, region, distribution and PKGS are each stated once', () => {
+  test('the bucket, prefix and PKGS are each stated once', () => {
     expect(workflow.env).toEqual({
       PKGS: 'https://pkgs.dopame.ai',
-      AWS_REGION: 'ap-southeast-1',
-      ROLE: 'arn:aws:iam::312030312811:role/dopame-acde-release',
-      BUCKET: 'dopame-pkgs',
+      R2_BUCKET: 'pkgs',
       PREFIX: 'acdev',
-      CLOUDFRONT_DISTRIBUTION: 'E3ET3L14ALFOXX',
-      AWS_RETRY_MODE: 'standard',
-      AWS_MAX_ATTEMPTS: '10',
       RUSTUP_HOME: '/opt/rust/rustup',
       CARGO_INCREMENTAL: '0',
       CARGO_TERM_COLOR: 'always',

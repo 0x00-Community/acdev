@@ -41,15 +41,10 @@ defaults:
     shell: bash --noprofile --norc -eu {0}
 
 env:
+  # PKGS serves the R2 bucket R2_BUCKET read-only (a Worker: the path is the key, no CDN to invalidate)
   PKGS: https://pkgs.dopame.ai
-  AWS_REGION: ap-southeast-1
-  ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
-  BUCKET: dopame-pkgs
+  R2_BUCKET: pkgs
   PREFIX: acdev
-  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
-  # the runners' uplink is slow: run 2558 timed out reading S3's answer to a large part (the CLI's default is 60 s)
-  AWS_RETRY_MODE: standard
-  AWS_MAX_ATTEMPTS: '10'
   RUSTUP_HOME: /opt/rust/rustup
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: always
@@ -248,7 +243,12 @@ jobs:
           pack() {
             rm -rf one && mkdir one && cp "$2" "one/$3" && chmod 755 "one/$3" && TZ=UTC touch -t 200001010000.00 "one/$3"
             tar -C one --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$3" > one.tar
-            if [ -n "$x" ]; then gzip -9 -n -c one.tar > "out/$1-$T.tar.gz"; else xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz"; fi
+            # Linux zstd -3 (install.sh asks for zstd); Windows 10's tar.exe reads neither xz nor zstd, macOS's bsdtar no zstd
+            case $T in
+              *-windows-*) gzip -9 -n -c one.tar > "out/$1-$T.tar.gz" ;;
+              *-linux-*) zstd -q -T0 -3 -c one.tar > "out/$1-$T.tar.zst" ;;
+              *) xz -9 -T1 -c one.tar > "out/$1-$T.tar.xz" ;;
+            esac
           }
           pack acdevrt "acdev/target/$T/dist/acdev$x" "acdev$x"
           pack acdevtools "acdev/crates/tool/target/$T/release/acdevtool$x" "acdevtool$x"
@@ -361,7 +361,7 @@ jobs:
           echo "$LIB" > "built/libacde-$SHA-$V"
           upload -rt --mkpath --chmod=D755,F644 built/ "$TO:built/"
 
-  # S3 (every file once, never overwritten), the tag, the pointers and the CDN, then npm
+  # R2 (every file once, never overwritten), the tag, the pointers, then npm
   publish:
     needs: [plan, pkgs]
     if: needs.plan.outputs.publish == 'true' && needs.pkgs.result == 'success'
@@ -385,34 +385,48 @@ jobs:
           [ -f out/latest ] || { echo "::error::the artifacts host has no $GITHUB_RUN_NUMBER/acdev-release"; exit 1; }
           [ "$(cat out/latest)" = "$V" ] || { echo "::error::the release is $(cat out/latest), not $V"; exit 1; }
           (cd "out/$V" && sha256sum -c SHA256SUMS)
-      - &aws
-        name: credentials for the role
-        env:
-          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      # R2's S3 API with curl --aws-sigv4 (as AC/os scripts/r2.sh); the key reaches curl on stdin, not on its command line
+      - name: the R2 helpers, sourced by the steps that hold the key
         run: |
-          # the second time the role session of the first is in the environment: its token must not go with the long-term key
-          creds=$(env -u AWS_SESSION_TOKEN AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
-            --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
-          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(printf '%s' "$creds" | jq -r .$k)"; done
-          printf '%s' "$creds" | jq -r '"AWS_ACCESS_KEY_ID=\(.AccessKeyId)\nAWS_SECRET_ACCESS_KEY=\(.SecretAccessKey)\nAWS_SESSION_TOKEN=\(.SessionToken)"' >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/r2.sh" <<'EOF'
+          [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] ||
+            { echo "::error::no R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY secret"; exit 1; }
+          endpoint=https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com/$R2_BUCKET
+          r2() { printf 'user = "%s:%s"\n' "$R2_ACCESS_KEY_ID" "$R2_SECRET_ACCESS_KEY" | curl -K - --aws-sigv4 'aws:amz:auto:s3' --retry 3 "$@"; }
+          put() { r2 -fsS -T "$2" -o /dev/null -H "Content-Type: $3" -H "Cache-Control: $4" "$endpoint/$1"; }
+          get() {
+            code=$(r2 -sS -o "$2" -w '%{http_code}' "$endpoint/$1") || code=000
+            case $code in
+              200) return 0 ;;
+              404) rm -f "$2"; return 1 ;;
+              *) echo "::error::GET $1: HTTP $code"; exit 1 ;;
+            esac
+          }
+          EOF
       - name: upload every file SHA256SUMS lists, then SHA256SUMS, each read back
         working-directory: out/${{ needs.plan.outputs.version }}
+        env: &keys
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
+          . "$RUNNER_TEMP/r2.sh"
           # a published version is identical or refused, never overwritten; a rerun skips the identical files
           publish_once() {
-            case $1 in *.tar.gz) type=application/gzip ;; *.tar.xz) type=application/x-xz ;; *) type='text/plain; charset=utf-8' ;; esac
+            case $1 in
+              *.tar.gz) type=application/gzip ;;
+              *.tar.xz) type=application/x-xz ;;
+              *.tar.zst) type=application/zstd ;;
+              *) type='text/plain; charset=utf-8' ;;
+            esac
             key="$PREFIX/$V/$1"
-            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> "$RUNNER_TEMP/head.err"; then
-              aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/published" --only-show-errors
+            if get "$key" "$RUNNER_TEMP/published"; then
               cmp -s "$RUNNER_TEMP/published" "$1" || { echo "::error::$1 is already published with different content: a version is never overwritten"; exit 1; }
               echo "already published, identical: $1"
-            elif grep -qE 'Not Found|NotFound|404' "$RUNNER_TEMP/head.err"; then
-              aws s3 cp "$1" "s3://$BUCKET/$key" --cli-read-timeout 600 --only-show-errors --content-type "$type" --cache-control 'public, max-age=31536000, immutable'
             else
-              echo "::error::cannot check $1: $(cat "$RUNNER_TEMP/head.err")"; exit 1
+              put "$key" "$1" "$type" 'public, max-age=31536000, immutable'
             fi
-            aws s3 cp "s3://$BUCKET/$key" "$RUNNER_TEMP/readback" --only-show-errors
+            get "$key" "$RUNNER_TEMP/readback" || { echo "::error::$1 is not there after the upload"; exit 1; }
             cmp -s "$RUNNER_TEMP/readback" "$1" || { echo "::error::$1 does not read back as uploaded"; exit 1; }
           }
           for f in $(awk '{ sub(/^\*/, "", $2); print $2 }' SHA256SUMS); do
@@ -433,19 +447,18 @@ jobs:
             git -c user.name=gitea-actions -c user.email=gitea-actions@gitea.dopamine tag -a "$TAG" -m "acdev $TAG" "$SHA"
             git push origin "refs/tags/$TAG"
           fi
-      # the upload can take most of an hour on the runners' uplink: fresh credentials for the pointers
-      - *aws
-      - name: the pointers, latest.json last, then the CDN
+      # no CDN to invalidate: the Worker serves each object with its own Cache-Control, and the pointers' says revalidate
+      - name: the pointers, latest.json last
         working-directory: out
+        env: *keys
         run: |
-          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$1" --only-show-errors --content-type "$2" --cache-control 'public, max-age=0, must-revalidate'; }
-          put install.sh 'text/plain; charset=utf-8'
-          put install.ps1 'text/plain; charset=utf-8'
-          put install.md 'text/markdown; charset=utf-8'
-          put latest 'text/plain; charset=utf-8'
-          put latest.json application/json
-          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" --query Invalidation.Id --output text \
-            --paths /$PREFIX/latest /$PREFIX/latest.json /$PREFIX/install.sh /$PREFIX/install.ps1 /$PREFIX/install.md "/$PREFIX/$V/*"
+          . "$RUNNER_TEMP/r2.sh"
+          pointer() { put "$PREFIX/$1" "$1" "$2" 'public, max-age=0, must-revalidate'; }
+          pointer install.sh 'text/plain; charset=utf-8'
+          pointer install.ps1 'text/plain; charset=utf-8'
+          pointer install.md 'text/markdown; charset=utf-8'
+          pointer latest 'text/plain; charset=utf-8'
+          pointer latest.json application/json
           printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"
       # @dopame/acdev (starts its platform package) and @dopame/acdev-<os>-<cpu> (laid out as an install); the SDK is not on npm
       - name: npm (platforms, then @dopame/acdev)
@@ -484,3 +497,77 @@ jobs:
             if npm view "$name@$V" version > /dev/null 2>&1; then echo "$name@$V is already on npm"; continue; fi
             (cd "$dir" && npm publish --access public) && echo "published $name@$V"
           done
+
+  # the pacman repository acdev beside the release (https://pkgs.dopame.ai/acdev/acdev.db, x86_64, flat): AC/os's
+  # packages/acdev/PKGBUILD makes the package from this run's release on the artifacts host (its scripts/ci/acdev-package.sh),
+  # its scripts/publish.sh adds it (checked out from AC/os, not copied here). A version the database already names is left
+  # alone: makepkg's output differs from build to build, and a published package file is never overwritten.
+  pacman:
+    needs: [plan, publish]
+    if: needs.plan.outputs.publish == 'true' && needs.publish.result == 'success' && contains(format(',{0},', needs.plan.outputs.targets), ',x86_64-unknown-linux-gnu,')
+    runs-on: x86_64-arch
+    timeout-minutes: 30
+    env:
+      V: ${{ needs.plan.outputs.version }}
+    steps:
+      # the x86_64-arch runners run jobs on the host as a user with sudo (as AC/os build.yaml installs its toolchain)
+      - name: tools
+        run: |
+          missing=
+          for t in dash repo-add bsdtar curl nc git makepkg fakeroot zstd; do
+            command -v "$t" > /dev/null || missing="$missing $t"
+          done
+          if [ -n "$missing" ]; then
+            echo "installing for:$missing"
+            for i in 1 2 3 4 5 6; do
+              sudo pacman -Syu --noconfirm --needed dash pacman libarchive curl openbsd-netcat git fakeroot zstd && break
+              [ "$i" -lt 6 ] || exit 1
+              sleep 20
+            done
+          fi
+      - name: the version in the repository already, or not
+        id: db
+        run: |
+          db=$RUNNER_TEMP/acdev.db
+          code=$(curl -sS -o "$db" -w '%{http_code}' "$PKGS/$PREFIX/$PREFIX.db") || code=000
+          case $code in
+            200) bsdtar -xOf "$db" '*/desc' | awk 'f { print; f = 0 } $0 == "%FILENAME%" { f = 1 }' > "$RUNNER_TEMP/named" ;;
+            404) : > "$RUNNER_TEMP/named" ;;
+            *) echo "::error::$PKGS/$PREFIX/$PREFIX.db: HTTP $code"; exit 1 ;;
+          esac
+          if grep -q "^acdev-$(printf '%s' "$V" | sed 's/\./\\./g')-[0-9.]*-x86_64\.pkg\.tar\.zst$" "$RUNNER_TEMP/named"; then
+            echo "acdev $V is in the repository already: not built again" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo have=true >> "$GITHUB_OUTPUT"
+          fi
+      - name: os's packaging and publish scripts
+        if: steps.db.outputs.have != 'true'
+        env:
+          TOKEN: ${{ secrets.ACKERNEL_TOKEN }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          rm -rf -- "$RUNNER_TEMP/os"
+          git -c http.extraHeader="Authorization: basic ${auth}" clone --depth 1 "${GITHUB_SERVER_URL}/AC/os.git" "$RUNNER_TEMP/os"
+          echo "os $(git -C "$RUNNER_TEMP/os" rev-parse --short HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+      # makepkg reads $XDG_CONFIG_HOME/pacman/makepkg.conf after /etc's (when MAKEPKG_CONF is unset): zstd -3 whatever the runner's default
+      - name: the package (makepkg, zstd -3)
+        if: steps.db.outputs.have != 'true'
+        run: |
+          conf=$RUNNER_TEMP/makepkg-config
+          rm -rf -- "$conf" "$RUNNER_TEMP/package" && mkdir -p "$conf/pacman"
+          printf '%s\n' "PKGEXT='.pkg.tar.zst'" 'COMPRESSZST=(zstd -c -T0 -3 -)' > "$conf/pacman/makepkg.conf"
+          unset MAKEPKG_CONF PKGEXT
+          XDG_CONFIG_HOME=$conf "$RUNNER_TEMP/os/scripts/ci/acdev-package.sh" "$RUNNER_TEMP/package" "$GITHUB_RUN_NUMBER"
+          set -- "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst
+          [ $# -eq 1 ] && [ -f "$1" ] || { echo "::error::acdev-package.sh made no acdev $V package"; ls -la "$RUNNER_TEMP/package"; exit 1; }
+          echo "$(basename "$1"): $(du -h "$1" | cut -f 1)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: publish
+        if: steps.db.outputs.have != 'true'
+        env: *keys
+        run: |
+          log=$RUNNER_TEMP/publish.log
+          "$RUNNER_TEMP/os/scripts/publish.sh" acdev "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst > "$log" 2>&1 || { cat "$log"; exit 1; }
+          cat "$log"
+          grep '^published ' "$log" >> "$GITHUB_STEP_SUMMARY"
+      - name: clean up
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/os" "$RUNNER_TEMP/package" "$RUNNER_TEMP/makepkg-config" "$RUNNER_TEMP/publish.log" "$RUNNER_TEMP/acdev.db" "$RUNNER_TEMP/named"

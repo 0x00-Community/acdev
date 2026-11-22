@@ -230,7 +230,7 @@ function Install-Acde {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
             } | Where-Object { $_ -like 'acdevrt-*' } | ForEach-Object {
-                ($_ -replace '^acdevrt-', '') -replace '\.tar\.[gx]z$', ''
+                ($_ -replace '^acdevrt-', '') -replace '\.tar\.(gz|xz|zst)$', ''
             } | Sort-Object -Unique)
             throw ("acdev: acdev $Version has no acdev runtime for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
