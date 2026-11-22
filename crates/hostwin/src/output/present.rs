@@ -13,6 +13,7 @@ use crate::app::server;
 use crate::output::compose::{Page, drain};
 use crate::output::gpu::Gpu;
 use crate::output::surface::{Msg, Shot};
+use crate::output::vsync::Follower;
 
 const DEFAULT_HZ: f64 = 60.0;
 const ALIGN: u32 = 16;
@@ -47,6 +48,7 @@ pub(crate) struct Presenter {
     captures: Vec<(mpsc::SyncSender<Result<Shot, String>>, Instant)>,
     scratch: HashMap<u32, Scratch>,
     pacer: Pacer,
+    vsync: Option<Follower>,
     dirty: bool,
     bar: Bar,
     decoration: Option<Decoration>,
@@ -63,11 +65,15 @@ impl Presenter {
         size: (u32, u32),
         scale: f64,
         refresh: Option<f64>,
+        vsync: Option<Follower>,
         bar: Bar,
         render: RenderHandle,
         inbox: Arc<Inbox>,
     ) -> Result<Self, String> {
         let (vello, composer, overrides) = Self::drawing(&gpu)?;
+        let mut pacer = Pacer::new(Some(pace(refresh)));
+        pacer.set_synced(vsync.is_some());
+        let vsync = vsync.filter(|_| pacer.synced());
         Ok(Self {
             gpu,
             vello,
@@ -83,7 +89,8 @@ impl Presenter {
             unpublished: HashSet::new(),
             captures: Vec::new(),
             scratch: HashMap::new(),
-            pacer: Pacer::new(Some(pace(refresh))),
+            pacer,
+            vsync,
             dirty: true,
             decoration: (bar.height > 0.0).then(Decoration::new),
             bar,
@@ -119,16 +126,22 @@ impl Presenter {
     pub fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
         self.pacer.tell_size(&self.inbox, self.size, self.scale);
         while let Some(msgs) = drain(rx, self.wait()) {
-            let mut stop = false;
+            let (mut stop, mut beat) = (false, false);
             for msg in msgs {
-                stop |= self.handle(msg);
+                match msg {
+                    Msg::Vsync => beat = true,
+                    msg => stop |= self.handle(msg),
+                }
             }
             if stop {
                 break;
             }
-            if self.pacer.wait() == Some(Duration::ZERO)
-                && let Some(now) = self.pacer.tick(&self.inbox)
-            {
+            let tick = match beat {
+                true => self.pacer.vsync(&self.inbox),
+                false if self.pacer.wait() == Some(Duration::ZERO) => self.pacer.tick(&self.inbox),
+                false => None,
+            };
+            if let Some(now) = tick {
                 self.render.tick(now);
             }
             if self.dirty {
@@ -137,6 +150,9 @@ impl Presenter {
             self.answer_captures();
             if self.trim_at.is_some_and(|at| at <= Instant::now()) {
                 self.trim();
+            }
+            if let Some(vsync) = &self.vsync {
+                vsync.want(self.pacer.wants());
             }
         }
         for (reply, _) in self.captures.drain(..) {
@@ -229,6 +245,7 @@ impl Presenter {
             }
             Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
             Msg::Device(gpu) => self.renew(gpu),
+            Msg::Vsync => {}
             Msg::Stop => return true,
         }
         false

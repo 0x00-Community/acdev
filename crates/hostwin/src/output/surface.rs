@@ -13,6 +13,7 @@ use crate::platform::{self, Cmd};
 pub(crate) enum Msg {
     Wake,
     Frame,
+    Vsync,
     Resized(u32, u32, f64),
     Scroll(f64, f64, f64, f64),
     Pointer(Option<(f64, f64)>),
@@ -145,10 +146,12 @@ impl Surface {
         render.on_cursor(Box::new(move |cursor| server.send(Cmd::Cursor { window, cursor })));
         let gpu = server.gpu();
         let events = inbox.clone();
+        let beat = link.0.clone();
+        let vsync = crate::output::vsync::follow(move || beat.send(Msg::Vsync).is_ok());
         let thread = std::thread::Builder::new()
             .name(format!("acde-host-{window}"))
             .spawn(move || {
-                guarded(|| match Presenter::new(window, gpu, size, scale, refresh, bar, render, events.clone()) {
+                guarded(|| match Presenter::new(window, gpu, size, scale, refresh, vsync, bar, render, events.clone()) {
                     Ok(mut presenter) => presenter.run(&rx),
                     Err(e) => log::error!("window {window}: {e}"),
                 });

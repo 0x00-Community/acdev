@@ -240,7 +240,7 @@ fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) 
         color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.0.max(1),
         height: size.1.max(1),
-        desired_maximum_frame_latency: 2,
+        desired_maximum_frame_latency: if crate::output::vsync::available() { 1 } else { 2 },
         present_mode: wgpu::PresentMode::AutoVsync,
         alpha_mode,
         view_formats: vec![],

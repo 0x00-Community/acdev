@@ -13,7 +13,15 @@
   `SHBrowseForFolderW`、`IFileOpenDialog` / `IFileSaveDialog`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
   命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z; `Entry.parent` / `modal`
   来自 `grant`, `raise` 把子窗口带到父窗口上方, `modal_child` 找最上层的模态子窗口, `forget` 删窗口时放开它的子窗口); `shell/pointer.rs`: 命中 (`hit`, 模态子窗口挡住父窗口) 和按下 (`press`: 拖动的边、标题区双击). `present.rs`: 每个 web
-  一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理, 节奏是宿主窗口所在显示器刷新率的 0.9 倍周期 (`pace`, 不知道时按 60 Hz); `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
+  一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
+  **出帧节奏** (`vsync.rs`): macOS 上页面的帧跟显示器的 vsync 走, 和浏览器的 rAF 一样. 一条
+  `CVDisplayLink` (主显示器; `CVDisplayLinkCreateWithActiveCGDisplays`, API 已标过时但仍可用, 换 `NSWindow.displayLink` 要在主线程建 CADisplayLink)
+  在它自己的线程上回调, 回调给「想要 vsync」的出帧线程发 `Msg::Vsync`; 出帧线程在页面要帧 (`requestFrame`) 或有动画时想要 vsync
+  (`Follower::want(Pacer::wants())`), 收到就 `Pacer::vsync` 出一帧. 没人想要 1 秒后 `acde-vsync` 线程停掉 display link, 有人想要时再开.
+  定时器 (`pace`: 显示器刷新率的 0.9 倍周期, 不知道时按 60 Hz) 只在三种情况下出帧: 停了一阵后的第一帧 (不等 vsync), vsync 停了 (4 个周期没来),
+  没有 display link (别的平台、建不出来、`ACDE_NO_VSYNC=1`、设了 `ACDE_WEB_FPS`). 跟 vsync 走时 surface 的 `desired_maximum_frame_latency` 是 1
+  (CAMetalLayer 两个 drawable), 否则 2. 原来的定时器每 15 ms 一帧比 60 Hz 的显示器快 (计时器还会晚 1–3 ms, 实际 55–66 帧/秒不定), 合成线程在
+  `nextDrawable` 上等, 三个 drawable 的队列一直是满的, 每帧多等一个刷新周期 (上屏比交出晚 48.7 ms, 现在 32 ms); 另外每 5 秒有 14–27 帧画了没上屏.
   页面 / 面板都走 `Presenter::layered` (没有 layers 的 plane 当成一层, `in_layers`), 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
   backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进每个窗口自己的草稿纹理, 最后一次提交里拷进页面纹理 (分几次提交直接画,
   合成线程会读到只铺了底色的半成品). 草稿留着上一帧: 只重画 plane 的损坏区 (被 backdrop 读到的区域并进来; 超过一半面积就整张重画), 只画
