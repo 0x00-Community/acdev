@@ -7,7 +7,7 @@ import { Forward } from '../../src/vm/forward.ts'
 import { guestPassword, prepareGuest, stageInGuest } from '../../src/vm/guest.ts'
 import { connect } from 'node:net'
 import { cleanup, collect, env, tmp } from '../helpers.ts'
-import { reply, CLI, IMAGE, QEMU, devLoop } from './helpers.ts'
+import { CLI, IMAGE, QEMU, devLoop } from './helpers.ts'
 
 afterAll(cleanup)
 

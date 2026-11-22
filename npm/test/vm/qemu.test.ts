@@ -10,7 +10,7 @@ import { displayOf } from '../../src/vm/command.ts'
 import { audioOf, gpuArgs, hardwareArgs, resolutionOf, vgaOf } from '../../src/vm/hardware.ts'
 import { Usb } from '../../src/vm/usb.ts'
 import { cleanup, collect, env, tmp } from '../helpers.ts'
-import { CLI, QEMU } from './helpers.ts'
+import { CLI } from './helpers.ts'
 
 afterAll(cleanup)
 
