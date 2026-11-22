@@ -29,6 +29,12 @@ target/debug/acdev doctor
 构建运行时库要有 bun: libacde 的 `build.rs` 把它的 `js/` 的页面包打进二进制 (`ACDEV_BUN` 指定 bun 的路径). 管理中枢 (broker.js) 随
 `web/` 删除 (acdert 91e7dd1e) 后没有取回, 原来进它的入口现在是单应用启动器 (`target/debug/acdev app <目录>`), 桌面起不来. 用 `acdev` (`npm/`): `ACDEV_RUNTIME=<本仓库>/target/debug/acdev acdev dev`.
 
+## Windows 的 N-API 导出 (2026-11-22)
+
+napi-rs 在 MSVC 上经 `GetProcAddress` 在本进程里找 `napi_*`, 所以 `acdev.exe` 要导出它们, 否则启动即 panic (`napi-sys` 的
+`LoadLibraryExW failed`, 接着 `panic in a function that cannot unwind`). 名单由 libacde 的 `build.rs` 生成 (`napi.def`, 见它的 `docs/runtime/ffi.md`),
+经 `links = "acde"` 的元数据 `DEP_ACDE_NAPI_DEF` 交过来, 本仓库的 `build.rs` 给 bin 加 `/DEF:`. 别的平台没有这个变量, 什么也不做.
+
 ## DXC 钉版本 (2026-11-18)
 
 Windows 目标经 wgpu-hal 的 `static-dxc` 依赖 `mach-dxcompiler-rs`, 它的 build.rs 在编译时从 GitHub 下预编译的 DXC.
