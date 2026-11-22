@@ -354,8 +354,15 @@ jobs:
         env:
           RELEASE: ${{ needs.plan.outputs.release }}
         run: |
-          echo "$GITHUB_RUN_NUMBER" > run/latest
-          upload -t --chmod=F644 run/latest "$TO:"
+          # a build of another event may run beside this one: latest only moves forward
+          cur=$(printf 'acdev/latest\n' | nc $PULL | tar -xO 2>/dev/null || true)
+          case $cur in '' | *[!0-9]*) cur=0 ;; esac
+          if [ "$GITHUB_RUN_NUMBER" -gt "$cur" ]; then
+            echo "$GITHUB_RUN_NUMBER" > run/latest
+            upload -t --chmod=F644 run/latest "$TO:"
+          else
+            echo "latest stays $cur, newer than $GITHUB_RUN_NUMBER"
+          fi
           [ "$RELEASE" = true ] || echo "preview only, the archive passed the guard; a release is tag.yaml" >> "$GITHUB_STEP_SUMMARY"
       - name: record this run as the one that built this key, and its libacde for a release of this commit and version
         if: steps.reuse.outputs.build == 'true'
