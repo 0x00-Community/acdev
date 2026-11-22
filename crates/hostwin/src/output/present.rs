@@ -17,6 +17,7 @@ use crate::output::surface::{Msg, Shot};
 const DEFAULT_HZ: f64 = 60.0;
 const ALIGN: u32 = 16;
 const REFRESH_SLACK: f64 = 0.9;
+const IDLE_TRIM: Duration = Duration::from_secs(2);
 
 pub(crate) fn pace(refresh: Option<f64>) -> Duration {
     Duration::from_secs_f64(REFRESH_SLACK / refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ))
@@ -51,6 +52,7 @@ pub(crate) struct Presenter {
     decoration: Option<Decoration>,
     menu: Option<acde::render::MenuList>,
     menu_closed: bool,
+    trim_at: Option<Instant>,
 }
 
 impl Presenter {
@@ -87,6 +89,7 @@ impl Presenter {
             bar,
             menu: None,
             menu_closed: false,
+            trim_at: None,
         })
     }
 
@@ -132,6 +135,9 @@ impl Presenter {
                 self.paint();
             }
             self.answer_captures();
+            if self.trim_at.is_some_and(|at| at <= Instant::now()) {
+                self.trim();
+            }
         }
         for (reply, _) in self.captures.drain(..) {
             let _ = reply.send(Err("the window is gone".to_owned()));
@@ -260,6 +266,9 @@ impl Presenter {
             log::warn!("web window: {e}");
             true
         });
+        if drawn {
+            self.trim_at = Some(Instant::now() + IDLE_TRIM);
+        }
         if let Some(compositor) = server().and_then(|s| s.compositor()).filter(|_| drawn) {
             compositor.dirty();
         }
@@ -333,10 +342,20 @@ impl Presenter {
     }
 
     fn wait(&self) -> Option<Duration> {
-        let capture = self.captures.iter().map(|(_, deadline)| deadline.saturating_duration_since(Instant::now())).min();
-        match (self.pacer.wait(), capture) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
+        let now = Instant::now();
+        let capture = self.captures.iter().map(|(_, deadline)| deadline.saturating_duration_since(now)).min();
+        let trim = self.trim_at.map(|at| at.saturating_duration_since(now));
+        [self.pacer.wait(), capture, trim].into_iter().flatten().min()
+    }
+
+    fn trim(&mut self) {
+        self.trim_at = None;
+        if self.gpu.shared.gone() {
+            return;
+        }
+        self.composer.trim();
+        if let Err(e) = self.vello.trim() {
+            log::warn!("web window {}: dropping vello's buffers: {e}", self.id);
         }
     }
 

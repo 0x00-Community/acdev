@@ -18,10 +18,14 @@
   backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进每个窗口自己的草稿纹理, 最后一次提交里拷进页面纹理 (分几次提交直接画,
   合成线程会读到只铺了底色的半成品). 草稿留着上一帧: 只重画 plane 的损坏区 (被 backdrop 读到的区域并进来; 超过一半面积就整张重画), 只画
   与它相交的层 (按滤镜外扩), 只拷这块; 没有损坏就不画, 也不叫合成器重画. 这一帧要画的层装箱进 `Composer` 的层画布 (`present.rs` `pack`), 一次 vello 画完
-  (`Vello::render_clipped`, 每层裁在自己的格子里), `Composer` 的 `place` / `shadow` / `filtered` 用 `at` 从格子里读; 画布 (只增不减, 页面和面板共用) 装不下才分批.
+  (`Vello::render_clipped`, 每层裁在自己的格子里), `Composer` 的 `place` / `shadow` / `filtered` 用 `at` 从格子里读; 画布 (只增不减, 页面和面板共用, 闲时放掉) 装不下才分批.
   格子按 16 px 对齐并留出投影模糊的距离: 同一批里同样 sigma 的投影共用一次对整张画布的模糊 (`Composer::blur_layers`), 相邻的投影和贴层攒成
   一个 render pass (`Composer::draw`, `Op`), 遇到 backdrop、滤镜或换批时先画掉.
   这条路出的是预乘 alpha (`Page.straight` 为 false; 为 true 的非预乘页面合成器先在着色器里乘上 alpha).
+  闲时放内存: 最后一次画出新内容 2 秒后 (`IDLE_TRIM`, `Presenter::trim`; `wait` 把这个时刻算进等待) 出帧线程放掉 `Composer` 的层画布和缓存的模糊纹理
+  (`Composer::trim`) 和 vello 的中间缓冲 (`Vello::trim` 重建 renderer: vello 的每个 renderer 画过一次就一直留着约 165 MiB 的缓冲和图片图集,
+  见 libacde 的 `docs/graphics/render-gpu.md`「vello 的中间缓冲」), 设备丢了时不做. 草稿和页面纹理留着 (下一帧只重画损坏区, 合成器要读).
+  之后的第一帧重新分配这些缓冲. 帧率面板自己的 Vello (`compose.rs` `Meter`, 只在调试时开) 和合成线程的离屏画布不放.
 - **窗口之间的毛玻璃**: 钉住的面板里 backdrop-filter 最大的那块 (同 window crate 的 `Panel::backdrops`) 和页面的 `acde.window.setBackdrop`
   (窗口本地物理像素, 加窗框高度) 记在 `Entry.backdrop`. 合成器先把各层画进一张离屏画布, 画到带 backdrop 的层之前调 `Composer::backdrop`
   模糊画布上已经画好的部分, 最后把画布贴到 surface; `screenshot` 读的也是这张画布.
