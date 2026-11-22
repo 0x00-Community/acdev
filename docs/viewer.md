@@ -69,7 +69,7 @@ usbredir (C 库)、qapi 等我们用不到的东西, 而我们只要五六个方
 
 ## 测试
 
-`cargo test` (在 `crates/tool`, 含 relay 的套接字往返): 键号换算、`Scanout` / `Update` 落到像素、缩放. 命令行一侧 `test/vm.test.ts`: `--viewer` 的 QEMU 参数、
+`cargo test` (在 `crates/tool`, 含 relay 的套接字往返): 键号换算、`Scanout` / `Update` 落到像素、缩放. 命令行一侧 `test/vm/qemu.test.ts`: `--viewer` 的 QEMU 参数、
 `ACDEVTOOL`、`view` 和参数冲突的报错. 窗口本身要在有图形环境的机器上起一台客户机看 (见总仓工作项 11 的验收).
 
 ## 构建依赖的代价

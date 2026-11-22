@@ -290,7 +290,7 @@ acdev vm stop                                   # 让客户机自己关机 (acde
 
 ## 模拟硬件
 
-原本只能真机测的硬件, 在 QEMU 里能模拟的部分. 参数在 `npm/src/vm/hardware.ts`, U 盘在 `usb.ts`, 测试在 `test/vm.test.ts`「emulated hardware」.
+原本只能真机测的硬件, 在 QEMU 里能模拟的部分. 参数在 `npm/src/vm/hardware.ts`, U 盘在 `usb.ts`, 测试在 `test/vm/qemu.test.ts`「emulated hardware」.
 
 ### 声音
 
@@ -484,9 +484,14 @@ glibc 较新); 不放心就静态链接 (musl).
 ## 测试
 
 `test/guesthw.test.ts`: 三项模拟硬件的暂存、包与脚本的要点 (不起客户机).
-`test/vm.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的
-宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列、错误、先发密钥), 套接字传输对着进程内的 Unix 套接字服务端测;
-QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥); 没有客户机时的子命令.
+`acdev vm` 的测试按主题分成四个文件 (2026-11-22 从原来一个 1000 多行的 `vm.test.ts` 拆出), 共用的假服务端、按脚本回答的假连接 (`Scripted`)、
+帧的小工具和真实客户机的开关在 `test/vm/helpers.ts`; `bun test test/vm` 一起跑:
+- `test/vm/channel.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的
+  宿主一侧对着按脚本回答的假连接测 (分帧、run 的输出与退出码、push 的帧序列与权限位、错误、先发密钥), 套接字传输对着进程内的 Unix 套接字服务端测;
+  `vm logs`、`vm dev`.
+- `test/vm/qemu.test.ts`: QEMU 命令行的组成 (vsock 设备、端口转发、`-fw_cfg` 密钥、显示、`--viewer`); 不是 Linux 的宿主 (只测能在这里跑的部分); 模拟硬件.
+- `test/vm/provision.test.ts`: provision 的暂存与脚本.
+- `test/vm/guest.test.ts`: `acdev test --vm` 与客户机里的 DevTools 的宿主一侧、`vm stop`、往客户机会话里放文件, 和下面的真实客户机.
 设了 `ACDEV_VM_TEST_IMAGE` (一个 qcow2), 且有 QEMU 和 `/dev/kvm` 时, 再在临时目录里起一台真实客户机 (`start --headless` 等到 acdevd
 应答、`run` 的输出与退出码、`push`、`--detach` 加 `kill` 和日志、`status`、错的密钥被拒、`screenshot`、`stop`), 约 20 s.
 设 `ACDEV_VM_TRANSPORT=tcp` 再跑一遍就是端口转发 (2026-11-18 在本机 vsock、tcp 两遍都过; `unix` 要满足上面的条件, 本机 QEMU 8.2.2 不行). 守护进程自己的进程内测试在
