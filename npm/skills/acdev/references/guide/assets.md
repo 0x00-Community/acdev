@@ -24,17 +24,15 @@ App pages have the origin `http://acde.local`. An app's files are served both un
 
 ## Icons
 
-Set `icon` to an icon name or to an image in the project:
+Set `icon` to a [freedesktop icon name](https://specifications.freedesktop.org/icon-naming-spec/latest/) or to an image in the project:
 
 ```jsonc
-{ "icon": "chart" }        // icon name
-{ "icon": "assets/logo.svg" } // image in the project
+{ "icon": "accessories-calculator" } // icon name
+{ "icon": "assets/logo.svg" }         // image in the project
 ```
 
-**Icon names** refer to Dopame's built-in icon set, which matches the desktop's visual style:
+**Icon names** are the standard names of the freedesktop Icon Naming Specification, the same as `Icon=` in a `.desktop` file: `accessories-text-editor`, `utilities-terminal`, `internet-web-browser`, `system-file-manager`, `multimedia-audio-player`, and so on. The desktop draws them in its icon theme, so the icon follows the theme the user picks. If omitted, it's `application-x-executable`.
 
-`files` `browser` `editor` `office` `term` `projects` `dash` `team` `dopa` `settings` `store` `app` `timer` `cards` `list` `chart` `calc` `music` `video` `photo` `paint` `game` `chat` `mail` `calendar` `code` `book` `map` `weather`
-
-If omitted, it's `app`.
+Dopame's old icon names (`files`, `term`, `chart`, `calc`, ...) still work for one version: `acdev check` warns and names the standard name to write instead, and the system maps them. Write the standard name; the old names will be refused later.
 
 **Images**: a value that contains `/` or `\`, or has an extension, is treated as a path relative to the project directory, and must be a `.svg` or `.png`. At build time it's copied to the app's `web/icon.<ext>`, and the manifest gets `/app/<id>/icon.<ext>`. `acdev check` warns about any other value.

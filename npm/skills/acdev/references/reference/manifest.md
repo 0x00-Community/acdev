@@ -8,7 +8,7 @@ The runtime only understands **packages**: a directory whose `package.json` has 
   "acdev": {
     "apiLevel": 1,
     "desktops": [{ "id": "dopame", "name": "Dopame", "entry": "desktop/index.html", "services": ["assistant"] }],
-    "apps": [{ "id": "term", "label": "Terminal", "icon": "term", "entry": "/app/term/index.html", "capabilities": { "terminal": true } }],
+    "apps": [{ "id": "term", "label": "Terminal", "icon": "utilities-terminal", "entry": "/app/term/index.html", "capabilities": { "terminal": true } }],
     "assets": { "/app/term/": ["apps/term/web"], "/desktop/dopame/": ["desktop"] },
     "services": [{ "name": "assistant", "module": "services/assistant.js" }]
   }
@@ -54,7 +54,7 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 | --- | --- |
 | `id` | `[\w-]+`, required. The runtime accepts this; a config only allows `[a-z0-9][a-z0-9-]*` (see [acde.config.jsonc](config.md#appconfig)), so the looser rule matters only for a handwritten package |
 | `label` | Required |
-| `icon` | An icon name, or a URL under assets ending in `.svg` / `.png`; required |
+| `icon` | A freedesktop icon name, or a URL under assets ending in `.svg` / `.png`; required |
 | `entry` | A URL starting with `/`, required. HTML or a module; a trailing `/` means the page is rendered by the backend (requires `backend`) |
 | `capabilities` | System capabilities; see below |
 | `optional` | Names from `capabilities` the app can run without |
