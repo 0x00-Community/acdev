@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { KERNEL_SCRIPT, kernelPackage, kernelPackages } from '../../src/vm/kernelpkgs.ts'
+import { KERNEL_SCRIPT, PKGS_SCRIPT, kernelPackage, kernelPackages } from '../../src/vm/kernelpkgs.ts'
 import { PROVISION_SCRIPT, provisionSources, stageProvision } from '../../src/vm/provision.ts'
 
-const NONE = { acdes: null, acdesBin: null, libacde: null, dopame: null, harness: null }
+const NONE = { acdes: null, acdesBin: null, libacde: null, harness: null }
 const WIFI = 'linux-ackernel-wifi-other-7.3.4-1-x86_64.pkg.tar.zst'
 const GPU = 'linux-ackernel-gpu-other-7.3.4-1-x86_64.pkg.tar.zst'
 
@@ -54,3 +54,16 @@ describe('acdev vm provision --kernel-pkgs', () => {
     expect(PROVISION_SCRIPT.indexOf('want=$(cat "$here/kernel/version")')).toBeLessThan(PROVISION_SCRIPT.indexOf('restore bochs'))
   })
 })
+
+describe('acdev vm provision --pkgs', () => {
+  test('fills in the repository dependencies first, leaves the laid-out acdes and the batch itself out, and overwrites', () => {
+    const script = PKGS_SCRIPT.join('\n')
+    expect(script).toContain('bsdtar -xOf "$pkg" .PKGINFO | sed -n "s/^depend = //p"')
+    expect(script).toContain('missing=$(pacman -T $wants | sed "s/[<>=].*//" | grep -v "^acdes" | grep -vxF -f <(printf "%s\\n" $batch) || true)')
+    expect(script).toContain('pacman -S --needed --noconfirm $missing')
+    expect(script).toContain(`pacman -U --noconfirm --nodeps --nodeps --overwrite '*' "$here"/pkgs/*.pkg.tar.zst`)
+    expect(script.indexOf('pacman -T')).toBeLessThan(script.indexOf('pacman -U'))
+    expect(PROVISION_SCRIPT).toContain(script)
+  })
+})
+
