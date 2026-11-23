@@ -571,7 +571,7 @@ describe('the release archive and the installed CLI', () => {
 
 describe('bin/acdev.cmd', () => {
   test('runs the CLI outside the batch job, so Ctrl-C asks no "Terminate batch job" and the exit code passes through', () => {
-    const shim = readFileSync(join(import.meta.dir, '..', 'bin', 'acdev.cmd'), 'utf8')
+    const shim = readFileSync(join(import.meta.dir, '..', '..', 'bin', 'acdev.cmd'), 'utf8')
     const runs = shim.split(/\r?\n/).filter((line) => line.includes('"%ACDEV_CLI%" %*'))
     expect(runs.length).toBe(3)
     for (const line of runs) expect(line).toStartWith('endlocal & goto #_undefined_# 2>nul || title %COMSPEC% & "%ACDEV_')
