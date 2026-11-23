@@ -31,7 +31,7 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `wait_for` | Waits for some text to appear (or disappear) |
 | `screenshot` | Screenshot of one window or the whole screen; the desktop's panels (Dock, menu bar) only on the whole screen. `ref` keeps only one element or window (cut from the screen, or from `target` when that is its window); `rect` `[x, y, width, height]` only an area in logical pixels of the window, or of the screen with `target: "screen"` |
 | `eval` | Runs JS in a page |
-| `console` / `network` | The pages' logs and requests |
+| `console` / `network` | The pages' logs and requests; in a guest session without `web` every page process (sandboxed apps too) merged in time order, and `next` is an object of one cursor per process, passed back as `since` |
 | `emulate` | Switches light/dark mode |
 | `appearance` | Shows or sets dark or light (`scheme`), the glass level (`glassLevel` 0 clear, 1 medium, 2 tinted) and reduced transparency; in the guest session it is the system setting, in a host session only this session |
 | `choose_folder` / `choose_files` / `choose_save_file` | Answers the page's next file picker in advance |

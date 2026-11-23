@@ -42,6 +42,8 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
+In a guest session (`--session vm`) `console` and `network` without `--web` ask every page process: the desktop, its panels, the lock page, the confirm page and every app, sandboxed apps too. The entries come merged in time order, each with its page. Each process numbers its own entries, so the output ends with `acdev: next: desktop:812=40,notes:901=7` on stderr, the cursor `--since` takes to read only newer ones; `--follow` keeps one per process by itself. A process that does not answer is named on stderr and the rest still print. With `--web` one page answers, as before; in a host session there is one process, as before.
+
 A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acdev webs` (`notes#1048576`), an app id (that app's first window), or `desktop`. In a Dopame OS guest, a page that does not answer within 1.5 s (its process is stopped or busy) is still listed, with the title `(not answering)`; the other pages are listed as usual.
 
 ### eval

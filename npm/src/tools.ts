@@ -6,7 +6,8 @@ import * as Call from './driver/call/index.ts'
 import * as Confirms from './driver/confirms/index.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
-import type { Appearance, AppearanceChange, GlassLevel, OpenTarget } from './driver/types.ts'
+import { PageLogs } from './driver/logs.ts'
+import type { Appearance, AppearanceChange, GlassLevel, OpenTarget, PageCursor } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
 import { Screenshots, type Box } from './driver/screenshot.ts'
 import type { InputEvent } from './driver/input.ts'
@@ -15,6 +16,8 @@ import { Exit, Output } from './output.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
 import { Sessions, type Pin } from './sessions.ts'
+
+type Since = number | PageCursor
 
 export type Region = { readonly ref: string } | { readonly rect: Box }
 
@@ -233,8 +236,8 @@ export class Tools {
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
       throw Output.option('console', 'level', level, `one of ${[...Tools.LEVELS].join(', ')}`)
     const start = flags.get('since')
-    if (start !== undefined && start !== 'reload' && !/^[1-9]\d*$/.test(start))
-      throw Output.option(command, 'since', start, 'reload, or the number of an entry')
+    if (start !== undefined && start !== 'reload' && !/^[1-9]\d*$/.test(start) && !PageLogs.cursor(start))
+      throw Output.option(command, 'since', start, 'reload, the number of an entry, or the next a merged answer printed (key=seq,...)')
     const limit = command === 'query' ? Tools.#limit(flags.get('limit')) : undefined
     const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
     const choice = command === 'choose' ? Tools.choice(args, flags.has('cancel')) : null
@@ -332,7 +335,7 @@ export class Tools {
             ...(flags.has('web') && { web: flags.get('web')! }),
             ...(level !== undefined && { level: level as ConsoleLevel | 'errors' }),
           }
-          const read = (since: number) => acde.console({ ...options, ...(since && { since }) })
+          const read = (since: Since) => acde.console({ ...options, ...(since && { since }) })
           const from = Tools.#since(start, acde.session.reloaded?.console)
           return await Tools.#follow(flags.has('follow'), from, read, Format.console, 'console entries')
         }
@@ -341,7 +344,7 @@ export class Tools {
             ...(flags.has('web') && { web: flags.get('web')! }),
             ...(flags.has('failed') && { failed: true }),
           }
-          const read = (since: number) => acde.network({ ...options, ...(since && { since }) })
+          const read = (since: Since) => acde.network({ ...options, ...(since && { since }) })
           const from = Tools.#since(start, acde.session.reloaded?.network)
           return await Tools.#follow(flags.has('follow'), from, read, Format.request, 'requests')
         }
@@ -428,29 +431,34 @@ export class Tools {
 
   static async #follow<T>(
     follow: boolean,
-    from: number,
-    read: (since: number) => Promise<DevPage<T>>,
+    from: Since,
+    read: (since: Since) => Promise<DevPage<T>>,
     line: (entry: T) => string,
     what: string,
   ): Promise<number> {
     let since = from
     for (let first = true; ; first = false) {
       const page = await read(since)
+      for (const failed of page.failed ?? []) console.error(`acdev: ${failed}`)
       if (page.dropped) console.log(`… ${page.dropped} older entries were dropped`)
       for (const entry of page.entries) console.log(line(entry))
       if (first && !page.dropped && !page.entries.length) {
         console.error(`acdev: no ${what}${from ? ' in that range' : ''}${follow ? ' yet; waiting for new ones' : ''}`)
       }
-      since = page.next
-      if (!follow) return 0
-      await sleep(Tools.FOLLOW_MS)
+      since = page.cursor ?? page.next
+      if (follow) {
+        await sleep(Tools.FOLLOW_MS)
+        continue
+      }
+      if (page.cursor) console.error(`acdev: next: ${PageLogs.shown(page.cursor)} (--since takes it)`)
+      return 0
     }
   }
 
-  static #since(value: string | undefined, reloaded: number | undefined): number {
+  static #since(value: string | undefined, reloaded: number | undefined): Since {
     if (value === undefined) return 0
     if (value === 'reload') return reloaded ?? 0
-    return Number(value)
+    return /^[1-9]\d*$/.test(value) ? Number(value) : (PageLogs.cursor(value) ?? 0)
   }
 
   static wanted(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Wanted {

@@ -34,6 +34,8 @@ type RouteArgs = {
   readonly json?: unknown
   readonly abort?: boolean | string | undefined
 }
+const SINCE = z.union([z.number().int().min(1), z.record(z.string(), z.number().int().min(1))]).optional().describe('the next of the last '
+  + 'answer: a number, or in a guest session without web the object of each page process\'s next')
 const LOOK = { readOnlyHint: true, openWorldHint: false }
 const DRIVE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 const CLOCK_ACTIONS = [
@@ -322,7 +324,7 @@ export class PageTools {
           web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
           level: z.enum(['log', 'info', 'warn', 'error', 'debug', 'errors']).optional().describe('errors: '
             + 'console.error and uncaught errors'),
-          since: z.number().int().min(1).optional(),
+          since: SINCE,
           limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
         }),
         annotations: LOOK,
@@ -339,7 +341,7 @@ export class PageTools {
         inputSchema: z.object({
           web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
           failed: z.boolean().optional().describe('only failed requests and status 400 or more'),
-          since: z.number().int().min(1).optional(),
+          since: SINCE,
           limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
         }),
         annotations: LOOK,
@@ -370,7 +372,9 @@ export class PageTools {
   }
 
   static #entries<T>(host: PageToolsHost, page: DevPage<T>, line: (entry: T) => string): Result {
-    const head = `next: ${page.next}${page.dropped ? ` (${page.dropped} older entries were dropped)` : ''}`
+    const next = page.cursor ? JSON.stringify(page.cursor) : String(page.next)
+    const failed = (page.failed ?? []).map((f) => `\n(${f})`).join('')
+    const head = `next: ${next}${page.dropped ? ` (${page.dropped} older entries were dropped)` : ''}${failed}`
     return host.text(page.entries.length ? `${head}\n${page.entries.map(line).join('\n')}` : `${head}\n(nothing)`)
   }
 

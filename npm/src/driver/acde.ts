@@ -9,7 +9,7 @@ import { DevClient } from '../ipc.ts'
 import { PackageManager } from '../pm.ts'
 import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
-import { Logs } from './logs.ts'
+import { Logs, PageLogs } from './logs.ts'
 import type { ClockState } from './clock.ts'
 import type { InputEvent } from './input.ts'
 import * as Call from './call/index.ts'
@@ -316,11 +316,11 @@ export class Acde {
   }
 
   async console(options: ConsoleOptions = {}): Promise<DevPage<ConsoleEntry>> {
-    return Acde.#page<ConsoleEntry>('console', await this.#request('console', { ...options }))
+    return PageLogs.read<ConsoleEntry>('console', options, (args) => this.#request('console', args), this.guest)
   }
 
   async network(options: NetworkOptions = {}): Promise<DevPage<RequestEntry>> {
-    return Acde.#page<RequestEntry>('network', await this.#request('network', { ...options }))
+    return PageLogs.read<RequestEntry>('network', options, (args) => this.#request('network', args), this.guest)
   }
 
   async screen(options: { readonly path?: string } = {}): Promise<Shot> {
@@ -784,12 +784,6 @@ export class Acde {
     if (!this.#client.ended) return
     const what = Sessions.isGuest(this.session) ? 'the session in the guest' : `acdev dev ${this.session.pid}`
     throw new Error(`${what} is no longer connected`)
-  }
-
-  static #page<T>(op: string, answer: unknown): DevPage<T> {
-    const page = answer as DevPage<T> | null
-    if (!Array.isArray(page?.entries)) throw new Error(`acdev runtime answered ${op} without entries`)
-    return page
   }
 
   static #result(answer: unknown): ActResult {

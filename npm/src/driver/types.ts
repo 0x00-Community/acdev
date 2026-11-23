@@ -96,22 +96,26 @@ export interface RequestEntry {
   readonly mocked?: true
 }
 
+export type PageCursor = Readonly<Record<string, number>>
+
 export interface DevPage<T> {
   readonly entries: readonly T[]
   readonly next: number
   readonly dropped: number
+  readonly cursor?: PageCursor
+  readonly failed?: readonly string[]
 }
 
 export interface ConsoleOptions {
   readonly web?: string
-  readonly since?: number
+  readonly since?: number | PageCursor
   readonly limit?: number
   readonly level?: ConsoleLevel | 'errors'
 }
 
 export interface NetworkOptions {
   readonly web?: string
-  readonly since?: number
+  readonly since?: number | PageCursor
   readonly limit?: number
   readonly failed?: boolean
 }

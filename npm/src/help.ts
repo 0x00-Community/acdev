@@ -262,10 +262,13 @@ export class Help {
       ], ['acdev screen', 'acdev screen --ref w0.4', 'acdev screen --rect 0,0,400,48']),
       inspecting('console', '', 'Print the pages\' console output and errors', [
         'The pages\' console.* lines and uncaught errors.',
+        'In a guest session (--session vm) without --web every page process answers (the desktop, its panels, the lock page and every app, '
+          + 'sandboxed ones too) and the entries come in time order; each process keeps its own numbers, so the end of the output says the '
+          + 'cursor (next: key=seq,...) that --since takes. A process that does not answer is named on stderr.',
       ], [
         { flag: '--web W', about: 'Only that page' },
         { flag: '--level L', about: 'One of log, info, warn, error, debug, errors' },
-        { flag: '--since S', about: 'From the last reload of acdev dev (reload) or from entry N on (N)' },
+        { flag: '--since S', about: 'From the last reload of acdev dev (reload), from entry N on (N), or a printed cursor (key=seq,...)' },
         { flag: '--follow', about: 'Keep printing new entries' },
       ], ['acdev console --level errors']),
       inspecting('network', '', 'Print the pages\' requests', [
@@ -274,7 +277,7 @@ export class Help {
       ], [
         { flag: '--web W', about: 'Only that page' },
         { flag: '--failed', about: 'Only failed requests and status 400 or more' },
-        { flag: '--since S', about: 'As for console: reload, or N' },
+        { flag: '--since S', about: 'As for console: reload, N, or a cursor; a guest session without --web merges every page process' },
         { flag: '--follow', about: 'Keep printing new requests' },
       ], ['acdev network --failed']),
       inspecting('pointer', '<x> <y>', 'Move the pointer to a screen point', [

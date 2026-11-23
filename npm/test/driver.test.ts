@@ -5,6 +5,7 @@ import type { InspectMatch, InspectNode } from '@acde/api'
 import {
   Acde, ActError, AssertionError, Clock, expect, LaunchError, Locator, Modifiers, Png, Screenshots, type Query, type Source,
 } from '../src/driver/index.ts'
+import { PageLogs } from '../src/driver/logs.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { cleanup, standIn, tmp } from './helpers.ts'
 
@@ -623,6 +624,38 @@ describe('session files while acdev dev rewrites them', () => {
 })
 
 describe('--session vm', () => {
+  test('console and network without web merge every page process by wall clock and keep a cursor per process', async () => {
+    const pages = [
+      { key: 'desktop:10', origin: 1000, next: 4, dropped: 1, entries: [{ seq: 2, time: 50, text: 'b' }, { seq: 3, time: 300, text: 'd' }] },
+      { key: 'notes:20', origin: 1100, next: 2, entries: [{ seq: 1, time: 100, text: 'c' }] },
+      { key: 'lock:30', origin: 900, next: 2, entries: [{ seq: 1, time: 10, text: 'a' }] },
+      { key: 'sandboxed:40', error: 'did not answer' },
+    ]
+    const merged = PageLogs.merged<{ seq: number; time: number; text: string }>(pages, undefined)
+    check(merged.entries.map((e) => e.text)).toEqual(['a', 'b', 'c', 'd'])
+    check(merged.cursor).toEqual({ 'desktop:10': 4, 'notes:20': 2, 'lock:30': 2 })
+    check([merged.dropped, merged.failed]).toEqual([1, ['sandboxed:40: did not answer']])
+    check(PageLogs.merged<{ time: number; text: string }>(pages, 2).entries.map((e) => e.text)).toEqual(['c', 'd'])
+    const asked: unknown[] = []
+    const ask = async (args: Readonly<Record<string, unknown>>) => {
+      asked.push(args)
+      return { pages }
+    }
+    await PageLogs.read('console', { since: { 'notes:20': 2 } }, ask, true)
+    const single = async (args: Readonly<Record<string, unknown>>) => {
+      asked.push(args)
+      return { entries: [], next: 5, dropped: 0 }
+    }
+    await PageLogs.read('console', { web: 'notes', since: 5 }, single, true)
+    check(asked).toEqual([{ pages: true, since: { 'notes:20': 2 } }, { web: 'notes', since: 5 }])
+    const old = await PageLogs.read('network', {}, async () => ({ entries: [], next: 1, dropped: 0 }), true)
+    check(old.cursor).toBeUndefined()
+    await check(PageLogs.read('console', { since: 3 }, ask, true)).rejects.toThrow('since is the cursor of each')
+    check(PageLogs.cursor('desktop:10=4, notes:20=2')).toEqual({ 'desktop:10': 4, 'notes:20': 2 })
+    check(PageLogs.cursor('12')).toBeNull()
+    check(PageLogs.shown({ 'desktop:10': 4, 'notes:20': 2 })).toBe('desktop:10=4,notes:20=2')
+  })
+
   test('the guest session says hello as acdev dev, then speaks the same lines', async () => {
     const path = join(tmp(), 'dev.sock')
     const heard: unknown[] = []

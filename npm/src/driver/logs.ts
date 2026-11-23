@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import type { DevPage, PageCursor } from './types.ts'
 
 export interface LogLine {
   readonly seq: number
@@ -69,3 +70,60 @@ export class Logs {
     return { lines, text: lines.map((l) => l.text).join('\n'), next, dropped }
   }
 }
+
+interface PageAnswer<T> {
+  readonly key?: string
+  readonly entries?: readonly T[]
+  readonly next?: number
+  readonly dropped?: number
+  readonly origin?: number
+  readonly error?: string
+}
+
+type Ask = (args: Readonly<Record<string, unknown>>) => Promise<unknown>
+
+async function read<T extends { readonly time: number }>(
+  op: 'console' | 'network',
+  options: { readonly web?: string; readonly since?: number | PageCursor; readonly limit?: number },
+  ask: Ask,
+  merge: boolean,
+): Promise<DevPage<T>> {
+  const { since, ...rest } = options
+  if (!merge || options.web !== undefined) {
+    if (since !== undefined && typeof since !== 'number') throw new Error(`${op}: since is a number when one page answers`)
+    return one<T>(op, await ask({ ...rest, ...(since !== undefined && { since }) }))
+  }
+  if (typeof since === 'number') throw new Error(`${op}: several page processes answer here; since is the cursor of each (next of the last answer)`)
+  const answer = (await ask({ ...rest, pages: true, ...(since && { since }) })) as { pages?: readonly PageAnswer<T>[] } | null
+  if (!Array.isArray(answer?.pages)) return one<T>(op, answer)
+  return merged(answer.pages, options.limit)
+}
+
+function merged<T extends { readonly time: number }>(pages: readonly PageAnswer<T>[], limit: number | undefined): DevPage<T> {
+  const answered = pages.filter((p) => p.key !== undefined && Array.isArray(p.entries))
+  const at = answered.flatMap((p) => p.entries!.map((entry) => [(p.origin ?? 0) + entry.time, entry] as const))
+  const sorted = at.sort(([a], [b]) => a - b).map(([, entry]) => entry)
+  const entries = limit === undefined ? sorted : sorted.slice(-limit)
+  const cursors = Object.fromEntries(answered.map((p) => [p.key!, p.next ?? 1]))
+  const failed = pages.filter((p) => p.error !== undefined).map((p) => `${p.key ?? 'a page'}: ${p.error}`)
+  const dropped = answered.reduce((sum, p) => sum + (p.dropped ?? 0), 0)
+  return { entries, next: 0, dropped, cursor: cursors, ...(failed.length && { failed }) }
+}
+
+function cursor(text: string): PageCursor | null {
+  const pairs = text.split(',').map((part) => /^(.+)=([1-9]\d*)$/.exec(part.trim()))
+  if (!pairs.length || pairs.some((m) => !m)) return null
+  return Object.fromEntries(pairs.map((m) => [m![1]!, Number(m![2])]))
+}
+
+function shown(given: PageCursor): string {
+  return Object.entries(given).map(([key, seq]) => `${key}=${seq}`).join(',')
+}
+
+function one<T>(op: string, answer: unknown): DevPage<T> {
+  const page = answer as DevPage<T> | null
+  if (!Array.isArray(page?.entries)) throw new Error(`acdev runtime answered ${op} without entries`)
+  return page
+}
+
+export const PageLogs = { read, merged, cursor, shown } as const
