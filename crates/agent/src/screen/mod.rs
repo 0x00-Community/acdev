@@ -29,24 +29,13 @@ const DESKTOP_MOST: u32 = 12;
 pub enum Aim {
     Screen,
     Toplevel(u64),
-    App(String),
 }
 
 #[derive(Default, Clone)]
 struct Window {
     toplevel: u64,
-    app_id: String,
-    vouched: String,
-    hidden: bool,
     state: u32,
     geometry: (i32, i32, i32, i32),
-    activated: bool,
-}
-
-impl Window {
-    fn app(&self) -> &str {
-        if self.vouched.is_empty() { &self.app_id } else { &self.vouched }
-    }
 }
 
 #[derive(Default)]
@@ -67,11 +56,6 @@ impl State {
 
     fn row(&self, toplevel: u64) -> Option<&(AcompositorWindowV1, Window)> {
         self.windows.iter().find(|(_, w)| w.toplevel == toplevel)
-    }
-
-    fn of_app(&self, app: &str) -> Option<u64> {
-        let mine: Vec<&Window> = self.windows.iter().map(|(_, w)| w).filter(|w| w.app() == app && !w.hidden).collect();
-        mine.iter().find(|w| w.activated).or(mine.first()).map(|w| w.toplevel)
     }
 }
 
@@ -240,7 +224,6 @@ impl Worker {
         match aim {
             Aim::Screen => Ok(None),
             Aim::Toplevel(n) => self.state.row(*n).map(|_| Some(*n)).ok_or_else(|| format!("no window acompositor-{n} on the screen")),
-            Aim::App(app) => self.state.of_app(app).map(Some).ok_or_else(|| format!("{app}: no window of its on the screen")),
         }
     }
 
@@ -283,17 +266,13 @@ impl Dispatch<AcompositorWindowV1, ()> for State {
         }
         let Some(window) = state.window(proxy) else { return };
         match event {
-            E::AppId { app_id } => window.app_id = app_id,
-            E::VouchedAppId { app_id } => window.vouched = app_id,
-            E::State { state: s, hidden } => {
+            E::State { state: s, .. } => {
                 window.state = match s {
                     WEnum::Value(v) => v as u32,
                     WEnum::Unknown(v) => v,
                 };
-                window.hidden = hidden != 0;
             }
             E::Geometry { x, y, width, height } => window.geometry = (x, y, width, height),
-            E::Activated { activated } => window.activated = activated != 0,
             E::Identifier { identifier } => window.toplevel = identifier.strip_prefix("acompositor-").and_then(|n| n.parse().ok()).unwrap_or(0),
             _ => {}
         }

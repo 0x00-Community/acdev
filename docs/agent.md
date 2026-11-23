@@ -65,10 +65,8 @@ acompositor 协议的客户端绑定, feature `acompositor`) 和 `acde-scene` (�
 窗口怎样对上: 宿主说的窗口号和页面 `webs` 行里的 `window` 都是会话窗口表的 `id`, 和代理连接上的对象号不同. 代理问一次 `dev.webs()`:
 
 - `shot`、`input`、`drop` 按 `web` 找 `webs` 行 (先比名字再比应用编号); 桌面、锁屏、确认页对整屏; 否则用行里的 `window` 在答案的 `windows`
-  (会话窗口表) 里取 `toplevel` 即 N. 管家的答案没有 `windows` 时 (acdes 还没加), 退回在代理自己的窗口里找这个应用最前的那扇.
-- `window` 的 `window` 是会话窗口表的 `id`, 0 是桌面; 必须有 `windows` 才对得上, 没有就报错说明 acdes 太旧.
-
-所以代理要 acdes 在 `dev.webs()` 的答案里多给 `windows` (会话窗口表, 每行带 `id`、`toplevel`), 只对钩子给, `dev.sock` 不变; 这一项待 acdes 加.
+  (会话窗口表, acdes 5aff0bc 起只给钩子, 每行带 `id`、`toplevel`、`pid`、`app_id`) 里取 `toplevel` 即 N; 对不上就报这个页面没有窗口.
+- `window` 的 `window` 是会话窗口表的 `id`, 0 是桌面, 同样经 `windows` 换成 N.
 
 ## 08、09 的合成器一半 (`src/ops/probe.rs`, `src/screen/probe.rs`)
 

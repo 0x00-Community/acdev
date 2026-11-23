@@ -7,7 +7,7 @@ const DESKTOP: &str = "desktop";
 
 pub struct Shown {
     webs: Vec<Value>,
-    windows: Option<Vec<Value>>,
+    windows: Vec<Value>,
 }
 
 impl Shown {
@@ -17,7 +17,8 @@ impl Shown {
     }
 
     fn of(result: &Value) -> Self {
-        Self { webs: result["webs"].as_array().cloned().unwrap_or_default(), windows: result["windows"].as_array().cloned() }
+        let rows = |key: &str| result[key].as_array().cloned().unwrap_or_default();
+        Self { webs: rows("webs"), windows: rows("windows") }
     }
 
     pub fn web(&self, web: &str) -> Result<Aim, String> {
@@ -28,24 +29,19 @@ impl Shown {
         if row["kind"] == DESKTOP || row["lock"] == true || row["confirm"] == true {
             return Ok(Aim::Screen);
         }
-        if let Some(n) = row["window"].as_u64().and_then(|id| self.toplevel(id)) {
-            return Ok(Aim::Toplevel(n));
-        }
-        row["app"].as_str().map(|app| Aim::App(app.to_string())).ok_or_else(|| format!("{web}: no window of its on the screen"))
+        let window = row["window"].as_u64().and_then(|id| self.toplevel(id));
+        window.map(Aim::Toplevel).ok_or_else(|| format!("{web}: no window of its on the screen"))
     }
 
     pub fn window(&self, id: u64) -> Result<Aim, String> {
         if id == 0 {
             return Ok(Aim::Screen);
         }
-        if self.windows.is_none() {
-            return Err("the session manager does not give acdev's agent its window table: acdes is older than the agent".into());
-        }
         self.toplevel(id).map(Aim::Toplevel).ok_or_else(|| format!("no window {id}"))
     }
 
     fn toplevel(&self, id: u64) -> Option<u64> {
-        self.windows.as_ref()?.iter().find(|w| w["id"].as_u64() == Some(id))?["toplevel"].as_u64()
+        self.windows.iter().find(|w| w["id"].as_u64() == Some(id))?["toplevel"].as_u64()
     }
 }
 
@@ -55,34 +51,22 @@ mod tests {
 
     use super::*;
 
-    fn shown(windows: Option<Value>) -> Shown {
+    #[test]
+    fn a_page_aims_at_its_toplevel_through_the_window_table() {
         let webs = json!([
             { "name": "desktop", "app": null, "kind": "desktop", "window": 0 },
             { "name": "notes", "app": "notes", "kind": "app", "window": 7 },
+            { "name": "files", "app": "files", "kind": "app", "window": null },
             { "name": "lock", "app": null, "kind": "desktop", "window": 4294967040_u64, "lock": true },
         ]);
-        let mut result = json!({ "webs": webs });
-        if let Some(windows) = windows {
-            result["windows"] = windows;
-        }
-        Shown::of(&result)
-    }
-
-    #[test]
-    fn a_page_aims_at_its_toplevel_through_the_window_table() {
-        let table = shown(Some(json!([{ "id": 7, "toplevel": 12 }, { "id": 0, "desktop": true }])));
+        let table = Shown::of(&json!({ "webs": webs, "windows": [{ "id": 7, "toplevel": 12 }, { "id": 0, "desktop": true }] }));
         assert_eq!(table.web("notes"), Ok(Aim::Toplevel(12)));
         assert_eq!(table.web("desktop"), Ok(Aim::Screen));
         assert_eq!(table.web("lock"), Ok(Aim::Screen));
         assert_eq!(table.window(7), Ok(Aim::Toplevel(12)));
         assert_eq!(table.window(0), Ok(Aim::Screen));
         assert!(table.web("files").is_err());
-    }
-
-    #[test]
-    fn without_the_table_a_page_aims_at_its_app() {
-        let bare = shown(None);
-        assert_eq!(bare.web("notes"), Ok(Aim::App("notes".into())));
-        assert!(bare.window(7).is_err());
+        assert!(table.web("mail").is_err());
+        assert!(table.window(9).is_err());
     }
 }

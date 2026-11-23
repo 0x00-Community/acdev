@@ -22,7 +22,6 @@ fn areas_of(mut state: Value, aim: &Aim) -> Value {
     let window = match aim {
         Aim::Screen => 0,
         Aim::Toplevel(n) => *n,
-        Aim::App(_) => return state,
     };
     if let Some(areas) = state["areas"].as_array_mut() {
         areas.retain(|area| area["window"].as_u64() == Some(window));
@@ -51,8 +50,7 @@ mod tests {
     fn a_page_sees_only_the_compositors_areas_of_its_window() {
         let state = json!({ "composer": "gpu", "areas": [{ "window": 3, "drawn": "gpu-glass" }, { "window": 0, "drawn": "frost" }] });
         assert_eq!(areas_of(state.clone(), &Aim::Toplevel(3))["areas"], json!([{ "window": 3, "drawn": "gpu-glass" }]));
-        assert_eq!(areas_of(state.clone(), &Aim::Screen)["areas"], json!([{ "window": 0, "drawn": "frost" }]));
-        assert_eq!(areas_of(state.clone(), &Aim::App("notes".into())), state);
+        assert_eq!(areas_of(state, &Aim::Screen)["areas"], json!([{ "window": 0, "drawn": "frost" }]));
     }
 
     #[test]
