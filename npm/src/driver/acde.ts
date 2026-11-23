@@ -14,6 +14,7 @@ import type { ClockState } from './clock.ts'
 import type { InputEvent } from './input.ts'
 import * as Call from './call/index.ts'
 import * as GuestPlace from './place/index.ts'
+import * as Ready from './ready/index.ts'
 import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
@@ -178,7 +179,7 @@ export class Acde {
           const { webs, windows } = await acde.#shown()
           seen.pages = webs.length
           seen.windows = windows.length
-          return Acde.#ready(webs, windows) || (await acde.#prompting()) || null
+          return Ready.ready(webs, windows) || (await acde.#prompting()) || null
         } catch (error) {
           if (!acde.closed) throw error
           seen.lost = true
@@ -231,16 +232,12 @@ export class Acde {
 
   async ready(): Promise<boolean> {
     const { webs, windows } = await this.#shown()
-    return Acde.#ready(webs, windows)
+    return Ready.ready(webs, windows)
   }
 
   async #shown(): Promise<{ webs: Web[]; windows: InspectWindow[] }> {
     const [webs, windows] = await Promise.all([this.webs(), this.windows()])
     return { webs, windows }
-  }
-
-  static #ready(webs: readonly Web[], windows: readonly InspectWindow[]): boolean {
-    return windows.length > 0 && webs.every((web) => windows.some((w) => w.id === web.window))
   }
 
   get closed(): boolean {
