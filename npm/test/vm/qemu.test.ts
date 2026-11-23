@@ -6,7 +6,7 @@ import { Devd } from '../../src/vm/devd.ts'
 import { TOOL, crateBinary, crateVersion } from '../../src/vm/binary.ts'
 import { accelArgs, bundledFirmware, clearSockets, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../../src/vm/host.ts'
 import { defaultLink, Machine } from '../../src/vm/machine.ts'
-import { displayOf } from '../../src/vm/command.ts'
+import { displayOf, interruptedLine } from '../../src/vm/command.ts'
 import { audioOf, gpuArgs, hardwareArgs, resolutionOf, vgaOf } from '../../src/vm/hardware.ts'
 import { Usb } from '../../src/vm/usb.ts'
 import { cleanup, collect, env, tmp } from '../helpers.ts'
@@ -41,6 +41,16 @@ describe('the QEMU command line', () => {
   test('QEMU starts with its window shown (windowsHide off) unless it has none: --headless, --vnc, --viewer', () => {
     expect([undefined, 'window', 'sdl', 'gtk'].map((d) => Machine.windowed(d as never))).toEqual([true, true, true, true])
     expect(['none', 'vnc', 'viewer'].map((d) => Machine.windowed(d as never))).toEqual([false, false, false])
+  })
+
+  test('start says what it waits for, what to look at after a timeout, and that qemu keeps running when interrupted', () => {
+    const machine = new Machine({ ACDEV_VM_DIR: tmp(), OVMF_CODE: '/c.fd', OVMF_VARS: '/v.fd' }, { platform: 'linux', arch: 'x64' })
+    expect(Machine.waitingLine(45, 300, 'connection refused', '/vm/logs/serial.log'))
+      .toBe('still waiting for the guest agent: 45 s of 300 s (last try: connection refused); serial log /vm/logs/serial.log')
+    const late = machine.notReadyLine(300)
+    const parts = ['did not answer in 300 s', machine.serial, join(machine.logs, 'qemu.log'), 'acdev vm status', 'acdev vm wait']
+    for (const part of parts) expect(late).toContain(part)
+    expect(interruptedLine(42)).toBe('stopped waiting; qemu (pid 42) keeps running: acdev vm wait to wait on, acdev vm status, acdev vm stop')
   })
 
   test('old sockets that cannot be removed (EACCES on Windows) are reported, a missing one is not', () => {

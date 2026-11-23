@@ -36,6 +36,14 @@ export function relayed(path: string, env: NodeJS.ProcessEnv = process.env): Dup
   return stream
 }
 
+export const WAIT_EVERY = 15
+
+export interface Waiting {
+  readonly gone?: () => string | null
+  readonly tell?: (waited: number, last: string) => void
+  readonly every?: number
+}
+
 export class Channel {
   readonly #socket: Duplex
   #buffer = ''
@@ -179,8 +187,10 @@ export class GuestAgent {
     }
   }
 
-  static async ping(path: string, seconds: number): Promise<boolean> {
-    const deadline = Date.now() + seconds * 1000
+  static async ping(path: string, seconds: number, waiting: Waiting = {}): Promise<boolean> {
+    const started = Date.now()
+    const deadline = started + seconds * 1000
+    let told = started
     for (;;) {
       try {
         const agent = await GuestAgent.open(path, 5_000)
@@ -192,7 +202,13 @@ export class GuestAgent {
         if (/os error 10022|\bEINVAL\b|invalid argument/i.test(said)) {
           throw new Error(`vm: cannot connect to ${path}: ${said} (a Unix socket there does not work; see docs/vm.md "Windows")`)
         }
+        const gone = waiting.gone?.() ?? null
+        if (gone !== null) throw new Error(gone)
         if (Date.now() > deadline) return false
+        if (Date.now() - told >= (waiting.every ?? WAIT_EVERY) * 1000) {
+          told = Date.now()
+          waiting.tell?.(Math.round((told - started) / 1000), said)
+        }
         await new Promise((resolve) => setTimeout(resolve, 2_000))
       }
     }

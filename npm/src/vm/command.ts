@@ -3,6 +3,7 @@ import { LineFilter, logCommand } from './logs.ts'
 import { DevLoop } from './loop.ts'
 import { audioOf, resolutionOf, vgaOf } from './hardware.ts'
 import { Usb } from './usb.ts'
+import { WAIT_EVERY } from './channel.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
 import { guestHardware } from './guesthw.ts'
@@ -73,13 +74,24 @@ async function start(machine: Machine, rest: readonly string[], flags: Flags): P
   if (wait !== 0) machine.devdBinary()
   const pid = await machine.start(options, say)
   say(`qemu is running (pid ${pid}); serial log ${machine.serial}`)
+  const interrupted = () => {
+    say(interruptedLine(pid))
+    process.exit(130)
+  }
+  process.once('SIGINT', interrupted)
   try {
     return await afterStart(machine, options, wait)
   } catch (error) {
     machine.abandon(pid)
     say(`stopped qemu (pid ${pid}): the start did not finish`)
     throw error
+  } finally {
+    process.off('SIGINT', interrupted)
   }
+}
+
+export function interruptedLine(pid: number): string {
+  return `stopped waiting; qemu (pid ${pid}) keeps running: acdev vm wait to wait on, acdev vm status, acdev vm stop`
 }
 
 async function afterStart(machine: Machine, options: StartOptions, wait: number): Promise<number> {
@@ -90,12 +102,13 @@ async function afterStart(machine: Machine, options: StartOptions, wait: number)
   }
   if (options.display === 'viewer') say(`acdevtool view shows the guest (pid ${machine.view()}; log ${machine.logs}/viewer.log)`)
   if (wait === 0) return 0
-  if (await machine.ready(wait)) {
+  say(`waiting up to ${wait} s for the guest agent (${machine.qga}); a line every ${WAIT_EVERY} s`)
+  if (await machine.ready(wait, say)) {
     await machine.checkCpu()
     say(`the guest is ready; acdevd ${await machine.installDevd(say)} answers over ${machine.describeLink()}`)
     return 0
   }
-  say(`the guest agent did not answer in ${wait} s; the guest still runs (acdev vm wait, acdev vm stop)`)
+  say(machine.notReadyLine(wait))
   return 1
 }
 
@@ -198,8 +211,9 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   status,
   async wait(machine, rest) {
     count('wait', rest, 0, 1, 'at most SECONDS')
-    const ready = await machine.ready(seconds(rest[0]))
-    if (!ready) say('the guest agent does not answer')
+    const wait = seconds(rest[0])
+    const ready = await machine.ready(wait, say)
+    if (!ready) say(machine.notReadyLine(wait))
     return ready ? 0 : 1
   },
   async screenshot(machine, rest, flags) {

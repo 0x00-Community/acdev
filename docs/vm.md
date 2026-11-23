@@ -281,6 +281,19 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   (绝对坐标, 指针跟着宿主鼠标)、virtio-net (用户态网络)、guest agent 的 virtio-serial 通道、`-virtfs` (有 `--share` 时).
   CPU 和内存用 `ACDEV_VM_CPUS` (4)、`ACDEV_VM_MEMORY` (8G). QEMU 经 `setsid` 起在后台, 不随 `acdev` 退出.
 - guest agent 的套接字一次只接一个客户端: `GuestAgent.open` 先发 `guest-sync` 跳过前一个客户端留下的输出, 等不到就关掉连接, 不然后来的都连不上.
+- `start` 等 guest agent 时 (`--wait` 秒, 默认 300; `Machine.ready` → `GuestAgent.ping`, 2026-11-23 用户在 Windows 上等了 2.5 分钟一行输出也没有):
+  先说一句在等什么 (哪个套接字、多久、每 15 s 一行), 之后每 15 s (`WAIT_EVERY`) 打一行: 已经等了多久、超时多少、上一次连接为什么不行、串口日志在哪.
+  每次没连上都查一下 QEMU 还在不在 (`run/qemu.pid` 和进程), 不在了就马上报错, 指向 `logs/qemu.log` 和 `serial.log`, 不再等满超时.
+  超时后客户机照样跑着, 话里给出下一步: 看 `serial.log` (默认只有固件和引导器的输出, `acdev vm console` 之后才有内核的) 和 `qemu.log`,
+  再 `acdev vm status`、`acdev vm wait` 接着等或 `acdev vm stop`. `vm wait` 用同一套进度行和超时说明.
+- 等不到 guest agent 的几种情形, 从代码看: 每次尝试都要新起一个连接 (Windows 上是一个 `acdevtool relay` 进程) 发 `guest-sync`, 5 s 内没回就关掉,
+  隔 2 s 再试, 客户机里的 agent 起来之前一直这样, 原来不出声. (1) 客户机本身起得慢: WHPX 比 KVM 慢, 第一次启动还要过 UEFI 和首次开机的初始化, 起不来
+  退回 TCG 时更慢 (`start` 会说); (2) Windows 上 `acdevtool relay` 本身不可用 (找不到 `acdevtool.exe` 时 `crateBinary` 每次都抛错, 或连接报错):
+  原来这些错误被当成“还没好”默默重试到超时, 现在进度行里的“上一次为什么不行”会把它说出来; (3) QEMU 中途退了 (比如 WHPX 出错): 原来照样等满,
+  现在马上报. 用户那次是哪一种, 要看进度行或 `qemu.log`〔未在 Windows 上复现〕.
+- 等待时按 Ctrl-C: 只停下等待, 不杀 QEMU (`start` 的 SIGINT 处理, 退出码 130), 说一句 `qemu (pid N) keeps running` 并指向 `acdev vm wait`、
+  `acdev vm status`、`acdev vm stop`; 之后的命令照 `run/qemu.pid` 认出它. 只有 `start` 自己出错 (不是中断) 时才收掉 QEMU. QEMU 以分离进程起
+  (Windows 上 `DETACHED_PROCESS`, 没有控制台), 收不到控制台的 Ctrl-C.
 - 上次留下的套接字 (Windows): `%TEMP%\acdev-<哈希>\qga.sock` 这类 AF_UNIX 套接字文件, Node 先 `lstat` 再删时报 `EACCES` (2026-11-23 用户第二次
   `start` 就停在这里). 现在逐个 `unlink` (`host.ts` `clearSockets`), 删不掉就换一个新的套接字目录 `acdev-<哈希>-<随机>` 并记在 `run/sockets`,
   这次启动和之后的命令都从那里找; 下次 `start` 先忘掉这条记录, 再试默认目录. 上次的 QEMU 已经不在时不会因此失败.

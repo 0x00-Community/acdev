@@ -551,9 +551,23 @@ export class Machine {
     return spawnDetached([viewer, 'view', '--qmp', this.qmp, '--title', title], log, this.env, true).pid
   }
 
-  async ready(seconds: number): Promise<boolean> {
-    this.running()
-    return GuestAgent.ping(this.qga, seconds)
+  async ready(seconds: number, say?: (line: string) => void): Promise<boolean> {
+    const pid = this.running()
+    const qemuLog = join(this.logs, 'qemu.log')
+    return GuestAgent.ping(this.qga, seconds, {
+      gone: () => (this.pid() === null ? `vm: qemu (pid ${pid}) ended while waiting for the guest agent; see ${qemuLog} and ${this.serial}` : null),
+      ...(say && { tell: (waited: number, last: string) => say(Machine.waitingLine(waited, seconds, last, this.serial)) }),
+    })
+  }
+
+  static waitingLine(waited: number, seconds: number, last: string, serial: string): string {
+    return `still waiting for the guest agent: ${waited} s of ${seconds} s (last try: ${last}); serial log ${serial}`
+  }
+
+  notReadyLine(seconds: number): string {
+    return `the guest agent did not answer in ${seconds} s; the guest still runs. Look at ${this.serial} `
+      + `(firmware and boot loader; acdev vm console adds the kernel's) and ${join(this.logs, 'qemu.log')}, `
+      + 'then acdev vm status, acdev vm wait (keep waiting) or acdev vm stop'
   }
 
   outputs(): number {

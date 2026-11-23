@@ -61,6 +61,19 @@ describe('the guest agent and QMP over their sockets', () => {
   })
 })
 
+describe('waiting for the guest agent', () => {
+  test('says every so often what it waits for and the last failure, and stops when qemu has ended', async () => {
+    const dir = tmp()
+    const told: [number, string][] = []
+    const tell = (waited: number, last: string) => told.push([waited, last])
+    expect(await GuestAgent.ping(join(dir, 'nothing.sock'), 1, { every: 0, tell })).toBe(false)
+    expect(told.length).toBe(1)
+    expect(told[0]![1]).not.toBe('')
+    const gone = () => 'vm: qemu (pid 7) ended while waiting for the guest agent'
+    await expect(GuestAgent.ping(join(dir, 'nothing.sock'), 60, { gone })).rejects.toThrow('qemu (pid 7) ended')
+  })
+})
+
 describe('the acdevd protocol, host side', () => {
   test('frames split and join across chunks', () => {
     const decoder = new Frames()
