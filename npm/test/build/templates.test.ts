@@ -49,6 +49,21 @@ describe('templates at contract level 1', () => {
     )
   })
 
+  test('an app config can declare its lifecycle and its actions, with the shape libacde checks', () => {
+    type Node = { $ref?: string; type?: string; items?: Node; properties?: Record<string, Node>; required?: string[]; enum?: string[]; pattern?: string }
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, '../../templates/config.schema.json'), 'utf8')) as
+      { oneOf: { properties: Record<string, Node> & { type: { const?: string } } }[]; $defs: Record<string, Node> }
+    const app = schema.oneOf.find((one) => one.properties.type.const === 'app')!
+    expect(app.properties['lifecycle']!.$ref).toBe('#/$defs/lifecycle')
+    expect(app.properties['actions']!.items!.$ref).toBe('#/$defs/action')
+    expect(Object.keys(schema.$defs['lifecycle']!.properties!)).toEqual(['suspendable', 'endsAnytime'])
+    const action = schema.$defs['action']!
+    expect(Object.keys(action.properties!)).toEqual(['name', 'description', 'inputSchema', 'outputSchema', 'annotations', 'longRunning', 'target'])
+    expect(action.required).toEqual(['name', 'description', 'inputSchema'])
+    expect(action.properties!['name']!.pattern).toBe('^[a-z][a-z0-9_-]{0,63}$')
+    expect(action.properties!['annotations']!.properties!['toolRisk']!.enum).toEqual(['readOnly', 'risky', 'destructive'])
+  })
+
   test('the desktop template says what its config can give a service: the fields of the schema', () => {
     type Form = { type: string; properties?: Record<string, unknown>; required?: string[] }
     const schema = JSON.parse(readFileSync(join(import.meta.dir, '../../templates/config.schema.json'), 'utf8')) as

@@ -28,6 +28,8 @@ interface BuiltApp {
   readonly multiple?: boolean
   readonly frame?: boolean
   readonly window?: AppEntry['window']
+  readonly lifecycle?: AppEntry['lifecycle']
+  readonly actions?: AppEntry['actions']
   readonly mimeTypes?: readonly string[]
   readonly schemes?: readonly string[]
   readonly requests?: readonly string[]
@@ -306,6 +308,8 @@ export class Project {
       ...(config.multiple !== undefined && { multiple: config.multiple }),
       ...(config.frame !== undefined && { frame: config.frame }),
       ...(config.window?.material !== undefined && { window: config.window }),
+      ...(config.lifecycle && { lifecycle: config.lifecycle }),
+      ...(config.actions && config.actions.length > 0 && { actions: config.actions }),
       ...(config.mimeTypes && { mimeTypes: config.mimeTypes }),
       ...(config.schemes && config.schemes.length > 0 && { schemes: config.schemes }),
       ...(config.requests && config.requests.length > 0 && { requests: config.requests }),

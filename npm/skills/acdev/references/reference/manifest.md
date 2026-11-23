@@ -64,6 +64,8 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 | `multiple` | Defaults to `false` |
 | `frame` | Defaults to `true` |
 | `window` | `{material}`: the material a window opens with, a name (`glass`, `blur`, `none`) or `{name, role?, group?, spacing?, overrides?, region?}`; same as `setMaterial` (see [Window material](../guide/window.md#window-material)). A badly shaped value is an error |
+| `lifecycle` | `{suspendable?, endsAnytime?}`, both false by default: whether the system may freeze the app when it suspends it, and whether it may end it without asking |
+| `actions` | The app's declared operations, `{name, description, inputSchema, outputSchema?, annotations?, longRunning?, target?}` each; see `actions` in [Configuration](config.md) |
 | `mimeTypes` | File types the app can open: `type/subtype` or `type/*` |
 | `schemes` | URL schemes of the links the app can open: lowercase, without the colon, not `file` |
 | `requests` | Request kinds the app accepts from other apps: lowercase words, not `open-file` or `open-link` |

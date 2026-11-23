@@ -33,6 +33,8 @@ type AcdeConfig = AppConfig | DesktopConfig
 | `frame` | boolean | `true` | System title bar |
 | `window` | `{material?}` | | `material`: the window background material at start, a name or `{name, role?, group?, spacing?, overrides?, region?}`; see [Window material](../guide/window.md#window-material) |
 | `multiple` | boolean | `false` | Allow multiple windows |
+| `lifecycle` | `{suspendable?, endsAnytime?}` | both `false` | `suspendable`: when the system suspends the app it may freeze it (no code runs until it resumes), otherwise it only slows its timers and stops its animation frames; the page gets `acde:window` `suspend` and `resume` either way. `endsAnytime`: the system may end the app without asking |
+| `actions` | object[] | `[]` | Operations agents and the system can ask of the app, each `{name, description, inputSchema, outputSchema?, annotations?: {readOnly?, destructive?, toolRisk?}, longRunning?, target?: {type}}` (the shape of a plugin tool; `name` is lower case letters, digits, `_` and `-`, unique in the app). The page answers them with `acde:actions` `handle(name, (args, call) => ({ok: true, output}))` |
 | `mimeTypes` | string[] | `[]` | `type/subtype` or `type/*` |
 | `schemes` | string[] | `[]` | URL schemes of links the app opens: `[a-z][a-z0-9+.-]*`, no colon, not `file` |
 | `requests` | string[] | `[]` | Request kinds the app accepts from `open()`: `[a-z][a-z0-9-]*`, not `open-file` or `open-link` |

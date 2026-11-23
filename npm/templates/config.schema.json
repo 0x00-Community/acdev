@@ -212,6 +212,16 @@
             }
           }
         },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          },
+          "description": "Declared operations of the app (acde.apps[].actions)"
+        },
         "mimeTypes": {
           "type": "array",
           "items": {
@@ -515,6 +525,16 @@
                   }
                 }
               },
+              "lifecycle": {
+                "$ref": "#/$defs/lifecycle"
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/action"
+                },
+                "description": "Declared operations of the app (acde.apps[].actions)"
+              },
               "mimeTypes": {
                 "type": "array",
                 "items": {
@@ -573,6 +593,107 @@
     }
   ],
   "$defs": {
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the system may suspend and end the app (both false by default)",
+      "properties": {
+        "suspendable": {
+          "type": "boolean",
+          "description": "When the system suspends the app it may freeze it (no code runs until it resumes); without it the app is only slowed down. The page gets acde:window suspend and resume either way"
+        },
+        "endsAnytime": {
+          "type": "boolean",
+          "description": "The system may end the app without asking, for example to free memory"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "inputSchema"
+      ],
+      "description": "An operation agents and the system can ask of the app (apps.operate), shaped like a plugin tool; the page answers it with acde:actions handle(name, handler)",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "description": "Lower case letters, digits, _ and -, at most 64, unique in the app"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What it does, for the agent that chooses it"
+        },
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "object"
+            }
+          },
+          "description": "A JSON schema of an object ({\"type\": \"object\", ...})"
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "object"
+            }
+          },
+          "description": "A JSON schema of an object ({\"type\": \"object\", ...})"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readOnly": {
+              "type": "boolean",
+              "description": "It changes nothing (counts only for apps in the system package)"
+            },
+            "destructive": {
+              "type": "boolean",
+              "description": "It deletes or overwrites; review is stricter"
+            },
+            "toolRisk": {
+              "enum": [
+                "readOnly",
+                "risky",
+                "destructive"
+              ],
+              "description": "The review tier; it can only raise the tier the system sets"
+            }
+          }
+        },
+        "longRunning": {
+          "type": "boolean",
+          "description": "It answers pending first, then progress and the result, and can be cancelled"
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "The kind of object it acts on"
+        }
+      }
+    },
     "icon": {
       "type": "string",
       "minLength": 1,
