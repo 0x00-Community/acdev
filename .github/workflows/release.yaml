@@ -183,7 +183,11 @@ jobs:
           echo "$(basename "$1"): $(du -h "$1" | cut -f 1)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: publish
         if: steps.db.outputs.have != 'true'
-        env: *keys
+        # Gitea parses each job on its own: an anchor from the r2 job is unknown here
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           log=$RUNNER_TEMP/publish.log
           "$RUNNER_TEMP/os/scripts/publish.sh" "$REPO" "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst > "$log" 2>&1 || { cat "$log"; exit 1; }

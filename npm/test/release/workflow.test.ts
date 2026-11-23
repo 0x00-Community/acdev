@@ -417,7 +417,7 @@ describe('all four', () => {
     expect(secrets(TEST)).toEqual(['ACKERNEL_TOKEN', 'ARTIFACTS_UPLOAD_KEY'])
     expect(secrets(TAG)).toEqual(['NPM_TOKEN'])
     expect(secrets(RELEASE)).toEqual(['ACKERNEL_TOKEN', 'R2_ACCESS_KEY_ID', 'R2_ACCOUNT_ID', 'R2_SECRET_ACCESS_KEY'])
-    expect(ALL.match(/secrets\.R2_SECRET_ACCESS_KEY/g)).toHaveLength(1)
+    expect(ALL.match(/secrets\.R2_SECRET_ACCESS_KEY/g)).toHaveLength(2)
     expect(ALL).not.toMatch(/set -x|bash -x|sh -x|aws-actions\//)
     const printed = ALL.split('\n').filter((line) => /echo|printf/.test(line) && !/> "\$k\/key"|\| curl -K - /.test(line))
     expect(printed.filter((line) => /\$(token|secret|session|creds|KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\b/.test(line))).toEqual([])
