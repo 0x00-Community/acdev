@@ -58,6 +58,7 @@ class Cli {
     revoke: { args: [2, 2], flags: ['session'] },
     call: { args: [2, 3], flags: ['session'] },
     approvals: { args: [0, 2], flags: ['session'] },
+    evidence: { args: [0, 1], flags: ['session', 'output', 'since'] },
     stop: { args: [0, 0], flags: ['session'] },
     devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },

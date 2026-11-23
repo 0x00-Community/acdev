@@ -6,6 +6,8 @@ import * as Call from './driver/call/index.ts'
 import * as Confirms from './driver/confirms/index.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import * as Evidence from './evidence/index.ts'
+import { guestJournal } from './evidence/guest.ts'
 import { PageLogs } from './driver/logs.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget, PageCursor } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
@@ -24,7 +26,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -225,6 +227,7 @@ export class Tools {
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
     const session = Tools.pid(flags.get('session'), command)
+    if (command === 'evidence') return await Tools.#evidence(session, args[0], flags)
     if (command === 'act' && !ACTIONS.includes(args[1] as InspectAction))
       throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')}) (acdev act --help)`)
     const needs = command === 'act' && args[2] === undefined ? Tools.NEEDS[args[1]!] : undefined
@@ -397,6 +400,26 @@ export class Tools {
       }
     } finally {
       await acde.close()
+    }
+  }
+
+  static async #evidence(session: Pin | undefined, label: string | undefined, flags: ReadonlyMap<string, string>): Promise<number> {
+    const from = Evidence.since(flags.get('since'), new Date())
+    const say = (line: string) => console.error(line)
+    let failed: unknown
+    const acde = await Acde.attach(session === undefined ? { say } : { session, say }).catch((error: unknown) => {
+      failed = error
+      return null
+    })
+    const root = resolve(flags.get('output') ?? Evidence.DEFAULT_ROOT)
+    const journal = session === Sessions.VM ? guestJournal : null
+    try {
+      const capture = { root, label: label ?? 'evidence', since: from, journal, ...(failed !== undefined && { error: failed }) }
+      const kept = await Evidence.keep(acde, capture)
+      console.log(Evidence.summary(kept))
+      return kept.items.some((item) => item.ok) ? 0 : 1
+    } finally {
+      await acde?.close()
     }
   }
 

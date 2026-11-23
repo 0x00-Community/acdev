@@ -39,6 +39,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev revoke <app> <capability>` | Takes back a decision |
 | `acdev call <manager\|desktop> <method> [params\|-]` | In a guest session, calls the session manager or the Dopame backend and prints the result as JSON; see [call](#call) |
 | `acdev approvals [show <id>]` | In a guest session, lists the system confirms that wait, or puts one on the screen; see [System confirms](#system-confirms) |
+| `acdev evidence [label] [-o DIR] [--since WHEN]` | Keeps what the session shows now in a new folder, for a failure: the screen, the webs, the element tree with every window, the console, the network, and in a guest session the guest journal from `--since` on; see [Evidence](#evidence) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -288,6 +289,16 @@ acdev act w9.4 click --session vm         # Allow (or Deny); type the password f
 ```
 
 While it shows, it covers the screen: clicks meant for the windows under it land on it, and an agent's inspect is refused. The confirm window (`[confirm]`) and the lock screen (`[lock]`) cannot be moved, resized, raised, minimized or closed; the session manager puts them away once the confirm is answered. acdev never answers for the person: allowing, denying and the password are `act` steps on the page, as the person would do them. The MCP tool `approvals` does the same as `acdev approvals`.
+
+### Evidence
+
+`acdev evidence [label]` writes a new folder `<-o DIR>/<UTC time>-<label>` (default `./.acde/evidence`) and never one that is already there (`-2`, `-3` … follow), so a second run never covers the first. It holds `screen.png`, `webs.txt`, `snapshot.txt` with `windows.json`, `console.txt`, `network.txt`, and with `--session vm` also `journal.txt`: the guest journal from `--since` on (`@<unix seconds>`, an ISO time, or `5m` / `30s` ago; default two minutes), the session manager, the compositor, the desktop backend and every other unit in one time order. What could not be taken is named in `<file>.error.txt` and in `manifest.json`; a session that does not answer still leaves the reason and the journal. Run it right after a step fails, before anything else changes the screen:
+
+```sh
+start=$(date +%s)
+# … the steps of the check …
+acdev evidence files-check --session vm --since @$start -o logs/run1
+```
 
 ## DevTools
 

@@ -353,6 +353,16 @@ export class Help {
           + 'An agent\'s request never shows by itself, and a request of the person only when the keyboard or mouse '
           + 'was used in the last 3 s, which input from acdev does not count as.',
       ], [], ['acdev approvals --session vm', 'acdev approvals show r-12 --session vm']),
+      inspecting('evidence', '[label]', 'Keep what the session shows now, for a failure', [
+        'Writes a new folder <output>/<UTC time>-<label> (never one that is there: -2, -3 … follow) with the screen, '
+          + 'the webs, the element tree with every window, the console and the network requests; in a guest session '
+          + '(--session vm) also the guest journal from --since on (the manager, the compositor, the desktop backend and '
+          + 'every other unit, in one time order). What could not be taken is named in <file>.error.txt and manifest.json; '
+          + 'a session that does not answer still leaves the journal and the reason.',
+      ], [
+        { flag: '-o, --output DIR', about: 'Where the folders go (default: ./.acde/evidence)' },
+        { flag: '--since WHEN', about: 'Journal from: @<unix seconds>, an ISO time, or <n>s / <n>m ago (default: 2m)' },
+      ], ['acdev evidence drag-fails --session vm --since 5m', 'acdev evidence -o logs/batch19']),
       inspecting('stop', '', 'End the session', [
         'Ends the acdev dev and its acdev runtime, as closing its last window does; for one started in the background.',
       ], [], ['acdev stop']),

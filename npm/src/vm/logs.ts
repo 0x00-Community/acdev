@@ -22,6 +22,13 @@ export function logCommand(source: string | undefined, options: LogOptions): str
   return `exec journalctl --no-pager -o short-precise -n ${options.lines}${options.follow ? ' -f' : ''}${unit}`
 }
 
+export const JOURNAL_MOST = 20_000
+
+export function journalSince(since: Date): string {
+  const seconds = Math.floor(since.getTime() / 1000)
+  return `exec journalctl --no-pager -o short-iso-precise -n ${JOURNAL_MOST} --since @${seconds}`
+}
+
 export class LineFilter {
   #rest = ''
   readonly #pattern: RegExp | null
