@@ -101,7 +101,7 @@ await locator.dragTo(other)
 await locator.scroll(400)
 ```
 
-`click`, `fill`, and similar actions wait for the element to be enabled (not `disabled`), and retry until the timeout when they fail. The keys `press` takes are listed under [Key names](tools.md#key-names).
+`click`, `fill`, and similar actions wait for the element to be enabled (not `disabled`), and retry until the timeout when they fail. The keys `press` takes are listed under [Key names](tools.md#key-names). A `click` is a real pointer click, so the window it lands in takes the keyboard as it would for a person; `press` gives its window the keyboard first when another window has it, the desktop included, so `fill(...)` then `press('Enter')` reaches the field that was filled.
 
 `click`, `dblclick` and `hover` take `modifiers`, the keys held meanwhile: `Shift`, `Control`, `Alt`, `Meta`, or `ControlOrMeta`, which is `Control` on every system because pages see a Linux environment everywhere (see [Web platform support](../reference/web.md)).
 
