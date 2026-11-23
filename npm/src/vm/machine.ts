@@ -646,7 +646,13 @@ export class Machine {
 
   agentBinary(): string | null {
     const wanted = { ...AGENT, installed: `${AGENT.name}-${this.guest}` }
-    if (this.#native()) return crateBinary(Machine.ROOT, wanted, this.env)
+    if (this.#native()) {
+      const libacde = join(Machine.ROOT, '..', 'libacde')
+      if (!this.env[AGENT.variable] && existsSync(join(Machine.ROOT, 'crates', 'agent')) && !existsSync(join(libacde, 'wire'))) {
+        throw new Error(`vm: acdev-agent builds against ${libacde}, which has no wire/ (too old): update it, or set ${AGENT.variable}`)
+      }
+      return crateBinary(Machine.ROOT, wanted, this.env)
+    }
     const given = this.env[AGENT.variable] || libexecBeside(wanted.installed)
     return given && existsSync(given) ? given : null
   }
