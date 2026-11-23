@@ -6,9 +6,9 @@
   "type": "app",
   "id": "{{id}}",
   "label": "{{label}}",
-  // icon: an icon name (app, timer, chart … see @acde/api) or an .svg / .png in the project (like "icon.svg"),
+  // icon: a freedesktop icon name (application-x-executable, accessories-calculator …) or an .svg / .png in the project (like "icon.svg"),
   // copied into the package at build time.
-  "icon": "app",
+  "icon": "application-x-executable",
   "entry": "index.html",
   // capabilities: the system features the app uses. "fs": true gives the app's private folder and the folders the user
   // picks for it; name public places in fs.roots, and declaring one is what gives the app access to it:

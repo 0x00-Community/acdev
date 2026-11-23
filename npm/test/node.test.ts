@@ -278,7 +278,7 @@ describe('acdev build with Vite (as on Node.js; here ACDEV_BUNDLER=vite on bun, 
     expect(built.acde.services).toEqual([{ name: 'clock', module: 'services/clock.js' }])
     expect(built.acde.apps).toEqual([
       { id: 'cards', label: 'Cards', icon: '/app/cards/icon.png', entry: '/app/cards/cards.html' },
-      { id: 'mod', label: 'mod', icon: 'app', entry: '/app/mod/mod.js' },
+      { id: 'mod', label: 'mod', icon: 'application-x-executable', entry: '/app/mod/mod.js' },
     ])
     expect(built.acde.assets)
       .toEqual({ '/desktop/deck/': ['desktop'], '/app/cards/': ['apps/cards/web'], '/app/mod/': ['apps/mod/web'] })

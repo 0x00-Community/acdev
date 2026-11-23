@@ -23,7 +23,7 @@ type AcdeConfig = AppConfig | DesktopConfig
 | --- | --- | --- | --- |
 | `id` | string | Derived from the package name | `[a-z0-9][a-z0-9-]*` |
 | `label` | string | | Display name |
-| `icon` | icon name \| path | `"app"` | See [Icons](../guide/assets.md#icons) |
+| `icon` | icon name \| path | `"application-x-executable"` | See [Icons](../guide/assets.md#icons) |
 | `entry` | string | `"index.html"` | HTML, or a module whose default export is a `WindowApp`; omit when using a framework |
 | `framework` | `Framework` | `"auto"` | See below |
 | `capabilities` | `Capabilities` | `{}` | System capabilities; see [Manifest](manifest.md#capabilities). A desktop service's name here is an error |

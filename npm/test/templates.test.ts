@@ -27,7 +27,7 @@ function config(dir: string): Record<string, unknown> {
 
 function expectLevel1App(app: Record<string, unknown>, id: string): void {
   for (const field of LEVEL_1_FIELDS) expect(Object.keys(app)).toContain(field)
-  const parsed = Manifest.app({ ...app, id, icon: 'app', entry: `/app/${id}/index.html`, backend: undefined })
+  const parsed = Manifest.app({ ...app, id, icon: 'application-x-executable', entry: `/app/${id}/index.html`, backend: undefined })
   expect(typeof parsed === 'string' ? parsed : null).toBeNull()
   const fs = (app['capabilities'] as { fs?: unknown }).fs
   const roots = typeof fs === 'object' && fs ? (fs as { roots: string[] }).roots : []

@@ -61,6 +61,7 @@ export interface BuildOptions {
 export class Project {
   static readonly CONFIGS = CONFIGS
   static readonly ID = /^[a-z0-9][a-z0-9-]*$/
+  static readonly ICON = 'application-x-executable'
 
   readonly dir: string
   readonly name: string
@@ -328,7 +329,7 @@ export class Project {
   }
 
   #icon(icon: string | undefined, web: string, base: string): string {
-    if (icon === undefined) return 'app'
+    if (icon === undefined) return Project.ICON
     if (!Project.isIconPath(icon)) return icon
     const data = readFileSync(resolve(this.dir, icon))
     const ext = extname(icon).toLowerCase()

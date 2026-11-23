@@ -39,7 +39,7 @@ createServer((req, res) => res.end('hi')).listen(3000)
 To have the backend render the pages themselves (server-side HTML with Hono, JSX, templates, ... without a framework acdev recognizes), set the entry to `/`:
 
 ```jsonc
-{ "type": "app", "id": "my-app", "label": "My app", "icon": "app", "entry": "/" }
+{ "type": "app", "id": "my-app", "label": "My app", "icon": "application-x-executable", "entry": "/" }
 ```
 
 The window then opens `/` from the backend, and every page it navigates to (links, `location.href`, forms) comes from the backend too; `public/` is still served at the app root. Without a backend, `acdev check` and `acdev build` stop with an error; `/` is the only entry ending in `/` that is accepted. Frameworks that render on the server (Next.js, Nuxt, SvelteKit, ...) are set up this way automatically; see [Frameworks](frameworks.md).
