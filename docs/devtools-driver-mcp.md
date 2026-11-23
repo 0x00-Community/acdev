@@ -212,3 +212,7 @@
   所以 CLI 和 driver 总是同一个版本. 编辑器里的类型还得工程自己装.
 
 **客户机会话里页面没了** (2026-11-20): 不带 ref 的 snapshot、webs、query、console、network、permissions 由管家交给当时的前台进程; 这个进程恰好在请求途中退出 (比如测试刚杀了它) 时回 `the page went away`. driver 对这几种只读请求在客户机会话里再问一次, 这时管家会换一个进程回答; act、eval 这类有副作用的不重试.
+**页面暂时不在** (2026-11-23, `npm/src/driver/gone/`): 管家找不到页面时不转发请求, 直接回 `<op>: no page <web>` (acdes 的桌面进程崩溃或连接先断后由会话重新拉起, 热客户机上 1 到 3 秒,
+没有 GPU 的客户机冷启动更久); 宿主窗口的页面还没起来时 shot 回 `window N has no page`. 这两种请求都没送到页面, 所以 driver 对所有请求 (含 act、eval) 每 200 ms 再发一次,
+最多等 20 秒 (`Gone.WAIT_MS`), 超过时报原来的错并写明等了几秒、页面没回来. 上面那条"再问一次"也在同一处 (`Gone.ask`): 只对客户机里的只读请求、只问一次;
+送到页面之后失败的 act、eval 不重发. 原来 screenshot 自己等 5 秒的循环并进了这里.

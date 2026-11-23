@@ -13,6 +13,7 @@ import { Logs, PageLogs } from './logs.ts'
 import type { ClockState } from './clock.ts'
 import type { InputEvent } from './input.ts'
 import * as Call from './call/index.ts'
+import * as Gone from './gone/index.ts'
 import * as GuestPlace from './place/index.ts'
 import { paced } from './pacing/index.ts'
 import * as Ready from './ready/index.ts'
@@ -50,7 +51,6 @@ interface Emulated {
 
 export class Acde {
   static readonly TIMEOUT_MS = 5_000
-  static readonly PAGE_WAIT_MS = 5_000
   static readonly START_TIMEOUT_MS = 120_000
   static readonly STOP_MS = 10_000
   static readonly DRAIN_MS = 1_000
@@ -278,22 +278,7 @@ export class Acde {
 
   async screenshot(web: string, options: { readonly path?: string } = {}): Promise<Shot> {
     type Answer = { png?: unknown; width?: unknown; height?: unknown } | null
-    const shoot = () => this.#request('shot', { web }) as Promise<Answer>
-    let answer: Awaited<ReturnType<typeof shoot>>
-    for (const until = Date.now() + Acde.PAGE_WAIT_MS; ;) {
-      try {
-        answer = await shoot()
-        break
-      } catch (error) {
-        const early = /has no page/.test((error as Error).message)
-        if (!early) throw error
-        if (Date.now() >= until) {
-          throw new Error(`${web}: its window has no page yet (still loading after ${Acde.PAGE_WAIT_MS / 1000} s); `
-            + 'try again when acdev webs lists it with a title')
-        }
-        await sleep(200)
-      }
-    }
+    const answer = (await this.#request('shot', { web })) as Answer
     if (typeof answer?.png !== 'string') throw new Error('acdev runtime answered shot without a png')
     const png = Buffer.from(answer.png, 'base64')
     const path = options.path === undefined ? null : resolve(options.path)
@@ -654,7 +639,8 @@ export class Acde {
         return GuestPlace.act(host, ref, action as PlaceAction, arg)
       }
       try {
-        return Acde.#result(await this.#client.request('act', { ref, action, ...(given && { arg }) }))
+        const sent = () => this.#client.request('act', { ref, action, ...(given && { arg }) })
+        return Acde.#result(await Gone.ask(sent, { op: 'act', guest: this.guest }))
       } catch (error) {
         const ended = action === 'close' ? this.endedBy(ref) : null
         if (ended === null) throw error
@@ -760,17 +746,10 @@ export class Acde {
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
     this.#connected()
     try {
-      return await this.#client.request(op, args)
+      return await Gone.ask(() => this.#client.request(op, args), { op, guest: this.guest })
     } catch (error) {
-      if (!this.guest || !Acde.lookAgain(op, error)) throw Acde.unsupported(op, error)
-      return await this.#client.request(op, args)
+      throw Acde.unsupported(op, error)
     }
-  }
-
-  static readonly LOOKS = new Set(['webs', 'snapshot', 'query', 'console', 'network', 'permissions'])
-
-  static lookAgain(op: string, error: unknown): boolean {
-    return Acde.LOOKS.has(op) && error instanceof Error && error.message === 'the page went away'
   }
 
   static unsupported(op: string, error: unknown): unknown {
