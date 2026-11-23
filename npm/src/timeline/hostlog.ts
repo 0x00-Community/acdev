@@ -17,8 +17,8 @@ export interface Traced {
 
 const TEXT_MAX = 400
 
-export function file(key: string, dir = Sessions.dir()): string {
-  return join(dir, 'timeline', `${key.replace(/[^\w.-]/g, '_')}.jsonl`)
+export function file(key: string, dir = `${Sessions.dir()}-timeline`): string {
+  return join(dir, `${key.replace(/[^\w.-]/g, '_')}.jsonl`)
 }
 
 export function keyOf(session: { readonly pid: number; readonly endpoint: string }): string {
