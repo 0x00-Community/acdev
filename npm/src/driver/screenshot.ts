@@ -3,6 +3,8 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { InspectNode, InspectWindow } from '@acde/api'
 import { Png, type Image } from './png.ts'
 
+export type Box = readonly [number, number, number, number]
+
 export interface Capture {
   readonly image: Image
   readonly window: InspectWindow
@@ -47,6 +49,26 @@ export class Screenshots {
     const cropped = Png.crop(capture.image, x, y, rect[2] * s, rect[3] * s)
     if (!cropped.width || !cropped.height) throw new Error(`[${node.ref}] lies outside its window`)
     return Screenshots.#masked(cropped, capture, [x, y], mask)
+  }
+
+  static rect(text: string): Box | null {
+    const parts = text.split(',').map((v) => Number(v.trim()))
+    if (parts.length !== 4 || !parts.every(Number.isFinite) || parts[2]! <= 0 || parts[3]! <= 0) return null
+    return parts as unknown as Box
+  }
+
+  static within(image: Image, frame: Box, rect: Box, what: string): Image {
+    const [fx, fy, fw, fh] = frame
+    const [x, y, w, h] = rect
+    const box = (b: Box) => `${b.map((v) => Math.round(v * 100) / 100).join(',')}`
+    if (w <= 0 || h <= 0) throw new Error(`${what} has no size to take a picture of`)
+    const slack = 0.5
+    if (x + w <= fx || y + h <= fy || x >= fx + fw || y >= fy + fh) throw new Error(`${what} (${box(rect)}) is outside the picture (${box(frame)})`)
+    if (x < fx - slack || y < fy - slack || x + w > fx + fw + slack || y + h > fy + fh + slack)
+      throw new Error(`${what} (${box(rect)}) reaches past the picture (${box(frame)}); scroll it into view or give a smaller rect`)
+    const sx = fw > 0 ? image.width / fw : 1
+    const sy = fh > 0 ? image.height / fh : sx
+    return Png.crop(image, (x - fx) * sx, (y - fy) * sy, w * sx, h * sy)
   }
 
   static save(image: Image, path: string | undefined): Buffer {

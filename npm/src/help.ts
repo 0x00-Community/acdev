@@ -238,10 +238,22 @@ export class Help {
       inspecting('shot', '<web>', 'Take a PNG of a window', [
         'A PNG of the web\'s window; prints its path. The desktop\'s page has no panels it pinned (a Dock, '
           + 'a menu bar): take acdev screen to see them.',
+        'With --ref or --rect only that part: the window is taken whole and cut at the element\'s rectangle (device pixels follow the window\'s scale). '
+          + 'An element out of view, or a rect that reaches past the window, is an error.',
       ],
-        [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./<web>.png)' }], ['acdev shot notes']),
-      inspecting('screen', '', 'Take a PNG of the whole screen', ['A PNG of the whole screen, every window composed.'],
-        [{ flag: '-o, --output FILE', about: 'Where to write it (default: ./screen.png)' }], ['acdev screen']),
+        [
+          { flag: '-o, --output FILE', about: 'Where to write it (default: ./<web>.png)' },
+          { flag: '--ref REF', about: 'Only this element (or window) of this web\'s window, like w3.12' },
+          { flag: '--rect X,Y,W,H', about: 'Only this area, in logical pixels from the window\'s top left' },
+        ], ['acdev shot notes', 'acdev shot notes --ref w1.12', 'acdev shot notes --rect 0,0,200,120']),
+      inspecting('screen', '', 'Take a PNG of the whole screen', [
+        'A PNG of the whole screen, every window composed. With --ref or --rect only that part, cut from the whole screen '
+          + '(in a guest session too). An element out of view, or a rect past the screen, is an error.',
+      ], [
+        { flag: '-o, --output FILE', about: 'Where to write it (default: ./screen.png)' },
+        { flag: '--ref REF', about: 'Only this element or window, like w3.12 or w3' },
+        { flag: '--rect X,Y,W,H', about: 'Only this area, in the screen\'s logical pixels' },
+      ], ['acdev screen', 'acdev screen --ref w0.4', 'acdev screen --rect 0,0,400,48']),
       inspecting('console', '', 'Print the pages\' console output and errors', [
         'The pages\' console.* lines and uncaught errors.',
       ], [

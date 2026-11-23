@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Png, type Image } from '../src/driver/png.ts'
+import { Screenshots } from '../src/driver/screenshot.ts'
 
 const FIXTURES = join(import.meta.dir, 'fixtures/png')
 
@@ -68,5 +69,26 @@ describe('Png', () => {
     expect(chunks.filter((c) => c.type === 'fdAT').map((c) => c.data.readUInt32BE(0))).toEqual([2])
     const first = Png.decode(apng)
     expect([first.width, first.height, ...first.data.slice(0, 4)]).toEqual([3, 2, 255, 0, 0, 255])
+  })
+})
+
+describe('Screenshots.within', () => {
+  const picture = image(8, 6, (x, y) => [x * 10, y * 10, 0, 255])
+
+  test('cuts a rect given in logical pixels at the picture\'s scale, from where the picture sits', () => {
+    const cut = Screenshots.within(picture, [100, 50, 4, 3], [101, 51, 2, 1], 'w1.4')
+    expect([cut.width, cut.height, ...cut.data.slice(0, 4)]).toEqual([4, 2, 20, 20, 0, 255])
+    expect(Screenshots.within(picture, [0, 0, 8, 6], [0, 0, 8, 6], 'all').data).toEqual(picture.data)
+  })
+
+  test('a rect off the picture or reaching past its edge is an error that says where both are', () => {
+    expect(() => Screenshots.within(picture, [0, 0, 8, 6], [20, 20, 2, 2], 'w1.4')).toThrow('w1.4 (20,20,2,2) is outside the picture (0,0,8,6)')
+    expect(() => Screenshots.within(picture, [0, 0, 8, 6], [6, 4, 4, 4], '--rect 6,4,4,4')).toThrow('reaches past the picture')
+    expect(() => Screenshots.within(picture, [0, 0, 8, 6], [1, 1, 0, 2], 'flat')).toThrow('has no size')
+  })
+
+  test('reads X,Y,W,H and refuses the rest', () => {
+    expect(Screenshots.rect('1, 2.5,30,40')).toEqual([1, 2.5, 30, 40])
+    for (const bad of ['1,2,3', '1,2,0,4', 'a,b,c,d', '1,2,3,-4']) expect(Screenshots.rect(bad)).toBeNull()
   })
 })

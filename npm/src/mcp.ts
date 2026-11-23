@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
 import { Doctor } from './doctor.ts'
-import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
+import { ACTIONS, Acde, type ActResult } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions, type Pin, type Session } from './sessions.ts'
 import { Format } from './driver/format.ts'
@@ -32,7 +32,8 @@ const INSTRUCTIONS = [
   `- Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using `
     + `it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.`,
   `- open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with `
-    + `every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. `
+    + `every window (snapshot cannot tell colour, layout or overlap); ref or rect keeps only one element or area. `
+    + `eval runs JavaScript in a page and returns JSON. `
     + `wait_for waits for a text to appear or go.`,
   `- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource `
     + `requests and the images, stylesheets and fonts they load (status, size, time, error); both answer next, pass it `
@@ -362,54 +363,7 @@ export class Mcp {
         }),
     )
 
-    s.registerTool(
-      'screenshot',
-      {
-        description: "A PNG in device pixels of one window's page, or of the whole screen with every window composed "
-          + '(target screen). Default: the focused window. The desktop\'s page has no panels it pinned (a Dock, a menu '
-          + 'bar): they are layers of their own, so take screen to see the desktop as shown.',
-        inputSchema: z.object({
-          target: z.string().optional().describe('screen, a window ref (w3), a web name (ledger#1048576), an app id, '
-            + 'or desktop'),
-          path: z.string().optional().describe('also write the PNG to this file (relative to the working directory)'),
-        }),
-        annotations: look,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const acde = await this.#acde()
-          const path = args.path === undefined ? {} : { path: resolve(this.#cwd, args.path) }
-          const web = args.target === 'screen' ? 'screen' : await this.#web(acde, args.target)
-          const shot = web === 'screen' ? await acde.screen(path) : await acde.screenshot(web, path)
-          const written = shot.path ? `, written to ${shot.path}` : ''
-          return {
-            content: [
-              { type: 'image', data: shot.png.toString('base64'), mimeType: 'image/png' },
-              { type: 'text', text: `${web}: ${shot.width}x${shot.height}${written}` },
-            ],
-          }
-        }),
-    )
 
-    s.registerTool(
-      'eval',
-      {
-        description: "Evaluate JavaScript in a page (a promise is awaited) and answer its value as JSON. The page's "
-          + "own globals and DOM are there; acde: modules are imported with import(). Default: the focused window's "
-          + "page.",
-        inputSchema: z.object({
-          code: z.string().describe('an expression, or statements whose last expression is the value'),
-          target: z.string().optional().describe('a window ref (w3), a web name, an app id, or desktop'),
-        }),
-        annotations: { ...drive, destructiveHint: true },
-      },
-      (args) =>
-        this.#safe(async () => {
-          const acde = await this.#acde()
-          const value = await acde.evaluate(await this.#web(acde, args.target), args.code)
-          return Mcp.#text(JSON.stringify(value, null, 2) ?? 'null')
-        }),
-    )
 
     s.registerTool(
       'wait_for',
@@ -445,39 +399,7 @@ export class Mcp {
         this.#safe(async () => Mcp.#text(Format.matches(await (await this.#acde()).query(args), args.selector))),
     )
 
-    s.registerTool(
-      'console',
-      {
-        description: "The pages' console.* lines and uncaught errors / unhandled rejections, oldest first, with the "
-          + "page each came from. next is what to pass as since to read only newer ones.",
-        inputSchema: z.object({
-          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
-          level: z.enum(['log', 'info', 'warn', 'error', 'debug', 'errors']).optional().describe('errors: '
-            + 'console.error and uncaught errors'),
-          since: z.number().int().min(1).optional(),
-          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
-        }),
-        annotations: look,
-      },
-      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).console(args), Format.console)),
-    )
 
-    s.registerTool(
-      'network',
-      {
-        description: "The pages' requests (fetch, XHR, WebSocket, EventSource, and loads of images, stylesheets "
-          + 'and fonts): method, status (ERR when it failed, ... while open), URL, kind, response size, time, '
-          + 'error, page. next is what to pass as since.',
-        inputSchema: z.object({
-          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
-          failed: z.boolean().optional().describe('only failed requests and status 400 or more'),
-          since: z.number().int().min(1).optional(),
-          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
-        }),
-        annotations: look,
-      },
-      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).network(args), Format.request)),
-    )
 
     s.registerTool(
       'emulate',
@@ -570,67 +492,7 @@ export class Mcp {
         }),
     )
 
-    s.registerTool(
-      'route',
-      {
-        description: 'Fake what a page gets for its fetch / XHR to a URL (instead of the app\'s files, its backend or '
-          + 'the network), or make those requests fail. Later routes win; each answers id for unroute. WebSocket and '
-          + 'EventSource are not routed.',
-        inputSchema: z.object({
-          url: z.string().describe('a glob: ** is anything, * anything but /; one starting with / matches path and '
-            + 'query ("/api/todos*"), others the whole URL ("https://api.example.com/**")'),
-          regex: z.boolean().optional().describe('url is a regular expression instead of a glob'),
-          method: z.string().optional().describe('only this HTTP method'),
-          target: z.string().optional().describe('only this page: a web name, an app id or desktop'),
-          times: z.number().int().min(1).optional().describe('remove the route after this many requests'),
-          status: z.number().int().min(200).max(599).optional().describe('HTTP status (default 200)'),
-          headers: z.record(z.string(), z.string()).optional(),
-          body: z.string().optional().describe('the response body as text'),
-          json: z.unknown().optional().describe('the response body as JSON (sets content-type)'),
-          abort: z.union([z.boolean(), z.string()]).optional().describe('fail the request instead (true, or the error '
-            + 'text)'),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const url = args.regex ? new RegExp(args.url) : args.url
-          const response = args.abort !== undefined && args.abort !== false
-            ? { abort: args.abort }
-            : {
-              ...(args.status !== undefined && { status: args.status }),
-              ...(args.headers && { headers: args.headers }),
-              ...(args.body !== undefined && { body: args.body }),
-              ...(args.json !== undefined && { json: args.json }),
-            }
-          const id = await (await this.#acde()).route(url, response, {
-            ...(args.method && { method: args.method }),
-            ...(args.target && { web: args.target }),
-            ...(args.times && { times: args.times }),
-          })
-          const answers = 'abort' in response
-            ? `fails (${response.abort === true ? 'aborted' : response.abort})`
-            : `${args.status ?? 200}`
-          const times = args.times ? `, ${args.times} time${args.times === 1 ? '' : 's'}` : ''
-          const target = url instanceof RegExp ? String(url) : url
-          return Mcp.#text(`route ${id}: ${args.method ?? 'any method'} ${target} → ${answers}${times}`)
-        }),
-    )
 
-    s.registerTool(
-      'unroute',
-      {
-        description: 'Take a route away by id, or all of them.',
-        inputSchema: z.object({ id: z.number().int().optional().describe('the id route answered; leave out to remove '
-          + 'every route') }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const done = await (await this.#acde()).unroute(args.id)
-          return Mcp.#text(`removed ${done.removed} route${done.removed === 1 ? '' : 's'}, ${done.left} left`)
-        }),
-    )
 
     s.registerTool(
       'pointer',
@@ -680,6 +542,9 @@ export class Mcp {
       safe: (work) => this.#safe(work),
       text: (text) => Mcp.#text(text),
       acted: (result) => Mcp.#acted(result),
+      acde: () => this.#acde(),
+      web: (acde, target) => this.#web(acde, target),
+      cwd: this.#cwd,
     })
 
     s.registerTool(
@@ -888,11 +753,6 @@ export class Mcp {
     const { webs, locked } = await acde.webList()
     const waiting = await Approvals.waiting(acde, ANSWER)
     return [Format.webs(webs, locked), ...waiting].join('\n')
-  }
-
-  static #entries<T>(page: DevPage<T>, line: (entry: T) => string): Result {
-    const head = `next: ${page.next}${page.dropped ? ` (${page.dropped} older entries were dropped)` : ''}`
-    return Mcp.#text(page.entries.length ? `${head}\n${page.entries.map(line).join('\n')}` : `${head}\n(nothing)`)
   }
 
   static #acted(result: ActResult): Result {

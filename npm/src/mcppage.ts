@@ -1,19 +1,39 @@
 import type { McpServer } from '@modelcontextprotocol/server'
+import { resolve } from 'node:path'
 import * as z from 'zod'
-import { Acde, type ActResult } from './driver/acde.ts'
+import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Clock } from './driver/clock.ts'
+import { Format } from './driver/format.ts'
 import { Poll } from './driver/poll.ts'
+import { Screenshots } from './driver/screenshot.ts'
+import type { RouteOptions, RouteResponse } from './driver/types.ts'
 import type { Result } from './mcp.ts'
+import { Tools } from './tools.ts'
 
 export interface PageToolsHost {
   page(target: string | undefined): Promise<{ readonly acde: Acde; readonly web: string }>
   safe(work: () => Promise<Result>): Promise<Result>
   text(text: string): Result
   acted(result: ActResult): Result
+  acde(): Promise<Acde>
+  web(acde: Acde, target: string | undefined): Promise<string>
+  readonly cwd: string
 }
 
 const TARGET = 'a window ref (w3), a web name, an app id, or desktop'
 const CHANGES = { readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+type RouteArgs = {
+  readonly method?: string | undefined
+  readonly target?: string | undefined
+  readonly times?: number | undefined
+  readonly status?: number | undefined
+  readonly headers?: Record<string, string> | undefined
+  readonly body?: string | undefined
+  readonly json?: unknown
+  readonly abort?: boolean | string | undefined
+}
+const LOOK = { readOnlyHint: true, openWorldHint: false }
+const DRIVE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 const CLOCK_ACTIONS = [
   'install', 'pause_at', 'fast_forward', 'run_for', 'resume', 'set_fixed_time', 'set_system_time', 'state',
 ] as const
@@ -127,6 +147,185 @@ export class PageTools {
           return host.text(JSON.stringify({ innerWidth: size[0], innerHeight: size[1] }))
         }),
     )
+    server.registerTool(
+      'screenshot',
+      {
+        description: "A PNG in device pixels of one window's page, or of the whole screen with every window composed "
+          + '(target screen). Default: the focused window. The desktop\'s page has no panels it pinned (a Dock, a menu '
+          + 'bar): they are layers of their own, so take screen to see the desktop as shown.',
+        inputSchema: z.object({
+          target: z.string().optional().describe('screen, a window ref (w3), a web name (ledger#1048576), an app id, '
+            + 'or desktop'),
+          path: z.string().optional().describe('also write the PNG to this file (relative to the working directory)'),
+          ref: z.string().optional().describe('only this element or window (w3.12, w3), cut from the screen, or from target when it is that '
+            + 'element\'s window; an element out of view is an error'),
+          rect: z.array(z.number()).length(4).optional().describe('only this area [x, y, width, height] in logical pixels: of the window '
+            + '(from its top left), or of the screen with target screen; past the edge is an error'),
+        }),
+        annotations: LOOK,
+      },
+      (args) =>
+        host.safe(async () => {
+          const acde = await host.acde()
+          if (args.ref !== undefined || args.rect !== undefined) return await PageTools.#cropped(host, acde, args)
+          const path = args.path === undefined ? {} : { path: resolve(host.cwd, args.path) }
+          const web = args.target === 'screen' ? 'screen' : await host.web(acde, args.target)
+          const shot = web === 'screen' ? await acde.screen(path) : await acde.screenshot(web, path)
+          const written = shot.path ? `, written to ${shot.path}` : ''
+          return {
+            content: [
+              { type: 'image', data: shot.png.toString('base64'), mimeType: 'image/png' },
+              { type: 'text', text: `${web}: ${shot.width}x${shot.height}${written}` },
+            ],
+          }
+        }),
+    )
+
+    server.registerTool(
+      'eval',
+      {
+        description: "Evaluate JavaScript in a page (a promise is awaited) and answer its value as JSON. The page's "
+          + "own globals and DOM are there; acde: modules are imported with import(). Default: the focused window's "
+          + "page.",
+        inputSchema: z.object({
+          code: z.string().describe('an expression, or statements whose last expression is the value'),
+          target: z.string().optional().describe('a window ref (w3), a web name, an app id, or desktop'),
+        }),
+        annotations: { ...DRIVE, destructiveHint: true },
+      },
+      (args) =>
+        host.safe(async () => {
+          const acde = await host.acde()
+          const value = await acde.evaluate(await host.web(acde, args.target), args.code)
+          return host.text(JSON.stringify(value, null, 2) ?? 'null')
+        }),
+    )
+
+    server.registerTool(
+      'route',
+      {
+        description: 'Fake what a page gets for its fetch / XHR to a URL (instead of the app\'s files, its backend or '
+          + 'the network), or make those requests fail. Later routes win; each answers id for unroute. WebSocket and '
+          + 'EventSource are not routed.',
+        inputSchema: z.object({
+          url: z.string().describe('a glob: ** is anything, * anything but /; one starting with / matches path and '
+            + 'query ("/api/todos*"), others the whole URL ("https://api.example.com/**")'),
+          regex: z.boolean().optional().describe('url is a regular expression instead of a glob'),
+          method: z.string().optional().describe('only this HTTP method'),
+          target: z.string().optional().describe('only this page: a web name, an app id or desktop'),
+          times: z.number().int().min(1).optional().describe('remove the route after this many requests'),
+          status: z.number().int().min(200).max(599).optional().describe('HTTP status (default 200)'),
+          headers: z.record(z.string(), z.string()).optional(),
+          body: z.string().optional().describe('the response body as text'),
+          json: z.unknown().optional().describe('the response body as JSON (sets content-type)'),
+          abort: z.union([z.boolean(), z.string()]).optional().describe('fail the request instead (true, or the error '
+            + 'text)'),
+        }),
+        annotations: DRIVE,
+      },
+      (args) =>
+        host.safe(async () => {
+          const url = args.regex ? new RegExp(args.url) : args.url
+          const response = PageTools.#response(args)
+          const id = await (await host.acde()).route(url, response, PageTools.#routing(args))
+          return host.text(`route ${id}: ${PageTools.#routed(args, url, response)}`)
+        }),
+    )
+
+    server.registerTool(
+      'unroute',
+      {
+        description: 'Take a route away by id, or all of them.',
+        inputSchema: z.object({ id: z.number().int().optional().describe('the id route answered; leave out to remove '
+          + 'every route') }),
+        annotations: DRIVE,
+      },
+      (args) =>
+        host.safe(async () => {
+          const done = await (await host.acde()).unroute(args.id)
+          return host.text(`removed ${done.removed} route${done.removed === 1 ? '' : 's'}, ${done.left} left`)
+        }),
+    )
+
+    server.registerTool(
+      'console',
+      {
+        description: "The pages' console.* lines and uncaught errors / unhandled rejections, oldest first, with the "
+          + "page each came from. next is what to pass as since to read only newer ones.",
+        inputSchema: z.object({
+          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
+          level: z.enum(['log', 'info', 'warn', 'error', 'debug', 'errors']).optional().describe('errors: '
+            + 'console.error and uncaught errors'),
+          since: z.number().int().min(1).optional(),
+          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
+        }),
+        annotations: LOOK,
+      },
+      (args) => host.safe(async () => PageTools.#entries(host, await (await host.acde()).console(args), Format.console)),
+    )
+
+    server.registerTool(
+      'network',
+      {
+        description: "The pages' requests (fetch, XHR, WebSocket, EventSource, and loads of images, stylesheets "
+          + 'and fonts): method, status (ERR when it failed, ... while open), URL, kind, response size, time, '
+          + 'error, page. next is what to pass as since.',
+        inputSchema: z.object({
+          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
+          failed: z.boolean().optional().describe('only failed requests and status 400 or more'),
+          since: z.number().int().min(1).optional(),
+          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
+        }),
+        annotations: LOOK,
+      },
+      (args) => host.safe(async () => PageTools.#entries(host, await (await host.acde()).network(args), Format.request)),
+    )
+
+  }
+
+  static #response(args: RouteArgs): RouteResponse {
+    if (args.abort !== undefined && args.abort !== false) return { abort: args.abort }
+    return {
+      ...(args.status !== undefined && { status: args.status }),
+      ...(args.headers && { headers: args.headers }),
+      ...(args.body !== undefined && { body: args.body }),
+      ...(args.json !== undefined && { json: args.json }),
+    }
+  }
+
+  static #routing(args: RouteArgs): RouteOptions {
+    return { ...(args.method && { method: args.method }), ...(args.target && { web: args.target }), ...(args.times && { times: args.times }) }
+  }
+
+  static #routed(args: RouteArgs, url: string | RegExp, response: RouteResponse): string {
+    const answers = 'abort' in response ? `fails (${response.abort === true ? 'aborted' : response.abort})` : `${args.status ?? 200}`
+    const times = args.times ? `, ${args.times} time${args.times === 1 ? '' : 's'}` : ''
+    return `${args.method ?? 'any method'} ${String(url)} → ${answers}${times}`
+  }
+
+  static #entries<T>(host: PageToolsHost, page: DevPage<T>, line: (entry: T) => string): Result {
+    const head = `next: ${page.next}${page.dropped ? ` (${page.dropped} older entries were dropped)` : ''}`
+    return host.text(page.entries.length ? `${head}\n${page.entries.map(line).join('\n')}` : `${head}\n(nothing)`)
+  }
+
+  static async #cropped(host: PageToolsHost, acde: Acde, args: { target?: string; path?: string; ref?: string; rect?: number[] }): Promise<Result> {
+    const flags = new Map<string, string>()
+    if (args.ref !== undefined) flags.set('ref', args.ref)
+    if (args.rect !== undefined) flags.set('rect', args.rect.join(','))
+    const region = Tools.region('screenshot', flags)!
+    const screen = args.target === 'screen' || (args.target === undefined && args.ref !== undefined)
+    const web = screen ? null : await host.web(acde, args.target)
+    const image = await Tools.crop(acde, web, region)
+    const path = args.path === undefined ? undefined : resolve(host.cwd, args.path)
+    const png = Screenshots.save(image, path)
+    const written = path ? `, written to ${path}` : ''
+    const what = 'ref' in region ? region.ref : `[${region.rect.join(', ')}]`
+    return {
+      content: [
+        { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+        { type: 'text', text: `${what} in ${web ?? 'screen'}: ${image.width}x${image.height}${written}` },
+      ],
+    }
   }
 
   static clockRequest(args: {

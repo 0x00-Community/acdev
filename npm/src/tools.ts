@@ -1,15 +1,19 @@
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { InspectAction } from '@acde/api'
+import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import { Png, type Image } from './driver/png.ts'
+import { Screenshots, type Box } from './driver/screenshot.ts'
 import type { InputEvent } from './driver/input.ts'
 import { DevClient } from './ipc.ts'
 import { Exit, Output } from './output.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
 import { Sessions, type Pin } from './sessions.ts'
+
+export type Region = { readonly ref: string } | { readonly rect: Box }
 
 export class Tools {
   static readonly COMMANDS = new Set([
@@ -31,6 +35,7 @@ export class Tools {
     type: '"hello"', settext: '"hello"', key: '"ctrl+a backspace"', select: '"high"', drag: 'w1.12',
   }
   static readonly NO_WINDOW = /^no window w\d+$/
+  static readonly REF = /^w\d+(\.\S+)?$/
 
   static async #windowed<T>(acde: Acde, ask: () => Promise<T>): Promise<T> {
     try {
@@ -85,6 +90,71 @@ export class Tools {
     return point as [number, number]
   }
 
+  static region(command: string, flags: ReadonlyMap<string, string>): Region | null {
+    const ref = flags.get('ref')
+    const rect = flags.get('rect')
+    if (ref !== undefined && rect !== undefined) throw new Error(`${command}: give --ref or --rect, not both (acdev ${command} --help)`)
+    if (ref !== undefined) {
+      if (!Tools.REF.test(ref)) throw Output.option(command, 'ref', ref, 'an element or window ref, like w3.12 or w3 (acdev inspect lists them)')
+      return { ref }
+    }
+    if (rect === undefined) return null
+    const box = Screenshots.rect(rect)
+    if (!box) throw Output.option(command, 'rect', rect, 'X,Y,W,H in logical pixels, W and H above 0')
+    return { rect: box }
+  }
+
+  static async crop(acde: Acde, web: string | null, region: Region): Promise<Image> {
+    const windows = await acde.windows()
+    const within = web === null ? null : Tools.#windowOf(windows, (await acde.webs()).find((w) => w.name === web)?.window, web)
+    const shot = within ? await acde.screenshot(web!) : await acde.screen()
+    const image = Png.decode(shot.png)
+    const frame = within?.rect ?? windows.find((w) => w.kind === 'desktop')?.rect ?? ([0, 0, image.width, image.height] as const)
+    const [fx, fy] = within ? frame : [0, 0]
+    const target = 'rect' in region
+      ? ([region.rect[0] + fx, region.rect[1] + fy, region.rect[2], region.rect[3]] as const)
+      : await Tools.#rectOf(acde, windows, region.ref, within)
+    const what = 'rect' in region ? `--rect ${region.rect.join(',')}` : region.ref
+    return Screenshots.within(image, frame, target, what)
+  }
+
+  static #saved(image: Image, path: string): string {
+    Screenshots.save(image, path)
+    return path
+  }
+
+  static #windowOf(windows: readonly InspectWindow[], id: number | undefined, web: string): InspectWindow {
+    const window = windows.find((w) => w.id === id)
+    if (!window) throw new Error(`${web}: no window with a page by this name (acdev webs lists them)`)
+    return window
+  }
+
+  static async #rectOf(acde: Acde, windows: readonly InspectWindow[], ref: string, within: InspectWindow | null): Promise<Box> {
+    const windowRef = ref.split('.')[0]!
+    const window = windows.find((w) => w.ref === windowRef)
+    if (!window) throw new Error(`no window ${windowRef}${await Tools.#windows(acde)}`)
+    if (within && window.id !== within.id)
+      throw new Error(`${ref} is in ${window.ref}, not in this web's window ${within.ref}; acdev screen --ref ${ref} takes it`)
+    if (ref === windowRef) return window.rect
+    const snapshot = await acde.snapshot({ ref, limit: 20 })
+    const node = Tools.#find(snapshot.trees[windowRef] ?? [], ref)
+    if (!node) {
+      const why = 'scrolled out of view, in a hidden part, or gone (acdev inspect --find TEXT gives the current refs)'
+      throw new Error(`${ref} is not on the screen: ${why}`)
+    }
+    if (!node.rect) throw new Error(`${ref} has no position on the screen`)
+    return node.rect
+  }
+
+  static #find(nodes: readonly InspectNode[], ref: string): InspectNode | null {
+    for (const node of nodes) {
+      if (node.ref === ref) return node
+      const found = Tools.#find(node.children ?? [], ref)
+      if (found) return found
+    }
+    return null
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
@@ -109,6 +179,7 @@ export class Tools {
     const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
     const choice = command === 'choose' ? Tools.choice(args, flags.has('cancel')) : null
     const at = command === 'drop' ? Tools.at(flags.get('at')) : undefined
+    const region = command === 'shot' || command === 'screen' ? Tools.region(command, flags) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -137,7 +208,8 @@ export class Tools {
         }
         case 'shot': {
           const path = resolve(flags.get('output') ?? `${slug(args[0]!)}.png`)
-          console.log((await acde.screenshot(args[0]!, { path })).path)
+          if (region) console.log(Tools.#saved(await Tools.crop(acde, args[0]!, region), path))
+          else console.log((await acde.screenshot(args[0]!, { path })).path)
           return 0
         }
         case 'inspect': {
@@ -209,9 +281,12 @@ export class Tools {
           const from = Tools.#since(start, acde.session.reloaded?.network)
           return await Tools.#follow(flags.has('follow'), from, read, Format.request, 'requests')
         }
-        case 'screen':
-          console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
+        case 'screen': {
+          const path = resolve(flags.get('output') ?? 'screen.png')
+          if (region) console.log(Tools.#saved(await Tools.crop(acde, null, region), path))
+          else console.log((await acde.screen({ path })).path)
           return 0
+        }
         case 'choose': {
           const { kind, paths } = choice!
           if (kind === 'folder') await acde.chooseFolder(paths?.[0] ?? null)

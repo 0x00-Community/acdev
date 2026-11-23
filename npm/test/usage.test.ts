@@ -107,6 +107,17 @@ describe('option errors', () => {
       `dev: --out ${dirname(dir)}: ${holds} (acdev dev --help)`)
     expect(existsSync(join(dir, 'index.html'))).toBe(true)
   })
+
+  test('shot and screen take --ref or --rect, not both, and say what each looks like', () => {
+    const given = (pairs: Record<string, string>) => new Map(Object.entries(pairs))
+    expect(Tools.region('shot', given({}))).toBeNull()
+    expect(Tools.region('shot', given({ ref: 'w3.12' }))).toEqual({ ref: 'w3.12' })
+    expect(Tools.region('screen', given({ ref: 'w0' }))).toEqual({ ref: 'w0' })
+    expect(Tools.region('screen', given({ rect: '0,0,400,48' }))).toEqual({ rect: [0, 0, 400, 48] })
+    expect(() => Tools.region('shot', given({ ref: 'w1.2', rect: '0,0,1,1' }))).toThrow('shot: give --ref or --rect, not both')
+    expect(() => Tools.region('shot', given({ ref: 'button' }))).toThrow('shot: --ref button: an element or window ref')
+    expect(() => Tools.region('screen', given({ rect: '0,0,0,4' }))).toThrow('screen: --rect 0,0,0,4: X,Y,W,H in logical pixels')
+  })
 })
 
 describe('mistakes', () => {

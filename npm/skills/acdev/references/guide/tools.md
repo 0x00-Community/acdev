@@ -24,6 +24,8 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev eval <web> <code>` | Runs code in a page and prints the result as JSON; Promises are awaited. With `-` as the code, reads it from stdin |
 | `acdev shot <web> [-o FILE]` | Screenshot of one window's page (PNG); for `desktop`, without the panels it pins (Dock, menu bar), which `acdev screen` shows |
 | `acdev screen [-o FILE]` | Screenshot of the whole screen, all windows together |
+| `acdev shot <web> --ref REF`, `acdev screen --ref REF` | Only one element (a ref from `inspect`, like `w1.12`) or window (`w1`): the whole window or screen is taken and cut at its rectangle, at the picture's device-pixel scale. An element scrolled out of view or gone is an error; scroll it into view first |
+| `acdev shot <web> --rect X,Y,W,H`, `acdev screen --rect X,Y,W,H` | Only that area, in logical pixels (from the window's top left for `shot`, of the screen for `screen`); an area that reaches past the edge is an error |
 | `acdev pointer <x> <y>` | Moves the pointer to a point on the screen, as a real move: hover effects and screen edge events (a desktop showing its Dock at an edge) follow. In a host window the screen is its content area |
 | `acdev inspect [--window W] [--find TEXT] [--all] [--offscreen]` | Turns the screen into text: the window list and the element tree of the focused window (`--all`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`) |
 | `acdev query <selector> [--window W] [--ref REF] [--limit N]` | Finds elements by CSS selector, including ones `inspect` leaves out, and prints a ref for each |
