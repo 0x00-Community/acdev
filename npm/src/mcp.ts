@@ -11,6 +11,7 @@ import { Poll } from './driver/poll.ts'
 import { Sessions, type Pin, type Session } from './sessions.ts'
 import { Format } from './driver/format.ts'
 import { PageTools } from './mcppage.ts'
+import { Tools } from './tools.ts'
 import { Versions } from './versions.ts'
 
 const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
@@ -31,7 +32,8 @@ const INSTRUCTIONS = [
     + `new ref and the old one answers "element N is gone".`,
   `- Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using `
     + `it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.`,
-  `- open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with `
+  `- open launches an app by id or name, or opens a path or an http(s) link with its default app (or app). `
+    + `screenshot shows a window's pixels, or target "screen" the whole screen with `
     + `every window (snapshot cannot tell colour, layout or overlap); ref or rect keeps only one element or area. `
     + `eval runs JavaScript in a page and returns JSON. `
     + `wait_for waits for a text to appear or go.`,
@@ -350,20 +352,31 @@ export class Mcp {
       'open',
       {
         description: 'Open an app (by id or name; native programs too where the session has them) and wait for its '
-          + 'window; answers with the new window and its elements.',
-        inputSchema: z.object({ app: z.string().describe('app id (ledger) or name') }),
+          + 'window; answers with the new window and its elements. With path (a file or folder) or url (http, https) it opens '
+          + 'that as the desktop does (acde:open): with its default app, or with app.',
+        inputSchema: z.object({
+          app: z.string().optional().describe('app id (ledger) or name'),
+          path: z.string().optional().describe('a file or folder: absolute (the guest\'s in a guest session), or relative to '
+            + 'the working directory on the host'),
+          url: z.string().optional().describe('an http or https link'),
+        }),
         annotations: drive,
       },
       (args) =>
         this.#safe(async () => {
-          const window = await (await this.#acde()).open(args.app)
+          const acde = await this.#acde()
+          if (args.path !== undefined || args.url !== undefined) {
+            const given = { ...(args.app && { name: args.app }), ...(args.path && { path: args.path }), ...(args.url && { url: args.url }) }
+            const result = await acde.openWith(Tools.located(given, acde.guest, this.#cwd))
+            return Mcp.#acted(result)
+          }
+          if (!args.app) throw new Error('open: give app, path or url')
+          const window = await acde.open(args.app)
           const info = await window.info()
           const title = info.title ? ` ${JSON.stringify(info.title)}` : ''
           return Mcp.#text(`opened ${args.app}: ${info.ref}${title}\n\n${await window.snapshot()}`)
         }),
     )
-
-
 
     s.registerTool(
       'wait_for',

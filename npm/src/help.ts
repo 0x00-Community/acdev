@@ -274,6 +274,12 @@ export class Help {
       inspecting('pointer', '<x> <y>', 'Move the pointer to a screen point', [
         'Moves the pointer as a real move (hover, screen edges); in a host window the screen is its content area.',
       ], [], ['acdev pointer 0 0']),
+      inspecting('open', '<app|path|url> [path|url]', 'Open an app, or a file, folder or link with it', [
+        'Opens like the desktop does (acde:open): an app by id or name; a file or folder with its default app, or with the app named first; '
+          + 'an http(s) link. A word is an app, something with a / (or ./notes.md) is a path, http:// and https:// are links. '
+          + 'In a guest session (--session vm) paths are the guest\'s and absolute; on the host a relative path is from the current directory. '
+          + 'A single-app session has only its own app: it gets the file or link as an open-file or open-link request.',
+      ], [], ['acdev open files', 'acdev open /home/tester/Documents/a/b', 'acdev open files /home/tester/Documents/a', 'acdev open https://example.com']),
       inspecting('choose', '<folder|open|save> [path...]', 'Answer the next file picker', [
         'Answers the next picker of that kind the page opens: folder (one folder), open (one or more files) or save '
           + '(the file to write). A headless session shows no picker, so answer it before the action that opens it; in '

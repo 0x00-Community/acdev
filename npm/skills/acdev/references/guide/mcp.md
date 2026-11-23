@@ -26,7 +26,7 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `permissions` / `answer` / `revoke` | Lists the camera and microphone prompts that wait and the decisions made, allows or denies a waiting prompt, takes back a decision; see [Camera and microphone](tools.md#camera-and-microphone) |
 | `snapshot` | The screen as text: windows and the elements of the focused window, each with a ref |
 | `act` / `run` | Performs one action on a ref / several in sequence, and reports what changed |
-| `open` | Opens an app and waits for its window |
+| `open` | Opens an app and waits for its window; with `path` (a file or folder) or `url` (http, https) opens that with its default app or `app`, as `acde:open` does |
 | `query` | Finds elements by CSS selector, hidden ones too; the refs work with `act` |
 | `wait_for` | Waits for some text to appear (or disappear) |
 | `screenshot` | Screenshot of one window or the whole screen; the desktop's panels (Dock, menu bar) only on the whole screen. `ref` keeps only one element or window (cut from the screen, or from `target` when that is its window); `rect` `[x, y, width, height]` only an area in logical pixels of the window, or of the screen with `target: "screen"` |

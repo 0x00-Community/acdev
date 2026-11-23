@@ -126,6 +126,12 @@ export interface Snapshot {
   readonly trees: Readonly<Record<string, readonly InspectNode[]>>
 }
 
+export interface OpenTarget {
+  readonly name?: string
+  readonly path?: string
+  readonly url?: string
+}
+
 export interface ActResult {
   readonly ok: boolean
   readonly text: string

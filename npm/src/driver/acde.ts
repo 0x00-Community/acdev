@@ -19,7 +19,7 @@ import { AppWindow, type WindowMatch } from './window.ts'
 import {
   ActError, LaunchError, type ActResult, type AttachOptions, type ConsoleEntry, type ConsoleOptions, type DevPage,
   type Dialog, type DialogAnswer, type DialogType, type DropOptions, type Dropped, type Emulation, type LaunchOptions,
-  type NetworkOptions, type PermissionDecision, type PermissionPrompt, type Permissions, type PromptMatch,
+  type NetworkOptions, type OpenTarget, type PermissionDecision, type PermissionPrompt, type Permissions, type PromptMatch,
   type QueryOptions, type QueryResult, type RequestEntry, type RouteOptions, type RouteResponse, type Shot,
   type Snapshot, type SnapshotOptions, type Step, type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions,
   type Web, type WebList,
@@ -716,6 +716,11 @@ export class Acde {
       return fresh.find((w) => w.app === name) ?? fresh.find((w) => w.focus) ?? fresh[0] ?? null
     }, () => `open ${name}: no new window appeared`)
     return new AppWindow(this, { id: opened.id })
+  }
+
+  async openWith(given: OpenTarget): Promise<ActResult> {
+    const shown = [given.name, given.path, given.url].filter((v) => v !== undefined).map((v) => JSON.stringify(v)).join(', ')
+    return this.trace.step(`openWith(${shown})`, async () => Acde.#result(await this.#request('open', { ...given })))
   }
 
   async webOf(window: number): Promise<Web> {

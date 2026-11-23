@@ -47,6 +47,7 @@ class Cli {
     console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output', 'ref', 'rect'] },
+    open: { args: [1, 2], flags: ['session'] },
     pointer: { args: [2, 2], flags: ['session'] },
     choose: { args: [1, Infinity], flags: ['session'], switches: ['cancel'] },
     drop: { args: [2, Infinity], flags: ['session', 'at'] },

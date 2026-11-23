@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { API_LEVEL, platformSupport, RUNNING_MODES } from '../src/manifest/index.ts'
 import { Project } from '../src/app.ts'
 import { Color } from '../src/color.ts'
@@ -106,6 +106,19 @@ describe('option errors', () => {
     await expect(new AppPackage(dir).build(dirname(dir), { dev: true })).rejects.toThrow(
       `dev: --out ${dirname(dir)}: ${holds} (acdev dev --help)`)
     expect(existsSync(join(dir, 'index.html'))).toBe(true)
+  })
+
+  test('open tells an app from a path and a link, and keeps guest paths absolute', () => {
+    expect(Tools.opening(['files'])).toEqual({ name: 'files' })
+    expect(Tools.opening(['/home/u/a/b'])).toEqual({ path: '/home/u/a/b' })
+    expect(Tools.opening(['./notes.md'])).toEqual({ path: './notes.md' })
+    expect(Tools.opening(['https://example.com'])).toEqual({ url: 'https://example.com' })
+    expect(Tools.opening(['files', '/home/u/a'])).toEqual({ name: 'files', path: '/home/u/a' })
+    expect(Tools.opening(['web', 'http://x.test'])).toEqual({ name: 'web', url: 'http://x.test' })
+    expect(() => Tools.opening(['/a', '/b'])).toThrow('open: /a is not an app')
+    expect(Tools.located({ path: 'a/b.md' }, false, '/base')).toEqual({ path: resolve('/base', 'a/b.md') })
+    expect(() => Tools.located({ path: 'a/b.md' }, true)).toThrow('a path in the guest is absolute')
+    expect(() => Tools.located({ url: 'ftp://x' }, false)).toThrow('only http and https')
   })
 
   test('shot and screen take --ref or --rect, not both, and say what each looks like', () => {

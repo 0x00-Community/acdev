@@ -1,9 +1,10 @@
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import type { OpenTarget } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
 import { Screenshots, type Box } from './driver/screenshot.ts'
 import type { InputEvent } from './driver/input.ts'
@@ -18,7 +19,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop',
+    'allow', 'deny', 'revoke', 'stop', 'open',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -155,6 +156,25 @@ export class Tools {
     return null
   }
 
+  static opening(args: readonly string[]): OpenTarget {
+    const link = (text: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(text)
+    const pathy = (text: string) => /[\\/]/.test(text) || text === '.' || text === '..'
+    const [first, second] = args
+    if (second === undefined) {
+      if (link(first!)) return { url: first! }
+      return pathy(first!) ? { path: first! } : { name: first! }
+    }
+    if (pathy(first!) || link(first!)) throw new Error(`open: ${first} is not an app; give the app first, then the path or link (acdev open --help)`)
+    return link(second) ? { name: first!, url: second } : { name: first!, path: second }
+  }
+
+  static located(given: OpenTarget, guest: boolean, base = process.cwd()): OpenTarget {
+    if (given.url !== undefined && !/^https?:\/\//i.test(given.url)) throw new Error(`open: ${given.url}: only http and https links (acdev open --help)`)
+    if (given.path === undefined || isAbsolute(given.path)) return given
+    if (guest) throw new Error(`open: ${given.path}: a path in the guest is absolute, like /home/tester/Documents (acdev open --help)`)
+    return { ...given, path: resolve(base, given.path) }
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
@@ -180,6 +200,7 @@ export class Tools {
     const choice = command === 'choose' ? Tools.choice(args, flags.has('cancel')) : null
     const at = command === 'drop' ? Tools.at(flags.get('at')) : undefined
     const region = command === 'shot' || command === 'screen' ? Tools.region(command, flags) : null
+    const opening = command === 'open' ? Tools.opening(args) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -280,6 +301,11 @@ export class Tools {
           const read = (since: number) => acde.network({ ...options, ...(since && { since }) })
           const from = Tools.#since(start, acde.session.reloaded?.network)
           return await Tools.#follow(flags.has('follow'), from, read, Format.request, 'requests')
+        }
+        case 'open': {
+          const result = await acde.openWith(Tools.located(opening!, acde.guest))
+          console.log(result.text)
+          return result.ok ? 0 : 1
         }
         case 'screen': {
           const path = resolve(flags.get('output') ?? 'screen.png')

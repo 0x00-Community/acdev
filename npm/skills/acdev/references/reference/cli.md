@@ -132,6 +132,7 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `acdev eval <web> <code\|->` | Runs code in a page and prints JSON |
 | `acdev shot <web> [-o, --output FILE] [--ref REF \| --rect X,Y,W,H]` | Window screenshot, default `./<web>.png`; `--ref` keeps only that element of the window, `--rect` only that area (logical pixels from the window's top left) |
 | `acdev screen [-o, --output FILE] [--ref REF \| --rect X,Y,W,H]` | Full-screen screenshot, default `./screen.png`; `--ref` keeps only that element or window, `--rect` only that area (the screen's logical pixels); works with `--session vm` too |
+| `acdev open <app\|path\|url> [path\|url]` | Opens an app, or a file, folder or http(s) link with its default app or the app named first, as `acde:open` does; in a guest session paths are the guest's and absolute |
 | `acdev pointer <x> <y>` | Moves the pointer to screen coordinates, as a real move |
 | `acdev inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acdev query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
