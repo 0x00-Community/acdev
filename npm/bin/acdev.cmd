@@ -18,20 +18,17 @@ if exist "%ACDEV_CACHE%" for /f "usebackq tokens=1,2 delims=*" %%a in ("%ACDEV_C
 if not defined ACDEV_CHOSEN goto probe
 if not "%ACDEV_CACHED_KEY%"=="%ACDEV_KEY%" goto probe
 if not exist "%ACDEV_CHOSEN%" goto probe
-"%ACDEV_CHOSEN%" "%ACDEV_CLI%" %*
-exit /b %errorlevel%
+endlocal & goto #_undefined_# 2>nul || title %COMSPEC% & "%ACDEV_CHOSEN%" "%ACDEV_CLI%" %*
 :probe
 if not defined ACDEV_BUN goto node
 "%ACDEV_BUN%" -e "const [a,b]=process.versions.bun.split('.').map(Number);process.exit(a>1||(a===1&&b>=4)?0:1)" >nul 2>&1 || goto node
 >"%ACDEV_CACHE%" 2>nul echo %ACDEV_KEY%*%ACDEV_BUN%
-"%ACDEV_BUN%" "%ACDEV_CLI%" %*
-exit /b %errorlevel%
+endlocal & goto #_undefined_# 2>nul || title %COMSPEC% & "%ACDEV_BUN%" "%ACDEV_CLI%" %*
 :node
 if not defined ACDEV_NODE goto old
 "%ACDEV_NODE%" -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(!process.versions.bun&&(a>22||(a===22&&b>=3))?0:1)" >nul 2>&1 || goto old
 >"%ACDEV_CACHE%" 2>nul echo %ACDEV_KEY%*%ACDEV_NODE%
-"%ACDEV_NODE%" "%ACDEV_CLI%" %*
-exit /b %errorlevel%
+endlocal & goto #_undefined_# 2>nul || title %COMSPEC% & "%ACDEV_NODE%" "%ACDEV_CLI%" %*
 :old
 if defined ACDEV_BUN goto oldbun
 if defined ACDEV_NODE goto oldnode

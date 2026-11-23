@@ -58,7 +58,7 @@ dist.ts 的 `--out`: `install.sh`、`install.ps1`、`install.md`、`latest` (版
 
 ```
 bin/acdev            bin/acdev.sh 跑 lib/acdev/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
-bin/acdev.cmd        Windows 的启动器: bin/acdev.cmd (CRLF), 同样的选法和提示; PowerShell 调 .cmd 时经 cmd 会丢掉参数里的双引号 (acde#33); 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acdev 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
+bin/acdev.cmd        Windows 的启动器: bin/acdev.cmd (CRLF), 同样的选法和提示; PowerShell 调 .cmd 时经 cmd 会丢掉参数里的双引号 (acde#33); 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acdev 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次); 跑 CLI 的那一行写成 `endlocal & goto #_undefined_# 2>nul || title %COMSPEC% & "<bun 或 node>" cli.js %*` (npm cmd-shim、yarn 的做法, deno#9873): goto 一个不存在的标签结束批处理, 已经解析好的这一行接着在命令行上下文里跑, 按 Ctrl-C 不再问 "Terminate batch job (Y/N)?" (原来答 n 也照样退出, 因为 Ctrl-C 已经停了 node), 退出码照样传回调用方 (这一行必须是文件里最后执行的), 屏幕上可能剩一对 ^C
 libexec/acdev[.exe]  安装器放的调试运行时 (不在 acdev 归档里)
 libexec/acdevd-x86_64, libexec/acdevd-aarch64   客户机的设备守护进程 (acdev-guest 包)
 libexec/acdevtool[.exe]   宿主小工具: relay 和 view (acdevtools 包)
