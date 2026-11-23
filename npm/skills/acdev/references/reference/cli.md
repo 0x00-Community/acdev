@@ -149,6 +149,8 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `acdev revoke <app> <capability>` | Takes back a decision |
 | `acdev call <manager\|desktop> <method> [params\|-]` | Calls the session manager or the Dopame backend of a session in the guest and prints the result as JSON; see [call](../guide/tools.md#call) |
 | `acdev approvals [show <id>]` | Lists the system confirms that wait in a session in the guest, or puts one on the screen; see [System confirms](../guide/tools.md#system-confirms) |
+| `acdev hit <x> <y> [--json]` | What lies under a screen point: the window, its part, and on a page the element a click reaches; see [Hit and render](../guide/tools.md#hit-and-render) |
+| `acdev render [--web W] [--window W] [--json]` | The path each page draws on, and how each glass or frost layer is drawn; see [Hit and render](../guide/tools.md#hit-and-render) |
 | `acdev wait <condition> [args] [--timeout MS] [--quiet MS] [--web W] [--app ID] [--window W] [--ref R] [--selector S] [--focused] [--gone]` | Waits until a condition holds and prints the value it ended on as JSON; see [Waiting](../guide/tools.md#waiting) |
 | `acdev evidence [label] [--since T] [--output DIR]` | Keeps what the session shows now (screen, webs, element tree, console, network, the guest journal) in a new folder; see [Evidence](../guide/tools.md#evidence) |
 | `acdev stop` | Ends the session and its acdev runtime; see [Stopping](../guide/dev.md#stopping) |
