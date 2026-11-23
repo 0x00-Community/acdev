@@ -16,12 +16,34 @@ export interface RenderLayer {
   readonly degraded?: string
 }
 
+export interface CompositorArea {
+  readonly window: number
+  readonly surface: number
+  readonly rect: readonly [number, number, number, number]
+  readonly drawn: string
+}
+
+export type CompositorRender =
+  | { readonly composer: 'gpu' | 'cpu'; readonly device: string; readonly driver: string; readonly areas: readonly CompositorArea[] }
+  | { readonly error: string }
+
+export type CompositorHit =
+  | {
+    readonly window: number
+    readonly role: string
+    readonly surface: number
+    readonly local: readonly [number, number]
+    readonly beneath: readonly number[]
+  }
+  | { readonly error: string }
+
 export interface Render {
   readonly web: string
   readonly window: string | null
   readonly raster: Raster & { readonly degraded?: string }
   readonly composedBy: 'host-window' | 'compositor'
   readonly layers: readonly RenderLayer[]
+  readonly compositor?: CompositorRender
 }
 
 export interface HitElement {
@@ -39,6 +61,7 @@ export interface Hit {
   readonly element?: HitElement & { readonly chain: readonly HitElement[]; readonly through: readonly HitElement[] }
   readonly gone?: true
   readonly note?: string
+  readonly compositor?: CompositorHit
 }
 
 export interface Prober {
@@ -93,23 +116,33 @@ export function renderText(answers: readonly Render[]): string {
   for (const a of answers) {
     const by = a.composedBy === 'host-window' ? 'the host window composes the glass' : 'the compositor composes the glass'
     lines.push(`${a.window ?? '-'} ${a.web}: raster ${rasterText(a.raster)}; ${by}`)
-    if (!a.layers.length) {
-      lines.push('  (no layer with a backdrop-filter)')
-      continue
-    }
-    const rows = a.layers.map((l) => [
-      l.panel === undefined ? (a.window ?? '-') : `panel ${l.panel}`,
-      l.element ?? '-',
-      l.kind,
-      l.group ? `${l.group} (${l.pieces ?? 1})` : '-',
-      l.rect.map(Math.round).join(','),
-      l.drawn,
-      a.composedBy === 'compositor' ? 'not asked yet' : '-',
-      l.degraded ?? '-',
-    ])
-    lines.push(...table([['window', 'element', 'kind', 'group', 'rect', 'page', 'compositor', 'degraded'], ...rows]))
+    if (!a.layers.length) lines.push('  (no layer with a backdrop-filter)')
+    else lines.push(...layerRows(a))
+    if (a.compositor) lines.push(...composed(a.compositor))
   }
   return lines.join('\n')
+}
+
+function layerRows(a: Render): string[] {
+  const rows = a.layers.map((l) => [
+    l.panel === undefined ? (a.window ?? '-') : `panel ${l.panel}`,
+    l.element ?? '-',
+    l.kind,
+    l.group ? `${l.group} (${l.pieces ?? 1})` : '-',
+    l.rect.map(Math.round).join(','),
+    l.drawn,
+    l.degraded ?? '-',
+  ])
+  return table([['window', 'element', 'kind', 'group', 'rect', 'page', 'degraded'], ...rows])
+}
+
+function composed(compositor: CompositorRender): string[] {
+  if ('error' in compositor) return [`  compositor: not asked (${compositor.error})`]
+  const device = compositor.composer === 'gpu' ? ` (${[compositor.device, compositor.driver].filter(Boolean).join(', ')})` : ''
+  const head = `  compositor: ${compositor.composer}${device}`
+  if (!compositor.areas.length) return [`${head}; no glass or frost of this window`]
+  const rows = compositor.areas.map((area) => [`acompositor-${area.window}`, String(area.surface), area.rect.join(','), area.drawn])
+  return [head, ...table([['window', 'surface', 'rect (pixels)', 'drawn'], ...rows]).map((row) => `  ${row}`)]
 }
 
 function table(rows: readonly (readonly string[])[]): string[] {
@@ -119,10 +152,15 @@ function table(rows: readonly (readonly string[])[]): string[] {
 
 export function hitText(hit: Hit): string {
   const at = `${hit.x},${hit.y}`
-  if (!hit.window) return `${at}: no window there`
+  const tail = hit.compositor ? `\n${landedText(hit.compositor)}` : ''
+  if (!hit.window) return `${at}: no window there${tail}`
   const window = `${hit.window.ref} (${hit.window.title ?? hit.window.app ?? 'untitled'})`
   const local = hit.local ? ` at ${hit.local.join(',')}` : ''
   const head = `${at}: ${window} ${surfaceText(hit.surface)}${local}`
+  return `${pageText(hit, head)}${tail}`
+}
+
+function pageText(hit: Hit, head: string): string {
   if (hit.gone) return `${head}: the page went away before it answered; ask again`
   if (hit.note) return `${head} (${hit.note})`
   if (!hit.element) return head
@@ -131,6 +169,13 @@ export function hitText(hit: Hit): string {
   const more = chain.length > CHAIN_SHOWN ? ` < … ${chain.length - CHAIN_SHOWN} more` : ''
   const passed = through.length ? `\n  passed through (pointer-events: none): ${through.map((e) => e.line).join('; ')}` : ''
   return `${head}\n  ${[line, ...parents].join(' < ')}${more}${passed}`
+}
+
+function landedText(compositor: CompositorHit): string {
+  if ('error' in compositor) return `  compositor: not asked (${compositor.error})`
+  if (!compositor.window) return `  compositor: ${compositor.role === 'none' ? 'nothing there' : `a ${compositor.role} surface`}`
+  const covers = compositor.beneath.length ? `; covers ${compositor.beneath.map((n) => `acompositor-${n}`).join(', ')}` : ''
+  return `  compositor: acompositor-${compositor.window} ${compositor.role} at ${compositor.local.map(Math.round).join(',')}${covers}`
 }
 
 function surfaceText(surface: Hit['surface']): string {

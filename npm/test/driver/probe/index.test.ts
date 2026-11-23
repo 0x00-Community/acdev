@@ -31,13 +31,26 @@ describe('acdev render', () => {
     const text = renderText([render('notes#1', 'w2', { raster: { path: 'cpu', canvases: null, degraded: 'no-gpu' }, layers })])
     expect(text.split('\n')).toEqual([
       'w2 notes#1: raster cpu, degraded: no-gpu; the host window composes the glass',
-      '  window   element  kind   group   rect          page               compositor  degraded',
-      '  w2       w2.30    glass  g0 (3)  10,52,100,50  cpu-glass-frosted  -           cpu-cannot-refract',
-      '  panel 4  -        frost  -       0,0,20,20     frost              -           -',
+      '  window   element  kind   group   rect          page               degraded',
+      '  w2       w2.30    glass  g0 (3)  10,52,100,50  cpu-glass-frosted  cpu-cannot-refract',
+      '  panel 4  -        frost  -       0,0,20,20     frost              -',
     ])
     expect(renderText([render('desktop', 'w0')])).toBe(
       'w0 desktop: raster gpu (Intel Arc A770, vulkan, mesa 24.2); the host window composes the glass\n  (no layer with a backdrop-filter)',
     )
+  })
+
+  test('adds the compositor half a guest gives: its backend and the areas of the window', () => {
+    const areas = [{ window: 3, surface: 12, rect: [0, 0, 640, 80], drawn: 'gpu-glass' }] as const
+    const compositor = { composer: 'gpu', device: 'virgl', driver: 'mesa', areas } as const
+    const guest = render('notes#1', 'w2', { composedBy: 'compositor', compositor })
+    expect(renderText([guest]).split('\n').slice(2)).toEqual([
+      '  compositor: gpu (virgl, mesa)',
+      '    window         surface  rect (pixels)  drawn',
+      '    acompositor-3  12       0,0,640,80     gpu-glass',
+    ])
+    const old = render('notes#1', 'w2', { compositor: { error: 'acompositor_desktop_v1 10 below 12' } })
+    expect(renderText([old]).split('\n').at(-1)).toBe('  compositor: not asked (acompositor_desktop_v1 10 below 12)')
   })
 })
 
@@ -69,5 +82,16 @@ describe('acdev hit', () => {
     expect(hitText({ x: 5, y: 50, window: { ref: 'w2', app: 'notes', title: 'Notes' }, surface: 'page', gone: true })).toBe(
       '5,50: w2 (Notes) page: the page went away before it answered; ask again',
     )
+  })
+
+  test('adds where the compositor says the point landed and what that window covers', () => {
+    const page: Hit = { x: 150, y: 140, window: { ref: 'w2', app: 'notes', title: 'Notes' }, surface: 'page', local: [50, 40] }
+    const landed = { window: 3, role: 'toplevel', surface: 7, local: [50.4, 40] as const, beneath: [1, 2] }
+    expect(hitText({ ...page, compositor: landed }).split('\n')).toEqual([
+      '150,140: w2 (Notes) page at 50,40',
+      '  compositor: acompositor-3 toplevel at 50,40; covers acompositor-1, acompositor-2',
+    ])
+    const nothing = { window: 0, role: 'none', surface: 0, local: [0, 0] as const, beneath: [] }
+    expect(hitText({ x: 1, y: 2, window: null, surface: 'none', compositor: nothing })).toBe('1,2: no window there\n  compositor: nothing there')
   })
 })
