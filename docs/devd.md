@@ -100,7 +100,7 @@ macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-em
 - 隧道 (`C`、`T`, `src/tunnel.rs`; 客户机调试通道 A1): 只在密钥验证过的连接上可用, 守护进程没有密钥或第一帧不是 `A` 时回
   `a tunnel needs a key`. 回 `O` 之后连接上不再有帧, 守护进程两边各一个线程拷贝字节, 任一方读到结束或出错就把两边都关掉.
   - `C` 的路径先解析符号链接, 再和放行规则比: 规则是绝对路径, `*` 只匹配一段 (不跨 `/`); 默认只有管家的调试套接字
-    `/run/user/*/acde/dev.sock`, `serve` 的 `--allow-socket` (可重复) 给了就取代默认. 路径为空时找活动会话的管家套接字: 先问 logind
+    `/run/user/*/acde/dev.sock`, `serve` 的 `--allow-socket` (可重复) 给了就取代默认. 路径为空时先连 acdev 的客户机代理 `/run/acdev/agent.sock` (`Sockets::AGENT`, 2026-11-23, AC/acdev#115 的 S2: 代理讲同一套行协议, 背后走管家的开发钩子), 连不上 (旧客户机没有代理) 再找活动会话的管家套接字: 先问 logind
     (`loginctl show-seat seat0` 的 `ActiveSession`, 再取它的 `User`), 用 `/run/user/<uid>/acde/dev.sock`; 问不到时 `/run/user/*/acde/dev.sock`
     只有一个就用它, 没有或有好几个就回错误. 这个套接字只在开发客户机里有 (有 fw_cfg 密钥才算), 和隧道要密钥是同一个条件.
   - `T` 连客户机的 `127.0.0.1:<端口>`, 关掉 Nagle.

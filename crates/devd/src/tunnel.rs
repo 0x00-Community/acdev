@@ -8,27 +8,44 @@ use std::thread;
 
 use crate::frame;
 
-pub struct Sockets(Vec<String>);
+pub struct Sockets {
+    patterns: Vec<String>,
+    agent: PathBuf,
+}
 
 impl Sockets {
     pub const DEFAULTS: [&str; 1] = ["/run/user/*/acde/dev.sock"];
+    pub const AGENT: &str = "/run/acdev/agent.sock";
     const USERS: &str = "/run/user";
     const MANAGER: &str = "acde/dev.sock";
 
     pub fn new(patterns: Vec<String>) -> Self {
-        Self(patterns)
+        Self { patterns, agent: PathBuf::from(Self::AGENT) }
     }
 
     pub fn defaults() -> Self {
-        Self(Self::DEFAULTS.map(str::to_owned).to_vec())
+        Self::new(Self::DEFAULTS.map(str::to_owned).to_vec())
+    }
+
+    #[cfg(test)]
+    fn with_agent(self, agent: PathBuf) -> Self {
+        Self { agent, ..self }
     }
 
     pub fn admits(&self, path: &Path) -> bool {
-        path.to_str().is_some_and(|path| self.0.iter().any(|pattern| matches(pattern, path)))
+        path.to_str().is_some_and(|path| self.patterns.iter().any(|pattern| matches(pattern, path)))
     }
 
     fn listed(&self) -> String {
-        self.0.join(", ")
+        self.patterns.join(", ")
+    }
+
+    fn session(&self) -> io::Result<UnixStream> {
+        if let Ok(agent) = UnixStream::connect(&self.agent) {
+            return Ok(agent);
+        }
+        let path = Self::manager()?;
+        UnixStream::connect(&path).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))
     }
 
     fn manager() -> io::Result<PathBuf> {
@@ -71,9 +88,7 @@ fn segment(pattern: &[u8], text: &[u8]) -> bool {
 
 pub fn socket(body: &[u8], sockets: &Sockets, reader: UnixStream, writer: UnixStream) -> io::Result<()> {
     if body.is_empty() {
-        let path = Sockets::manager()?;
-        let target = UnixStream::connect(&path).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
-        return relay(reader, writer, target);
+        return relay(reader, writer, sockets.session()?);
     }
     let asked = String::from_utf8_lossy(body).into_owned();
     if !Path::new(&asked).is_absolute() {
@@ -177,6 +192,25 @@ mod tests {
         assert_eq!(round_trip(&mut host), b"PING");
         host.shutdown(Shutdown::Both).unwrap();
         manager.join().unwrap();
+        server.join().unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_tunnel_without_a_path_reaches_acdevs_agent_first() {
+        let dir = scratch("agent");
+        let agent = dir.join("agent.sock");
+        let listener = UnixListener::bind(&agent).unwrap();
+        let answering = thread::spawn(move || echo(listener.accept().unwrap().0));
+        let (mut host, guest) = UnixStream::pair().unwrap();
+        let sockets = Sockets::new(vec![format!("{}/*/acde/dev.sock", dir.display())]).with_agent(agent);
+        let settings = Settings { logs: dir.join("logs"), key: Some(KEY.to_vec()), sockets };
+        let server = thread::spawn(move || handle(guest, &settings));
+        frame::write(&mut host, frame::AUTH, KEY).unwrap();
+        frame::write(&mut host, frame::SOCKET, &[]).unwrap();
+        assert_eq!(round_trip(&mut host), b"PING");
+        host.shutdown(Shutdown::Both).unwrap();
+        answering.join().unwrap();
         server.join().unwrap().unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
