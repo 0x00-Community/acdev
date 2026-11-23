@@ -182,6 +182,16 @@ The argument to `key` (and `press()` in tests) is one or more chords separated b
 
 The whole argument is checked before anything is pressed: an unknown key fails with `unknown key: …` and presses nothing. The space character is `space` (spaces separate chords). To enter text, use `type` instead.
 
+### input
+
+`acdev input <web> <events>` sends raw mouse and keyboard events, for what `act` has no action for: a path drawn with the button down, a key held, a drag of a window by its title bar.
+
+```sh
+acdev input desktop '[{"type":"down","x":300,"y":12},{"type":"move","x":340,"y":40},{"type":"move","x":420,"y":90},{"type":"up","x":420,"y":90}]' --session vm
+```
+
+Two pauses are added, as a hand would make them: a `move` right after a `down` waits 150 ms first, and an `up` right after a `move` waits a frame (16 ms). The reason is the title-bar drag: the window asks the compositor to move only after it got the press, and the compositor takes that request only while the button is still down. Sent in one burst, the release comes first and the window stays where it is. A `wait` you put in those places yourself is kept as it is, nothing is added on top; a click (`down`, `up`), keys and hovering are sent unchanged. To put a window at an exact place, `act w1 move X,Y` is simpler.
+
 ### query
 
 `inspect` lists what a user can see and use. `query` finds elements by CSS selector whether they are shown or not, and gives each a ref, so it reaches what `inspect` leaves out: an element that is `display: none`, one that is scrolled out of view, and one that has no role, name or value of its own (a plain `<div>`; `inspect` lists what is inside it in its place).
