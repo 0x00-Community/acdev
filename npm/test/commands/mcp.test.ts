@@ -9,6 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Acde } from '../../src/driver/index.ts'
 import { Sessions } from '../../src/sessions.ts'
 import { Mcp } from '../../src/mcp.ts'
+import { waitArgs } from '../../src/mcp/checks.ts'
 import { cleanup, standIn, WINDOWS } from '../helpers.ts'
 
 const CLI = join(import.meta.dir, '../../src/cli.ts')
@@ -36,9 +37,9 @@ describe('acdev mcp', () => {
       const tools = (await client.listTools()).tools
       expect(tools.map((t) => t.name).sort()).toEqual([
         'act', 'answer', 'appearance', 'approvals', 'call', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
-        'doctor', 'doctor_fix', 'emulate', 'eval', 'input', 'logs', 'network', 'open', 'permissions', 'pointer', 'query',
-        'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for',
-        'webs',
+        'doctor', 'doctor_fix', 'emulate', 'eval', 'evidence', 'hit', 'input', 'logs', 'network', 'open', 'permissions',
+        'pointer', 'query', 'render', 'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute',
+        'wait', 'wait_for', 'webs',
       ])
       expect(tools.find((t) => t.name === 'answer')!.annotations)
         .toMatchObject({ readOnlyHint: false, destructiveHint: true })
@@ -93,6 +94,11 @@ describe('acdev mcp', () => {
       expect(waited.error).toBe(false)
       expect((await call('wait_for', { text: 'Nothing like this', timeout_ms: 200 })).text).toStartWith('waited 200 ms: "Nothing like this" did not appear')
       expect((await call('wait_for', { text: 'Nothing like this', gone: true })).text).toBe('"Nothing like this" is gone')
+      const element = await call('wait', { condition: 'element', text: 'Buy milk', timeout_ms: 3000 })
+      expect(element.error).toBe(false)
+      expect(element.text).toStartWith('{"count":')
+      const late = await call('wait', { condition: 'element', text: 'Nothing like this', timeout_ms: 200 })
+      expect([late.error, late.text.includes('last value: {"count":0')]).toEqual([true, true])
 
       const opened = await call('open', { app: 'beta' })
       expect(opened.text).toStartWith('opened beta: w2 "Beta"')
@@ -400,3 +406,12 @@ describe('the MCP clipboard tool', () => {
   })
 })
 
+describe('the wait tool', () => {
+  test('takes the same conditions as acdev wait', () => {
+    expect(waitArgs({ condition: 'eval', app: 'panel', code: 'ready()' }).condition).toEqual({ kind: 'eval', app: 'panel', code: 'ready()' })
+    expect(waitArgs({ condition: 'eval', web: 'desktop', code: 'ok' }).condition).toEqual({ kind: 'eval', web: 'desktop', code: 'ok' })
+    expect(waitArgs({ condition: 'window', gone: true, timeout_ms: 900 })).toEqual({ condition: { kind: 'window', gone: true }, timeout: 900 })
+    expect(waitArgs({ condition: 'stable', selector: '.count', quiet: 200 }).condition).toEqual({ kind: 'stable', selector: '.count', quiet: 200 })
+    expect(() => waitArgs({ condition: 'page' })).toThrow('wait page: needs a web')
+  })
+})

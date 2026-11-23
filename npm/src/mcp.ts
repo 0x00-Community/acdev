@@ -12,6 +12,7 @@ import { PageTools, type PageToolsHost } from './mcppage.ts'
 import { registerAnswers } from './mcp/answers.ts'
 import { registerInspecting } from './mcp/inspect.ts'
 import { clipboardRefusal, registerMachine } from './mcp/system.ts'
+import { registerChecks } from './mcp/checks.ts'
 import { Versions } from './versions.ts'
 
 
@@ -240,6 +241,7 @@ export class Mcp {
     registerAnswers(s, host)
     registerInspecting(s, host)
     registerMachine(s, host)
+    registerChecks(s, host)
     PageTools.register(s, host)
 
     s.registerTool(

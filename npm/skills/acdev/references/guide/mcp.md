@@ -44,6 +44,10 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `clock` | Takes over a page's time: installs a fake clock, pauses it, moves it forward |
 | `dialog` | Answers the page's next `alert` / `confirm` / `prompt` in advance, and lists the dialogs it showed |
 | `resize` | Resizes a window so that its page has the given size |
+| `wait` | Waits until a condition holds, with the conditions of [acdev wait](tools.md#waiting): `condition` plus `web`, `app`, `window`, `match`, `text`, `code`, `name`, `ref`, `selector`, `quiet`, `focused`, `gone`, `timeout_ms`; answers with the value it ended on as JSON, and past the timeout fails with the last value |
+| `hit` | What lies under a screen point (`x`, `y`), as [acdev hit](tools.md#hit-and-render); `json` for the whole answer |
+| `render` | The path each page draws on (`web` or `window` for one page), as [acdev render](tools.md#hit-and-render); `json` for the whole answer |
+| `evidence` | Keeps the screen, webs, element tree, console, network and, in a guest session, the journal in a new folder, as [acdev evidence](tools.md#evidence) (`label`, `since`, `output`) |
 
 Which session is used: the pinned one; otherwise the one `start` launched; otherwise one picked by the working directory.
 
