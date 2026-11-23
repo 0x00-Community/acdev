@@ -251,8 +251,7 @@ export class Tools {
     const appearance = command === 'appearance' ? Tools.appearing(flags) : null
     const calling = command === 'call' ? await Tools.#calling(args) : null
     const showing = command === 'approvals' ? Tools.showing(args) : null
-    const stdin = command === 'wait' && args[0] === 'eval' && args[2] === '-'
-    const waiting = command === 'wait' ? Wait.fromArgs(stdin ? [...args.slice(0, 2), await Runtime.readStdin()] : args, flags) : null
+    const waiting = command === 'wait' ? Wait.fromArgs(await Tools.#stdinCode(args, flags), flags) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -411,16 +410,24 @@ export class Tools {
   static async #wait(acde: Acde, { condition, timeout }: Wait.WaitArgs, guest: boolean): Promise<number> {
     const since = new Date()
     try {
-      const { ms, seen } = await acde.waitFor(condition, timeout)
-      console.log(`waited ${ms} ms for ${Wait.describe(condition)}: ${seen}`)
+      const { ms, seen, value } = await acde.waitFor(condition, timeout)
+      console.error(`acdev: waited ${ms} ms for ${Wait.describe(condition)}: ${seen}`)
+      console.log(JSON.stringify(value ?? null))
       return 0
     } catch (error) {
       if (!(error instanceof Wait.WaitTimeout)) throw error
       const capture = { root: resolve(Evidence.DEFAULT_ROOT), label: `wait-${condition.kind}`, since, error, journal: guest ? guestJournal : null }
       console.error(`acdev: ${error.message}`)
+      console.log(JSON.stringify(error.value ?? null))
       console.error(`acdev: ${Evidence.summary(await Evidence.keep(acde, capture))}`)
       return 1
     }
+  }
+
+  static async #stdinCode(args: readonly string[], flags: ReadonlyMap<string, string>): Promise<readonly string[]> {
+    if (args[0] !== 'eval') return args
+    const at = flags.has('app') || flags.has('window') ? 1 : 2
+    return args[at] === '-' ? [...args.slice(0, at), await Runtime.readStdin()] : args
   }
 
   static async #evidence(session: Pin | undefined, label: string | undefined, flags: ReadonlyMap<string, string>): Promise<number> {

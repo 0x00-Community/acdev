@@ -59,7 +59,7 @@ class Cli {
     call: { args: [2, 3], flags: ['session'] },
     approvals: { args: [0, 2], flags: ['session'] },
     evidence: { args: [0, 1], flags: ['session', 'output', 'since'] },
-    wait: { args: [1, 3], flags: ['session', 'timeout', 'window', 'web', 'quiet'], switches: ['focused', 'gone'] },
+    wait: { args: [1, 3], flags: ['session', 'timeout', 'window', 'web', 'quiet', 'app', 'ref', 'selector'], switches: ['focused', 'gone'] },
     stop: { args: [0, 0], flags: ['session'] },
     devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },

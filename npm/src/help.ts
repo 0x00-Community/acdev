@@ -356,14 +356,18 @@ export class Help {
       ], [], ['acdev approvals --session vm', 'acdev approvals show r-12 --session vm']),
       inspecting('wait', '<condition> [args]', 'Wait until a condition holds, without a fixed delay', [
         'Conditions: page <web> (it answers; a page that is not there yet is waited for), window <w3|app|title> '
-          + '[--focused], element <text> [--gone] [--window W], stable [--window W] [--quiet MS] (the element tree did not '
-          + 'change for the quiet time), network-idle [--web W] [--quiet MS] (no request open for the quiet time), eval <web> '
-          + '<expression|-> (it turns true), service <name> [--web W] (acde:services lists it).',
-        'Asks again from every 100 ms up to every 500 ms. Prints how long it took; past --timeout (default 30000) it prints '
-          + 'what it saw last, keeps the evidence (as acdev evidence does) and exits 1.',
+          + '[--focused] [--gone] (window --gone: every window is closed), element <text> [--gone] [--window W], '
+          + 'stable [--window W | --ref R | --selector S] [--quiet MS] (the element tree, or that one element\'s place and text, '
+          + 'did not change for the quiet time), network-idle [--web W] [--quiet MS] (no request open for the quiet time), '
+          + 'eval <web> <expression|-> or eval --app ID | --window W <expression|-> (it turns true), service <name> [--web W].',
+        'Asks again from every 100 ms up to every 500 ms. Prints on stdout, as JSON, the value it ended on (what eval gave, '
+          + '{count, texts} of element, the texts stable watched, the window), and how long it took on stderr; past --timeout '
+          + '(default 30000) it prints the last value and what it saw, keeps the evidence (as acdev evidence does) and exits 1.',
       ], [
         { flag: '--timeout MS', about: 'How long at most (default: 30000)' },
         { flag: '--quiet MS', about: 'For stable and network-idle: how long nothing may change (default: 500)' },
+        { flag: '--app ID / --window W', about: 'For eval: the page of that app, or of that window (ref or title)' },
+        { flag: '--ref R / --selector S', about: 'For stable: watch one element instead of the whole tree' },
       ], ['acdev wait page desktop --session vm', 'acdev wait eval desktop "document.title === \'Ready\'"', 'acdev wait stable --window w2']),
       inspecting('evidence', '[label]', 'Keep what the session shows now, for a failure', [
         'Writes a new folder <output>/<UTC time>-<label> (never one that is there: -2, -3 … follow) with the screen, '

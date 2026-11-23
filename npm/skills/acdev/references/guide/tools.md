@@ -295,16 +295,16 @@ While it shows, it covers the screen: clicks meant for the windows under it land
 
 ### Waiting
 
-`acdev wait` replaces fixed sleeps and retry loops in checks. It asks again from every 100 ms up to every 500 ms until the condition holds, and prints how long it took. Past `--timeout` (default 30 s) it prints what it saw last, keeps the evidence as `acdev evidence` does, and exits 1. Tests use the same conditions with `acde.waitFor({kind, …}, timeout)`.
+`acdev wait` replaces fixed sleeps and retry loops in checks. It asks again from every 100 ms up to every 500 ms until the condition holds, and prints the value it ended on as JSON on stdout (what `eval` gave, `{count, texts}` for `element`, the texts `stable` watched, the window) and how long it took on stderr. Past `--timeout` (default 30 s) it prints the last value and what it saw, keeps the evidence as `acdev evidence` does, and exits 1. Tests use the same conditions with `acde.waitFor({kind, …}, timeout)`, which returns `{ms, seen, value}`; a `WaitTimeout` carries the last `value` too.
 
 | Condition | Holds when |
 | --- | --- |
 | `page <web>` | The page answers. A page that is not there yet (it restarts, or the guest session is still starting) is waited for, not an error |
-| `window <w3\|app\|title> [--focused]` | A window with that ref, app id or title is there (and has the focus) |
+| `window <w3\|app\|title> [--focused] [--gone]` | A window with that ref, app id or title is there (and has the focus), or with `--gone` is no longer there; `window --gone` with no window waits until every window is closed (the desktop and the lock and confirm pages do not count) |
 | `element <text> [--gone] [--window W]` | An element whose name or value contains the text is there (or none is) |
-| `stable [--window W] [--quiet MS]` | The element tree did not change for the quiet time (default 500 ms) |
+| `stable [--window W] [--ref R \| --selector S] [--quiet MS]` | The element tree did not change for the quiet time (default 500 ms); with `--ref` or `--selector` only that element's place and text are watched |
 | `network-idle [--web W] [--quiet MS]` | No request is open, and none started or finished for the quiet time |
-| `eval <web> <expression\|->` | The expression turns true in that page; an app says it is ready this way, for example `acdev wait eval desktop "import('acde:assistant').then((m) => m.assistant.status()).then((s) => s.enabled)"` |
+| `eval <web> <expression\|->`, `eval --app ID <expression\|->`, `eval --window W <expression\|->` | The expression turns true in that page, or in the page of that app or window (a desk panel in its own window is found this way); an app says it is ready this way, for example `acdev wait eval desktop "import('acde:assistant').then((m) => m.assistant.status()).then((s) => s.enabled)"` |
 | `service <name> [--web W]` | `acde:services` lists the service (asked in the desktop page unless `--web`) |
 
 ### Evidence

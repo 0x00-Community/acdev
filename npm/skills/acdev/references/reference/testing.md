@@ -71,6 +71,7 @@ class Acde {
   screen(options?: { path?: string }): Promise<Shot>
   console(options?: { web?; since?; limit?; level? }): Promise<{ entries; next; dropped }>
   network(options?: { web?; since?; limit?; failed? }): Promise<{ entries; next; dropped }>
+  waitFor(condition: Condition, timeout?: number): Promise<{ ms: number; seen: string; value: unknown }>  // conditions: see Waiting in Debugging
   waitForRequest(url: string | RegExp, options?: { method?; web?; timeout? }): Promise<RequestEntry>
   waitForConsole(text: string | RegExp, options?: { level?; web?; timeout? }): Promise<ConsoleEntry>
 
