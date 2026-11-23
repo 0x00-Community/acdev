@@ -17,6 +17,7 @@ import { AppWindow } from '../driver/window.ts'
 import { E2e, type E2eSettings } from './settings.ts'
 import * as Evidence from '../evidence/index.ts'
 import { guestJournal } from '../evidence/guest.ts'
+import * as Timeline from '../timeline/index.ts'
 
 export { afterAll, afterEach, beforeAll, beforeEach, describe } from 'bun:test'
 export * from '../driver/index.ts'
@@ -206,7 +207,8 @@ export class E2eRun {
   static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir), since = new Date()): Promise<string> {
     const logs = acde?.logs ?? (error instanceof LaunchError ? error.logs : null)
     const journal = acde?.guest ? guestJournal : null
-    const capture = { label: name, since, error, output: logs ? logs.tail(Logs.KEEP).text : null, journal, budgetMs: E2eRun.KEEP_MS }
+    const timeline = acde ? Timeline.since(acde) : null
+    const capture = { label: name, since, error, output: logs ? logs.tail(Logs.KEEP).text : null, journal, timeline, budgetMs: E2eRun.KEEP_MS }
     const kept = await Evidence.write(acde, capture, dir)
     const wrote = kept.items.map((item) => (item.ok ? item.file : `${item.file}.error.txt`))
     if (acde) wrote.push(...acde.trace.write(dir, name))
