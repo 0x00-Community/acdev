@@ -35,7 +35,7 @@ describe('new URL(path, import.meta.url) in Bun builds', () => {
     writeFileSync(join(dir, 'src/main.js'), "document.title = new URL('./pic.png', import.meta.url).pathname\n")
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><script type="module" src="./src/main.js"></script>\n')
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'urls', type: 'module' }))
-    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'urls', label: 'urls', icon: 'app' }))
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'urls', label: 'urls', icon: 'application-x-executable' }))
     const out = join(tmp(), 'out')
     const built = await collect([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'build', '--out', out], { cwd: dir, env: env({}) })
     expect(built.code, built.stderr).toBe(0)

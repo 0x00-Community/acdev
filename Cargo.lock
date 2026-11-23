@@ -610,6 +610,7 @@ dependencies = [
  "color",
  "image",
  "kurbo",
+ "log",
  "parley",
  "peniko",
  "skrifa 0.44.0",

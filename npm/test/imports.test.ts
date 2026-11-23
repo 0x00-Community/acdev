@@ -210,7 +210,7 @@ describe('other projects', () => {
       name: 'by-hand',
       acde: {
         apiLevel: API_LEVEL,
-        apps: [{ id: 'by-hand', label: 'Hand', icon: 'app', entry: '/ui/app.js', capabilities }],
+        apps: [{ id: 'by-hand', label: 'Hand', icon: 'application-x-executable', entry: '/ui/app.js', capabilities }],
         assets: { '/ui/': ['ui'] },
       },
     }))
@@ -230,7 +230,7 @@ describe('other projects', () => {
       name: 'by-hand',
       acde: {
         apiLevel: API_LEVEL,
-        apps: [{ id: 'by-hand', label: 'Hand', icon: 'app', entry: '/ui/app.js', services: ['clock'] }],
+        apps: [{ id: 'by-hand', label: 'Hand', icon: 'application-x-executable', entry: '/ui/app.js', services: ['clock'] }],
         assets: { '/ui/': ['ui'] },
       },
     }))

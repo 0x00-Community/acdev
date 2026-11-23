@@ -146,7 +146,7 @@ export class AppPackage {
     const project = this.project!
     const config = project.config
     const raw = (id: string, app: WindowAppConfig): AppEntry =>
-      ({ ...app, id, label: app.label ?? id, icon: 'app', entry: `/app/${id}/index.html`, backend: undefined })
+      ({ ...app, id, label: app.label ?? id, icon: Project.ICON, entry: `/app/${id}/index.html`, backend: undefined })
     let id: string
     let framework: string | null
     try {

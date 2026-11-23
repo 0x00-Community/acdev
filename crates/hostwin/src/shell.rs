@@ -76,6 +76,7 @@ pub(crate) struct Entry {
     pub reserve: Option<(u32, f64)>,
     pub frame: f64,
     pub backdrop: Option<([f64; 4], [f64; 5])>,
+    pub material: Option<acde::render::WindowMaterial>,
     pub pending: Option<([f64; 4], [f64; 4])>,
     pub drawn: (u32, u32),
     pub menus: Vec<menu::Menu>,
@@ -363,7 +364,10 @@ impl State {
     pub fn layers(&self) -> Vec<Layer> {
         let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.shown()).collect();
         shown.sort_by_key(|(id, e)| Self::rank(**id, e));
-        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop, look: self.look(id) }).collect()
+        shown
+            .into_iter()
+            .map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop, material: e.material.clone(), frame: e.frame, look: self.look(id) })
+            .collect()
     }
 
     pub fn host_entry(&self) -> Option<u32> {

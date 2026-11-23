@@ -178,7 +178,7 @@ describe('backends', () => {
   test('entry "/": the backend renders the pages, public/ is still served at the app root', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "rendered"}')
-    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/" }')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "application-x-executable", "entry": "/" }')
     writeFileSync(
       join(dir, 'server.ts'),
       "export default { fetch: (r: Request) => new Response(`<!doctype html><title>${new URL(r.url).pathname}</title>`, { headers: { 'content-type': 'text/html' } }) }\n",
@@ -200,13 +200,14 @@ describe('backends', () => {
   test('entry "/" without a backend, or another path ending in /, is an error of acdev check and acdev build', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "rendered"}')
-    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/" }')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "application-x-executable", "entry": "/" }')
     const checked = await cli(['check'], dir)
     expect(checked.code).not.toBe(0)
     expect(checked.stdout + checked.stderr).toContain('entry "/" in acde.config.jsonc means the backend renders the pages, but there is no backend')
     expect((await cli(['build', '--out', join(dir, '.acde')], dir)).code).not.toBe(0)
     writeFileSync(join(dir, 'server.ts'), 'export default { fetch: () => new Response("x") }\n')
-    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app", "id": "rendered", "label": "Rendered", "icon": "app", "entry": "/home/" }')
+    const config = { type: 'app', id: 'rendered', label: 'Rendered', icon: 'application-x-executable', entry: '/home/' }
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify(config))
     const other = await cli(['check'], dir)
     expect(other.code).not.toBe(0)
     expect(other.stdout + other.stderr).toContain('an entry ending in / means the backend renders the pages, and it is "/"')
@@ -267,7 +268,7 @@ describe('acde.config.jsonc', () => {
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
     expect(built.acde).toEqual({
       apiLevel: API_LEVEL,
-      apps: [{ id: 'hello', label: 'Hi', icon: 'app', entry: '/app/hello/index.html', capabilities: {} }],
+      apps: [{ id: 'hello', label: 'Hi', icon: 'application-x-executable', entry: '/app/hello/index.html', capabilities: {} }],
       assets: { '/app/hello/': ['web'] },
     })
     expect(existsSync(join(data, 'acde/packages/hello/web/index.html'))).toBe(true)
@@ -298,7 +299,7 @@ describe('acde.config.jsonc', () => {
       { id: 'mine', name: '我的桌面', entry: 'desktop/index.html', services: ['clock'] },
     ])
     expect(built.acde.services).toEqual([{ name: 'clock', module: 'services/clock.js' }])
-    expect(built.acde.apps).toEqual([{ id: 'notes', label: 'Notes', icon: 'app', entry: '/app/notes/notes.html' }])
+    expect(built.acde.apps).toEqual([{ id: 'notes', label: 'Notes', icon: 'application-x-executable', entry: '/app/notes/notes.html' }])
     expect(built.acde.assets).toEqual({ '/desktop/mine/': ['desktop'], '/app/notes/': ['apps/notes/web'] })
     for (const file of ['desktop/index.html', 'services/clock.js', 'apps/notes/web/notes.html'])
       expect(existsSync(join(out, file))).toBe(true)
@@ -392,7 +393,7 @@ describe('acde.config.jsonc', () => {
           name: 'leveled',
           acde: {
             ...(level !== undefined && { apiLevel: level }),
-            apps: [{ id: 'leveled', label: 'x', icon: 'app', entry: '/ui/app.js' }],
+            apps: [{ id: 'leveled', label: 'x', icon: 'application-x-executable', entry: '/ui/app.js' }],
             assets: { '/ui/': ['ui'] },
           },
         }),

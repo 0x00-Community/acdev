@@ -234,6 +234,7 @@ impl Surface {
             C::Title(title) => self.set_title(&title),
             C::ImeArea(rect) => self.set_ime_area(rect),
             C::WindowLook(_) => {}
+            C::Material(material) => self.set_material(material),
         }
     }
 
@@ -245,6 +246,16 @@ impl Surface {
             entry.hints.clear();
         } else {
             entry.hints.push(([x, y, w, h].map(f64::from), edges));
+        }
+    }
+
+    fn set_material(&self, material: acde::render::WindowMaterial) {
+        let Some(server) = server() else { return };
+        if let Some(entry) = server.state().entries.get_mut(&self.window) {
+            entry.material = (material.name != "none").then_some(material);
+        }
+        if let Some(compositor) = server.compositor() {
+            compositor.dirty();
         }
     }
 

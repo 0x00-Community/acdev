@@ -23,7 +23,7 @@ type AcdeConfig = AppConfig | DesktopConfig
 | --- | --- | --- | --- |
 | `id` | string | Derived from the package name | `[a-z0-9][a-z0-9-]*` |
 | `label` | string | | Display name |
-| `icon` | icon name \| path | `"app"` | See [Icons](../guide/assets.md#icons) |
+| `icon` | icon name \| path | `"application-x-executable"` | See [Icons](../guide/assets.md#icons) |
 | `entry` | string | `"index.html"` | HTML, or a module whose default export is a `WindowApp`; omit when using a framework |
 | `framework` | `Framework` | `"auto"` | See below |
 | `capabilities` | `Capabilities` | `{}` | System capabilities; see [Manifest](manifest.md#capabilities). A desktop service's name here is an error |
@@ -31,6 +31,7 @@ type AcdeConfig = AppConfig | DesktopConfig
 | `services` | string[] | `[]` | Desktop services the app uses, imported as `acde:<name>`; not the name of a system module |
 | `size` | `[number, number]` | `[800, 600]` | Content area in logical pixels, positive integers. When `acdev dev` runs the app alone, the size the host window opens at (the app fills it); not applied with `--headless` |
 | `frame` | boolean | `true` | System title bar |
+| `window` | `{material?}` | | `material`: the window background material at start, a name or `{name, role?, group?, spacing?, overrides?, region?}`; see [Window material](../guide/window.md#window-material) |
 | `multiple` | boolean | `false` | Allow multiple windows |
 | `mimeTypes` | string[] | `[]` | `type/subtype` or `type/*` |
 | `schemes` | string[] | `[]` | URL schemes of links the app opens: `[a-z][a-z0-9+.-]*`, no colon, not `file` |

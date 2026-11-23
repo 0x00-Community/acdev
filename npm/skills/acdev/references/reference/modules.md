@@ -80,6 +80,8 @@ interface AcdeWindow {
   requestMode(mode: WindowMode): void
   setGrabHint(rect: WindowRect, edges?: readonly ('top' | 'bottom' | 'left' | 'right')[]): void
   setBackdrop(rect: WindowRect | null, effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number }): void
+  setMaterial(material: MaterialName, options?: MaterialOptions): void
+  material(): { readonly material: string; readonly options: MaterialOptions }
   requestActivate(): void
   requestGrab(kind: 'pointer' | 'keyboard'): void
   releaseGrab(kind: 'pointer' | 'keyboard'): void
@@ -100,6 +102,14 @@ interface AcdeWindow {
 
 type WindowState = 'normal' | 'minimized' | 'filled' | 'fullscreen'
 type WindowMode = 'free' | 'fixed' | 'pinned'
+type MaterialName = 'glass' | 'blur' | 'none' | (string & {}) // unknown names draw as none, with one warning
+interface MaterialOptions {
+  readonly role?: 'regular' | 'clear'                     // glass only
+  readonly group?: string                                 // glass only: session-wide window-layer group, [a-z0-9._-], at most 64 bytes
+  readonly spacing?: number                               // merge distance in logical pixels, default 10
+  readonly overrides?: Readonly<Record<string, string>>   // --acde-glass-* parameter (no prefix) -> CSS text
+  readonly region?: 'window' | 'titlebar'                 // default window
+}
 
 interface WindowRect { x: number; y: number; width: number; height: number }
 interface WindowOutput { width: number; height: number; scale: number; workArea: WindowRect }

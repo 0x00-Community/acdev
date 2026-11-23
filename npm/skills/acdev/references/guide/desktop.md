@@ -19,7 +19,7 @@ acdev dev
   "entry": "index.html",
   "services": { "clock": "services/clock.ts" },
   "apps": [
-    { "id": "hello", "label": "Hello", "icon": "app", "entry": "apps/hello/index.html" }
+    { "id": "hello", "label": "Hello", "icon": "application-x-executable", "entry": "apps/hello/index.html" }
   ]
 }
 ```

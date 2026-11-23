@@ -66,7 +66,7 @@ describe('acdev check --platform', () => {
         name: 'cam',
         acde: {
           apiLevel: API_LEVEL,
-          apps: [{ id: 'cam', label: 'Cam', icon: 'app', entry: '/ui/app.js', capabilities: { camera: true } }],
+          apps: [{ id: 'cam', label: 'Cam', icon: 'application-x-executable', entry: '/ui/app.js', capabilities: { camera: true } }],
           assets: { '/ui/': ['ui'] },
         },
       }),

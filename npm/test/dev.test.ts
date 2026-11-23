@@ -655,7 +655,7 @@ describe('acdev dev with a stand-in acdert', () => {
       name: 'hand',
       acde: {
         apiLevel: API_LEVEL,
-        apps: [{ id: 'hand', label: 'Hand', icon: 'app', entry: '/app/hand/index.html' }],
+        apps: [{ id: 'hand', label: 'Hand', icon: 'application-x-executable', entry: '/app/hand/index.html' }],
         assets: { '/app/hand/': ['dist'] },
       },
     }))
