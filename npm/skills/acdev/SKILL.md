@@ -112,3 +112,7 @@ Reference:
 - [Web compatibility](references/reference/web.md): storage, network, what is unsupported
 - [Environment variables](references/reference/env.md): acdev, the runtime, app backends
 - [Platform support](references/reference/platforms.md): what works on macOS, Windows, Linux, and Dopame OS
+
+For partners:
+
+- [agentrt as an executor](references/partners/agentrt-executor.md): for agentrt maintainers: how Dopame runs agents, the executor interface, and how agentrt can plug in again
