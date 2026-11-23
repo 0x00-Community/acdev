@@ -1,21 +1,19 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
-import type { InspectAction } from '@acde/api'
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
 import { Doctor } from './doctor.ts'
-import { ACTIONS, Acde, type ActResult } from './driver/acde.ts'
-import { Poll } from './driver/poll.ts'
+import { Acde, type ActResult } from './driver/acde.ts'
 import { Sessions, type Pin, type Session } from './sessions.ts'
 import { Format } from './driver/format.ts'
-import { PageTools } from './mcppage.ts'
-import { Tools } from './tools.ts'
+import { PageTools, type PageToolsHost } from './mcppage.ts'
+import { registerAnswers } from './mcp/answers.ts'
+import { registerInspecting } from './mcp/inspect.ts'
+import { clipboardRefusal, registerMachine } from './mcp/system.ts'
 import { Versions } from './versions.ts'
 
-const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
-const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = [
   `acdev: see and drive the desktop and apps of an acdev dev session (acdev runtime runs them, not a browser). For Chrome `
@@ -60,7 +58,6 @@ const INSTRUCTIONS = [
 ].join('\n')
 
 const ANSWER = 'the answer tool allows or denies it'
-const NAMING = 'name one with prompt, or with app and capability'
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
@@ -228,331 +225,7 @@ export class Mcp {
       () => this.#safe(async () => Mcp.#text(await Mcp.#webs(await this.#acde()))),
     )
 
-    s.registerTool(
-      'permissions',
-      {
-        description: 'The approval prompts that wait (id, app, capability, why it is asked) and the decisions made '
-          + '(app, capability, granted or denied). Only the camera and the microphone ask; a page that waits for '
-          + 'an answer waits in getUserMedia.',
-        inputSchema: z.object({}),
-        annotations: look,
-      },
-      () => this.#safe(async () => Mcp.#text(Format.permissions(await (await this.#acde()).permissions()))),
-    )
-
-    s.registerTool(
-      'answer',
-      {
-        description: 'Allow or deny an approval prompt that waits. To allow, name the app and the capability, so '
-          + 'that what is granted is stated in the call. To deny: the prompt id, or app and capability, or, with '
-          + 'neither, the only one waiting (several are listed, not guessed). The decision is kept for the app until '
-          + 'revoke takes it back. It stands in for the user\'s own answer: allow only what the user asked for or '
-          + 'agreed to, and tell them what you allowed.',
-        inputSchema: z.object({
-          allow: z.boolean().describe('true grants the capability, false denies it'),
-          prompt: z.number().int().positive().optional().describe('the id permissions shows'),
-          app: z.string().optional().describe('the app id, together with capability'),
-          capability: z.string().optional().describe('the capability asked for (camera or microphone), together '
-            + 'with app'),
-        }),
-        annotations: { ...drive, destructiveHint: true },
-      },
-      (args) =>
-        this.#safe(async () => {
-          if (args.prompt !== undefined && (args.app !== undefined || args.capability !== undefined))
-            throw new Error('answer: give prompt, or app and capability, not both')
-          if (args.allow && (args.app === undefined || args.capability === undefined))
-            throw new Error('answer: to allow, name the app and the capability (permissions lists what waits)')
-          const wanted = {
-            ...(args.prompt !== undefined && { prompt: args.prompt }),
-            ...(args.app !== undefined && { app: args.app }),
-            ...(args.capability !== undefined && { capability: args.capability }),
-          }
-          return Mcp.#text(await Approvals.answer(await this.#acde(), wanted, args.allow, NAMING))
-        }),
-    )
-
-    s.registerTool(
-      'revoke',
-      {
-        description: 'Take back a decision about an app and a capability (as permissions lists them), so the app is '
-          + 'asked again the next time it needs it.',
-        inputSchema: z.object({
-          app: z.string().describe('the app id'),
-          capability: z.string().describe('the capability the decision is about'),
-        }),
-        annotations: { ...drive, destructiveHint: true },
-      },
-      (args) =>
-        this.#safe(async () => Mcp.#text(await Approvals.revoke(await this.#acde(), args.app, args.capability))),
-    )
-
-    s.registerTool(
-      'snapshot',
-      {
-        description: 'The desktop as text, in a fixed English format: one line per window, top first '
-          + '(- window "Notes" [app=notes] [focused] [w1]; the desktop is - desktop), and under the focused window (or '
-          + 'window / ref) its elements indented two spaces, one per line: - button "Save" [pressed] [w1.52]. Notes in '
-          + 'parentheses say what is left out, such as (no changes) or (windows unchanged) with diff. Elements outside '
-          + 'the visible area are not listed; scroll to reach them.',
-        inputSchema: z.object({
-          window: z.string().optional().describe('a window ref (w3) to list instead of the focused one'),
-          ref: z.string().optional().describe('an element ref (w3.12): list only what is under it'),
-          find: z.string().optional().describe('only elements whose name or value contains this text '
-            + '(case-insensitive), with their ancestors, in every window not marked [minimized]'),
-          all: z.boolean().optional().describe('list every window not marked [minimized], and keep elements hidden by '
-            + 'opacity: 0 or visibility (marked transparent / invisible); display: none, aria-hidden and inert '
-            + 'stay out'),
-          diff: z.boolean().optional().describe('only what changed since the last snapshot of that window (+ added, ~ '
-            + 'changed, - gone)'),
-          limit: z.number().int().min(20).max(3000).optional().describe('most elements per window (default 600)'),
-          offscreen: z.boolean().optional().describe('also list elements scrolled out of view'),
-        }),
-        annotations: look,
-      },
-      (args) => this.#safe(async () => Mcp.#text((await (await this.#acde()).snapshot(args)).text)),
-    )
-
-    s.registerTool(
-      'act',
-      {
-        description:
-          'Do one thing to a ref from snapshot. Element refs (w3.12): click, double, right, hover, scroll (arg: '
-            + 'pixels, default 400), type (arg: text, appended through the input method), settext (arg: text, replaces '
-            + 'the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, '
-            + 'an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, '
-            + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, fill, fullscreen, '
-            + 'close, key, move (arg: screen "x,y", keeps the size), resize (arg: "WxH", keeps the place), raise '
-            + '(to the front). Only a normal window moves or resizes; the desktop, a minimized, filled or full-screen '
-            + 'window and a single-app window are refused with the reason. drag holds the button 150 ms, moves in '
-            + 'steps and rests a frame before letting go; to place a window exactly, use move. Real input is '
-            + 'injected; the answer waits for the page to settle and lists what changed. '
-            + 'Closing the only window of a session that runs a single app ends that session; the answer says so.',
-        inputSchema: z.object({
-          ref: z.string().describe('w3 or w3.12'),
-          action: ACTION,
-          arg: ARG.optional().describe('text for type / settext, keys for key, pixels for scroll, the target ref for '
-            + 'drag, option(s) for select, screen "x,y" for move, "WxH" for resize'),
-        }),
-        annotations: drive,
-      },
-      (args) => this.#safe(async () =>
-        Mcp.#acted(await (await this.#acde()).act(args.ref, args.action, args.arg ?? null))),
-    )
-
-    s.registerTool(
-      'run',
-      {
-        description: 'Do several act steps in order, stopping at the first that fails; the answer lists what each did '
-          + 'and what changed.',
-        inputSchema: z.object({
-          steps: z.array(z.object({ ref: z.string(), action: ACTION, arg: ARG.optional() })).min(1),
-        }),
-        annotations: drive,
-      },
-      (args) => this.#safe(async () => Mcp.#acted(await (await this.#acde()).run(args.steps))),
-    )
-
-    s.registerTool(
-      'open',
-      {
-        description: 'Open an app (by id or name; native programs too where the session has them) and wait for its '
-          + 'window; answers with the new window and its elements. With path (a file or folder) or url (http, https) it opens '
-          + 'that as the desktop does (acde:open): with its default app, or with app.',
-        inputSchema: z.object({
-          app: z.string().optional().describe('app id (ledger) or name'),
-          path: z.string().optional().describe('a file or folder: absolute (the guest\'s in a guest session), or relative to '
-            + 'the working directory on the host'),
-          url: z.string().optional().describe('an http or https link'),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const acde = await this.#acde()
-          if (args.path !== undefined || args.url !== undefined) {
-            const given = { ...(args.app && { name: args.app }), ...(args.path && { path: args.path }), ...(args.url && { url: args.url }) }
-            const result = await acde.openWith(Tools.located(given, acde.guest, this.#cwd))
-            return Mcp.#acted(result)
-          }
-          if (!args.app) throw new Error('open: give app, path or url')
-          const window = await acde.open(args.app)
-          const info = await window.info()
-          const title = info.title ? ` ${JSON.stringify(info.title)}` : ''
-          return Mcp.#text(`opened ${args.app}: ${info.ref}${title}\n\n${await window.snapshot()}`)
-        }),
-    )
-
-    s.registerTool(
-      'wait_for',
-      {
-        description: 'Wait until an element whose name or value contains text is shown (or, with gone, until none is), '
-          + 'in a window or any visible one; answers with the matching elements.',
-        inputSchema: z.object({
-          text: z.string().min(1),
-          gone: z.boolean().optional().describe('wait for it to disappear instead'),
-          window: z.string().optional().describe('a window ref (w3); default: every visible window'),
-          timeout_ms: z.number().int().min(0).max(120_000).optional().describe('default 5000'),
-        }),
-        annotations: look,
-      },
-      (args) => this.#safe(async () => this.#waitFor(args)),
-    )
-
-    s.registerTool(
-      'query',
-      {
-        description: 'Find elements by CSS selector in a window (default: the focused one), or under an element ref; '
-          + 'one line per element as snapshot prints it (role, name, value, a heading\'s level, states, ref), then '
-          + 'its tag ([hidden] when not rendered). The refs work with act.',
-        inputSchema: z.object({
-          selector: z.string().min(1).describe('a CSS selector, e.g. form input[type=email] or [data-testid="save"]'),
-          window: z.string().optional().describe('a window ref (w3)'),
-          ref: z.string().optional().describe('an element ref (w3.12): search only under it'),
-          limit: z.number().int().min(1).max(3000).optional().describe('most elements (default 600)'),
-        }),
-        annotations: look,
-      },
-      (args) =>
-        this.#safe(async () => Mcp.#text(Format.matches(await (await this.#acde()).query(args), args.selector))),
-    )
-
-
-
-    s.registerTool(
-      'emulate',
-      {
-        description: 'Switch the colour scheme (prefers-color-scheme) for every page; system goes back to what the '
-          + 'system says.',
-        inputSchema: z.object({
-          colorScheme: z.enum(['light', 'dark', 'system']).optional(),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const state = await (await this.#acde()).emulate({
-            ...(args.colorScheme !== undefined
-              && { colorScheme: args.colorScheme === 'system' ? null : args.colorScheme }),
-          })
-          const scheme = `${state.colorScheme}${state.emulated ? ' (emulated)' : ''}`
-          return Mcp.#text(`colour scheme ${scheme}`)
-        }),
-    )
-
-    s.registerTool(
-      'choose_folder',
-      {
-        description: 'Answer the next folder chooser a page opens (showDirectoryPicker) without showing it: a folder, '
-          + 'or cancel. Without a host window (headless) a chooser fails unless answered first.',
-        inputSchema: z.object({
-          path: z.string().optional().describe('the folder, relative to the working directory'),
-          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          if ((args.path === undefined) === (args.cancel !== true))
-            throw new Error('choose_folder: give a path, or cancel: true')
-          const folder = args.cancel ? null : resolve(this.#cwd, args.path!)
-          await (await this.#acde()).chooseFolder(folder)
-          return Mcp.#text(folder === null
-            ? 'the next folder chooser will be cancelled'
-            : `the next folder chooser will answer ${folder}`)
-        }),
-    )
-
-    s.registerTool(
-      'choose_files',
-      {
-        description: 'Answer the next file chooser a page opens (showOpenFilePicker, <input type=file>) without '
-          + 'showing it: one or more files, or cancel. Without a host window (headless) a chooser fails unless '
-          + 'answered first.',
-        inputSchema: z.object({
-          paths: z.array(z.string()).min(1).optional().describe('the files, relative to the working directory'),
-          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          if ((args.paths === undefined) === (args.cancel !== true))
-            throw new Error('choose_files: give paths, or cancel: true')
-          const files = args.cancel ? null : args.paths!.map((path) => resolve(this.#cwd, path))
-          await (await this.#acde()).chooseFiles(files)
-          return Mcp.#text(files === null
-            ? 'the next file chooser will be cancelled'
-            : `the next file chooser will answer ${files.join(', ')}`)
-        }),
-    )
-
-    s.registerTool(
-      'choose_save_file',
-      {
-        description: 'Answer the next save chooser a page opens (showSaveFilePicker) without showing it: the file to '
-          + 'save to, or cancel. Without a host window (headless) a chooser fails unless answered first.',
-        inputSchema: z.object({
-          path: z.string().optional().describe('the file, relative to the working directory'),
-          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
-        }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          if ((args.path === undefined) === (args.cancel !== true))
-            throw new Error('choose_save_file: give a path, or cancel: true')
-          const file = args.cancel ? null : resolve(this.#cwd, args.path!)
-          await (await this.#acde()).chooseSaveFile(file)
-          return Mcp.#text(file === null
-            ? 'the next save chooser will be cancelled'
-            : `the next save chooser will answer ${file}`)
-        }),
-    )
-
-
-
-    s.registerTool(
-      'pointer',
-      {
-        description: 'Move the pointer to a point on the screen, as a real move: hover effects and screen edge events '
-          + '(a desktop that shows its Dock at an edge) follow. Coordinates are logical pixels of the screen (a host '
-          + 'window: its content area); to hover an element use act hover on its ref instead.',
-        inputSchema: z.object({ x: z.number().describe('screen x'), y: z.number().describe('screen y') }),
-        annotations: drive,
-      },
-      (args) =>
-        this.#safe(async () => {
-          const at = await (await this.#acde()).pointer(args.x, args.y)
-          return Mcp.#text(`the pointer is at ${at.x}, ${at.y}`)
-        }),
-    )
-
-    s.registerTool(
-      'clipboard',
-      {
-        description: 'Read the clipboard the pages see, or write text to it first. A headless session keeps a '
-          + 'clipboard of its own, and the session in the guest (--session vm) uses the guest\'s own clipboard; with a '
-          + 'window on screen it is the user\'s system clipboard, which may hold their private data, so there it needs '
-          + 'system: true (ask the user first).',
-        inputSchema: z.object({
-          text: z.string().optional().describe('write this first'),
-          system: z.boolean().optional()
-            .describe('allow touching the user\'s system clipboard (host sessions with a window; not needed headless or in the guest)'),
-        }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-      },
-      (args) =>
-        this.#safe(async () => {
-          const acde = await this.#acde()
-          const refused = Mcp.clipboardRefusal(acde.session, args.system === true)
-          if (refused) throw new Error(refused)
-          if (args.text !== undefined) await acde.setClipboard(args.text)
-          return Mcp.#text(JSON.stringify(await acde.clipboard()))
-        }),
-    )
-
-    PageTools.register(s, {
+    const host: PageToolsHost = {
       page: async (target) => {
         const acde = await this.#acde()
         return { acde, web: await this.#web(acde, target) }
@@ -563,7 +236,11 @@ export class Mcp {
       acde: () => this.#acde(),
       web: (acde, target) => this.#web(acde, target),
       cwd: this.#cwd,
-    })
+    }
+    registerAnswers(s, host)
+    registerInspecting(s, host)
+    registerMachine(s, host)
+    PageTools.register(s, host)
 
     s.registerTool(
       'logs',
@@ -710,32 +387,6 @@ export class Mcp {
     return Mcp.#text(`stopped acdev dev ${launched.session.pid}`)
   }
 
-  async #waitFor(args: {
-    text: string
-    gone?: boolean | undefined
-    window?: string | undefined
-    timeout_ms?: number | undefined
-  }): Promise<Result> {
-    const acde = await this.#acde()
-    const timeout = args.timeout_ms ?? Acde.TIMEOUT_MS
-    let last = ''
-    await Poll.until(
-      timeout,
-      async () => {
-        const snapshot = await acde.snapshot({
-          find: args.text,
-          ...(args.window !== undefined && { window: args.window }),
-        })
-        last = snapshot.text
-        const shown = Object.keys(snapshot.trees).length > 0
-        return shown !== (args.gone === true) || null
-      },
-      () => `waited ${timeout} ms: ${JSON.stringify(args.text)} ${args.gone ? 'is still shown' : 'did not appear'}`
-        + `\n\n${last}`,
-    )
-    return Mcp.#text(args.gone ? `${JSON.stringify(args.text)} is gone` : last)
-  }
-
   #logs(args: { tail?: number | undefined; since?: number | undefined; grep?: string | undefined }): Result {
     const launched = this.#launched
     if (!launched?.logs) {
@@ -760,12 +411,7 @@ export class Mcp {
     }
   }
 
-  static clipboardRefusal(session: Session, system: boolean): string | null {
-    if (system || session.headless || Sessions.isGuest(session)) return null
-    return `clipboard: acdev dev ${session.pid} has a window on screen, so its clipboard is the user's system clipboard; `
-      + 'ask the user, then call again with system: true (or use a session started with headless: true; the session in '
-      + 'the guest, --session vm, uses the guest\'s own clipboard)'
-  }
+  static readonly clipboardRefusal = clipboardRefusal
 
   static async #reached(acde: Acde, session: Session): Promise<string> {
     try {
