@@ -190,7 +190,7 @@ The whole argument is checked before anything is pressed: an unknown key fails w
 acdev input desktop '[{"type":"down","x":300,"y":12},{"type":"move","x":340,"y":40},{"type":"move","x":420,"y":90},{"type":"up","x":420,"y":90}]' --session vm
 ```
 
-Two pauses are added, as a hand would make them: a `move` right after a `down` waits 150 ms first, and an `up` right after a `move` waits a frame (16 ms). The reason is the title-bar drag: the window asks the compositor to move only after it got the press, and the compositor takes that request only while the button is still down. Sent in one burst, the release comes first and the window stays where it is. A `wait` you put in those places yourself is kept as it is, nothing is added on top; a click (`down`, `up`), keys and hovering are sent unchanged. To put a window at an exact place, `act w1 move X,Y` is simpler.
+The runtime paces the events by one rule, the same for this command, `act drag` and the host and guest sessions, as a hand would: a `move` right after a `down` waits 150 ms first, moves in a row are a frame (16 ms) apart, and an `up` waits a frame. The reason is the title-bar drag: the window asks the compositor to move only after it got the press, and the compositor takes that request only while the button is still down. Sent in one burst, the release comes first and the window stays where it is. A `wait` you put in those places yourself is kept as it is, nothing is added on top; keys, wheel and text are sent unchanged. To put a window at an exact place, `act w1 move X,Y` is simpler.
 
 ### query
 

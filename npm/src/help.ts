@@ -233,7 +233,7 @@ export class Help {
           + 'stdin. Events: {"type":"move","x":..,"y":..}, down / up (x, y, button: left | right | middle), wheel (x, y, '
           + 'dx, dy), keydown / keyup (key: "ArrowLeft", "Shift", "a"…), text (text), wait (ms, up to 10000).',
         'Moves are a frame apart, so a run of moves with the button down draws a path; keydown, wait, keyup holds a key.',
-        'A move right after a down waits 150 ms first and an up right after a move waits a frame, as a hand would: '
+        'The runtime paces it like a hand: a move right after a down waits 150 ms and an up waits a frame, since '
           + 'a window follows a title-bar drag only while the button is still down when its move request reaches the '
           + 'compositor. A wait you put there yourself is kept instead.',
       ], [], [

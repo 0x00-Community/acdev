@@ -15,7 +15,6 @@ import type { InputEvent } from './input.ts'
 import * as Call from './call/index.ts'
 import * as Gone from './gone/index.ts'
 import * as GuestPlace from './place/index.ts'
-import { paced } from './pacing/index.ts'
 import * as Ready from './ready/index.ts'
 import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
@@ -663,7 +662,7 @@ export class Acde {
   }
 
   async input(web: string, events: readonly InputEvent[]): Promise<ActResult> {
-    return Acde.inputResult(await this.#request('input', { web, events: paced(events) }))
+    return Acde.inputResult(await this.#request('input', { web, events }))
   }
 
   static inputResult(answer: unknown): ActResult {

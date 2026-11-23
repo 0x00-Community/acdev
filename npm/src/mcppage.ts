@@ -51,7 +51,7 @@ export class PageTools {
           + 'coordinates): move, down / up (button left | right | middle), wheel (dx, dy), keydown / keyup (key like '
           + '"Shift", "Control", "a", "ArrowDown"), text (typed through the input method), wait (ms, up to 10000: '
           + 'hold a key or a button that long). Moves are a frame apart; a move right after a down waits 150 ms and an '
-          + 'up right after a move a frame (a title-bar drag needs the button still down when the window asks to '
+          + 'up waits a frame (a title-bar drag needs the button still down when the window asks to '
           + 'move), unless a wait is already there. '
           + 'For clicks on an element act is simpler; act click also takes modifiers as its arg ("shift", '
           + '"ctrl+shift").',
