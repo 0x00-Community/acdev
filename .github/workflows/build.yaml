@@ -44,10 +44,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: acdev-build-${{ github.event_name }}
-  cancel-in-progress: false
-
 defaults:
   run:
     shell: bash --noprofile --norc -eu {0}

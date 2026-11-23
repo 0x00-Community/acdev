@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: acdev-release
-  cancel-in-progress: false
-
 defaults:
   run:
     shell: bash --noprofile --norc -eu {0}
