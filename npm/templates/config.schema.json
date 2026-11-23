@@ -187,6 +187,31 @@
         "frame": {
           "type": "boolean"
         },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "material": {
+              "description": "The window background material drawn under the page: glass (liquid glass; role regular or clear), blur (background blur with a tint, no lens or highlight) or none. Names are open ([a-z0-9._-], at most 64 bytes) for effects added later; an unknown name draws as none with one warning. The page background must be transparent for it to show. Same as acde:window setMaterial at start",
+              "anyOf": [
+                { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$" },
+                {
+                  "type": "object",
+                  "required": ["name"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$" },
+                    "role": { "enum": ["regular", "clear"], "description": "glass only" },
+                    "group": { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$", "description": "glass only: a session-wide group name; windows (of any app) with the same group merge their window glass; page elements never merge across windows" },
+                    "spacing": { "type": "number", "minimum": 0, "maximum": 256, "description": "merge distance in logical pixels, default 10" },
+                    "overrides": { "type": "object", "additionalProperties": { "type": "string" }, "description": "parameter name (as --acde-glass-* without the prefix: blur, tint, outline, ...) to its CSS text" },
+                    "region": { "enum": ["window", "titlebar"], "description": "the whole window (default) or the title bar only" }
+                  }
+                }
+              ]
+            }
+          }
+        },
         "mimeTypes": {
           "type": "array",
           "items": {
@@ -464,6 +489,31 @@
               },
               "frame": {
                 "type": "boolean"
+              },
+              "window": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "material": {
+                    "description": "The window background material drawn under the page: glass (liquid glass; role regular or clear), blur (background blur with a tint, no lens or highlight) or none. Names are open ([a-z0-9._-], at most 64 bytes) for effects added later; an unknown name draws as none with one warning. The page background must be transparent for it to show. Same as acde:window setMaterial at start",
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$" },
+                      {
+                        "type": "object",
+                        "required": ["name"],
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$" },
+                          "role": { "enum": ["regular", "clear"], "description": "glass only" },
+                          "group": { "type": "string", "pattern": "^[a-z0-9._-]{1,64}$", "description": "glass only: a session-wide group name; windows (of any app) with the same group merge their window glass; page elements never merge across windows" },
+                          "spacing": { "type": "number", "minimum": 0, "maximum": 256, "description": "merge distance in logical pixels, default 10" },
+                          "overrides": { "type": "object", "additionalProperties": { "type": "string" }, "description": "parameter name (as --acde-glass-* without the prefix: blur, tint, outline, ...) to its CSS text" },
+                          "region": { "enum": ["window", "titlebar"], "description": "the whole window (default) or the title bar only" }
+                        }
+                      }
+                    ]
+                  }
+                }
               },
               "mimeTypes": {
                 "type": "array",

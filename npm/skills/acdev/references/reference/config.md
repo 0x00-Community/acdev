@@ -31,6 +31,7 @@ type AcdeConfig = AppConfig | DesktopConfig
 | `services` | string[] | `[]` | Desktop services the app uses, imported as `acde:<name>`; not the name of a system module |
 | `size` | `[number, number]` | `[800, 600]` | Content area in logical pixels, positive integers. When `acdev dev` runs the app alone, the size the host window opens at (the app fills it); not applied with `--headless` |
 | `frame` | boolean | `true` | System title bar |
+| `window` | `{material?}` | | `material`: the window background material at start, a name or `{name, role?, group?, spacing?, overrides?, region?}`; see [Window material](../guide/window.md#window-material) |
 | `multiple` | boolean | `false` | Allow multiple windows |
 | `mimeTypes` | string[] | `[]` | `type/subtype` or `type/*` |
 | `schemes` | string[] | `[]` | URL schemes of links the app opens: `[a-z][a-z0-9+.-]*`, no colon, not `file` |

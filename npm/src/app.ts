@@ -27,13 +27,14 @@ interface BuiltApp {
   readonly size?: readonly [number, number]
   readonly multiple?: boolean
   readonly frame?: boolean
+  readonly window?: AppEntry['window']
   readonly mimeTypes?: readonly string[]
   readonly schemes?: readonly string[]
   readonly requests?: readonly string[]
   readonly backend?: { readonly entry: string; readonly port: number }
 }
 
-type AppConfig = WindowAppConfig & Pick<AppEntry, 'schemes' | 'requests'>
+type AppConfig = WindowAppConfig & Pick<AppEntry, 'schemes' | 'requests' | 'window'>
 
 interface BuiltPackage {
   readonly name: string
@@ -303,6 +304,7 @@ export class Project {
       ...(config.size && { size: config.size }),
       ...(config.multiple !== undefined && { multiple: config.multiple }),
       ...(config.frame !== undefined && { frame: config.frame }),
+      ...(config.window?.material !== undefined && { window: config.window }),
       ...(config.mimeTypes && { mimeTypes: config.mimeTypes }),
       ...(config.schemes && config.schemes.length > 0 && { schemes: config.schemes }),
       ...(config.requests && config.requests.length > 0 && { requests: config.requests }),

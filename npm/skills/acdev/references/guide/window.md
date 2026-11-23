@@ -40,10 +40,35 @@ self.on('beforeclose', async () => {
 | `requestActivate()` | Brings the window to the front and requests focus; the system may turn this into a request for attention |
 | `setGrabHint(rect, edges?)` | Pressing in this area makes the system move the window (no `edges`) or resize it (with edges) |
 | `setBackdrop(rect, effect?)` | Frosted glass over whatever is behind this area: `{radius, blur, saturate, brightness}`; `null` removes it |
+| `setMaterial(material, options?)` / `material()` | The window background material, drawn under the page; see [Window material](#window-material) |
 | `requestGrab(kind)` / `releaseGrab(kind)` | Takes exclusive pointer or keyboard input (`'pointer'` / `'keyboard'`) |
 | `shortcut(combo)` / `unshortcut(combo)` | Registers an app-level global shortcut, such as `'ctrl+shift+k'` |
 | `hostControls` | `true` when the host system draws the window's minimize / maximize / close buttons, so a frameless app should hide its own |
 | `minimizable` | `false` when this window cannot be minimized. In a session that runs a single app, on macOS and headless, the app's window is such a window: it fills the host window |
+
+### Window material
+
+The system draws a material under the whole window (or only its title bar) and the page shows through where its background is transparent:
+
+```js
+import self from 'acde:window'
+
+self.setMaterial('blur')                                                  // background blur with a tint
+self.setMaterial('glass', { role: 'clear' })                              // liquid glass
+self.setMaterial('glass', { group: 'com.example.tools', spacing: 10 })     // merges with other windows in the group
+self.setMaterial('glass', { overrides: { outline: 'none' } })             // one parameter changed
+self.setMaterial('none')
+self.material() // { material: 'glass', options: { overrides: { outline: 'none' } } }
+```
+
+- Materials: `glass` (liquid glass: blur, lens, highlight and outline; `role` is `regular`, the default, or `clear`, one step clearer), `blur` (background blur with a tint, no lens and no highlight), `none`. Names are open (`[a-z0-9._-]`, at most 64 bytes) so that effects added later can have their own; a name the system does not have draws as `none` and logs one warning, and `material()` then reports `none`.
+- Options: `role` and `group` apply to `glass` only. `group` is a session-wide name for the **window layer**: windows of any app that use the same group merge their window glass when they come within `spacing` (logical pixels, default 10). Glass elements inside a page (`--acde-glass` in CSS) are another layer: they never merge with the window's own material, and never with elements in other windows; inside a page, glass that turns merging on merges only with glass at the same level (the nearest glass ancestor), so a button inside a glass toolbar does not merge with the toolbar. `overrides` maps parameter names (as `--acde-glass-*` without the prefix: `blur`, `tint`, `outline`, `highlight`, `lens` ...) to their CSS text. `region` is `window` (default) or `titlebar`.
+- How clear materials are (the transparency level) and light or dark come from the user's settings; with reduced transparency every material is opaque. The app picks the material and role, not the numbers.
+- A wrong name format, `role`, `region`, `group` or `spacing` throws a `TypeError`.
+- The manifest sets the material a window opens with: `"window": { "material": "blur" }` or `{ "name": "glass", "role": "clear" }` (see the manifest reference). In a project that is `acde.config.json`'s `window`.
+- Advice: `blur` for the background of a main window that stays open long (medium cost), `glass` for toolbars and small panel windows floating over content (most expensive), `blur` for short-lived popups. The page background must be transparent for the material to show.
+- `setBackdrop` (a frosted area in page coordinates) stays as it was; `setMaterial` is the background of the whole window.
+- In the single-app host window `glass` and `blur` are drawn by acdev itself; windows there do not merge across a group yet.
 
 ### Window state
 
