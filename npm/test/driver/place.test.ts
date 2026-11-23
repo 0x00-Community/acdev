@@ -31,6 +31,11 @@ describe('GuestPlace', () => {
     const desktop = { ...WINDOW, ref: 'w0', kind: 'desktop' } as InspectWindow
     expect(GuestPlace.change(desktop, 'move', '1,1')).toBe('the desktop cannot move')
     expect(GuestPlace.change(desktop, 'raise', undefined)).toBe('the desktop stays behind every window; it cannot be raised')
+    const confirm = { ...WINDOW, ref: 'w9', mode: 'confirm' } as InspectWindow
+    expect(GuestPlace.change(confirm, 'move', '1,1'))
+      .toBe('w9 is the system confirm page, which the session manager shows and puts away')
+    const lock = { ...WINDOW, ref: 'w8', mode: 'lock' } as InspectWindow
+    expect(GuestPlace.change(lock, 'raise', undefined)).toBe('w8 is the lock screen, which the session manager shows and puts away')
     const hidden = { ...WINDOW, hidden: true } as InspectWindow
     expect(GuestPlace.change(hidden, 'raise', undefined)).toBe('w1 is minimized; act w1 restore first')
     const said = GuestPlace.refused(WINDOW, new Error('window 7 is filled, not normal'))

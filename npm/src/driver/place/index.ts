@@ -33,6 +33,10 @@ export function change(
       ? 'the desktop stays behind every window; it cannot be raised'
       : `the desktop cannot ${action}`
   }
+  if (window.mode === 'confirm' || window.mode === 'lock') {
+    const page = window.mode === 'confirm' ? 'the system confirm page' : 'the lock screen'
+    return `${window.ref} is ${page}, which the session manager shows and puts away`
+  }
   if (window.hidden) return `${window.ref} is minimized; act ${window.ref} restore first`
   if (action === 'raise') return { focus: true }
   if (action === 'move') {
