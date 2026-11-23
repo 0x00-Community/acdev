@@ -44,6 +44,12 @@ on:
 permissions:
   contents: read
 
+# a new push or manual build cancels the one still running (用户定 2026-11-23); a build tag.yaml calls is a group of its
+# own run: it neither cancels nor is cancelled
+concurrency:
+  group: acdev-build-${{ github.event_name == 'workflow_call' && github.run_id || 'main' }}
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash --noprofile --norc -eu {0}

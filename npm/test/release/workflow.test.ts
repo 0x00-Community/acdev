@@ -129,9 +129,11 @@ describe('the four workflows', () => {
     expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([['tag', { contents: 'write' }]])
   })
 
-  test('no workflow has a concurrency group: runs never wait for one another', () => {
+  test('a new push or manual build cancels the last; a release build is a group of its own; no other workflow has a group', () => {
     expect(tag.concurrency).toBeUndefined()
-    expect(build.concurrency).toBeUndefined()
+    expect(build.concurrency).toEqual({
+      group: "acdev-build-${{ github.event_name == 'workflow_call' && github.run_id || 'main' }}", 'cancel-in-progress': true,
+    })
     expect(tests.concurrency).toBeUndefined()
     expect(release.concurrency).toBeUndefined()
   })
