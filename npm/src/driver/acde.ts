@@ -16,6 +16,7 @@ import * as Call from './call/index.ts'
 import * as Gone from './gone/index.ts'
 import * as GuestPlace from './place/index.ts'
 import * as Ready from './ready/index.ts'
+import type * as Probe from './probe/index.ts'
 import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
@@ -475,6 +476,14 @@ export class Acde {
       }
       return { x: answer.x, y: answer.y }
     })
+  }
+
+  async render(web: string): Promise<Probe.Render> {
+    return (await this.#request('render', { web })) as Probe.Render
+  }
+
+  async hit(x: number, y: number): Promise<Probe.Hit> {
+    return (await this.#request('hit', { x, y })) as Probe.Hit
   }
 
   async call(target: Call.CallTarget, method: string, params?: unknown): Promise<unknown> {

@@ -9,6 +9,7 @@ import { Format } from './driver/format.ts'
 import * as Evidence from './evidence/index.ts'
 import { guestJournal } from './evidence/guest.ts'
 import * as Wait from './driver/wait/index.ts'
+import * as Probe from './driver/probe/index.ts'
 import { PageLogs } from './driver/logs.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget, PageCursor } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
@@ -27,7 +28,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence', 'wait',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence', 'wait', 'render', 'hit',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -391,6 +392,17 @@ export class Tools {
         case 'approvals':
           console.log(showing ? await Confirms.show(acde, showing) : Confirms.listed(await Confirms.pending(acde)))
           return 0
+        case 'render': {
+          const answers = await Probe.renders(acde, Probe.wanted(flags))
+          console.log(flags.has('json') ? JSON.stringify(answers, null, 2) : Probe.renderText(answers))
+          return 0
+        }
+        case 'hit': {
+          const { x, y } = Probe.point(args)
+          const hit = await acde.hit(x, y)
+          console.log(flags.has('json') ? JSON.stringify(hit, null, 2) : Probe.hitText(hit))
+          return 0
+        }
         case 'pointer': {
           const [x, y] = args.map(Number) as [number, number]
           if (!Number.isFinite(x) || !Number.isFinite(y))

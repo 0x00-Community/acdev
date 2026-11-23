@@ -287,6 +287,23 @@ export class Help {
       inspecting('pointer', '<x> <y>', 'Move the pointer to a screen point', [
         'Moves the pointer as a real move (hover, screen edges); in a host window the screen is its content area.',
       ], [], ['acdev pointer 0 0']),
+      inspecting('hit', '<x> <y>', 'Show what lies under a screen point', [
+        'Prints the topmost window there and its part (page, title bar, desktop panel, native window), the point inside it, '
+          + 'and on a page the element a click reaches (after pointer-events: none) with its parents and the '
+          + 'pointer-events: none elements it passed through, as snapshot refs. A page that went away says so; ask again.',
+      ], [
+        { flag: '--json', about: 'The whole answer as JSON' },
+      ], ['acdev hit 640 360', 'acdev hit 20 10 --json']),
+      inspecting('render', '', 'Show the path each page draws on', [
+        'For every page (or --web, --window): whether it rasters on the GPU (which adapter) or the CPU, who composes '
+          + 'its glass, and one row per layer with a backdrop-filter: glass or frost, its glass group, the element, '
+          + 'how it is drawn (gpu-glass, cpu-glass, cpu-glass-frosted, frost, compositor) and why it is degraded '
+          + '(no-gpu, cpu-cannot-refract, group-full).',
+      ], [
+        { flag: '--web W', about: 'Only that page' },
+        { flag: '--window W', about: 'Only the page of that window (w3)' },
+        { flag: '--json', about: 'The answers as JSON' },
+      ], ['acdev render', 'acdev render --window w2 --json']),
       inspecting('open', '<app|path|url> [path|url]', 'Open an app, or a file, folder or link with it', [
         'Opens like the desktop does (acde:open): an app by id or name; a file or folder with its default app, or with the app named first; '
           + 'an http(s) link. A word is an app, something with a / (or ./notes.md) is a path, http:// and https:// are links. '

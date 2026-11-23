@@ -41,6 +41,8 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev approvals [show <id>]` | In a guest session, lists the system confirms that wait, or puts one on the screen; see [System confirms](#system-confirms) |
 | `acdev evidence [label] [-o DIR] [--since WHEN]` | Keeps what the session shows now in a new folder, for a failure: the screen, the webs, the element tree with every window, the console, the network, and in a guest session the guest journal from `--since` on; see [Evidence](#evidence) |
 | `acdev wait <condition> [args] [--timeout MS]` | Waits until a condition holds, without a fixed delay: `page`, `window`, `element`, `stable`, `network-idle`, `eval`, `service`; see [Waiting](#waiting) |
+| `acdev hit <x> <y> [--json]` | Says what lies under a screen point: the topmost window, its part (page, title bar, desktop panel, native window) and on a page the element a click reaches, with its parents and the `pointer-events: none` elements it passed through; see [Hit and render](#hit-and-render) |
+| `acdev render [--web W] [--window W] [--json]` | Says the path each page draws on: GPU (which adapter) or CPU, who composes its glass, and every layer with a `backdrop-filter`, how it is drawn and why it is degraded; see [Hit and render](#hit-and-render) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -316,6 +318,12 @@ start=$(date +%s)
 # … the steps of the check …
 acdev evidence files-check --session vm --since @$start -o logs/run1
 ```
+
+### Hit and render
+
+`acdev hit 640 360` answers which window lies there and which part of it, then the element a click there reaches, as a snapshot line with its ref, its parents (`button "Save" [w2.12] < group [w2.10] < …`), and the `pointer-events: none` elements the point passed through. When a click lands somewhere unexpected, run it on the same point. A page that went away before it answered says so; ask again.
+
+`acdev render` prints, for every page, whether it rasters on the GPU (adapter, backend, driver; `a software adapter` for llvmpipe or lavapipe) or the CPU, whether the host window or the compositor composes its glass, and a row per layer with a `backdrop-filter`: the element, `glass` (`--acde-glass`) or `frost`, its glass group, and how it is drawn: `gpu-glass`, `cpu-glass`, `cpu-glass-frosted`, `frost`, or `compositor` when the compositor draws it. A row that is not drawn as asked says why: `no-gpu`, `cpu-cannot-refract` (the CPU cannot refract a lens glass, so it frosts it), `group-full` (a glass group holds 16 pieces). `--json` gives both answers whole. A guest session answers only the page half for now.
 
 ## DevTools
 
