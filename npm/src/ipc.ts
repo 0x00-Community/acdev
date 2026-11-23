@@ -151,7 +151,7 @@ export class DevClient {
     clearTimeout(waiting.timer)
     this.#waiting.delete(id as number)
     if (message['ok'] === true) waiting.resolve(message['result'] ?? null)
-    else waiting.reject(new Error(typeof message['error'] === 'string' ? message['error'] : 'failed without saying why'))
+    else waiting.reject(RequestError.of(message))
   }
 
   #fail(error: Error): void {
@@ -160,5 +160,19 @@ export class DevClient {
       this.#waiting.delete(id)
       waiting.reject(error)
     }
+  }
+}
+
+export class RequestError extends Error {
+  readonly code: string | null
+
+  constructor(message: string, code: string | null) {
+    super(message)
+    this.code = code
+  }
+
+  static of(message: Message): RequestError {
+    const said = typeof message['error'] === 'string' ? message['error'] : 'failed without saying why'
+    return new RequestError(said, typeof message['code'] === 'string' ? message['code'] : null)
   }
 }

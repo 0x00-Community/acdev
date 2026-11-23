@@ -12,6 +12,7 @@ import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
 import type { ClockState } from './clock.ts'
 import type { InputEvent } from './input.ts'
+import * as Call from './call/index.ts'
 import * as GuestPlace from './place/index.ts'
 import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
@@ -491,6 +492,10 @@ export class Acde {
       }
       return { x: answer.x, y: answer.y }
     })
+  }
+
+  async call(target: Call.CallTarget, method: string, params?: unknown): Promise<unknown> {
+    return Call.run({ guest: this.guest, trace: this.trace, request: (body) => this.#request('call', body) }, target, method, params)
   }
 
   async clipboard(): Promise<string> {
