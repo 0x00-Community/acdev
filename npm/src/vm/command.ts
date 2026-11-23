@@ -261,9 +261,10 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   },
   async provision(machine, rest, flags) {
     count('provision', rest, 0, 0, 'no arguments')
+    const sources = provisionSources(flags)
     machine.running()
     const options = provisionOptions(flags)
-    const stage = stageProvision(provisionSources(flags), guestHardware(flags))
+    const stage = stageProvision(sources, guestHardware(flags))
     try {
       const devd = machine.devd()
       await devd.run(['/bin/rm', '-rf', PROVISION_DIR])

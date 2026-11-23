@@ -2,31 +2,29 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, tmp } from '../helpers.ts'
-import { PROVISION_SCRIPT, pkgbuildPaths, provisionOptions, provisionSources, stageProvision } from '../../src/vm/provision.ts'
+import {
+  DOPAME_REMOVED, PROVISION_SCRIPT, pkgbuildPaths, provisionOptions, provisionSources, stageProvision,
+} from '../../src/vm/provision.ts'
 
 afterAll(cleanup)
 
 describe('acdev vm provision', () => {
-  test('stages acdes for its own PKGBUILD, the Dopame package and the script', () => {
+  test('stages acdes for its own PKGBUILD, the harness and the script', () => {
     const repo = tmp()
     mkdirSync(join(repo, 'acdes', 'packaging', 'arch'), { recursive: true })
     writeFileSync(join(repo, 'acdes', 'packaging', 'arch', 'PKGBUILD'), 'package() { :; }\n')
-    mkdirSync(join(repo, 'dopame', 'packages', 'dopame', 'dist'), { recursive: true })
-    writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'package.json'), '{}')
-    writeFileSync(join(repo, 'dopame', 'packages', 'dopame', 'dist', 'index.js'), '')
     for (const bin of ['acdes-bin', 'harness']) writeFileSync(join(repo, bin), bin)
     const sources = {
-      acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), libacde: null,
-      dopame: join(repo, 'dopame'), harness: join(repo, 'harness'),
+      acdes: join(repo, 'acdes'), acdesBin: join(repo, 'acdes-bin'), libacde: null, harness: join(repo, 'harness'),
     }
     const stage = stageProvision(sources)
     try {
       for (const file of ['provision.sh', 'acdes/PKGBUILD', 'acdes/src/target/release/acdes',
-        'acdes/src/acdes/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'dopame/package.json', 'dopame/dist/index.js',
-        'dopame/dopame-harness']) {
+        'acdes/src/acdes/packaging/arch/PKGBUILD', 'acdes/src/libacde/LICENSE', 'harness/dopame-harness']) {
         expect(existsSync(join(stage, file))).toBe(true)
       }
       expect(readFileSync(join(stage, 'provision.sh'), 'utf8')).toBe(PROVISION_SCRIPT)
+      expect(existsSync(join(stage, 'dopame'))).toBe(false)
     } finally {
       rmSync(stage, { recursive: true, force: true })
     }
@@ -84,7 +82,15 @@ describe('acdev vm provision', () => {
     for (const line of lines) {
       expect(PROVISION_SCRIPT).toContain(line)
     }
+    expect(PROVISION_SCRIPT).toContain('install -Dm755 "$here/harness/dopame-harness" /usr/lib/dopame/dopame-harness')
+    expect(PROVISION_SCRIPT).not.toContain('/usr/share/acde/packages/dopame')
     expect(provisionOptions(new Map(), {})).toEqual({ user: 'tester', password: 'dopame-dev', restart: true })
     expect(provisionOptions(new Map([['user', 'qa'], ['no-restart', '']]), { ACDEV_VM_PASSWORD: 'x' })).toEqual({ user: 'qa', password: 'x', restart: false })
+  })
+
+  test('--dopame is gone: it stops with the way to install the dopame package instead', () => {
+    expect(() => provisionSources(new Map([['dopame', '/src/dopame']]))).toThrow(DOPAME_REMOVED)
+    expect(DOPAME_REMOVED).toContain('acdev vm provision --pkgs DIR')
+    expect(provisionSources(new Map([['harness', '/h'], ['pkgs', '/p']]))).toMatchObject({ harness: '/h', pkgs: '/p' })
   })
 })

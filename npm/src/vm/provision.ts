@@ -4,13 +4,11 @@ import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
 import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
 import { KERNEL_SCRIPT, PKGS_SCRIPT, stageKernel, stagePkgs } from './kernelpkgs.ts'
-import { BACKEND_SCRIPT, DEPENDS_SCRIPT, DROPIN_SCRIPT, stageBackend, stageDepends, stageDropIns } from './dopamebackend.ts'
 
 export interface ProvisionSources {
   readonly acdes: string | null
   readonly acdesBin: string | null
   readonly libacde: string | null
-  readonly dopame: string | null
   readonly harness: string | null
   readonly kernelPkgs?: string | null
   readonly pkgs?: string | null
@@ -36,6 +34,10 @@ export const PROVISION_DIR = '/opt/acdev/provision'
 export const ACDES_SERVICES = ['acdes-system-agent', 'acdes-proxy'] as const
 
 export const DEV_SUDOERS = '/etc/sudoers.d/acdev-dev'
+
+export const DOPAME_REMOVED = 'vm provision: --dopame was removed (it laid out only part of the dopame package: no '
+  + 'wallpapers, cursors, sounds, icon theme or pi): install the dopame package instead, acdev vm provision --pkgs DIR '
+  + 'with its .pkg.tar.zst in DIR'
 
 export const PRUNED = {
   bochs: { module: 'bochs', package: 'linux-ackernel-gpu-other' },
@@ -108,17 +110,9 @@ export const PROVISION_SCRIPT = [
   '  systemctl restart "$unit" || warn "$unit did not start"',
   'done',
   '',
-  'if [ -d "$here/dopame" ]; then',
-  ...DEPENDS_SCRIPT,
-  '  step "the Dopame desktop package"',
-  '  dir=/usr/share/acde/packages/dopame',
-  '  mkdir -p "$dir"',
-  '  for f in package.json mcp.json; do if [ -f "$here/dopame/$f" ]; then install -Dm644 "$here/dopame/$f" "$dir/$f"; fi; done',
-  '  if [ -d "$here/dopame/dist" ]; then rm -rf "$dir/dist"; cp -a "$here/dopame/dist" "$dir/dist"; fi',
-  '  if [ -f "$here/dopame/dopame-harness" ]; then install -Dm755 "$here/dopame/dopame-harness" /usr/lib/dopame/dopame-harness; fi',
-  '  if [ -f "$here/dopame/dopame-board.service" ]; then install -Dm644 "$here/dopame/dopame-board.service" /usr/lib/systemd/user/; fi',
-  ...BACKEND_SCRIPT,
-  ...DROPIN_SCRIPT,
+  'if [ -f "$here/harness/dopame-harness" ]; then',
+  '  step "the dopame-harness build"',
+  '  install -Dm755 "$here/harness/dopame-harness" /usr/lib/dopame/dopame-harness',
   'fi',
   '',
   'step "the user $user"',
@@ -249,22 +243,10 @@ export function pkgbuildPaths(pkgbuild: string): string[] {
   return [...new Set(plain.filter((path) => path !== '' && !path.split('/').includes('..')))]
 }
 
-function stageDopame(stage: string, sources: ProvisionSources): void {
-  if (!sources.dopame && !sources.harness) return
-  const out = join(stage, 'dopame')
-  mkdirSync(out, { recursive: true })
-  if (sources.dopame) {
-    const repo = need(sources.dopame, '--dopame')
-    const pkg = join(repo, 'packages', 'dopame')
-    for (const file of ['package.json', 'mcp.json']) if (existsSync(join(pkg, file))) cpSync(join(pkg, file), join(out, file))
-    cpSync(need(join(pkg, 'dist'), 'the Dopame build (bun scripts/build.ts)'), join(out, 'dist'), { recursive: true })
-    const board = join(repo, 'packaging', 'arch', 'dopame-board.service')
-    if (existsSync(board)) cpSync(board, join(out, 'dopame-board.service'))
-    stageBackend(repo, out)
-    stageDropIns(repo, out)
-    stageDepends(repo, out)
-  }
-  if (sources.harness) cpSync(need(sources.harness, '--harness'), join(out, 'dopame-harness'))
+function stageHarness(stage: string, sources: ProvisionSources): void {
+  if (!sources.harness) return
+  mkdirSync(join(stage, 'harness'), { recursive: true })
+  cpSync(need(sources.harness, '--harness'), join(stage, 'harness', 'dopame-harness'))
 }
 
 export interface HardwareChoice {
@@ -288,7 +270,7 @@ export function stageProvision(sources: ProvisionSources, hardware: HardwareChoi
   const stage = mkdtempSync(join(tmpdir(), 'acdev-provision-'))
   try {
     stageAcdes(stage, sources)
-    stageDopame(stage, sources)
+    stageHarness(stage, sources)
     stageHardware(stage, hardware)
     if (sources.kernelPkgs) stageKernel(stage, sources.kernelPkgs)
     if (sources.pkgs) stagePkgs(stage, sources.pkgs)
@@ -305,9 +287,10 @@ export function provisionOptions(flags: ReadonlyMap<string, string>, env: NodeJS
 }
 
 export function provisionSources(flags: ReadonlyMap<string, string>): ProvisionSources {
+  if (flags.has('dopame')) throw new Error(DOPAME_REMOVED)
   const get = (name: string) => flags.get(name) ?? null
   return {
-    acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), dopame: get('dopame'), harness: get('harness'),
+    acdes: get('acdes'), acdesBin: get('acdes-bin'), libacde: get('libacde'), harness: get('harness'),
     kernelPkgs: get('kernel-pkgs'), pkgs: get('pkgs'), systemAgentBin: get('system-agent-bin'), managerNode: get('manager-node'),
     proxyBin: get('proxy-bin'),
   }

@@ -195,24 +195,13 @@ aarch64 (Apple 芯片) 没有 ISO 也没有镜像: 直接说没有本架构的 I
 ```sh
 acdev vm provision \
   --acdes ~/ACDE/acdes --acdes-bin <acdes 的 guest 构建> --libacde ~/ACDE/libacde \
-  --dopame ~/ACDE/dopame --harness <dopame-harness 的构建>
+  --pkgs <放 dopame 包 .pkg.tar.zst 的目录> --harness <dopame-harness 的构建>
 ```
 
 它把这些推到 `/opt/acdev/provision`, 以 root 跑 `provision.sh`: `pacman -Sy` 补回同步数据库 (失败重试 3 次), 补装 greetd、xdg-user-dirs 和 acdes 依赖里的 fcitx5、fcitx5-rime、rime-pinyin-simp、foot、xdg-desktop-portal-gtk (装不上的只提示, greetd 必须有);
 acdes (合成器 acompositor 在 acdes 里) 按 acdes 仓自己的 `packaging/arch/PKGBUILD` 的 `package()` 装到根; 因为不走 pacman, 先用 `pacman -T` 查出 PKGBUILD 的
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
-`/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; Dopame 包放到
-`/usr/share/acde/packages/dopame` (`package.json`、`mcp.json`、`dist/`), `dopame-harness` 到 `/usr/lib/dopame`; 后台服务照 dopame 自己的
-`packaging/arch/PKGBUILD` (`src/vm/dopamebackend.ts`): 宿主上从 `build()` 里认出输出在 `backend/` 下的那条 `bun build …` (只认不带变量和引号的一行),
-用 acdev 所在的 Bun (不在 Bun 上时用 PATH 上的 `bun`) 照原参数在 dopame 检出里跑, 只把 `--outfile` 换到暂存目录 (不往检出里写); 再按 `package()`
-里 `install -Dm<权限> <文件…> -t "${pkgdir}/usr/lib/dopame/backend…"` 那些行 (文件名可以带 `*`) 暂存文件, 写下权限、文件、目标目录的清单
-(`dopame/backend.install`), 客户机里逐行 `install -Dm<权限> 文件 -t 目标`. 点到的文件不存在 (或 `*` 一个也没匹配上) 时在宿主上报错, 说出路径;
-PKGBUILD 里没有这些行 (旧版 dopame) 时什么也不做. 同样照 `package()` 里装进 `/usr/lib/systemd/system/<单元>.service.d/<名>.conf` 的那些行 (允许用 `\` 续行,
-文件名不带变量和引号) 暂存 systemd 的补充配置, 清单是 `dopame/units.install`, 客户机里按原路径装上, 再 `systemctl daemon-reload`: acdes 的 `acdes-session-agent@.service` 模板本身没有 `ExecStart`, 要靠 dopame 的
-`acdes-session-agent-dopame.conf` 补上 (`/usr/bin/bun /usr/lib/dopame/backend/main.js serve`, 路径和上面放后台服务的位置一致), 不装时登录后
-这个单元因为没有 `ExecStart` 不起. dopame PKGBUILD 的 `depends=(…)` (去掉 provision 自己摆好的 `acdes`, 只认不带变量的) 写进 `dopame/depends`,
-客户机里先用 `pacman -T` 挑出没装的, 一起 `pacman -S`, 整批失败 (如某个包仓库里没有) 再逐个装, 装不上的逐个提示: 以前只装 acdes 的依赖,
-dopame 要的 `bubblewrap` 等从来没装, 客户机上没有 bwrap, Agent 不在沙箱里跑 (batch2-2 联调). 构建要 dopame 检出的依赖已装 (`bun install`, 和打 `dist/` 一样); 建用户 `tester`
+`/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; `--harness` 给的 `dopame-harness` 装到 `/usr/lib/dopame/dopame-harness`. Dopame 本身不再由 provision 摆放 (2026-11-23 起, 总仓构建流程 ebc22af): 原来的 `--dopame DIR` 只摆了 dopame 包的一部分 (`package.json`、`mcp.json`、`dist/`、后台服务、systemd 补充配置和 `depends`), 漏了 dist-share (壁纸包、光标、声音)、图标主题、pi 和登录项, batch16 锁屏缺壁纸包就是这么来的; 现在 dopame 用它自己完整的 `package()` 出包, 经下面的 `--pkgs` 装进客户机. `--dopame` 参数还认, 但一给就报错退出 (退出码 1, 在碰客户机之前), 提示改用 `acdev vm provision --pkgs DIR`, 不会悄悄失效. 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
 给这个用户写 `/etc/sudoers.d/acdev-dev` (root:root, 0440, `DEV_SUDOERS`): dopame 的客户机检查要临时替换桌面后台服务单元 (`acdes-session-agent@<UID>.service`) 的环境,
 所以只放行五条命令, `<UID>` 是这个用户的实际 UID, 不给别的 root 权限: `install -D -m 644 * <目录>/zz-dopame-check.conf`、`rm -f` 这个文件、`rmdir --ignore-fail-on-non-empty <目录>`

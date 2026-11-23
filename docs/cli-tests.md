@@ -8,7 +8,7 @@
 - `dev/`：开发会话与通信（`dev`、`channel`、`listen`、`watch`、`changes`、`runtime`、`e2e`）；
 - `session/`：对替身运行时跑真的 `acdev dev`（`build`：构建、监视与重载、日志；`tools`：会话文件、命令行工具、DevTools、批准与用错的参数；`standin.ts` 是两者共用的起会话函数）；
 - `driver/`：驱动与截图（`driver`、`png`、`call`、`confirms`、`place`）；
-- `emulator/`：不起客户机的模拟器与准备（`dopamebackend`、`gl`、`guesthw`、`kernelpkgs`）；
+- `emulator/`：不起客户机的模拟器与准备（`gl`、`guesthw`、`kernelpkgs`）；
 - `release/`：打包与发布（`dist`、`pkgs`、`guard`、`workflow`）；
 - `vm/`、`host/`：见下文。
 

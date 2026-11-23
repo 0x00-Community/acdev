@@ -452,7 +452,7 @@ export class Help {
           { flag: '--proxy-bin FILE', about: 'provision: the acdes system proxy (acdes-proxy) guest build when the acdes PKGBUILD installs it' },
           { flag: '--manager-node FILE', about: 'provision: the acdes manager Node-API module (libacdes_manager_node.so) when the acdes PKGBUILD installs it' },
           { flag: '--libacde DIR', about: 'provision: the libacde checkout (only its LICENSE)' },
-          { flag: '--dopame DIR', about: 'provision: the dopame checkout, built (packages/dopame/dist)' },
+          { flag: '--dopame DIR', about: 'provision: removed (it laid out only part of dopame); use --pkgs with the dopame package' },
           { flag: '--harness FILE', about: 'provision: the dopame-harness build' },
           { flag: '--user NAME', about: 'provision: the test user (default tester; password ACDEV_VM_PASSWORD, default dopame-dev)' },
           { flag: '--no-restart', about: 'provision: leave greetd running as it is' },
