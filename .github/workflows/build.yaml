@@ -268,30 +268,36 @@ jobs:
           rm -rf built && mkdir built && echo "$GITHUB_RUN_NUMBER" > "built/${{ steps.reuse.outputs.record }}"
           upload -rt --mkpath --chmod=D755,F644 built/ "$TO:built/"
 
-  # acdevd for both guest architectures (static musl, rust-lld per crates/devd/.cargo/config.toml) in acdev-guest-<version>
+  # acdevd and acdev-agent for both guest architectures (static musl, rust-lld per crates/devd and crates/agent .cargo/config.toml)
+  # in acdev-guest-<version>; acdev-agent links libacde's acde-wire and acde-scene, so libacde comes beside acdev as for build
   guest:
     needs: plan
     runs-on: x86_64-debian
     timeout-minutes: 30
     env:
       D: guest
-      SOURCES: ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.version }}
+      SOURCES: ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.libacde }} ${{ needs.plan.outputs.version }}
     steps:
       - *ssh
       - *reuse
       - *checkout
-      - name: acdevd-x86_64 and acdevd-aarch64, to the artifacts host
+      - *libacde
+      - name: acdevd and acdev-agent, x86_64 and aarch64, to the artifacts host
         if: steps.reuse.outputs.build == 'true'
-        working-directory: acdev/crates/devd
+        working-directory: acdev/crates
+        env:
+          CARGO_REGISTRIES_AC_TOKEN: Bearer ${{ secrets.ACKERNEL_TOKEN }}
         run: |
           s=$GITHUB_WORKSPACE/stage o=$GITHUB_WORKSPACE/out
           rm -rf "$s" "$o" && mkdir -p "$s" "$o"
           for a in x86_64 aarch64; do
-            cargo build --locked --release --target $a-unknown-linux-musl
-            cp "target/$a-unknown-linux-musl/release/acdevd" "$s/acdevd-$a"
+            for p in devd:acdevd agent:acdev-agent; do
+              (cd "${p%%:*}" && cargo build --locked --release --target $a-unknown-linux-musl)
+              cp "${p%%:*}/target/$a-unknown-linux-musl/release/${p#*:}" "$s/${p#*:}-$a"
+            done
           done
           (cd "$s" && chmod 755 * && TZ=UTC touch -t 200001010000.00 * &&
-            tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64) | gzip -9 -n \
+            tar --format=ustar --owner=0 --group=0 --numeric-owner -cf - acdevd-x86_64 acdevd-aarch64 acdev-agent-x86_64 acdev-agent-aarch64) | gzip -9 -n \
             > "$o/acdev-guest-${{ needs.plan.outputs.version }}.tar.gz"
           upload -rt --mkpath --chmod=D755,F644 "$o/" "$TO:$GITHUB_RUN_NUMBER/guest/"
       - *record

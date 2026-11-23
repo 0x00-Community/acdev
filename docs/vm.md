@@ -245,8 +245,11 @@ pacman 不认的字符换成 `_`, 包修订号 1). 内容:
 4. `daemon-reload`, `enable` acdevd (不重启: provision 正经它在跑, 下次开机或 `start` 换成包里的), `enable` 并重启 acdev-agent;
 5. 跑 `acdev-dev-sudo`, 再接着装模拟硬件.
 
-发版: `acdev-guest-<版本>.tar.gz` 现在只有两个架构的 acdevd; 要让 Windows、macOS 上的 acdev 也带代理, 还要在 CI 的 `guest` 一格里编两个架构的 acdev-agent
-(它依赖 libacde, 那一格要拉 libacde) 并放进同一个包, 装成 `libexec/acdev-agent-<架构>`. 这一步还没做.
+发版: CI 的 `guest` 一格 (`.github/workflows/build.yaml`) 拉 libacde, 编两个架构的 acdevd 和 acdev-agent, 一起放进 `acdev-guest-<版本>.tar.gz`; 安装器把它们放成
+`libexec/acdev-agent-<架构>`, Windows、macOS 上的 acdev 也就带上代理 (`scripts/release-guard.ts` 核对这四个程序都在). 代价 (估计, 还没在执行机上量过, 第一次运行后按实测改):
+这一格多一次 libacde 浅克隆加 `vendor/blitz` 子模块 (约半分钟), 代理每个架构冷编约 1 分钟 (依赖是 wayland-client、serde_json、png、rustix、kurbo、peniko,
+没有 V8 和 blitz), 整格约多 2 到 3 分钟, 仍在 30 分钟的时限内, 且和 `build` 并行, 不拉长整条流水线; 代理静态 musl、`opt-level = "s"`、strip 后每个约 1.5 到 2.5 MB,
+`acdev-guest` 包 (gzip) 约多 1.5 到 2 MB.
 
 ## 命令
 

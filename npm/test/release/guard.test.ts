@@ -48,7 +48,7 @@ function release(plant: Plant[] = [], tamper = false, runtimeMember = ''): strin
     pack(root, join(version, tool.file), [tool.program], 'binary')
     lines.push(`${sha(join(version, tool.file))}  ${tool.file}`)
   }
-  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64'], 'binary')
+  pack(root, join(version, `acdev-guest-${VERSION}.tar.gz`), ['acdevd-x86_64', 'acdevd-aarch64', 'acdev-agent-x86_64', 'acdev-agent-aarch64'], 'binary')
   pack(root, join(version, `acde-api-${VERSION}.tar.gz`), ['package/package.json'], '{}')
   for (const file of [`acdev-guest-${VERSION}.tar.gz`, `acde-api-${VERSION}.tar.gz`]) lines.push(`${sha(join(version, file))}  ${file}`)
   for (const triple of TRIPLES) {

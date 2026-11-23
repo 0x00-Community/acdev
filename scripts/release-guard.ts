@@ -98,7 +98,7 @@ if (problems.length === 0) {
     }
   }
   for (const [index, runtime] of runtimes.entries()) programs(runtime, [exe('acdev', targets[index]!)])
-  programs(guest, ['acdevd-x86_64', 'acdevd-aarch64'])
+  programs(guest, ['acdevd-x86_64', 'acdevd-aarch64', 'acdev-agent-x86_64', 'acdev-agent-aarch64'])
   for (const tool of tools) programs(tool.file, tool.programs)
   const sdkNames = systemTar(['-tzf', join(dir, version, sdk)])
   const sdkList = sdkNames.status === 0 ? sdkNames.stdout.split('\n').filter(Boolean) : []
