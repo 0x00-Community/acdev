@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
 import * as Call from './driver/call/index.ts'
+import * as Confirms from './driver/confirms/index.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget } from './driver/types.ts'
@@ -20,7 +21,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -208,6 +209,12 @@ export class Tools {
     return { to, method: args[1]!, params: Call.params(text) }
   }
 
+  static showing(args: readonly string[]): string | null {
+    if (args.length === 0) return null
+    if (args[0] === 'show' && args[1]) return args[1]
+    throw new Error(`approvals: ${args.join(' ')}: give nothing to list, or show <id> (acdev approvals --help)`)
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
@@ -236,6 +243,7 @@ export class Tools {
     const opening = command === 'open' ? Tools.opening(args) : null
     const appearance = command === 'appearance' ? Tools.appearing(flags) : null
     const calling = command === 'call' ? await Tools.#calling(args) : null
+    const showing = command === 'approvals' ? Tools.showing(args) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -370,6 +378,9 @@ export class Tools {
           console.log(JSON.stringify((await acde.call(to, method, params)) ?? null, null, 2))
           return 0
         }
+        case 'approvals':
+          console.log(showing ? await Confirms.show(acde, showing) : Confirms.listed(await Confirms.pending(acde)))
+          return 0
         case 'pointer': {
           const [x, y] = args.map(Number) as [number, number]
           if (!Number.isFinite(x) || !Number.isFinite(y))

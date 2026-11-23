@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import * as z from 'zod'
 import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import * as Call from './driver/call/index.ts'
+import * as Confirms from './driver/confirms/index.ts'
 import { Clock } from './driver/clock.ts'
 import { Format } from './driver/format.ts'
 import { Poll } from './driver/poll.ts'
@@ -291,6 +292,24 @@ export class PageTools {
         host.safe(async () => {
           const result = await (await host.acde()).call(args.target, args.method, args.params)
           return host.text(JSON.stringify(result ?? null, null, 2))
+        }),
+    )
+
+    server.registerTool(
+      'approvals',
+      {
+        description: 'The system confirms that wait for the person in a session in the guest (--session vm): id, '
+          + 'operation, and whether an agent or the person asked. With show, puts that one on the screen as the system '
+          + 'confirm page (after the one showing now, if any). Answer it with act on the confirm window (mode '
+          + 'confirm in snapshot): allow, deny, or type the password, as the person would; nothing answers for them. '
+          + 'A session on this machine has no system agent and is refused.',
+        inputSchema: z.object({ show: z.string().min(1).optional().describe('the id of the confirm to show') }),
+        annotations: DRIVE,
+      },
+      (args) =>
+        host.safe(async () => {
+          const acde = await host.acde()
+          return host.text(args.show ? await Confirms.show(acde, args.show) : Confirms.listed(await Confirms.pending(acde)))
         }),
     )
 

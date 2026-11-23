@@ -38,6 +38,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev allow` / `acdev deny` `[<prompt id> \| <app> <capability>] [--all]` | Answers a waiting camera or microphone prompt |
 | `acdev revoke <app> <capability>` | Takes back a decision |
 | `acdev call <manager\|desktop> <method> [params\|-]` | In a guest session, calls the session manager or the Dopame backend and prints the result as JSON; see [call](#call) |
+| `acdev approvals [show <id>]` | In a guest session, lists the system confirms that wait, or puts one on the screen; see [System confirms](#system-confirms) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -260,6 +261,21 @@ Each side decides what it lets through, and refuses the rest with the reason:
 - `desktop`: goes over the Dopame backend's debug connection, and the backend decides what that role may call: `look.lock` (the lock screen's look), state methods such as `state.watch`, `activity.list`, `desks.list` and `boss.status`, and the `test.*` failure injections of a debug session. Sensitive methods such as `waiting.answer`, `grants.*` and `secrets.*` are always refused there.
 
 The result prints as JSON. An error prints as it came, with its code (`(code forbidden)`), and the exit code is 1.
+
+### System confirms
+
+In a Dopame OS guest, the system agent asks the person before some operations (a risky tool, a package from outside the official repositories, a payment). The person answers on the **system confirm page**, which the session manager puts over the whole screen; on the desktop, Dopame shows only an entry for it under "for you to handle", with **Review** and **Deny**, never **Allow**.
+
+The page does not always show by itself: an agent's request waits for the person to open it, and a request of the person shows at once only when the keyboard or mouse was used in the last 3 s. Input from acdev does not count as that, so in a session acdev drives, open it yourself:
+
+```sh
+acdev approvals --session vm              # r-12  tool.call  (from an agent)
+acdev approvals show r-12 --session vm    # the system confirm page shows r-12
+acdev inspect --session vm                # - window "confirm" [confirm] [w9] … its buttons and fields
+acdev act w9.4 click --session vm         # Allow (or Deny); type the password first when it asks
+```
+
+While it shows, it covers the screen: clicks meant for the windows under it land on it, and an agent's inspect is refused. The confirm window (`[confirm]`) and the lock screen (`[lock]`) cannot be moved, resized, raised, minimized or closed; the session manager puts them away once the confirm is answered. acdev never answers for the person: allowing, denying and the password are `act` steps on the page, as the person would do them. The MCP tool `approvals` does the same as `acdev approvals`.
 
 ## DevTools
 

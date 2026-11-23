@@ -189,6 +189,8 @@ describe('mistakes', () => {
       .toEqual(['acdev: call: shell is not a target (manager or desktop) (acdev call --help)'])
     expect(lines((await cli(['call', 'desktop', 'look.lock', '{accent'], APP)).stderr)[0])
       .toStartWith('acdev: call: the parameters are not JSON: ')
+    expect(lines((await cli(['approvals', 'r-1'], APP)).stderr))
+      .toEqual(['acdev: approvals: r-1: give nothing to list, or show <id> (acdev approvals --help)'])
     expect(lines((await cli(['call', 'manager'], APP)).stderr))
       .toEqual(['acdev: call: 2 to 3 arguments, not 1 (acdev call --help)'])
     const level = lines((await cli(['console', '--level', 'loud'], APP)).stderr)

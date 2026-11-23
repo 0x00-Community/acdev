@@ -338,6 +338,15 @@ export class Help {
         'acdev call manager approvals.pending --session vm',
         'acdev call desktop look.lock \'{"accent":"#d0249f"}\' --session vm',
       ]),
+      inspecting('approvals', '[show <id>]', 'List system confirms, or put one on the screen', [
+        'Only in a session in the guest (--session vm). Lists the system confirms that wait for the person (id, '
+          + 'operation, and whether an agent or the person asked); show <id> puts that one on the screen as the '
+          + 'system confirm page, whether or not someone is at the keyboard, or after the one showing now is answered.',
+        'acdev does not answer them: the confirm page is a window (mode confirm in acdev inspect), and allowing, '
+          + 'denying and typing the password are act steps on its buttons and fields, as the person would do. '
+          + 'An agent\'s request never shows by itself, and a request of the person only when the keyboard or mouse '
+          + 'was used in the last 3 s, which input from acdev does not count as.',
+      ], [], ['acdev approvals --session vm', 'acdev approvals show r-12 --session vm']),
       inspecting('stop', '', 'End the session', [
         'Ends the acdev dev and its acdev runtime, as closing its last window does; for one started in the background.',
       ], [], ['acdev stop']),

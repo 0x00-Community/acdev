@@ -35,7 +35,7 @@ describe('acdev mcp', () => {
     try {
       const tools = (await client.listTools()).tools
       expect(tools.map((t) => t.name).sort()).toEqual([
-        'act', 'answer', 'appearance', 'call', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
+        'act', 'answer', 'approvals', 'appearance', 'call', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
         'doctor', 'doctor_fix', 'emulate', 'eval', 'input', 'logs', 'network', 'open', 'permissions', 'pointer', 'query',
         'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for',
         'webs',
@@ -79,6 +79,9 @@ describe('acdev mcp', () => {
       const invalid = await call('act', { ref: 'w1.2', action: 'explode' })
       expect(invalid.error).toBe(true)
       expect(invalid.text).toContain('action')
+      const confirms = await call('approvals', {})
+      expect(confirms.error).toBe(true)
+      expect(confirms.text).toContain('approvals: only in a session in the guest (--session vm)')
       const host = await call('call', { target: 'manager', method: 'approvals.pending' })
       expect(host.error).toBe(true)
       expect(host.text).toContain('call: only in a session in the guest (--session vm)')

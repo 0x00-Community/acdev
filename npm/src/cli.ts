@@ -57,6 +57,7 @@ class Cli {
     deny: { args: [0, 2], flags: ['session'], switches: ['all'] },
     revoke: { args: [2, 2], flags: ['session'] },
     call: { args: [2, 3], flags: ['session'] },
+    approvals: { args: [0, 2], flags: ['session'] },
     stop: { args: [0, 0], flags: ['session'] },
     devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
