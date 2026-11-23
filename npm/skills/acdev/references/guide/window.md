@@ -10,7 +10,7 @@ Each app window is a separate web page with its own DOM and JS heap; one window 
 - The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh`, and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
 - The title comes from `document.title` or `window.setTitle()`, whichever was set last (a `<title>` in the page replaces a title set before the document loaded); if neither is set, `label` is used.
 - Declare the colour schemes your page supports, as in a browser: `color-scheme: light dark` on the root (`:root { color-scheme: light dark }`) or `<meta name="color-scheme" content="light dark">` when it follows the system with `prefers-color-scheme`, `dark` when it is always dark. The system draws a dark title bar only for pages that name `dark`; a page that declares nothing is taken as light only and gets a light title bar even in a dark theme. The `html` template follows the system and declares `light dark`. An app run on its own (an `acdev dev` of the app, `acdev test`) gets a dark title bar while the page is dark: a page that names only `dark` always, a page that names `light dark` while `prefers-color-scheme` is `dark` (the system's scheme, or `emulate({ colorScheme })` in a test). As in browsers, the root's `color-scheme` counts before the meta: an app with its own light / dark switch sets `color-scheme: dark` or `light` on the root, and the title bar follows it.
-- The system colours `AccentColor` and `AccentColorText` follow the system accent colour (in a `--session vm` guest the accent chosen in the Settings app, on a Linux host the desktop portal's `accent-color`; Windows and macOS hosts keep the defaults): `AccentColor` is that colour and `AccentColorText` is white or black, whichever reads better on it. With no accent set they keep the browser defaults (`#0075ff` with white text, `#99c8ff` with black in dark). Use them for highlights that should match the system, e.g. `button.primary { background: AccentColor; color: AccentColorText }`. When the accent changes, open pages restyle at once and `getComputedStyle` returns the new colour; no event is fired and no media query covers it.
+- The system colours `AccentColor` and `AccentColorText` follow the system accent colour (in a `--session vm` guest the accent chosen in the Settings app, on a Linux host the desktop portal's `accent-color`; Windows and macOS hosts keep the defaults): `AccentColor` is that colour and `AccentColorText` is white or black, whichever reads better on it. With no accent set they keep the browser defaults (`#0075ff` with white text, `#99c8ff` with black in dark). Use them for highlights that should match the system, e.g. `button.primary { background: AccentColor; color: AccentColorText }`. When the accent changes, open pages restyle at once and `getComputedStyle` returns the new colour; no media query covers it. To tell "no accent set" from "the user picked `#0075ff`", or to act on a change, use `acde:window`: `accent()` returns the system value as `#rrggbb`, or `null` when the system sets none (always `null` on Windows and macOS hosts), and `on('accent', (color) => …)` fires with the new value (`null` included) when it changes, e.g. `const brand = self.accent() ?? '#6b4eff'`.
 
 ## acde:window
 
@@ -42,6 +42,7 @@ self.on('beforeclose', async () => {
 | `setGrabHint(rect, edges?)` | Pressing in this area makes the system move the window (no `edges`) or resize it (with edges) |
 | `setBackdrop(rect, effect?)` | Frosted glass over whatever is behind this area: `{radius, blur, saturate, brightness}`; `null` removes it |
 | `setMaterial(material, options?)` / `material()` | The window background material, drawn under the page; see [Window material](#window-material) |
+| `accent()` / `on('accent')` | The system accent colour as `#rrggbb`, `null` when the system sets none; the event fires with the new value; see [Size and title bar](#size-and-title-bar) |
 | `requestGrab(kind)` / `releaseGrab(kind)` | Takes exclusive pointer or keyboard input (`'pointer'` / `'keyboard'`) |
 | `shortcut(combo)` / `unshortcut(combo)` | Registers an app-level global shortcut, such as `'ctrl+shift+k'` |
 | `hostControls` | `true` when the host system draws the window's minimize / maximize / close buttons, so a frameless app should hide its own |
@@ -91,7 +92,7 @@ self.requestState('fullscreen') // 'normal' | 'minimized' | 'filled' | 'fullscre
 
 ### Events
 
-Subscribe with `on(name, handler)`, which returns an unsubscribe function. A name the module does not have throws a `TypeError` (`acde:window has no nosuch event (activate, deactivate, beforeclose, request, suspend, resume, grab, grablost, state, output, hostcontrols, minimizable, shortcut)`). Events are not dispatched on the global `window`.
+Subscribe with `on(name, handler)`, which returns an unsubscribe function. A name the module does not have throws a `TypeError` (`acde:window has no nosuch event (activate, deactivate, beforeclose, request, suspend, resume, grab, grablost, state, output, hostcontrols, minimizable, accent, shortcut)`). Events are not dispatched on the global `window`.
 
 | Event | When |
 | --- | --- |
@@ -103,6 +104,7 @@ Subscribe with `on(name, handler)`, which returns an unsubscribe function. A nam
 | `shortcut` | A registered shortcut was pressed, `{key}` |
 | `grab` / `grablost` | Exclusive input was answered, `{kind, granted}` / taken back, `{kind: 'lost', reason}` |
 | `hostcontrols` / `minimizable` | `hostControls` / `minimizable` changed; the handler gets the new value |
+| `accent` | The system accent colour changed; the handler gets the new `#rrggbb`, or `null` when it was unset |
 
 ### Menus
 

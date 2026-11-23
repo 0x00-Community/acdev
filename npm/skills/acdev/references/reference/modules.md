@@ -82,6 +82,7 @@ interface AcdeWindow {
   setBackdrop(rect: WindowRect | null, effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number }): void
   setMaterial(material: MaterialName, options?: MaterialOptions): void
   material(): { readonly material: string; readonly options: MaterialOptions }
+  accent(): string | null
   requestActivate(): void
   requestGrab(kind: 'pointer' | 'keyboard'): void
   releaseGrab(kind: 'pointer' | 'keyboard'): void
@@ -94,6 +95,7 @@ interface AcdeWindow {
   on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
   on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
   on(name: 'minimizable', handler: (minimizable: boolean) => void): () => boolean
+  on(name: 'accent', handler: (color: string | null) => void): () => boolean
   on(name: 'shortcut', handler: (event: ShortcutEvent) => void): () => boolean
   on(name: 'grab', handler: (event: { readonly kind: 'pointer' | 'keyboard'; readonly granted: boolean }) => void): () => boolean
   on(name: 'grablost', handler: (event: { readonly kind: 'lost'; readonly reason: 'esc' | 'other_window' | 'focus_lost' | 'denied' }) => void): () => boolean
