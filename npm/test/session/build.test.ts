@@ -152,7 +152,7 @@ describe('acdev dev with a stand-in acdert', () => {
       expect((await dev.tool(['console', '--since', '1'], alpha)).stdout).toBe('   1 log    alpha#7  alpha ready\n')
       const wrong = await dev.tool(['network', '--since', 'later'], alpha)
       expect(wrong.code).toBe(1)
-      expect(wrong.stderr).toContain('network: --since later: reload, or the number of an entry')
+      expect(wrong.stderr).toContain('network: --since later: reload, the number of an entry, or the next a merged answer printed')
     } finally {
       await dev.stop()
     }
