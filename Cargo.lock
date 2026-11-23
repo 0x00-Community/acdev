@@ -53,6 +53,7 @@ name = "acdev"
 version = "0.1.0"
 dependencies = [
  "acde-hostwin",
+ "acde-scene",
  "base64",
  "libacde",
  "log",

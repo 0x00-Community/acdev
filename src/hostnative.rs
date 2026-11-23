@@ -57,6 +57,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "setMenus" => set_menus,
         "menus" => menus,
         "inject" => inject,
+        "injectSequence" => inject_sequence,
         "drop" => drop_files,
         "quit" => quit,
         "capture" => capture,
@@ -360,6 +361,30 @@ fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     match injected(scope, args.get(0)) {
         Ok(event) => _ = with(scope, |shell| shell.inject(event)),
         Err(e) => acde::throw_error(scope, &e),
+    }
+}
+
+fn inject_sequence(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let events = match crate::hostinput::sequence(scope, args.get(0)) {
+        Ok(events) => events,
+        Err(e) => return acde::throw_type_error(scope, &e),
+    };
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    acde::offload(scope, &mut rv, "acde-input", move || crate::hostinput::play(events), settle_played);
+}
+
+fn settle_played(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, played: Result<(), String>) {
+    match played {
+        Ok(()) => {
+            let done = v8::undefined(scope);
+            resolver.resolve(scope, done.into());
+        }
+        Err(e) => {
+            let error = acde::failure(scope, &format!("injectSequence: {e}"), None, "injectSequence");
+            resolver.reject(scope, error);
+        }
     }
 }
 

@@ -146,6 +146,9 @@
   `WindowEvent::TouchpadPressure` (Force Touch 触控板的按压力度和档位, 不是指针的压力, 不拿来顶替) 和 `Touch.force` (Windows / iOS / Android / Web
   的触摸, macOS 不发). 要做得自己在 `NSView` 上接 tablet 事件, 或等 winit 的新指针事件接口.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
+- **整组注入** (`Shell.injectSequence(events)`, 2026-11-23, `src/hostinput.rs`): 启动器的 act drag 和 inspect input 把一整组屏幕坐标的事件 (`move`、`down` / `up` 带按钮名、`wheel`、
+  `keydown` / `keyup` 带 `code`、`wait`) 一次交来; 先过 acde-scene 的 `input::pace` (按下后到第一次移动停 150 ms, 两次移动隔一帧, 松开前停一帧, 脚本写了 wait 的不叠加, 节奏只在那里定一份),
+  再在 `acde-input` 线程上逐个 `Cmd::Inject`, 遇到 wait 就睡; 按下、松开、滚轮的位置和指针当前位置不同时先补一次移动. 返回 Promise, 全部发完才兑现; 有写错的事件时整组不发, 同步抛 `TypeError`.
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
 - **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),

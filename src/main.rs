@@ -1,5 +1,6 @@
 mod chooser;
 mod doctor;
+mod hostinput;
 mod hostnative;
 mod platform;
 
