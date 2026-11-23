@@ -272,9 +272,9 @@ test('records once the user allows the microphone', async ({ app, acdev }) => {
 
 ## Failures
 
-A failed test leaves these in `.acde/test-results/<file>/<test>/`:
+Each run of `acdev test` gets its own folder `.acde/test-results/<UTC time>-run/`; the newest 20 runs are kept, older ones are deleted, and a run in which every test passed leaves no folder. A failed test leaves these in `<run>/<file>/<test>/` (with `--retries`, attempt n in `<test>.attempt-n/`):
 
-`error.txt` `output.log` `screen.png` `snapshot.txt` `console.txt` `network.txt` `trace.txt`
+`error.txt` `output.log` `screen.png` `webs.txt` `snapshot.txt` `windows.json` `console.txt` `network.txt` `manifest.json` `trace.txt`, and with `--vm` also `journal.txt` (the guest journal from the start of the test). These are the files `acdev evidence` takes (see [Evidence](tools.md#evidence)); what could not be taken is named in `<file>.error.txt` and `manifest.json`.
 
 A test that runs out of time fails with `TimeoutError: the test did not finish within <ms> ms (its timeout: --timeout, or the one given to test())` and leaves the same files, taken at that moment.
 
@@ -313,7 +313,7 @@ Each file prints the output of its own `bun test` run as it goes; when several r
 
 ```text
 acdev test: 5 tests in 2 files: 4 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t); failed: e2e/notes.e2e.ts
-  what the failing tests left: /path/to/notes/.acde/test-results
+  what the failing tests left: /path/to/notes/.acde/test-results/20261123T140506.789Z-run
 ```
 
 - It counts the tests of the files that ran: how many ran, in how many files, how many passed and failed, and, when there are any, how many did not run (`test.skip`, `test.todo`, and tests that `-t` left out). The numbers come from the report `bun test` writes for each file.

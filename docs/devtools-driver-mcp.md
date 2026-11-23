@@ -170,9 +170,9 @@
   正在退出的那个), 再照常挑, 挑到别的会话 (比如用户重起的 `acdev dev`) 就接着用, 挑不到时报 `acdev dev N stopped; <挑会话的错误>`.
 - **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdev runtime), 从 `acdev/test` 导入. 每个测试一个新 `acdev dev`
   (`E2eRun`), 隔离: 临时 `HOME` 和 `XDG_*`、`ACDE_STORAGE` 空、`ACDE_SIZE=1280x800`、浅色、减少动画、不跑 autostart, 构建进 `.acde/test`. 失败时在
-  `<results>/<文件>/<测试>/` 留 `error.txt`、`output.log`、`screen.png`、`snapshot.txt`、`console.txt`、`network.txt`、`trace.txt` (截图比对的
+  `<results>/<文件>/<测试>/` 留证, 用和 `acdev evidence` 同一份代码 (`Evidence.write`, 见上面「留证」): `error.txt`、`output.log`、`screen.png`、`webs.txt`、`snapshot.txt` 和 `windows.json`、`console.txt`、`network.txt`、`manifest.json` (客户机里 `--vm` 时再加从测试开始起的 `journal.txt`), 再加 `trace.txt` (截图比对的
   `-actual` / `-expected` / `-diff` 也在这). `--trace` 每个测试都留 `trace.html`; `-u` / `--update-screenshots` 重写基线. `TestRunner` 每个文件一个
-  `bun test` 子进程, 设置走 `ACDE_TEST_*` (`settings.ts`); 默认 headless、每个测试 60 s, 先清 `.acde/test-results`.
+  `bun test` 子进程, 设置走 `ACDE_TEST_*` (`settings.ts`); 默认 headless、每个测试 60 s. 结果按次存档 (AC/acdev#115, `archive.ts`): 每次运行在 `.acde/test-results` 下建 `<UTC 时间>-run` (`Evidence.folder`, 不覆盖), 这就是 `<results>`; 建之前删掉不是这种名字的旧布局和更早的运行, 连同这次只留最近 `KEEP_RUNS` (20) 次 (按名字即按时间, 从旧到新删); 一次运行什么都没留下 (全部通过) 时把它的目录删掉, 不占名额.
   **`--vm`** (工单 19): 用例跑在 `acdev vm` 客户机里登录着的会话里, 不起 `acdev dev`. 开跑前经 acdevd 以 root 跑一段脚本 (`src/vm/guest.ts`):
   从 logind 取 seat0 活动会话的用户和 HOME, 用 `chpasswd` 把密码设成 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`, 给锁屏页的用例),
   `faillock --user <用户> --reset`; 没有活动会话时报错. 一次只跑一个文件, 所有用例接同一个会话 (`Acde.attach({session: 'vm'})`),
@@ -200,7 +200,7 @@
   这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdev runtime 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
   `--workers N` 同时跑几个文件 (默认核数的一半, 最多 4; `--headed` / `--bail` 时 1): 每个 worker 构建进自己的目录 (`.acde/test`、`.acde/test-2` …,
   `ACDEV_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acdev dev 再跑
-  (后来过了就打 flaky, 结果目录只留最后一次), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,
+  (后来过了就打 flaky; 每次尝试各留一份: 第一次在 `<测试>/`, 第 n 次在 `<测试>.attempt-n/`), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,
   和上一张一样的不要, 最多 600 张, 拼成 APNG, `Png.animate` 只搬 PNG 的块不重编码), `--video=on` 每个测试都留; 失败时停录像最多等
   `VIDEO_MS` (5 s, 在 `keep` 之前, 两者都在宽限期里), 录像在 `acde.close()` 之后才收尾 (会话关了录像的循环才一定结束).
   `test(名字, 函数, 选项)` 和 `test(名字, 选项, 函数)` 都行; 选项 `{timeout, size: [w, h], localStorage: {…}}`: `localStorage` 先

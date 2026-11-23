@@ -155,7 +155,7 @@ export class Help {
         summary: 'Run the end-to-end tests (*.e2e.ts)',
         about: [
           'Runs *.e2e.ts files (import from acdev/test); each test gets a fresh, isolated acdev dev, headless '
-            + 'unless --headed. What a failing test left goes to <project>/.acde/test-results.',
+            + 'unless --headed. What a failing test left goes to <project>/.acde/test-results/<time>-run (the newest 20 runs are kept).',
         ],
         options: [
           { flag: '-t PATTERN', about: 'Only the tests whose names match' },

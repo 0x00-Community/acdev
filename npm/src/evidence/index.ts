@@ -19,7 +19,6 @@ export interface Scene {
 }
 
 export interface Capture {
-  readonly root: string
   readonly label: string
   readonly since: Date
   readonly error?: unknown
@@ -120,16 +119,19 @@ async function within(ms: number, work: Promise<void>): Promise<void> {
   }
 }
 
-export async function keep(scene: Scene | null, capture: Capture): Promise<Kept> {
-  const now = capture.now ?? (() => new Date())
-  const at = now()
-  const dir = folder(capture.root, capture.label, at)
+export async function keep(scene: Scene | null, capture: Capture & { readonly root: string }): Promise<Kept> {
+  const at = (capture.now ?? (() => new Date()))()
+  return await write(scene, capture, folder(capture.root, capture.label, at), at)
+}
+
+export async function write(scene: Scene | null, capture: Capture, dir: string, at = new Date()): Promise<Kept> {
+  mkdirSync(dir, { recursive: true })
   const until = Date.now() + (capture.budgetMs ?? BUDGET_MS)
   const items: Item[] = []
-  for (const [file, write] of steps(scene, capture)) {
+  for (const [file, take] of steps(scene, capture)) {
     const started = Date.now()
     try {
-      await within(until - started, write(join(dir, file)))
+      await within(until - started, take(join(dir, file)))
       items.push({ file, ok: true, ms: Date.now() - started })
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)

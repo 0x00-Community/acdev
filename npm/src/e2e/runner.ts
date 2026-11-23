@@ -7,6 +7,7 @@ import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { cpus } from 'node:os'
 import { E2e, type VideoMode } from './settings.ts'
+import { dropEmpty, newRun } from './archive.ts'
 import { TestTsconfig } from './tsconfig.ts'
 
 export interface RunnerOptions {
@@ -164,8 +165,9 @@ export class TestRunner {
       }
       return file
     }
-    const results = (suite: Suite) => join(suite.project, '.acde', 'test-results')
-    for (const dir of new Set(suites.map(results))) rmSync(dir, { recursive: true, force: true })
+    const runs = new Map<string, string>()
+    const results = (suite: Suite) => runs.get(suite.project)!
+    for (const project of new Set(suites.map((suite) => suite.project))) runs.set(project, newRun(join(project, '.acde', 'test-results')))
     const wanted = guestHome !== null ? 1 : (options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers()))
     const workers = Math.max(1, Math.min(suites.length, wanted))
     const parallel = workers > 1
@@ -242,6 +244,7 @@ export class TestRunner {
       }
     }
     await Promise.all(Array.from({ length: workers }, (_, slot) => worker(slot)))
+    for (const run of runs.values()) dropEmpty(run)
     if (!ran && filtered.length) {
       const files = `${filtered.length} file${filtered.length === 1 ? '' : 's'}`
       console.log(`acdev test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)

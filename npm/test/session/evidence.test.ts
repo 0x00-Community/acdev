@@ -1,8 +1,9 @@
 import { describe, expect as check, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as Evidence from '../../src/evidence/index.ts'
+import { dropEmpty, KEEP_RUNS, newRun, prune } from '../../src/e2e/archive.ts'
 
 const at = new Date('2026-11-23T14:05:06.789Z')
 
@@ -78,6 +79,26 @@ describe('evidence of a failure', () => {
       const late = await Evidence.keep(stuck, { root: dir, label: 'stuck', since: at, budgetMs: 50 })
       check(late.items.find((i) => i.file === 'webs.txt')?.ok).toBe(false)
       check(existsSync(join(late.dir, 'webs.txt.error.txt'))).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('the runs acdev test keeps', () => {
+  test('each run gets a new folder, the newest 20 stay, older runs and the old layout go, and an empty run leaves nothing', () => {
+    const dir = root()
+    try {
+      mkdirSync(join(dir, 'e2e-old', 'a-test'), { recursive: true })
+      const made = Array.from({ length: KEEP_RUNS + 3 }, (_, i) => newRun(dir, new Date(at.getTime() + i * 1000)))
+      const left = readdirSync(dir).sort()
+      check(left.length).toBe(KEEP_RUNS)
+      check(left[0]).toBe(made[3]!.slice(dir.length + 1))
+      check(existsSync(join(dir, 'e2e-old'))).toBe(false)
+      check(prune(dir, KEEP_RUNS)).toEqual([])
+      check(dropEmpty(made.at(-1)!)).toBe(true)
+      writeFileSync(join(made.at(-2)!, 'error.txt'), 'x')
+      check(dropEmpty(made.at(-2)!)).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

@@ -15,8 +15,18 @@ import { cleanup, standIn } from '../helpers.ts'
 const CLI = join(import.meta.dir, '../../src/cli.ts')
 const BROKEN = join('e2e', 'broken.e2e.ts')
 const TASKS = join('e2e', 'tasks.e2e.ts')
+const LEFT = [
+  'console.txt', 'error.txt', 'manifest.json', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt',
+  'webs.txt', 'windows.json',
+]
 
 afterAll(cleanup)
+
+const runs = (project: string): string[] => {
+  const root = join(project, '.acde/test-results')
+  return existsSync(root) ? readdirSync(root).sort().map((name) => join(root, name)) : []
+}
+const lastRun = (project: string): string => runs(project).at(-1)!
 
 const PASSING = `import { test, expect } from 'acdev/test'
 
@@ -102,11 +112,11 @@ describe('acdev test', () => {
     }
     expect(new Set(run.started.map((e) => e.env!['XDG_CONFIG_HOME'])).size).toBe(4)
     expect(run.started[0]!.argv).toEqual(['app', 'alpha'])
-    const left = join(s.project, '.acde/test-results/e2e-broken/looks-for-what-is-not-there')
-    const saved = 'error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt'
+    const left = join(lastRun(s.project), 'e2e-broken/looks-for-what-is-not-there')
+    const saved = 'error.txt, output.log, screen.png, webs.txt, snapshot.txt, console.txt, network.txt, trace.txt'
     expect(run.out).toContain(`acdev test: saved ${saved} in ${left}`)
     expect(readdirSync(left).sort())
-      .toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
+      .toEqual(LEFT)
     const step = /^ {2}1 FAIL \+\d+\.\d\ds +\d+ ms {2}/
     const trace = readFileSync(join(left, 'trace.txt'), 'utf8')
     expect(trace).toMatch(step)
@@ -115,7 +125,7 @@ describe('acdev test', () => {
       .toContain('AssertionError: expected window(app "alpha").getByText("Nowhere")')
     expect(readFileSync(join(left, 'console.txt'), 'utf8')).toBe('   1 log    alpha#7  alpha ready\n')
     expect(readFileSync(join(left, 'screen.png')).subarray(1, 4).toString()).toBe('PNG')
-    expect(existsSync(join(s.project, '.acde/test-results/e2e-tasks'))).toBe(false)
+    expect(existsSync(join(lastRun(s.project), 'e2e-tasks'))).toBe(false)
     expect(existsSync(join(s.project, '.acde/test/web'))).toBe(true)
   }, 120_000)
 
@@ -180,30 +190,30 @@ test('never ends', async ({ app }) => {
 `)
     const slow = await acdeTest(s, ['--timeout', '4000'])
     expect(slow.code).toBe(1)
-    const left = join(s.project, '.acde/test-results/e2e-slow/never-ends')
+    const left = join(lastRun(s.project), 'e2e-slow/never-ends')
     const why = 'TimeoutError: the test did not finish within 4000 ms ' +
       '(its timeout: --timeout, or the one given to test())'
     expect(slow.out).toContain(why)
-    const saved = 'error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt'
+    const saved = 'error.txt, output.log, screen.png, webs.txt, snapshot.txt, console.txt, network.txt, trace.txt'
     expect(slow.out).toContain(`acdev test: saved ${saved} in ${left}`)
     expect(slow.out).toContain(`acdev test: 2 tests in 1 file: 1 passed, 1 failed; failed: ${file}\n`)
     expect(slow.out).not.toContain('dangling process')
     expect(readdirSync(left).sort())
-      .toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
+      .toEqual(LEFT)
     expect(readFileSync(join(left, 'error.txt'), 'utf8')).toStartWith(why)
     expect(readFileSync(join(left, 'output.log'), 'utf8')).toContain('acdev: dev app alpha (headless)')
     expect(readdirSync(join(s.root, 'acde-dev'))).toEqual([])
 
     const stuck = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'], { FAKE_ACDERT_LISTEN_MS: '600000' })
     expect(stuck.code).toBe(1)
-    const unstarted = join(s.project, '.acde/test-results/e2e-slow/quick')
+    const unstarted = () => join(lastRun(s.project), 'e2e-slow/quick')
     expect(stuck.out).toMatch(/acdev dev \(pid \d+\) did not register a session within 2 s in /)
     expect(stuck.out)
       .toContain('\nno session yet: its build did not finish, or acdev runtime did not start listening; last output:\n')
-    expect(stuck.out).toContain(`acdev test: saved error.txt, output.log in ${unstarted}`)
-    expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
-    expect(readFileSync(join(unstarted, 'error.txt'), 'utf8')).toContain('acdev: dev app alpha (headless)')
-    const output = readFileSync(join(unstarted, 'output.log'), 'utf8').split('\n')
+    expect(stuck.out).toContain(`acdev test: saved error.txt, output.log in ${unstarted()}`)
+    expect(readdirSync(unstarted()).sort()).toEqual(['error.txt', 'manifest.json', 'output.log'])
+    expect(readFileSync(join(unstarted(), 'error.txt'), 'utf8')).toContain('acdev: dev app alpha (headless)')
+    const output = readFileSync(join(unstarted(), 'output.log'), 'utf8').split('\n')
     expect(output[0]).toStartWith('acdev: dev app alpha (headless): ')
     expect(output).toContain('12.345 I acde js: fake acdert is up')
     expect(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
@@ -212,14 +222,14 @@ test('never ends', async ({ app }) => {
     expect(windowless.code).toBe(1)
     expect(windowless.out).toContain('acdev dev did not start within 2 s:\nacdev runtime runs and answers, but no ' +
       'window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:\n')
-    expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
+    expect(readdirSync(unstarted()).sort()).toEqual(['error.txt', 'manifest.json', 'output.log'])
 
     writeFileSync(join(s.project, 'acde.config.jsonc'), '{ "type": "app" ')
     const broken = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'])
     expect(broken.code).toBe(1)
     expect(broken.out).toContain('acdev dev exited (1) before it was ready:\n')
-    expect(broken.out).toContain(`acdev test: saved error.txt, output.log in ${unstarted}`)
-    expect(readFileSync(join(unstarted, 'output.log'), 'utf8')).toStartWith('acdev: ')
+    expect(broken.out).toContain(`acdev test: saved error.txt, output.log in ${unstarted()}`)
+    expect(readFileSync(join(unstarted(), 'output.log'), 'utf8')).toStartWith('acdev: ')
   }, 120_000)
 
   const ci = 'in CI (CI set) the tests run, and a missing screenshot baseline is an error instead of being written'
@@ -272,21 +282,24 @@ test('the empty list', async ({ app }) => {
     const changed = await acdeTest(s, [])
     expect(changed.code).toBe(1)
     expect(changed.out).toContain(`to match screenshot ${baseline}: 2 pixels differ`)
-    const left = join(s.project, '.acde/test-results/e2e-look/the-empty-list')
+    const left = join(lastRun(s.project), 'e2e-look/the-empty-list')
     expect(readdirSync(left)).toEqual(expect.arrayContaining([
       'the-empty-list-1-actual.png', 'the-empty-list-1-diff.png', 'the-empty-list-1-expected.png', 'trace.txt',
     ]))
 
     const updated = await acdeTest(s, ['-u', '--trace'])
     expect(updated.code).toBe(0)
+    const traced = join(lastRun(s.project), 'e2e-look/the-empty-list')
     expect(updated.out).toContain(`acdev: updated screenshot ${baseline}`)
-    expect(updated.out).toContain(`acdev test: trace of "the empty list": ${join(left, 'trace.txt')}`)
-    expect(readdirSync(left).sort()).toEqual(['trace', 'trace.html', 'trace.txt'])
-    expect(readFileSync(join(left, 'trace.html'), 'utf8'))
+    expect(updated.out).toContain(`acdev test: trace of "the empty list": ${join(traced, 'trace.txt')}`)
+    expect(readdirSync(traced).sort()).toEqual(['trace', 'trace.html', 'trace.txt'])
+    expect(readFileSync(join(traced, 'trace.html'), 'utf8'))
       .toContain('expect window(app &quot;alpha&quot;) to match screenshot the-empty-list-1')
-    expect(readdirSync(join(left, 'trace')).length).toBeGreaterThan(5)
+    expect(readdirSync(join(traced, 'trace')).length).toBeGreaterThan(5)
+    const archived = runs(s.project).length
     expect((await acdeTest(s, [])).code).toBe(0)
-    expect(existsSync(left)).toBe(false)
+    expect(runs(s.project).length).toBe(archived)
+    expect(existsSync(left)).toBe(true)
   }, 120_000)
 })
 

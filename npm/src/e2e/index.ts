@@ -15,6 +15,8 @@ import { Sessions } from '../sessions.ts'
 import { Video } from '../driver/video.ts'
 import { AppWindow } from '../driver/window.ts'
 import { E2e, type E2eSettings } from './settings.ts'
+import * as Evidence from '../evidence/index.ts'
+import { guestJournal } from '../evidence/guest.ts'
 
 export { afterAll, afterEach, beforeAll, beforeEach, describe } from 'bun:test'
 export * from '../driver/index.ts'
@@ -134,7 +136,7 @@ export class E2eRun {
     } catch (error) {
       E2eRun.ownFrames(error)
       if (video) await E2eRun.#video(video, results)
-      const saved = await E2eRun.keep(acde, error, results, name)
+      const saved = await E2eRun.keep(acde, error, results, name, new Date(deadline - timeout))
       if (error instanceof Error) error.message += `\n\n${saved}`
       throw error
     } finally {
@@ -201,42 +203,12 @@ export class E2eRun {
     }
   }
 
-  static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir)): Promise<string> {
-    mkdirSync(dir, { recursive: true })
-    const wrote: string[] = []
-    const write = (file: string, text: string) => {
-      writeFileSync(join(dir, file), text.endsWith('\n') ? text : `${text}\n`)
-      wrote.push(file)
-    }
-    write('error.txt', error instanceof Error ? (error.stack ?? `${error.name}: ${error.message}`) : String(error))
+  static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir), since = new Date()): Promise<string> {
     const logs = acde?.logs ?? (error instanceof LaunchError ? error.logs : null)
-    if (logs) write('output.log', logs.tail(Logs.KEEP).text)
-    if (acde && !acde.closed) {
-      const all = { limit: 5000 }
-      const steps: [string, () => Promise<void>][] = [
-        ['screen.png', async () => {
-          await acde.screen({ path: join(dir, 'screen.png') })
-          wrote.push('screen.png')
-        }],
-        ['snapshot.txt', async () => write('snapshot.txt', (await acde.snapshot({ all: true, offscreen: true })).text)],
-        ['console.txt', async () => {
-          write('console.txt', (await acde.console(all)).entries.map(Format.console).join('\n'))
-        }],
-        ['network.txt', async () => {
-          write('network.txt', (await acde.network(all)).entries.map(Format.request).join('\n'))
-        }],
-      ]
-      const until = Date.now() + E2eRun.KEEP_MS
-      const left = `the ${E2eRun.KEEP_MS / 1000} s left for what a failing test leaves`
-      const late = () => new Error(`not saved: acdev runtime did not answer within ${left}`)
-      for (const [file, step] of steps) {
-        try {
-          await E2eRun.within(until - Date.now(), step, late)
-        } catch (failure) {
-          write(`${file}.error.txt`, (failure as Error)?.message ?? String(failure))
-        }
-      }
-    }
+    const journal = acde?.guest ? guestJournal : null
+    const capture = { label: name, since, error, output: logs ? logs.tail(Logs.KEEP).text : null, journal, budgetMs: E2eRun.KEEP_MS }
+    const kept = await Evidence.write(acde, capture, dir)
+    const wrote = kept.items.map((item) => (item.ok ? item.file : `${item.file}.error.txt`))
     if (acde) wrote.push(...acde.trace.write(dir, name))
     return `acdev test: saved ${wrote.join(', ')} in ${dir}`
   }
@@ -275,7 +247,7 @@ function defineTest(add: () => Register, name: string, body: Body, options: Test
     const quoted = JSON.stringify(name)
     for (let attempt = 1; ; attempt++) {
       try {
-        await E2eRun.run(name, body, settings, timeout, setup, results)
+        await E2eRun.run(name, body, settings, timeout, setup, attempt === 1 ? results : `${results}.attempt-${attempt}`)
         if (attempt > 1) console.log(`acdev test: ${quoted} passed on attempt ${attempt} of ${attempts} (flaky)`)
         return
       } catch (error) {
