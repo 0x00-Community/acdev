@@ -34,7 +34,7 @@ interface BuiltApp {
   readonly backend?: { readonly entry: string; readonly port: number }
 }
 
-type AppConfig = WindowAppConfig & Pick<AppEntry, 'schemes' | 'requests' | 'window'>
+type AppConfig = WindowAppConfig & Pick<AppEntry, 'schemes' | 'requests'>
 
 interface BuiltPackage {
   readonly name: string
