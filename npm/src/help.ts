@@ -15,7 +15,7 @@ export interface HelpCommand {
   readonly examples: readonly string[]
 }
 
-const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore', 'fill', 'fullscreen']
+const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore', 'fill', 'fullscreen', 'move', 'resize', 'raise']
 
 const SESSION: HelpOption = {
   flag: '--session PID|vm',
@@ -220,8 +220,14 @@ export class Help {
           + `${WINDOW_ACTIONS.join(', ')}.`,
         'key takes key names separated by spaces (ctrl+a backspace); type and settext take text; drag takes the '
           + 'target ref; scroll takes pixels.',
+        'move takes screen x,y (100,80) and keeps the size; resize takes WxH (800x600) and keeps the place; raise '
+          + 'brings the window to the front. Only a normal window moves or resizes; the desktop, a minimized, filled or '
+          + 'full-screen window, and the window of a single-app session are refused with the reason.',
+        'drag presses, holds 150 ms, moves in 10 steps a frame apart and rests a frame before letting go, like a '
+          + 'hand; to put a window at an exact place use move.',
         'Exit code 1: the action was not done, or the ref does not exist (acdev inspect --find gives current refs).',
-      ], [], ['acdev act w1.12 click', 'acdev act w1.3 type "hello"', 'acdev act w1.3 key "ctrl+a backspace"']),
+      ], [], ['acdev act w1.12 click', 'acdev act w1.3 type "hello"', 'acdev act w1.3 key "ctrl+a backspace"',
+        'acdev act w1 move 100,80', 'acdev act w1 resize 800x600']),
       inspecting('input', '<web> <events|->', 'Send raw mouse and keyboard events to a page', [
         'Sends a JSON array of events to a web (a web name, an app id or desktop), in its CSS pixels; - reads it from '
           + 'stdin. Events: {"type":"move","x":..,"y":..}, down / up (x, y, button: left | right | middle), wheel (x, y, '

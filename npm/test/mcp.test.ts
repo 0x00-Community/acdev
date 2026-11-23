@@ -47,6 +47,11 @@ describe('acdev mcp', () => {
       expect(tools.find((t) => t.name === 'doctor')!.annotations).toMatchObject({ readOnlyHint: true })
       expect(tools.find((t) => t.name === 'doctor_fix')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false })
       expect(tools.find((t) => t.name === 'doctor_fix')!.inputSchema.properties).not.toHaveProperty('allow')
+      const act = tools.find((t) => t.name === 'act')!
+      const actions = (act.inputSchema.properties as { action: { enum: string[] } }).action.enum
+      expect(actions).toEqual(expect.arrayContaining(['move', 'resize', 'raise']))
+      expect(act.description).toContain('move (arg: screen "x,y", keeps the size)')
+      expect(act.description).toContain('to place a window exactly, use move')
       const outside = await call('doctor_fix', { dir: '..' })
       expect(outside.error).toBe(true)
       expect(outside.text).toContain('is not inside the working directory')

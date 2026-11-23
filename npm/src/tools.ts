@@ -30,10 +30,11 @@ export class Tools {
   static readonly NOTHING = Exit.NOTHING
   static readonly NEEDS: Readonly<Record<string, string>> = {
     type: 'the text to type', settext: 'the text to set', key: 'the keys to press', select: 'the option to select',
-    drag: 'the ref to drop on',
+    drag: 'the ref to drop on', move: 'where to, in screen x,y', resize: 'the size, WxH',
   }
   static readonly EXAMPLE: Readonly<Record<string, string>> = {
-    type: '"hello"', settext: '"hello"', key: '"ctrl+a backspace"', select: '"high"', drag: 'w1.12',
+    type: '"hello"', settext: '"hello"', key: '"ctrl+a backspace"', select: '"high"', drag: 'w1.12', move: '100,80',
+    resize: '800x600',
   }
   static readonly NO_WINDOW = /^no window w\d+$/
   static readonly REF = /^w\d+(\.\S+)?$/

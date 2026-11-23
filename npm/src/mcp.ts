@@ -321,13 +321,17 @@ export class Mcp {
             + 'the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, '
             + 'an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, '
             + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, fill, fullscreen, '
-            + 'close, key. Real input is injected; the answer waits for the page to settle and lists what changed. '
+            + 'close, key, move (arg: screen "x,y", keeps the size), resize (arg: "WxH", keeps the place), raise '
+            + '(to the front). Only a normal window moves or resizes; the desktop, a minimized, filled or full-screen '
+            + 'window and a single-app window are refused with the reason. drag holds the button 150 ms, moves in '
+            + 'steps and rests a frame before letting go; to place a window exactly, use move. Real input is '
+            + 'injected; the answer waits for the page to settle and lists what changed. '
             + 'Closing the only window of a session that runs a single app ends that session; the answer says so.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
           action: ACTION,
           arg: ARG.optional().describe('text for type / settext, keys for key, pixels for scroll, the target ref for '
-            + 'drag, option(s) for select'),
+            + 'drag, option(s) for select, screen "x,y" for move, "WxH" for resize'),
         }),
         annotations: drive,
       },

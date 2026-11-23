@@ -136,7 +136,7 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `acdev pointer <x> <y>` | Moves the pointer to screen coordinates, as a real move |
 | `acdev inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acdev query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
-| `acdev act <ref> <action> [arg]` | Performs an action on a ref |
+| `acdev act <ref> <action> [arg]` | Performs an action on a ref; on a window ref also `move X,Y`, `resize WxH`, `raise` |
 | `acdev input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key. `down`, `up` and `wheel` move the pointer to their `x` and `y` |
 | `acdev console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acdev network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acdev: no console entries` / `acdev: no requests` on stderr and exit 0 |
@@ -159,7 +159,7 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `--cancel` | `choose`: answer the picker as cancelled |
 | `--at` | `drop`: where to drop, `X,Y` in the page's CSS pixels |
 
-`acdev query` prints `N in <window>:` and one line per element (exit code 0), or `acdev: nothing in <window> matches "<selector>"` on stderr (exit code 2). `acdev inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acdev act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acdev: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acdev inspect --find TEXT gives the current refs`.
+`acdev query` prints `N in <window>:` and one line per element (exit code 0), or `acdev: nothing in <window> matches "<selector>"` on stderr (exit code 2). `acdev inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acdev act` prints what it did and what changed (`acdev act w1 move 100,80` and `acdev act w1 resize 800x600` print the window's new rectangle, in screen logical pixels; `acdev act w1 raise` brings it to the front; only a normal window moves or resizes, see [inspect and act](../guide/tools.md#inspect-and-act)); when the action was not done it prints the reason on stderr (`acdev: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acdev inspect --find TEXT gives the current refs`.
 
 `acdev permissions` prints two blocks and exits with code 0:
 

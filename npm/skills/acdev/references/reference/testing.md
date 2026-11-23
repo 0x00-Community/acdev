@@ -158,6 +158,7 @@ class AppWindow {
 
   press(keys: string): Promise<ActResult>
   focus() / minimize() / restore() / fill() / fullscreen() / close(): Promise<ActResult>
+  move(x: number, y: number) / size(width: number, height: number) / raise(): Promise<ActResult>
 
   readonly mouse: Mouse
   readonly keyboard: Keyboard
@@ -183,7 +184,7 @@ interface RoleOptions {
 
 `AppWindow` looks itself up in the window table again on every use, so it keeps working if the window is closed and reopened.
 
-`info()` is the window's row in that table: `ref`, `id`, `app`, `title`, `state` (`normal`, `minimized`, `filled`, `fullscreen`), `focus`, `hidden` and more. While a window is minimized, `state` is `minimized`, `hidden` is `true`, and locators find no element in it: `toBeHidden()` passes, and an action waits until its timeout (`no element matches`). `restore()` brings the window and its elements back. `fill()` fills the desktop's work area with the window and `fullscreen()` covers the whole host window with it (state `filled` / `fullscreen`); `restore()` sets either back to `normal`. Both are refused for the desktop and for a window that already fills the host window (a single-app session).
+`info()` is the window's row in that table: `ref`, `id`, `app`, `title`, `state` (`normal`, `minimized`, `filled`, `fullscreen`), `focus`, `hidden` and more. While a window is minimized, `state` is `minimized`, `hidden` is `true`, and locators find no element in it: `toBeHidden()` passes, and an action waits until its timeout (`no element matches`). `restore()` brings the window and its elements back. `fill()` fills the desktop's work area with the window and `fullscreen()` covers the whole host window with it (state `filled` / `fullscreen`); `restore()` sets either back to `normal`. Both are refused for the desktop and for a window that already fills the host window (a single-app session). `move(x, y)` puts the window at screen `x,y` (logical pixels), `size(width, height)` gives it that size where it is, and `raise()` brings it to the front (`act move`, `act resize`, `act raise`); only a window in the normal state moves or changes size.
 
 `reload()` waits until the new page has loaded; `resize()` sets the size of the page without the title bar and waits until `innerWidth` and `innerHeight` have it (a window that fills the screen resizes the host window, which Windows cannot do yet); `seedLocalStorage()` writes the entries before the page's scripts run, by reloading the page once.
 
