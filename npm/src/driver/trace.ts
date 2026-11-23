@@ -20,6 +20,7 @@ export class Trace {
   static readonly TEXT_MAX = 4000
 
   screenshots = false
+  onStep: ((step: TraceStep) => void) | null = null
   readonly #steps: TraceStep[] = []
   readonly #shots = new Map<string, Buffer>()
   readonly #started = Date.now()
@@ -89,7 +90,9 @@ export class Trace {
         screen = null
       }
     }
-    this.#steps.push({ index, title, at, ms: Date.now() - at, ok, text: text.length > Trace.TEXT_MAX ? `${text.slice(0, Trace.TEXT_MAX)}…` : text, screen })
+    const step = { index, title, at, ms: Date.now() - at, ok, text: text.length > Trace.TEXT_MAX ? `${text.slice(0, Trace.TEXT_MAX)}…` : text, screen }
+    this.#steps.push(step)
+    this.onStep?.(step)
   }
 
   static html(title: string, steps: readonly TraceStep[], started: number): string {

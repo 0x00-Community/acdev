@@ -101,7 +101,7 @@ async function read<T extends { readonly time: number }>(
 
 function merged<T extends { readonly time: number }>(pages: readonly PageAnswer<T>[], limit: number | undefined): DevPage<T> {
   const answered = pages.filter((p) => p.key !== undefined && Array.isArray(p.entries))
-  const at = answered.flatMap((p) => p.entries!.map((entry) => [(p.origin ?? 0) + entry.time, entry] as const))
+  const at = answered.flatMap((p) => p.entries!.map((entry) => [(p.origin ?? 0) + entry.time, stamped(entry, p.origin)] as const))
   const sorted = at.sort(([a], [b]) => a - b).map(([, entry]) => entry)
   const entries = limit === undefined ? sorted : sorted.slice(-limit)
   const cursors = Object.fromEntries(answered.map((p) => [p.key!, p.next ?? 1]))
@@ -123,7 +123,13 @@ function shown(given: PageCursor): string {
 function one<T>(op: string, answer: unknown): DevPage<T> {
   const page = answer as DevPage<T> | null
   if (!Array.isArray(page?.entries)) throw new Error(`acdev runtime answered ${op} without entries`)
-  return page
+  const origin = (answer as { origin?: unknown }).origin
+  if (typeof origin !== 'number') return page
+  return { ...page, entries: page.entries.map((entry) => stamped(entry as T & { time: number }, origin)) }
+}
+
+function stamped<T extends { readonly time: number }>(entry: T, origin: number | undefined): T {
+  return origin === undefined ? entry : { ...entry, at: origin + entry.time }
 }
 
 export const PageLogs = { read, merged, cursor, shown } as const

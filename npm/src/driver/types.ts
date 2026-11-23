@@ -53,6 +53,7 @@ export type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 export interface ConsoleEntry {
   readonly seq: number
   readonly time: number
+  readonly at?: number
   readonly web: string
   readonly app: string | null
   readonly kind: 'console' | 'error' | 'rejection' | 'dialog'
@@ -80,6 +81,7 @@ export interface DialogAnswer {
 export interface RequestEntry {
   readonly seq: number
   readonly time: number
+  readonly at?: number
   readonly web: string
   readonly app: string | null
   readonly id: number
