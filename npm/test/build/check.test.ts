@@ -35,7 +35,7 @@ describe('acdev check on a project', () => {
     expect(app.code).toBe(1)
     expect(app.stderr).toContain('app "lv": fs.roots "/srv" is not a shared place (desktop, documents')
     expect(app.stderr).toContain('app "lv": capability "bogus" is not a system capability')
-    expect(app.stderr).toContain('app "lv": acde:windows is a shell module: only apps of a desktop package')
+    expect(app.stderr).toContain('app "lv": acde:windows is a shell module: only system apps (of a desktop package, or the community store)')
     write({ type: 'app', id: 'lv', capabilities: {}, services: ['fs'] })
     const reserved = await cli(['check'], dir)
     expect(reserved.code).toBe(1)
