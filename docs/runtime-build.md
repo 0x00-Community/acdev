@@ -38,8 +38,9 @@ napi-rs 在 MSVC 上经 `GetProcAddress` 在本进程里找 `napi_*`, 所以 `ac
 ## macOS 的 Info.plist (2026-11-22)
 
 `acdev` 可执行文件的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription` (macOS 没有它们时拒绝或结束要摄像头、
-麦克风的进程), 由本仓库的 `build.rs` 写进 `OUT_DIR/Info.plist` 再 `-sectcreate` 链进去. 原来在 libacde 的 `crates/host/build.rs`,
-9605b20 并成一个包时随之丢了, 2026-11-22 搬到这里 (只有链出程序的包能给 bin 加链接参数).
+麦克风的进程), 内容在 `src/Info.plist`, `src/main.rs` 用 `#[used]` + `#[unsafe(link_section = "__TEXT,__info_plist")]` 的静态数组
+`include_bytes!` 进去. 不用链接参数 `-sectcreate`: CI 用 cargo-zigbuild 编 macOS, zig 的链接器不认它 (2026-11-23 build 3202
+两个 macOS 目标因此链接失败). 原来在 libacde 的 `crates/host/build.rs`, 9605b20 并成一个包时随之丢了, 2026-11-22 搬回本仓库.
 
 ## DXC 钉版本 (2026-11-18)
 

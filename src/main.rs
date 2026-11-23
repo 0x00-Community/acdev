@@ -11,6 +11,11 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static ALLOCATOR: acde::memory::Alloc = acde::memory::Alloc;
 
+#[cfg(target_os = "macos")]
+#[used]
+#[unsafe(link_section = "__TEXT,__info_plist")]
+static INFO_PLIST: [u8; include_bytes!("Info.plist").len()] = *include_bytes!("Info.plist");
+
 const USAGE: &str = "\
 usage: acdev app <id> | desktop <id|dir> [options]
        acdev desktops [--desktop <id>] [--package <dir>]
