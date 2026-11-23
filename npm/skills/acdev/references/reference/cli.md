@@ -149,6 +149,8 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `acdev revoke <app> <capability>` | Takes back a decision |
 | `acdev call <manager\|desktop> <method> [params\|-]` | Calls the session manager or the Dopame backend of a session in the guest and prints the result as JSON; see [call](../guide/tools.md#call) |
 | `acdev approvals [show <id>]` | Lists the system confirms that wait in a session in the guest, or puts one on the screen; see [System confirms](../guide/tools.md#system-confirms) |
+| `acdev wait <condition> [args] [--timeout MS] [--quiet MS] [--window W] [--web W] [--focused] [--gone]` | Waits until a condition holds, without a fixed delay; see [Waiting](../guide/tools.md#waiting) |
+| `acdev evidence [label] [--since T] [--output DIR]` | Keeps what the session shows now (screen, webs, element tree, console, network, the guest journal) in a new folder; see [Evidence](../guide/tools.md#evidence) |
 | `acdev stop` | Ends the session and its acdev runtime; see [Stopping](../guide/dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page of the session (a web name, an app id, `desktop`, a window title, or `services` or a service name for the services; default: the focused page) and prints the DevTools address. It looks for Edge, then Chrome on Windows; the Chrome app, then the Edge app on macOS; `google-chrome`, `chrome`, `chromium`, `microsoft-edge` on `PATH` on Linux. The browser runs with a profile of its own in acdev's cache directory (`acde/devtools/` under `%LOCALAPPDATA%`, `~/Library/Caches` or `~/.cache`), never your everyday one; it opens no window of its own and no sync prompt, only the DevTools window, and stays running for the next `acdev devtools`. `ACDEV_BROWSER` names another browser; `ACDEV_BROWSER=none` opens nothing. Without a browser, or when it cannot be started or reached, it prints the address and why, to paste into the address bar of Chrome or Edge, and exits 0. Asked again for a page whose DevTools are open, it brings them to the front. F12 in a window of `acdev dev` (fn+F12 on a Mac keyboard) does the same for the page in that window, and the page never sees that F12; F12 with a modifier still reaches the page |
 | `acdev mcp [--session PID\|vm]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
@@ -216,7 +218,7 @@ A Dopame OS guest under QEMU: KVM on Linux, WHPX on Windows (enable the Windows 
 
 ```text
 acdev test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--vm] [--timeout MS] [--bail] [--trace] [-u]
-          [--workers N] [--retries N] [--video[=on|failed|off]]
+          [--workers N] [--retries N] [--last-failed] [--video[=on|failed|off]]
 ```
 
 | Option | Description |
@@ -231,6 +233,7 @@ acdev test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--vm] [--ti
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |
 | `--workers` | How many test files run at once (default: half the cores, at most 4; 1 with `--headed` or `--bail`) |
 | `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
+| `--last-failed` | Run only the tests that failed in the last run |
 | `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests (the same as `--video=failed`); `--video=on` keeps it for every test, `--video=off` for none (the default) |
 
 The run ends with one line that counts tests and files and names the failing files (`acdev test: 5 tests in 2 files: 4 passed, 1 failed; failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).
