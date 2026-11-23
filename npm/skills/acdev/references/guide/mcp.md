@@ -38,6 +38,7 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
 | `pointer` | Moves the pointer to a screen point, as a real move (hover, screen edges) |
 | `clipboard` | Reads and writes the clipboard |
+| `call` | In a guest session (`--session vm`), calls the session manager (`manager`) or the Dopame backend (`desktop`) and answers the result as JSON; each side refuses what it does not let through, see [call](tools.md#call) |
 | `input` | Sends raw mouse and keyboard events to a page, at page coordinates; `wait` (`ms`) holds a key or button in between |
 | `clock` | Takes over a page's time: installs a fake clock, pauses it, moves it forward |
 | `dialog` | Answers the page's next `alert` / `confirm` / `prompt` in advance, and lists the dialogs it showed |

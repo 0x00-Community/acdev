@@ -37,6 +37,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev permissions` | Lists the camera and microphone prompts that wait and the decisions made; see [Camera and microphone](#camera-and-microphone) |
 | `acdev allow` / `acdev deny` `[<prompt id> \| <app> <capability>] [--all]` | Answers a waiting camera or microphone prompt |
 | `acdev revoke <app> <capability>` | Takes back a decision |
+| `acdev call <manager\|desktop> <method> [params\|-]` | In a guest session, calls the session manager or the Dopame backend and prints the result as JSON; see [call](#call) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -242,6 +243,23 @@ acdev console --level errors --since reload
 ```
 
 The most recent 5000 entries of each kind are kept.
+
+### call
+
+`acdev call` reaches what a page cannot: the session manager (`manager`) and the Dopame backend (`desktop`) of the logged-in session in the guest. It works only there, with `--session vm`; a session on this machine has neither and is refused.
+
+```sh
+acdev call manager approvals.pending --session vm
+acdev call desktop look.lock '{"accent":"#d0249f"}' --session vm
+echo '{"accent":"#d0249f"}' | acdev call desktop look.lock - --session vm
+```
+
+Each side decides what it lets through, and refuses the rest with the reason:
+
+- `manager`: only what reads state and what tests need: `apps.list`, `windows.screenshot`, `lock.status`, the state methods of `session`, `approvals.pending` and `approvals.show`.
+- `desktop`: goes over the Dopame backend's debug connection, and the backend decides what that role may call: `look.lock` (the lock screen's look), state methods such as `state.watch`, `activity.list`, `desks.list` and `boss.status`, and the `test.*` failure injections of a debug session. Sensitive methods such as `waiting.answer`, `grants.*` and `secrets.*` are always refused there.
+
+The result prints as JSON. An error prints as it came, with its code (`(code forbidden)`), and the exit code is 1.
 
 ## DevTools
 

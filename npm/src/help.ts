@@ -323,6 +323,20 @@ export class Help {
       ], [{ flag: '--all', about: 'Every waiting prompt' }], ['acdev deny']),
       inspecting('revoke', '<app> <capability>', 'Take back a decision', ['Takes back a decision, so the app is asked '
         + 'again.'], [], ['acdev revoke recorder microphone']),
+      inspecting('call', '<manager|desktop> <method> [params|-]', 'Call the session manager or the Dopame backend', [
+        'Only in a session in the guest (--session vm), started by acdev or on a machine with the dev packages. '
+          + 'Sends one call through the session manager\'s dev connection and prints the result as JSON; params is '
+          + 'JSON (- reads it from stdin). An error prints as it came, with its code, and exits with 1.',
+        'manager calls the session manager itself; it lets through only what reads state and what tests need: '
+          + 'apps.list, windows.screenshot, lock.status, the state methods of session, approvals.pending and '
+          + 'approvals.show. desktop calls the Dopame backend over its debug connection; the backend decides what '
+          + 'that role may call (look.lock, the state methods such as state.watch and desks.list, test.*) and refuses '
+          + 'the sensitive ones (waiting.answer, grants.*, secrets.*).',
+        'A session on this machine has no session manager and no Dopame backend: call refuses there.',
+      ], [], [
+        'acdev call manager approvals.pending --session vm',
+        'acdev call desktop look.lock \'{"accent":"#d0249f"}\' --session vm',
+      ]),
       inspecting('stop', '', 'End the session', [
         'Ends the acdev dev and its acdev runtime, as closing its last window does; for one started in the background.',
       ], [], ['acdev stop']),

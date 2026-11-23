@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server'
 import { resolve } from 'node:path'
 import * as z from 'zod'
 import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
+import * as Call from './driver/call/index.ts'
 import { Clock } from './driver/clock.ts'
 import { Format } from './driver/format.ts'
 import { Poll } from './driver/poll.ts'
@@ -267,6 +268,29 @@ export class PageTools {
         host.safe(async () => {
           const done = await (await host.acde()).unroute(args.id)
           return host.text(`removed ${done.removed} route${done.removed === 1 ? '' : 's'}, ${done.left} left`)
+        }),
+    )
+
+    server.registerTool(
+      'call',
+      {
+        description: 'Call the session manager (manager) or the Dopame backend (desktop) of a session in the guest '
+          + '(--session vm) and answer the result as JSON; a session on this machine has neither and is refused. '
+          + 'manager lets through apps.list, windows.screenshot, lock.status, the state methods of session, '
+          + 'approvals.pending and approvals.show; desktop goes over the backend\'s debug connection, which decides '
+          + 'what it may call (look.lock, state methods such as state.watch and desks.list, test.*) and refuses the '
+          + 'sensitive ones (waiting.answer, grants.*, secrets.*). An error comes back as it was, with its code.',
+        inputSchema: z.object({
+          target: z.enum(Call.TARGETS as [Call.CallTarget, ...Call.CallTarget[]]),
+          method: z.string().min(1).describe('the method, like approvals.pending or look.lock'),
+          params: z.unknown().optional().describe('the parameters as JSON, like {"accent": "#d0249f"}'),
+        }),
+        annotations: DRIVE,
+      },
+      (args) =>
+        host.safe(async () => {
+          const result = await (await host.acde()).call(args.target, args.method, args.params)
+          return host.text(JSON.stringify(result ?? null, null, 2))
         }),
     )
 

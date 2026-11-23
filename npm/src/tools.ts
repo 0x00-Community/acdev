@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
+import * as Call from './driver/call/index.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget } from './driver/types.ts'
@@ -19,7 +20,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -201,6 +202,12 @@ export class Tools {
     return `${scheme}, glass level ${level} (${now.glass}), reduced transparency ${now.reducedTransparency ? 'on' : 'off'}${emulated}`
   }
 
+  static async #calling(args: readonly string[]): Promise<{ to: Call.CallTarget; method: string; params: unknown }> {
+    const to = Call.target(args[0]!)
+    const text = args[2] === '-' ? await Runtime.readStdin() : args[2]
+    return { to, method: args[1]!, params: Call.params(text) }
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
@@ -228,6 +235,7 @@ export class Tools {
     const region = command === 'shot' || command === 'screen' ? Tools.region(command, flags) : null
     const opening = command === 'open' ? Tools.opening(args) : null
     const appearance = command === 'appearance' ? Tools.appearing(flags) : null
+    const calling = command === 'call' ? await Tools.#calling(args) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -355,6 +363,11 @@ export class Tools {
         case 'drop': {
           const dropped = await acde.drop(args.slice(1), { web: args[0]!, ...(at && { x: at[0], y: at[1] }) })
           console.log(`dropped ${dropped.files.length} file${dropped.files.length === 1 ? '' : 's'} onto ${dropped.web}`)
+          return 0
+        }
+        case 'call': {
+          const { to, method, params } = calling!
+          console.log(JSON.stringify((await acde.call(to, method, params)) ?? null, null, 2))
           return 0
         }
         case 'pointer': {
