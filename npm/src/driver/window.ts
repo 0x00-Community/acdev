@@ -260,6 +260,18 @@ export class AppWindow implements Scope {
     return this.#act('fullscreen')
   }
 
+  move(x: number, y: number): Promise<ActResult> {
+    return this.#act('move', `${x},${y}`)
+  }
+
+  size(width: number, height: number): Promise<ActResult> {
+    return this.#act('resize', `${width}x${height}`)
+  }
+
+  raise(): Promise<ActResult> {
+    return this.#act('raise')
+  }
+
   async close(): Promise<ActResult> {
     const window = await this.info()
     const result = await this.#act('close')

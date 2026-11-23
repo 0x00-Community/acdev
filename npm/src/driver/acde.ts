@@ -12,6 +12,8 @@ import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
 import type { ClockState } from './clock.ts'
 import type { InputEvent } from './input.ts'
+import * as GuestPlace from './place/index.ts'
+import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
@@ -637,6 +639,11 @@ export class Acde {
     const shown = [ref, action, ...(given ? [arg] : [])].map((value) => JSON.stringify(value)).join(', ')
     return this.trace.step(`act(${shown})`, async () => {
       this.#connected()
+      const placed = this.guest && GuestPlace.ACTIONS.has(action) && /^w\d+$/.test(ref)
+      if (placed) {
+        const host = { windows: () => this.windows(), request: (op: string, body: Readonly<Record<string, unknown>>) => this.#client.request(op, body) }
+        return GuestPlace.act(host, ref, action as PlaceAction, arg)
+      }
       try {
         return Acde.#result(await this.#client.request('act', { ref, action, ...(given && { arg }) }))
       } catch (error) {
