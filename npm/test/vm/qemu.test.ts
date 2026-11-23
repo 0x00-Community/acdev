@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { relayed } from '../../src/vm/channel.ts'
 import { Devd } from '../../src/vm/devd.ts'
 import { TOOL, crateBinary, crateVersion } from '../../src/vm/binary.ts'
-import { accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../../src/vm/host.ts'
+import { accelArgs, bundledFirmware, clearSockets, findQemu, guestArch, guestDevices, missingFeatures, preferredAccel, qemuDirs } from '../../src/vm/host.ts'
 import { defaultLink, Machine } from '../../src/vm/machine.ts'
 import { displayOf } from '../../src/vm/command.ts'
 import { audioOf, gpuArgs, hardwareArgs, resolutionOf, vgaOf } from '../../src/vm/hardware.ts'
@@ -41,6 +41,20 @@ describe('the QEMU command line', () => {
   test('QEMU starts with its window shown (windowsHide off) unless it has none: --headless, --vnc, --viewer', () => {
     expect([undefined, 'window', 'sdl', 'gtk'].map((d) => Machine.windowed(d as never))).toEqual([true, true, true, true])
     expect(['none', 'vnc', 'viewer'].map((d) => Machine.windowed(d as never))).toEqual([false, false, false])
+  })
+
+  test('old sockets that cannot be removed (EACCES on Windows) are reported, a missing one is not', () => {
+    const refused = Object.assign(new Error('EACCES: permission denied, lstat'), { code: 'EACCES' })
+    const missing = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    const tried: string[] = []
+    const unlink = (fail: Error | null) => (path: string) => {
+      tried.push(path)
+      if (fail) throw fail
+    }
+    expect(clearSockets('/s', ['qga.sock', 'qmp.sock'], unlink(null))).toBe(true)
+    expect(tried).toEqual([join('/s', 'qga.sock'), join('/s', 'qmp.sock')])
+    expect(clearSockets('/s', ['qga.sock'], unlink(missing))).toBe(true)
+    expect(clearSockets('/s', ['qga.sock'], unlink(refused))).toBe(false)
   })
 
   test('--sdl gives QEMU its SDL window (with GL when --gl), alone and on Linux only; --gtk the GTK one', () => {

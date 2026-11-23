@@ -281,6 +281,9 @@ acdev vm stop                                   # 让客户机自己关机 (acde
   (绝对坐标, 指针跟着宿主鼠标)、virtio-net (用户态网络)、guest agent 的 virtio-serial 通道、`-virtfs` (有 `--share` 时).
   CPU 和内存用 `ACDEV_VM_CPUS` (4)、`ACDEV_VM_MEMORY` (8G). QEMU 经 `setsid` 起在后台, 不随 `acdev` 退出.
 - guest agent 的套接字一次只接一个客户端: `GuestAgent.open` 先发 `guest-sync` 跳过前一个客户端留下的输出, 等不到就关掉连接, 不然后来的都连不上.
+- 上次留下的套接字 (Windows): `%TEMP%\acdev-<哈希>\qga.sock` 这类 AF_UNIX 套接字文件, Node 先 `lstat` 再删时报 `EACCES` (2026-11-23 用户第二次
+  `start` 就停在这里). 现在逐个 `unlink` (`host.ts` `clearSockets`), 删不掉就换一个新的套接字目录 `acdev-<哈希>-<随机>` 并记在 `run/sockets`,
+  这次启动和之后的命令都从那里找; 下次 `start` 先忘掉这条记录, 再试默认目录. 上次的 QEMU 已经不在时不会因此失败.
 - 串口里默认只有固件和 systemd-boot 的输出: 装好的系统是静默启动 (`quiet loglevel=3`, 没有 `console=ttyS0`). `console` 在客户机启动项命令行
   末尾加 `console=tty0 console=ttyS0,115200 loglevel=6` (写在覆盖盘里, 重复跑不叠加).
 - 调试通道 (用户 2026-11-18 定): `start` 按平台选传输, 记在 `run/link.json`, 之后的命令照它连. Linux 用 vsock (`vhost-vsock-pci`);

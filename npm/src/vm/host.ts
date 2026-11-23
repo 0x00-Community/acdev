@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { posix, win32 } from 'node:path'
+import { existsSync, unlinkSync } from 'node:fs'
+import { join, posix, win32 } from 'node:path'
 
 export interface Host {
   readonly platform: NodeJS.Platform
@@ -149,4 +149,16 @@ export function spawnDetached(
   const child = spawn(file, args, { detached: true, stdio: ['ignore', log, log], env, windowsHide: !windowed })
   child.unref()
   return { pid: child.pid ?? 0, exited: () => child.exitCode !== null || child.signalCode !== null }
+}
+
+export function clearSockets(dir: string, names: readonly string[], unlink: (path: string) => void = unlinkSync): boolean {
+  let clear = true
+  for (const name of names) {
+    try {
+      unlink(join(dir, name))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') clear = false
+    }
+  }
+  return clear
 }

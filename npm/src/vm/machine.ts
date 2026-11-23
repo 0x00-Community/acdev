@@ -11,7 +11,7 @@ import { libexecBeside } from 'acdev/launcher'
 import { Pkgs } from '../pkgs.ts'
 import { GuestAgent, monitor, type ExecResult } from './channel.ts'
 import {
-  accelArgs, bundledFirmware, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
+  accelArgs, bundledFirmware, clearSockets, findQemu, guestArch, guestDevices, HOST, missingFeatures, preferredAccel, spawnDetached, SYSTEM_FIRMWARE,
   type Accel, type Guest, type Host, type Qemu,
 } from './host.ts'
 import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
@@ -94,7 +94,12 @@ export class Machine {
 
   static readonly SOCKET_PATH_MOST = 100
 
+  get #chosenSockets(): string {
+    return join(this.run, 'sockets')
+  }
+
   get sockets(): string {
+    if (existsSync(this.#chosenSockets)) return readFileSync(this.#chosenSockets, 'utf8').trim()
     if (this.host.platform !== 'win32' && join(this.run, 'devd.sock').length <= Machine.SOCKET_PATH_MOST) return this.run
     const temp = this.host.platform === 'win32' ? this.env['TEMP'] || this.env['TMP'] || tmpdir() : this.env['XDG_RUNTIME_DIR'] || tmpdir()
     return join(temp, `acdev-${createHash('sha256').update(this.dir).digest('hex').slice(0, 12)}`)
@@ -294,8 +299,13 @@ export class Machine {
 
   async #freshRun(): Promise<Link> {
     for (const name of ['qemu.pid', 'key', 'accel', 'usb.json']) rmSync(join(this.run, name), { force: true })
+    rmSync(this.#chosenSockets, { force: true })
     mkdirSync(this.sockets, { recursive: true })
-    for (const name of ['qga.sock', 'qmp.sock', 'devd.sock']) rmSync(join(this.sockets, name), { force: true })
+    if (!clearSockets(this.sockets, ['qga.sock', 'qmp.sock', 'devd.sock'])) {
+      const fresh = `${this.sockets}-${randomBytes(3).toString('hex')}`
+      mkdirSync(fresh, { recursive: true })
+      writeFileSync(this.#chosenSockets, fresh)
+    }
     const link = await this.newLink()
     writeFileSync(this.linkFile, `${JSON.stringify(link)}\n`)
     writeFileSync(this.key, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 })
