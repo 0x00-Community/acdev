@@ -174,7 +174,7 @@ export class Help {
           { flag: '--trace', about: 'A screenshot after every step and trace.html for every test' },
           { flag: '--video[=on]', about: 'An animated PNG of the screen of failing tests (=on: of every test)' },
           { flag: '-u, --update-screenshots', about: 'Rewrite the screenshot baselines' },
-          { flag: '--last-failed', about: 'Run only the tests that failed in the last run (from .acde/test-results/last-run.json)' },
+          { flag: '--last-failed', about: 'Run only the tests that failed in the last run' },
         ],
         examples: ['acdev test', 'acdev test e2e/notes.e2e.ts -t saves --headed'],
       },
