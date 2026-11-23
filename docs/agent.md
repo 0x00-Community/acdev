@@ -81,7 +81,7 @@ acompositor 协议的客户端绑定, feature `acompositor`) 和 `acde-scene` (�
 
 ## 日志 (`src/journal.rs`)
 
-代理的日志写标准错误, 每行带 `<N>` 优先级前缀, systemd 据此记进 journald. 时间线的行 (管家推来的, 以及合成器连接上的开发事件) 照
+代理的日志写标准错误; 标准错误就是 journald (环境变量 `JOURNAL_STREAM` 和它的设备号、inode 对得上) 时每行带 `<N>` 优先级前缀, systemd 据此记级别; 命令行用法 (如 `overlay`) 不带. 时间线的行 (管家推来的, 以及合成器连接上的开发事件) 照
 `event=<类型> key=value` 写, 值为空或含空白、`"`、`=` 时加双引号并转义. 合成器事件: `press window x y button`、
 `move-request window serial accepted reason`、`resize-request window serial edges accepted reason`、`focus window`、`map window`、
 `unmap window`、`drag-start window`、`drag-end window dropped`; `window` 都是 N.
@@ -90,3 +90,20 @@ acompositor 协议的客户端绑定, feature `acompositor`) 和 `acde-scene` (�
 
 `cargo check --tests` (在 `crates/agent`; 旁边的 `../libacde` 要带 `wire/`). 单元测试: 时间线行的引号、答案的拼法、`open` / `appearance`
 到 `dev.act`、逐页收日志的 `since` 与出错的行、窗口怎样对上、合成器的区域按窗口筛、缩小截图.
+
+## acdev push 的叠加 (`src/overlay.rs`; 宿主一侧 `npm/src/push/index.ts`)
+
+总仓 `.scratch/acdev-debug-insight/issues/11-hot-swap.md` 的热替换: 只改 JS 时不重新打包装机. 管家不知道有叠加, 叠加由代理在客户机里挂.
+
+- 宿主 `acdev push [dir] --session vm`: 照 `acdev build` 构建出包目录, 读客户机叠加目录 `/var/lib/acdev/overlay/<包名>/push.json` 里上次的文件表
+  (每个文件 `[大小, 修改时间毫秒]`, 不算哈希), 只推变了的, 删掉本地已没有的, 再写新的 `push.json` (`commit`、`dirty`、`at`、`files`); 都经 acdevd.
+  然后在客户机里以 root 跑 `acdev-agent overlay mount <包名> [--reload <应用>]... [--desktop]`. 改了后台 (`backend/`、`services/`、`apps/<id>/backend/`)
+  的照推, 提示要重开会话才跑新的.
+- `acdev-agent overlay mount NAME`: 包名只许一段 (`[A-Za-z0-9._@-]`); 叠加目录 0755、其中 `package.json` 0644 (管家要求包目录与清单 root 所有、
+  组和其他人不可写). 包已装 (`/usr/local/share/acde/packages/<名>` 或 `/usr/share/acde/packages/<名>` 下有 `package.json`) 就挂在它上面;
+  没装就建 `/usr/local/share/acde/packages/<名>` 再挂. 推来的清单 (`package.json` 的 `acde`) 和装着的不同就拒绝 (退出码 2, 说改装包).
+  已挂着时只核对清单. 挂好后各开一条到管家的开发连接调 `dev.act({action: "reload", app})` (`--desktop` 不带 `app`), 打印 `{target, mounted, reloaded}`.
+- 记账: `/run/acdev/overlay.json` 记每个挂上的包 `{target, created, acde}` (`acde` 是挂之前装着的清单, 挂上后原包被盖住, 读不到了). 重启后挂载和这份记录一起没有.
+- `acdev-agent overlay reset [NAME]`: 卸下 (`MNT_DETACH`), 自己建的挂载点删掉, 叠加目录删掉; 不给名字时全部. 宿主 `acdev push --reset` 跑它;
+  `acdev vm provision` 在装任何包之前也跑一次, 免得旧的叠加盖住新装的包.
+- 还没做: 总仓 `scripts/build/pkg.sh --install` 之前调 `overlay reset`; `acdev evidence` 与 `acdev test` 的留证附上 `push.json`; 只重启后台服务.

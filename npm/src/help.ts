@@ -375,6 +375,25 @@ export class Help {
         { flag: '--window W', about: 'Only events of this window (wN) or page (a web name or app id)' },
         { flag: '--json', about: 'The timeline as JSON' },
       ], ['acdev timeline --session vm', 'acdev timeline --since 30s --source journal,host --kind call,act --session vm']),
+      {
+        name: 'push',
+        group: 'Develop',
+        args: '[dir]',
+        summary: 'Swap a package\'s new JS into the guest, no install',
+        about: [
+          'Builds the project in dir (default .) as acdev build does and sends the files changed since the last push (by size '
+            + 'and time) to /var/lib/acdev/overlay/<package> in the guest; acdev-agent binds that folder over the installed package '
+            + '(a new one goes to /usr/local/share/acde/packages) and reloads its apps and desktop. What pacman installed stays.',
+          'A changed manifest (the acde part of package.json) is refused: install the package instead. A changed backend '
+            + '(backend/, services/) is sent but runs only after the session restarts. push.json in that folder names the commit '
+            + 'and whether the checkout had changes.',
+        ],
+        options: [
+          { flag: '--session vm', about: 'Required: the guest acdev started' },
+          { flag: '--reset', about: 'Take every pushed package away (acdev vm provision does it first)' },
+        ],
+        examples: ['acdev push --session vm', 'acdev push ../notes --session vm', 'acdev push --reset --session vm'],
+      },
       inspecting('explain', '<audit id>', 'Explain why the system agent decided an operation as it did', [
         'Only in a session in the guest started by acdev (--session vm): the system agent works the explanation out when asked, '
           + 'for the audit record with that id, and answers only where the acdev host key is present; a production system has none and refuses.',

@@ -53,6 +53,7 @@ class Cli {
     render: { args: [0, 0], flags: ['session', 'web', 'window'], switches: ['json'] },
     hit: { args: [2, 2], flags: ['session'], switches: ['json'] },
     explain: { args: [1, 1], flags: ['session'], switches: ['json'] },
+    push: { args: [0, 1], flags: ['session'], switches: ['reset'] },
     timeline: { args: [0, 0], flags: ['session', 'since', 'until', 'source', 'kind', 'window'], switches: ['json'] },
     choose: { args: [1, Infinity], flags: ['session'], switches: ['cancel'] },
     drop: { args: [2, Infinity], flags: ['session', 'at'] },
@@ -214,6 +215,7 @@ class Cli {
     }
     if (command === 'skills') return (await import('./skills.ts')).Skills.run(args, flags)
     if (command === 'vm') return (await import('./vm/command.ts')).runVm(args, flags)
+    if (command === 'push') return (await import('./push/index.ts')).run(args, flags)
     if (command === 'uninstall') {
       const { Uninstall } = await import('./uninstall.ts')
       const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true

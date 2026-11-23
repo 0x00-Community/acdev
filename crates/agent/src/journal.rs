@@ -4,7 +4,9 @@ use log::{Level, LevelFilter, Log, Metadata, Record};
 
 pub const TARGET: &str = "acdev-agent";
 
-struct Journal;
+struct Journal {
+    prefixed: bool,
+}
 
 impl Log for Journal {
     fn enabled(&self, metadata: &Metadata) -> bool {
@@ -21,16 +23,24 @@ impl Log for Journal {
             Level::Info => 6,
             Level::Debug | Level::Trace => 7,
         };
-        _ = writeln!(std::io::stderr().lock(), "<{priority}>{}", record.args());
+        let mut out = std::io::stderr().lock();
+        _ = if self.prefixed { writeln!(out, "<{priority}>{}", record.args()) } else { writeln!(out, "{}", record.args()) };
     }
 
     fn flush(&self) {}
 }
 
 pub fn start() {
-    if log::set_logger(&Journal).is_ok() {
+    let journal = Box::leak(Box::new(Journal { prefixed: to_journal() }));
+    if log::set_logger(journal).is_ok() {
         log::set_max_level(LevelFilter::Info);
     }
+}
+
+fn to_journal() -> bool {
+    let Some(given) = std::env::var("JOURNAL_STREAM").ok() else { return false };
+    let Ok(stat) = rustix::fs::fstat(std::io::stderr()) else { return false };
+    given == format!("{}:{}", stat.st_dev, stat.st_ino)
 }
 
 pub fn timeline(line: &str) {
