@@ -8,6 +8,7 @@ import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts
 import { Format } from './driver/format.ts'
 import * as Evidence from './evidence/index.ts'
 import { guestJournal } from './evidence/guest.ts'
+import * as Wait from './driver/wait/index.ts'
 import { PageLogs } from './driver/logs.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget, PageCursor } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
@@ -26,7 +27,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence', 'wait',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -250,6 +251,8 @@ export class Tools {
     const appearance = command === 'appearance' ? Tools.appearing(flags) : null
     const calling = command === 'call' ? await Tools.#calling(args) : null
     const showing = command === 'approvals' ? Tools.showing(args) : null
+    const stdin = command === 'wait' && args[0] === 'eval' && args[2] === '-'
+    const waiting = command === 'wait' ? Wait.fromArgs(stdin ? [...args.slice(0, 2), await Runtime.readStdin()] : args, flags) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -384,6 +387,8 @@ export class Tools {
           console.log(JSON.stringify((await acde.call(to, method, params)) ?? null, null, 2))
           return 0
         }
+        case 'wait':
+          return await Tools.#wait(acde, waiting!, session === Sessions.VM)
         case 'approvals':
           console.log(showing ? await Confirms.show(acde, showing) : Confirms.listed(await Confirms.pending(acde)))
           return 0
@@ -400,6 +405,21 @@ export class Tools {
       }
     } finally {
       await acde.close()
+    }
+  }
+
+  static async #wait(acde: Acde, { condition, timeout }: Wait.WaitArgs, guest: boolean): Promise<number> {
+    const since = new Date()
+    try {
+      const { ms, seen } = await acde.waitFor(condition, timeout)
+      console.log(`waited ${ms} ms for ${Wait.describe(condition)}: ${seen}`)
+      return 0
+    } catch (error) {
+      if (!(error instanceof Wait.WaitTimeout)) throw error
+      const capture = { root: resolve(Evidence.DEFAULT_ROOT), label: `wait-${condition.kind}`, since, error, journal: guest ? guestJournal : null }
+      console.error(`acdev: ${error.message}`)
+      console.error(`acdev: ${Evidence.summary(await Evidence.keep(acde, capture))}`)
+      return 1
     }
   }
 

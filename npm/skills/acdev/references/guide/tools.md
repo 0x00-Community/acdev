@@ -40,6 +40,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev call <manager\|desktop> <method> [params\|-]` | In a guest session, calls the session manager or the Dopame backend and prints the result as JSON; see [call](#call) |
 | `acdev approvals [show <id>]` | In a guest session, lists the system confirms that wait, or puts one on the screen; see [System confirms](#system-confirms) |
 | `acdev evidence [label] [-o DIR] [--since WHEN]` | Keeps what the session shows now in a new folder, for a failure: the screen, the webs, the element tree with every window, the console, the network, and in a guest session the guest journal from `--since` on; see [Evidence](#evidence) |
+| `acdev wait <condition> [args] [--timeout MS]` | Waits until a condition holds, without a fixed delay: `page`, `window`, `element`, `stable`, `network-idle`, `eval`, `service`; see [Waiting](#waiting) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -289,6 +290,20 @@ acdev act w9.4 click --session vm         # Allow (or Deny); type the password f
 ```
 
 While it shows, it covers the screen: clicks meant for the windows under it land on it, and an agent's inspect is refused. The confirm window (`[confirm]`) and the lock screen (`[lock]`) cannot be moved, resized, raised, minimized or closed; the session manager puts them away once the confirm is answered. acdev never answers for the person: allowing, denying and the password are `act` steps on the page, as the person would do them. The MCP tool `approvals` does the same as `acdev approvals`.
+
+### Waiting
+
+`acdev wait` replaces fixed sleeps and retry loops in checks. It asks again from every 100 ms up to every 500 ms until the condition holds, and prints how long it took. Past `--timeout` (default 30 s) it prints what it saw last, keeps the evidence as `acdev evidence` does, and exits 1. Tests use the same conditions with `acde.waitFor({kind, …}, timeout)`.
+
+| Condition | Holds when |
+| --- | --- |
+| `page <web>` | The page answers. A page that is not there yet (it restarts, or the guest session is still starting) is waited for, not an error |
+| `window <w3\|app\|title> [--focused]` | A window with that ref, app id or title is there (and has the focus) |
+| `element <text> [--gone] [--window W]` | An element whose name or value contains the text is there (or none is) |
+| `stable [--window W] [--quiet MS]` | The element tree did not change for the quiet time (default 500 ms) |
+| `network-idle [--web W] [--quiet MS]` | No request is open, and none started or finished for the quiet time |
+| `eval <web> <expression\|->` | The expression turns true in that page; an app says it is ready this way, for example `acdev wait eval desktop "import('acde:assistant').then((m) => m.assistant.status()).then((s) => s.enabled)"` |
+| `service <name> [--web W]` | `acde:services` lists the service (asked in the desktop page unless `--web`) |
 
 ### Evidence
 

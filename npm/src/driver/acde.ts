@@ -20,6 +20,7 @@ import type { PlaceAction } from './place/index.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
+import * as Wait from './wait/index.ts'
 
 import {
   ActError, LaunchError, type ActResult, type Appearance, type AppearanceChange, type AttachOptions,
@@ -486,6 +487,10 @@ export class Acde {
 
   async setClipboard(text: string): Promise<void> {
     await this.trace.step(`setClipboard(${JSON.stringify(text)})`, () => this.#request('clipboard', { text }))
+  }
+
+  async waitFor(condition: Wait.Condition, timeout?: number): Promise<Wait.Waited> {
+    return await Wait.waitFor(this, condition, timeout)
   }
 
   async waitForRequest(url: UrlMatch, options: WaitRequestOptions = {}): Promise<RequestEntry> {
