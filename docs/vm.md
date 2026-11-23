@@ -526,7 +526,7 @@ glibc 较新); 不放心就静态链接 (musl).
 
 ## 测试
 
-`test/guesthw.test.ts`: 三项模拟硬件的暂存、包与脚本的要点 (不起客户机).
+`test/emulator/guesthw.test.ts`: 三项模拟硬件的暂存、包与脚本的要点 (不起客户机).
 `acdev vm` 的测试按主题分成四个文件 (2026-11-22 从原来一个 1000 多行的 `vm.test.ts` 拆出), 共用的假服务端、按脚本回答的假连接 (`Scripted`)、
 帧的小工具和真实客户机的开关在 `test/vm/helpers.ts`; `bun test test/vm` 一起跑:
 - `test/vm/channel.test.ts`: guest agent 和 QMP 的协议对着进程内的假服务端测 (同步跳过旧输出、执行与退出码、分块写、QMP 跳过事件); acdevd 协议的

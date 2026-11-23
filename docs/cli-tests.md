@@ -2,6 +2,15 @@
 
 > 路径相对 CLI 包根 `npm/`。
 
+`test/` 按主题分目录，每个目录直接放的文件不超过 8 个；`helpers.ts` 和 `fixtures/` 留在根上：
+- `build/`：构建、安装与检查（`cli`、`node`、`imports`、`errors`、`asset-urls`、`inline-styles`、`check`、`templates`）；
+- `commands/`：命令行的用法、输出与工具（`usage`、`output`、`doctor`、`uninstall`、`skills`、`mcp`、`devtools`、`launcher`）；
+- `dev/`：开发会话与通信（`dev`、`channel`、`listen`、`watch`、`changes`、`runtime`、`e2e`）；
+- `driver/`：驱动与截图（`driver`、`png`、`call`、`confirms`、`place`）；
+- `emulator/`：不起客户机的模拟器与准备（`dopamebackend`、`gl`、`guesthw`、`kernelpkgs`）；
+- `release/`：打包与发布（`dist`、`pkgs`、`guard`、`workflow`）；
+- `vm/`、`host/`：见下文。
+
 `bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`doctor` (假运行时 扮演有 / 没有 `acdev runtime doctor`、报 GPU 错误、
 给不出报告、另一个契约级别、起不来的 acdev runtime; 工程的几项; 跑着的 `acdev dev` 里等批准的应用; `acdev dev` 在 acdev runtime 提前退出时的提示; `--fix`:
 不问就修的 skill / `.gitignore` / 会话目录, 不在终端时跳过、`--yes` 才做的工程依赖, `--json`, 去重和拒绝; 重装运行时在 `dist` 里: 经 install.sh

@@ -50,7 +50,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `services in acde.config.jsonc: service "clock": …`, 再查每个模块文件在不在; `Project.build` 经 `Project.services` / `Project.grants`
   把有 `modules` 的写成桌面清单的 `{name, modules}`, 没有的照旧写服务名 (产物不变); `acdev check` 的临时清单 (`#configFindings`) 用同一份.
   服务里静态导入 `acde:*` 的报错末尾指向这个字段: `…, listed in its modules in acde.config.jsonc ("services": { "clock": { "module": "<file>",
-  "modules": ["<name>"] } })`. 模板的注释和 skill 写的是同一个字段 (`test/templates.test.ts` 把注释里的例子交给 `Manifest.configServices`, 并对着 schema 的两种写法).
+  "modules": ["<name>"] } })`. 模板的注释和 skill 写的是同一个字段 (`test/build/templates.test.ts` 把注释里的例子交给 `Manifest.configServices`, 并对着 schema 的两种写法).
 - `public/` (插件 `acde-public`): 复制进工程自己的应用的 `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头、落在 public 里的引用:
   HTML 里的照常打包; CSS 的 `url(/x)` 在工程自己的 HTML 入口应用里原样留着 (运行时应用目录也挂在 `/` 下), 别处照打包处理; 哪儿都没有时构建失败,
   说清哪个文件的哪个 URL、public 里缺什么 (`PublicError`).

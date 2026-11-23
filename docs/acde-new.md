@@ -53,7 +53,7 @@
   空目录清空、保留 `.git`): `the <模板> project was not made (<dir> was removed): ...`; 装依赖失败时工程留着, 说怎么补:
   `the project is in <dir>, but its dependencies are not installed; once the cause below is fixed, run <pm> install there: ...`;
   `git init` 失败同样留着工程 (`... ready, but it is not a git repository yet: ...`).
-- 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
+- 模板按第 1 级契约写 (`test/build/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
   `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 声明即授予 (运行时没有批准步骤, acdert#146), 新工程无界面也能启动;
   类型引用分层: 应用写 `@acde/api/app`, 桌面页写 `@acde/api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
   没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).

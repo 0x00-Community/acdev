@@ -36,7 +36,7 @@ CI 是 `.github/workflows/` 里的四个工作流 (2026-11-22 起, 四个仓库�
 两种装法: 安装器 (下面说的这一种) 把 acdev 和同一次发布的调试运行时 acdev runtime 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDEV_DIST`
 (默认 `Pkgs.ACDEV`), 两个脚本开头各一处, 末尾的 `/` 去掉. 地址只有一处: `src/pkgs.ts` 的 `Pkgs.BASE`
 (`https://pkgs.dopame.ai`: Cloudflare R2 的桶 `pkgs`, 由一个 Worker 只读地提供, 路径就是对象的键, 照各对象存的 Content-Type / Cache-Control 回, 支持 Range 和 If-None-Match; 没有 CloudFront, 不用失效, 但 Cloudflare 边缘会照对象的 Cache-Control 缓存. 2026-11-22 起, 之前是 S3 `dopame-pkgs` 经 CloudFront, 旧内容已原样拷进 R2 的 `acdev/`), `Doctor.DIST`、`Sdk.DIST`、测试都引用它; 脚本不能 import,
-`scripts/dist.ts` 打包前用 `Pkgs.scriptProblems` 对两个脚本的默认值, 不一致就失败 (`test/pkgs.test.ts` 也查). 前缀 `acdev/` (以前 S3 桶里只有它和 `iso/`; 以前的 `acde/`、`acdert/`、`acde-dopame/` 连同旧版本 2026-11-18 删掉, 用户定): `acdev/install.sh`、
+`scripts/dist.ts` 打包前用 `Pkgs.scriptProblems` 对两个脚本的默认值, 不一致就失败 (`test/release/pkgs.test.ts` 也查). 前缀 `acdev/` (以前 S3 桶里只有它和 `iso/`; 以前的 `acde/`、`acdert/`、`acde-dopame/` 连同旧版本 2026-11-18 删掉, 用户定): `acdev/install.sh`、
 `acdev/install.ps1`、`acdev/install.md` (给 agent 读的安装步骤, 见 `skills.md`)、`acdev/latest`、`acdev/latest.json`, 和版本目录 `acdev/<版本>/`:
 `SHA256SUMS` (下面每个文件一行)、`acdev-<版本>.tar.gz` (命令行, 一个通用包)、`acde-api-<版本>.tar.gz` (SDK, `package/` 布局, 只有类型
 声明, 工程的 `@acde/api` 指向它)、`acdevrt-<triple>.tar.zst` (Linux, `zstd -3`; macOS `.tar.xz`, Windows `.tar.gz`, 见下文「压缩格式」; 里面只有 `acdev[.exe]`)、
@@ -114,7 +114,7 @@ lib/acde-api/       @acde/api 的构建产物 (压缩的 js、d.ts、package.jso
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acdev/launcher` 留作外部
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. 归档可复现: 混淆固定 `seed`, 打包前把暂存树的时间戳统一为 2000-01-01, 先 `tar -cf` 再用 `zlib.gzipSync` 压 (gzip 头不写时间), 同一提交两次构建字节相同 (`dist.ts` 里的 `OBFUSCATION_SEED`、`pinTimes`). `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和
   `src/e2e/index.ts` 生成到 `dist/types/`. 包根的 `package.json` 由 dist.ts 生成, `exports` 指向 dist (源码仓库的 package.json 不变).
-- dist 测试 (`test/dist.test.ts`) 需要 SDK: 它用 `acde-api` (同上, 对不上).
+- dist 测试 (`test/release/dist.test.ts`) 需要 SDK: 它用 `acde-api` (同上, 对不上).
 - **压缩格式** (2026-11-22, 用户要全换 zstd -3, 先换了不伤安装的部分): Linux 的 `acdevrt-*`、`acdevtools-*` 是 `.tar.zst` (`zstd -T0 -3`, 多线程输出和线程数无关);
   macOS 的仍是 `.tar.xz` (macOS 自带的 bsdtar 3.5.3 / libarchive 3.7.4 没有 libzstd, 解 `.tar.zst` 要调外部 `zstd`, 普通 Mac 上没有; 本机 macOS 27.2 验过);
   Windows 的仍是 `.tar.gz` (Windows 10 自带的 `tar.exe` 是 bsdtar 3.5.2, 只有 zlib, 不认 xz 也不认 zstd; Windows 11 较新的版本带 libzstd, 但不是每台都有);

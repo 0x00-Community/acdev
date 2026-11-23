@@ -58,7 +58,7 @@ skills/acdev/references/<组>/<页>.md     组是 start / guide / reference / pa
 - 链接: 指向 skill 里别的文件时写相对路径到 `.md` 文件 (reference 之间 `../guide/files.md#errors`, `SKILL.md` 里 `references/guide/files.md`),
   不写站点根路径 (`/guide/files/`), 不写 `https://docs.dopame.ai/…`; 目标文件要在, `#锚点` 要是目标里某个标题的 slug (GitHub 的算法:
   小写, 去掉标点, 空格换 `-`). 每个 reference 都要列在 `SKILL.md` 最后的 `## References` 一节里.
-- 和代码对得上 (`test/skills.test.ts`): 用法文字里的每个命令和每个 `--参数` 都出现在 `references/reference/cli.md`; `src/mcp.ts` 注册的每个工具都出现在
+- 和代码对得上 (`test/commands/skills.test.ts`): 用法文字里的每个命令和每个 `--参数` 都出现在 `references/reference/cli.md`; `src/mcp.ts` 注册的每个工具都出现在
   `references/guide/mcp.md`. 加命令、加参数、加工具而没写进 skill, 测试就红.
 
 **`acdev skills`** (`src/skills.ts`): 不带动作是 `status`, 另有 `install`、`remove`、`path`.

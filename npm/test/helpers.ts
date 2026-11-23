@@ -2,6 +2,7 @@ import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync,
   writeFileSync,
 } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
@@ -190,4 +191,18 @@ export function standIn(): { root: string; env: Record<string, string>; project:
   writeFileSync(join(project, 'index.html'), '<!doctype html><title>Alpha</title><p>alpha</p>')
   const vars = env({ TMPDIR: root, XDG_RUNTIME_DIR: root, ACDEV_RUNTIME: acdert, FAKE_ACDERT_LOG: log })
   return { root, project: realpathSync(project), env: vars }
+}
+
+export function testEndpoint(): string {
+  return WINDOWS ? `\\\\.\\pipe\\acde-test-${randomUUID()}` : join(tmp(), 'dev.sock')
+}
+
+export async function until<T>(what: string, get: () => T | null | undefined | false, ms = 10_000): Promise<T> {
+  const started = Date.now()
+  for (;;) {
+    const value = get()
+    if (value) return value
+    if (Date.now() - started > ms) throw new Error(`waited ${ms} ms for ${what}`)
+    await Bun.sleep(20)
+  }
 }
