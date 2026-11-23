@@ -61,7 +61,7 @@ export const PROVISION_SCRIPT = [
   '  step "pacman -Sy failed (try $try of 3)"; sleep 5',
   'done',
   '[ "$synced" = 1 ] || warn "pacman -Sy kept failing (no network?): installing from what is there"',
-  'for pkg in greetd xdg-user-dirs fcitx5 fcitx5-rime rime-pinyin-simp foot xdg-desktop-portal-gtk; do',
+  'for pkg in greetd xdg-user-dirs fcitx5 fcitx5-rime rime-pinyin-simp foot xdg-desktop-portal-gtk git; do',
   '  pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || warn "could not install $pkg"',
   'done',
   'pacman -Q greetd >/dev/null 2>&1 || { echo "acdev provision: greetd is not installed" >&2; exit 3; }',
