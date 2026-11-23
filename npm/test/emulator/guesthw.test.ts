@@ -27,30 +27,30 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
 
   test('a unit runs at boot after its daemon, and a missing module or package is not a failure', () => {
     const wifi = unitText('wifi')
-    for (const line of ['Type=oneshot', 'RemainAfterExit=yes', 'After=NetworkManager.service', 'ExecStart=/usr/local/bin/acdev-wifi up',
-      'ExecStop=/usr/local/bin/acdev-wifi down', `SuccessExitStatus=${MISSING}`, 'WantedBy=multi-user.target']) {
+    for (const line of ['Type=oneshot', 'RemainAfterExit=yes', 'After=NetworkManager.service', 'ExecStart=/usr/lib/acdev/acdev-wifi up',
+      'ExecStop=/usr/lib/acdev/acdev-wifi down', `SuccessExitStatus=${MISSING}`, 'WantedBy=multi-user.target']) {
       expect(wifi).toContain(line)
     }
     expect(unitText('bluetooth')).toContain('After=bluetooth.service')
-    expect(unitText('battery')).toContain('ExecStart=/usr/local/bin/acdev-battery 100 charging')
-    expect(unitText('battery')).toContain('ExecStop=/usr/local/bin/acdev-battery off')
+    expect(unitText('battery')).toContain('ExecStart=/usr/lib/acdev/acdev-battery 100 charging')
+    expect(unitText('battery')).toContain('ExecStop=/usr/lib/acdev/acdev-battery off')
   })
 
-  test('the stage has all three by default, and the provision script installs, enables and starts them, and stops the ones turned off', () => {
+  test('the stage turns all three on by default, and the provision script enables and starts them, and stops the ones turned off', () => {
     const plain = stageProvision(NONE)
     const some = stageProvision(NONE, { on: ['wifi'], off: ['bluetooth', 'battery'] })
     try {
       expect(readFileSync(join(plain, 'hw', 'packages'), 'utf8')).toBe('hostapd\niw\nbluez\nbluez-utils\nupower\n')
+      expect(readFileSync(join(plain, 'hw', 'on'), 'utf8')).toBe('acdev-wifi.service\nacdev-bt.service\nacdev-battery.service\n')
       expect(readFileSync(join(plain, 'hw', 'off'), 'utf8')).toBe('')
-      expect(statSync(join(plain, 'hw', 'acdev-battery')).mode & 0o111).not.toBe(0)
+      expect(readFileSync(join(some, 'hw', 'on'), 'utf8')).toBe('acdev-wifi.service\n')
       expect(readFileSync(join(some, 'hw', 'off'), 'utf8')).toBe('acdev-bt.service\nacdev-battery.service\n')
-      expect(readFileSync(join(some, 'hw', 'units', 'acdev-wifi.service'), 'utf8')).toBe(unitText('wifi'))
     } finally {
       rmSync(plain, { recursive: true, force: true })
       rmSync(some, { recursive: true, force: true })
     }
-    for (const line of ['done <"$here/hw/packages"', 'done <"$here/hw/off"', 'systemctl disable --now "$unit"', 'systemctl daemon-reload',
-      'systemctl enable "$name"', 'systemctl restart "$name" || warn "$name did not start"']) {
+    for (const line of ['done <"$here/hw/packages"', 'done <"$here/hw/off"', 'done <"$here/hw/on"', 'systemctl disable --now "$unit"',
+      'systemctl daemon-reload', 'systemctl enable "$name"', 'systemctl restart "$name" || warn "$name did not start"']) {
       expect(PROVISION_SCRIPT).toContain(line)
     }
   })
@@ -105,7 +105,7 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
       for (const path of [dir, given, without]) rmSync(path, { recursive: true, force: true })
     }
     expect(PROVISION_SCRIPT).toContain('install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt')
-    expect(PROVISION_SCRIPT).toContain('/usr/local/bin/acdev-btvirt-build \\\n      || note "btvirt could not be built')
+    expect(PROVISION_SCRIPT).toContain('/usr/lib/acdev/acdev-btvirt-build \\\n      || note "btvirt could not be built')
   })
 
   test('provision puts back the module packages agentos-drivers prune removed: bochs always, mac80211_hwsim when the Wi-Fi is on', () => {
@@ -116,7 +116,7 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
     for (const line of ['modinfo "$1" >/dev/null 2>&1 && return 0',
       'pacman -S --needed --noconfirm "$2" >/dev/null || { warn "could not install $2"; return 0; }',
       'depmod -a || true', 'restore bochs linux-ackernel-gpu-other',
-      'if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore mac80211_hwsim linux-ackernel-wifi-other; fi']) {
+      'if grep -qx acdev-wifi.service "$here/hw/on"; then restore mac80211_hwsim linux-ackernel-wifi-other; fi']) {
       expect(PROVISION_SCRIPT).toContain(line)
     }
     const restoring = PROVISION_SCRIPT.indexOf('restore mac80211_hwsim')

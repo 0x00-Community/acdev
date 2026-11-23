@@ -7,6 +7,7 @@ import { WAIT_EVERY } from './channel.ts'
 import { Machine, type StartOptions, type Stopped } from './machine.ts'
 import { PROVISION_DIR, provisionOptions, provisionSources, stageProvision } from './provision.ts'
 import { guestHardware } from './guesthw.ts'
+import { Versions } from '../versions.ts'
 import { guestPassword, LOGIN_USER, loginGuest } from './guest.ts'
 
 type Flags = ReadonlyMap<string, string>
@@ -264,7 +265,10 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     const sources = provisionSources(flags)
     machine.running()
     const options = provisionOptions(flags)
-    const stage = stageProvision(sources, guestHardware(flags))
+    const binaries = { devd: machine.devdBinary(), agent: machine.agentBinary() }
+    if (!binaries.agent) say("vm provision: no acdev-agent for this guest (ACDEV_AGENT, or the install's libexec): the package goes in without it")
+    const build = { version: Versions.acde(), arch: machine.guest, builddate: Math.floor(Date.now() / 1000) }
+    const stage = stageProvision(sources, guestHardware(flags), { binaries, build })
     try {
       const devd = machine.devd()
       await devd.run(['/bin/rm', '-rf', PROVISION_DIR])

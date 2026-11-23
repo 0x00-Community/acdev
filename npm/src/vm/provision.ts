@@ -2,7 +2,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { GUEST_PASSWORD, GUEST_PASSWORD_ENV } from './guest.ts'
-import { GUEST_HARDWARE, hardwareFiles, type GuestHardware } from './guesthw.ts'
+import { GUEST_HARDWARE, HW_DIR, hardwareFiles, type GuestHardware } from './guesthw.ts'
+import { SUDO_SCRIPT, TOOLS_SCRIPT, stageTools, type ToolBinaries, type ToolsBuild } from './guesttools/index.ts'
 import { KERNEL_SCRIPT, PKGS_SCRIPT, stageKernel, stagePkgs } from './kernelpkgs.ts'
 
 export interface ProvisionSources {
@@ -32,8 +33,6 @@ export interface ProvisionOptions {
 export const PROVISION_DIR = '/opt/acdev/provision'
 
 export const ACDES_SERVICES = ['acdes-system-agent', 'acdes-proxy'] as const
-
-export const DEV_SUDOERS = '/etc/sudoers.d/acdev-dev'
 
 export const DOPAME_REMOVED = 'vm provision: --dopame was removed (it laid out only part of the dopame package: no '
   + 'wallpapers, cursors, sounds, icon theme or pi): install the dopame package instead, acdev vm provision --pkgs DIR '
@@ -124,59 +123,37 @@ export const PROVISION_SCRIPT = [
   'faillock --user "$user" --reset 2>/dev/null || true',
   'su - "$user" -c \'LC_ALL=C.UTF-8 xdg-user-dirs-update --force\' >/dev/null 2>&1 || true',
   '',
-  'step "sudo rules for $user: the dopame guest checks swap the environment of its session agent unit"',
-  `rules=${DEV_SUDOERS}`,
-  'if [ -d /etc/sudoers.d ] && command -v visudo >/dev/null; then',
-  '  uid=$(id -u "$user")',
-  '  dir="/run/systemd/system/acdes-session-agent@$uid.service.d"',
-  '  conf="$dir/zz-dopame-check.conf"',
-  '  cmds="/usr/bin/install -D -m 644 * $conf, /usr/bin/rm -f $conf, /usr/bin/rmdir --ignore-fail-on-non-empty $dir"',
-  '  cmds="$cmds, /usr/bin/systemctl daemon-reload, /usr/bin/systemctl restart acdes-session-agent@$uid.service"',
-  '  printf \'%s ALL=(root) NOPASSWD: %s\\n\' "$user" "$cmds" >"$rules.tmp"',
-  '  chown root:root "$rules.tmp" && chmod 0440 "$rules.tmp"',
-  '  if visudo -cf "$rules.tmp" >/dev/null; then',
-  '    mv -f "$rules.tmp" "$rules"',
-  '  else',
-  '    rm -f "$rules.tmp" "$rules"',
-  '    warn "visudo rejected the sudo rules for $user, so there is no $rules"',
-  '  fi',
-  'else',
-  '  warn "no sudo in the guest (/etc/sudoers.d, visudo), so there is no $rules"',
+  'if [ -d "$here/tools" ]; then',
+  ...TOOLS_SCRIPT.map((line) => `  ${line}`),
+  '  step "sudo rules for $user: the dopame guest checks swap the environment of its session agent unit"',
+  `  if [ -x ${HW_DIR}/${SUDO_SCRIPT} ]; then ${HW_DIR}/${SUDO_SCRIPT} "$user" || warn "no sudo rules for $user"; fi`,
   'fi',
   '',
   'if [ -d "$here/hw" ]; then',
-  '  step "simulated hardware: packages, scripts in /usr/local/bin, units in /etc/systemd/system"',
-  `  if [ -f "$here/hw/units/acdev-wifi.service" ]; then restore ${PRUNED.hwsim.module} ${PRUNED.hwsim.package}; fi`,
+  `  step "simulated hardware: packages, and the units ${HW_DIR} has"`,
+  `  if grep -qx acdev-wifi.service "$here/hw/on"; then restore ${PRUNED.hwsim.module} ${PRUNED.hwsim.package}; fi`,
   '  while read -r pkg; do',
   '    [ -n "$pkg" ] || continue',
   '    pacman -Q "$pkg" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$pkg" >/dev/null || warn "could not install $pkg"',
   '  done <"$here/hw/packages"',
-  '  for script in "$here"/hw/acdev-*; do',
-  '    if [ -f "$script" ]; then install -Dm755 "$script" "/usr/local/bin/$(basename "$script")"; fi',
-  '  done',
   '  if [ -f "$here/hw/btvirt" ]; then install -Dm755 "$here/hw/btvirt" /usr/local/bin/btvirt; fi',
-  '  if [ -f "$here/hw/acdev-btvirt-build" ] && ! command -v btvirt >/dev/null; then',
+  '  if grep -qx acdev-bt.service "$here/hw/on" && ! command -v btvirt >/dev/null; then',
   '    step "btvirt (no Arch package has it): building emulator/btvirt from the source of the installed bluez"',
-  '    /usr/local/bin/acdev-btvirt-build \\',
+  `    ${HW_DIR}/acdev-btvirt-build \\`,
   '      || note "btvirt could not be built, so the simulated Bluetooth stays off (--btvirt FILE takes a prebuilt one)"',
   '  fi',
   '  while read -r unit; do',
   '    [ -n "$unit" ] || continue',
   '    systemctl disable --now "$unit" >/dev/null 2>&1 || true',
-  '    rm -f "/etc/systemd/system/$unit"',
   '    step "$unit is off"',
   '  done <"$here/hw/off"',
-  '  for unit in "$here"/hw/units/*.service; do',
-  '    if [ -f "$unit" ]; then install -Dm644 "$unit" "/etc/systemd/system/$(basename "$unit")"; fi',
-  '  done',
   '  systemctl daemon-reload',
-  '  for unit in "$here"/hw/units/*.service; do',
-  '    [ -f "$unit" ] || continue',
-  '    name=$(basename "$unit")',
+  '  while read -r name; do',
+  '    [ -n "$name" ] || continue',
   '    systemctl enable "$name" >/dev/null 2>&1 || warn "could not enable $name"',
   '    systemctl restart "$name" || warn "$name did not start"',
   '    journalctl -u "$name" -n 2 --no-pager -o cat 2>/dev/null | grep "^acdev-" | sed "s/^/acdev provision: /" || true',
-  '  done',
+  '  done <"$here/hw/on"',
   'fi',
   '',
   'step "greetd runs the acdes login screen"',
@@ -257,21 +234,29 @@ export interface HardwareChoice {
 
 function stageHardware(stage: string, { on, off, btvirt }: HardwareChoice): void {
   const dir = join(stage, 'hw')
-  const { scripts, units, packages, off: stopped } = hardwareFiles(on, off)
-  mkdirSync(join(dir, 'units'), { recursive: true })
-  writeFileSync(join(dir, 'off'), stopped.map((unit) => `${unit}\n`).join(''))
-  for (const [name, text] of Object.entries(units)) writeFileSync(join(dir, 'units', name), text)
-  writeFileSync(join(dir, 'packages'), packages.map((pkg) => `${pkg}\n`).join(''))
-  for (const [name, text] of Object.entries(scripts)) writeFileSync(join(dir, name), text, { mode: 0o755 })
+  const { units, packages, off: stopped } = hardwareFiles(on, off)
+  mkdirSync(dir, { recursive: true })
+  const lines = (names: readonly string[]) => names.map((name) => `${name}\n`).join('')
+  writeFileSync(join(dir, 'on'), lines(Object.keys(units)))
+  writeFileSync(join(dir, 'off'), lines(stopped))
+  writeFileSync(join(dir, 'packages'), lines(packages))
   if (btvirt && on.includes('bluetooth')) cpSync(need(btvirt, '--btvirt'), join(dir, 'btvirt'))
 }
 
-export function stageProvision(sources: ProvisionSources, hardware: HardwareChoice = { on: GUEST_HARDWARE, off: [] }): string {
+export interface GuestTools {
+  readonly binaries: ToolBinaries
+  readonly build: ToolsBuild
+}
+
+export function stageProvision(
+  sources: ProvisionSources, hardware: HardwareChoice = { on: GUEST_HARDWARE, off: [] }, tools: GuestTools | null = null,
+): string {
   const stage = mkdtempSync(join(tmpdir(), 'acdev-provision-'))
   try {
     stageAcdes(stage, sources)
     stageHarness(stage, sources)
     stageHardware(stage, hardware)
+    if (tools) stageTools(stage, tools.binaries, tools.build)
     if (sources.kernelPkgs) stageKernel(stage, sources.kernelPkgs)
     if (sources.pkgs) stagePkgs(stage, sources.pkgs)
     writeFileSync(join(stage, 'provision.sh'), PROVISION_SCRIPT, { mode: 0o755 })

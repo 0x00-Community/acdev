@@ -2,6 +2,8 @@ export type GuestHardware = 'wifi' | 'bluetooth' | 'battery'
 
 export const GUEST_HARDWARE: readonly GuestHardware[] = ['wifi', 'bluetooth', 'battery']
 
+export const HW_DIR = '/usr/lib/acdev'
+
 export const WIFI = { open: 'acdev-open', secured: 'acdev-wpa2', password: 'acdev-wifi-pass' } as const
 
 export const PEER_NAME = 'acdev-peer'
@@ -222,8 +224,8 @@ export function unitText(name: GuestHardware): string {
     '[Service]',
     'Type=oneshot',
     'RemainAfterExit=yes',
-    `ExecStart=/usr/local/bin/${script} ${start}`,
-    `ExecStop=/usr/local/bin/${script} ${stop}`,
+    `ExecStart=${HW_DIR}/${script} ${start}`,
+    `ExecStop=${HW_DIR}/${script} ${stop}`,
     `SuccessExitStatus=${MISSING}`,
     '',
     '[Install]',

@@ -78,7 +78,7 @@ describe('acdev vm provision', () => {
 
   test('the script lays out acdes by package(), sets the user and greetd, and takes the defaults it is told', () => {
     const lines = ['. "$here/acdes/PKGBUILD"', 'printf \'%s:%s\\n\' "$user" "$password" | chpasswd', 'command = "/usr/bin/acdes --greeter"', 'pacman -Sy',
-      'for unit in acdes-system-agent acdes-proxy; do', 'rules=/etc/sudoers.d/acdev-dev', 'visudo -cf "$rules.tmp"']
+      'for unit in acdes-system-agent acdes-proxy; do', '/usr/lib/acdev/acdev-dev-sudo "$user"']
     for (const line of lines) {
       expect(PROVISION_SCRIPT).toContain(line)
     }

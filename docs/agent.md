@@ -14,7 +14,8 @@ acompositor 协议的客户端绑定, feature `acompositor`) 和 `acde-scene` (�
 - `acdev-agent serve [--socket PATH]`: 读 fw_cfg 密钥 (`acdevd::key::FW_CFG`), 没有就退出 (只在 acdev 起的客户机里跑); 在 `PATH`
   (缺省 `/run/acdev/agent.sock`, 0600) 上听, 每条宿主连接一个线程, 每个请求再一个线程, 慢的请求不挡别的.
 - `acdev-agent --version`.
-- systemd 单元 `crates/agent/acdev-agent.service`: `ConditionPathExists` 是密钥文件, `Restart=always`, 日志进 journald, 标识 `acdev-agent`.
+- systemd 单元 `acdev-agent.service` 的正文在 `npm/src/vm/guesttools/index.ts` (`AGENT_UNIT`): `ConditionPathExists` 是密钥文件, `Restart=always`, 日志进 journald, 标识 `acdev-agent`.
+- 怎样装进客户机: 随 `acdev-guest-tools` 包, 由 `acdev vm provision` 装 (见 `docs/vm.md`「客户机工具包 acdev-guest-tools」).
 
 ## 连管家 (`src/link.rs`, `src/agent.rs`)
 

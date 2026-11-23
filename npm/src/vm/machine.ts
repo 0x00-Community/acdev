@@ -16,6 +16,7 @@ import {
 } from './host.ts'
 import { CHECKOUT, TOOL, crateBinary, crateVersion } from './binary.ts'
 import { Devd, PORT, RelayTransport, SocketTransport, type Transport } from './devd.ts'
+import { AGENT, devdUnit } from './guesttools/index.ts'
 import { gpuArgs, hardwareArgs, type Audio, type Resolution, type Vga } from './hardware.ts'
 import { Usb } from './usb.ts'
 import { getImage, newestImage, type FetchFrom } from './image/fetch.ts'
@@ -62,6 +63,7 @@ export class Machine {
   readonly guest: Guest
   static readonly ROOT = CHECKOUT
   static readonly DEVD = '/usr/local/bin/acdevd'
+  static readonly PACKAGED = '/usr/bin/acdevd'
   static readonly HOTPLUG = ['rp1', 'rp2'] as const
   static readonly GPU = 'gpu0'
   static readonly MAX_OUTPUTS = 16
@@ -638,8 +640,19 @@ export class Machine {
     return { target, files: await this.devd().pull(remote, target) }
   }
 
+  #native(): boolean {
+    return this.host.platform === 'linux' && guestArch(this.host) === this.guest
+  }
+
+  agentBinary(): string | null {
+    const wanted = { ...AGENT, installed: `${AGENT.name}-${this.guest}` }
+    if (this.#native()) return crateBinary(Machine.ROOT, wanted, this.env)
+    const given = this.env[AGENT.variable] || libexecBeside(wanted.installed)
+    return given && existsSync(given) ? given : null
+  }
+
   devdBinary(): string {
-    if (this.host.platform === 'linux' && guestArch(this.host) === this.guest) {
+    if (this.#native()) {
       const binary = Devd.binary(Machine.ROOT, this.env, this.guest)
       Devd.checkVersion(binary, Machine.ROOT)
       return binary
@@ -670,11 +683,16 @@ export class Machine {
     const sum = createHash('sha256').update(data).digest('hex')
     const agent = await GuestAgent.open(this.qga)
     try {
-      const there = await agent.exec(`sha256sum ${Machine.DEVD} 2>/dev/null`, 30_000)
-      if (!there.stdout.toString().startsWith(sum)) {
+      const there = (await agent.exec(`sha256sum ${Machine.DEVD} ${Machine.PACKAGED} 2>/dev/null`, 30_000)).stdout.toString().split('\n')
+      const has = (path: string, same: boolean) => there.some((line) => line.endsWith(` ${path}`) && line.startsWith(sum) === same)
+      if (has(Machine.PACKAGED, true)) {
+        const loose = there.some((line) => line.endsWith(` ${Machine.DEVD}`))
+        await Machine.#check(agent, loose ? `rm -f ${Machine.DEVD} ${Machine.UNIT} && systemctl daemon-reload && systemctl restart acdevd`
+          : 'systemctl is-active -q acdevd || systemctl restart acdevd')
+      } else if (!has(Machine.DEVD, true)) {
         say('installing acdevd in the guest')
         await agent.write(`${Machine.DEVD}.new`, data)
-        await agent.write(Machine.UNIT, Buffer.from(UNIT))
+        await agent.write(Machine.UNIT, Buffer.from(devdUnit(Machine.DEVD)))
         await Machine.#check(agent, `chmod 755 ${Machine.DEVD}.new && mv ${Machine.DEVD}.new ${Machine.DEVD} && `
           + 'systemctl daemon-reload && systemctl enable acdevd >/dev/null 2>&1 && systemctl restart acdevd')
       } else {
@@ -763,16 +781,3 @@ export class Machine {
     return this.guest === 'x86_64' && existsSync(latest) ? join(this.images, readlinkSync(latest)) : null
   }
 }
-
-const UNIT = `[Unit]
-Description=acdev device daemon (vsock, or TCP with the key from fw_cfg)
-After=local-fs.target network.target
-
-[Service]
-ExecStartPre=-/usr/bin/modprobe qemu_fw_cfg
-ExecStart=${Machine.DEVD} serve
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-`

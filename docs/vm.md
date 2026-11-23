@@ -203,7 +203,7 @@ acdes (合成器 acompositor 在 acdes 里) 按 acdes 仓自己的 `packaging/ar
 `depends` 里还没满足的 (认 provides 和版本, 如 `vulkan-driver`), 只装这些 (第七轮: 客户机缺 acdes 6bbcc46 新加的 `udisks2`, U 盘没人挂载), 装不上只提示 (二进制在 `/usr/lib/acdes`, `/usr/bin/acdes` 包装脚本、
 `/etc/pam.d/acdes`、登录页和锁屏页、tmpfiles 等, 与正式包同一份布局), `/usr/bin/acdert` 指向 `acdes` (先删旧包留下的, 否则 `package()` 最后的 `ln -s` 会失败), 绕开 pacman 所以手动跑一次 `systemd-sysusers` (包里的 sysusers.d 把 greeter 加进 input、video 组, 建系统总管的 `acdes-agent` 用户)、对包装进来的每个 `/usr/lib/tmpfiles.d/acde*.conf` 跑 `systemd-tmpfiles --create` (如系统总管的 `/var/lib/acdes/system-agent`、`/run/acdes-system-agent`, 在启动它之前) 和 `glib-compile-schemas`; `--harness` 给的 `dopame-harness` 装到 `/usr/lib/dopame/dopame-harness`. Dopame 本身不再由 provision 摆放 (2026-11-23 起, 总仓构建流程 ebc22af): 原来的 `--dopame DIR` 只摆了 dopame 包的一部分 (`package.json`、`mcp.json`、`dist/`、后台服务、systemd 补充配置和 `depends`), 漏了 dist-share (壁纸包、光标、声音)、图标主题、pi 和登录项, batch16 锁屏缺壁纸包就是这么来的; 现在 dopame 用它自己完整的 `package()` 出包, 经下面的 `--pkgs` 装进客户机. `--dopame` 参数还认, 但一给就报错退出 (退出码 1, 在碰客户机之前), 提示改用 `acdev vm provision --pkgs DIR`, 不会悄悄失效. 建用户 `tester`
 (`--user` 可换; 有 wheel、video、input、audio、render、seat 组时加进去), 密码 `ACDEV_VM_PASSWORD` (默认 `dopame-dev`), 重置 faillock, 建 XDG 用户目录 (固定用英文名 `Desktop`、`Documents`、`Videos` 等, 和以前的客户机一样, 不随客户机语言变成中文名, 免得测试脚本依赖的目录名对不上);
-给这个用户写 `/etc/sudoers.d/acdev-dev` (root:root, 0440, `DEV_SUDOERS`): dopame 的客户机检查要临时替换桌面后台服务单元 (`acdes-session-agent@<UID>.service`) 的环境,
+装好 acdev-guest-tools (见下「客户机工具包 acdev-guest-tools」) 后, 用包里的 `/usr/lib/acdev/acdev-dev-sudo <用户>` 给这个用户写 `/etc/sudoers.d/acdev-dev` (root:root, 0440, `DEV_SUDOERS`, `src/vm/guesttools/index.ts`): dopame 的客户机检查要临时替换桌面后台服务单元 (`acdes-session-agent@<UID>.service`) 的环境,
 所以只放行五条命令, `<UID>` 是这个用户的实际 UID, 不给别的 root 权限: `install -D -m 644 * <目录>/zz-dopame-check.conf`、`rm -f` 这个文件、`rmdir --ignore-fail-on-non-empty <目录>`
 (目录是 `/run/systemd/system/acdes-session-agent@<UID>.service.d`)、`systemctl daemon-reload`、`systemctl restart acdes-session-agent@<UID>.service`, 都是 NOPASSWD
 (主会话 2026-11-22 定, acdev 与 dopame 之间). 先写成 `acdev-dev.tmp` (名字带 `.`, sudo 不读), `visudo -cf` 过了才改名, 不过就删掉并记一条 warning;
@@ -224,6 +224,29 @@ acdes 装好后 (`--acdes` 和 `--pkgs` 两条路一样, `ACDES_SERVICES`), prov
 和系统代理 `acdes-proxy`: acdes 的包把它们装好但不启用, 留给 os 打开 (PKGBUILD 的注释), 而 dopameos-20261114 镜像不打开; 不开时总管的风险审查和
 `network: proxy` 的 Agent 联网都用不了. 单元文件不在 (旧的 acdes) 就跳过; 启用或启动失败记一条 warning (provision 最后退出 4).
 acdevd 由 `vm start` 自己装. 不给 `--acdes` 时只做用户、greetd 和 Dopame 那几步, 这时客户机里要已经有 `/usr/bin/acdes`.
+
+## 客户机工具包 acdev-guest-tools (`src/vm/guesttools/index.ts`, AC/acdev#115 S2)
+
+acdev 只往自己起的客户机里装的东西收成一个 pacman 包 `acdev-guest-tools`, 正式系统不装. 版本跟 acdev 命令行 (`package.json` 的 `version`,
+pacman 不认的字符换成 `_`, 包修订号 1). 内容:
+
+- `/usr/bin/acdevd` 和 `acdevd.service` (同引导那份单元, 只是路径换成包里的);
+- `/usr/bin/acdev-agent` 和 `acdev-agent.service` (客户机代理, 见 `docs/agent.md`; 单元的正文只在 `guesttools/index.ts` 一处);
+- 模拟硬件的脚本 (`/usr/lib/acdev/acdev-wifi` 等) 和单元 (`/usr/lib/systemd/system/acdev-*.service`), 三样都在, 开哪几样由 provision 定;
+- `/usr/lib/acdev/acdev-dev-sudo <用户>`: 写测试用的 sudo 规则 (上面那五条命令), 规则带用户和 UID, 所以由 provision 跑, 不在包里放成品.
+
+做法: 宿主找 acdevd (`Machine.devdBinary`, 同 `start`) 和 acdev-agent (`Machine.agentBinary`: Linux 上客户机与宿主同架构时同 acdevd 的找法, 变量 `ACDEV_AGENT`,
+共用产物目录 `logs/cargo-target/rust`, 都没有就 `cargo build --release`, 要旁边的 `../libacde`; 别的宿主取 `ACDEV_AGENT` 或安装目录的 `libexec/acdev-agent-<架构>`,
+没有时提示一句, 包里就不带代理), 在暂存目录的 `tools/root` 摆好文件和 `.PKGINFO`. 客户机里 provision 脚本 (建完用户之后):
+
+1. `pacman -Q acdev-guest-tools` 报出旧版本 (和这次不同时说一句它被替换);
+2. 删掉打包之前散放的文件 (`LEGACY`: `/usr/local/bin/acdevd`、`/etc/systemd/system/acdevd.service`、`/usr/local/bin/acdev-*`、`/etc/systemd/system/acdev-*.service`), 免得 `/etc` 里的单元盖过包里的;
+3. 用客户机自带的 `bsdtar` 把 `tools/root` 打成不压缩的 `acdev-guest-tools.pkg.tar`, `pacman -U --overwrite '*'` 装上 (同版本也重装, 开发时同一版本号的新构建照样换进去);
+4. `daemon-reload`, `enable` acdevd (不重启: provision 正经它在跑, 下次开机或 `start` 换成包里的), `enable` 并重启 acdev-agent;
+5. 跑 `acdev-dev-sudo`, 再接着装模拟硬件.
+
+发版: `acdev-guest-<版本>.tar.gz` 现在只有两个架构的 acdevd; 要让 Windows、macOS 上的 acdev 也带代理, 还要在 CI 的 `guest` 一格里编两个架构的 acdev-agent
+(它依赖 libacde, 那一格要拉 libacde) 并放进同一个包, 装成 `libexec/acdev-agent-<架构>`. 这一步还没做.
 
 ## 命令
 
@@ -318,8 +341,9 @@ acdev vm stop                                   # 让客户机自己关机 (acde
     一起用时直接报错.
 - 热插拔: q35 的根总线 `pcie.0` 不能热插拔 (`device_add` 报 `Bus 'pcie.0' does not support hotplugging`), 所以 `start` 预留两个
   PCIe 根端口 `rp1`、`rp2` (`chassis` / `slot` 11、12). 热插拔时 `device_add` 带 `bus=rp1` 或 `bus=rp2`, 一个端口挂一个设备.
-- 设备守护进程: `start` 在客户机就绪后经 guest agent 装好 acdevd (`/usr/local/bin/acdevd`, 和宿主这份校验和不同才拷,
-  systemd 单元 `acdevd.service`, 开机自启, 起之前 `modprobe qemu_fw_cfg`), 等它在调试通道上应答 (见 `docs/devd.md`). vsock 时 QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
+- 设备守护进程: `start` 在客户机就绪后经 guest agent 核对 acdevd: acdev-guest-tools 装的 `/usr/bin/acdevd` 和宿主这份校验和相同时就用它 (若还留着下面这份引导用的, 删掉、`daemon-reload` 后重启 acdevd);
+  否则装引导用的一份 (`/usr/local/bin/acdevd` 加 `/etc/systemd/system/acdevd.service`, 盖过包里的单元; 和宿主这份校验和不同才拷), 因为 provision 本身要经 acdevd 推文件、跑脚本.
+  单元开机自启, 起之前 `modprobe qemu_fw_cfg`; 包旧了 (acdev 升级后还没重新 provision) 时也是引导的那份顶上, 重新 provision 后包里的接回来; 等它在调试通道上应答 (见 `docs/devd.md`). vsock 时 QEMU 带 `vhost-vsock-pci`, 客户机的 CID 由
   `$ACDEV_VM_DIR` 的路径算出 (`Machine.cid()`, 3 起), 宿主要能读写 `/dev/vhost-vsock`. 宿主一侧的 acdevd 取 `ACDEV_DEVD`, 否则用检出里
   `crates/devd/target/release/acdevd`, 没有就先 `cargo build --release` 编出来.
 - `run`、`push`、`pull`、`kill` 走调试通道: `run` 经 `/bin/sh -c` 跑, 输出边跑边转回, 退出码就是它的; `--detach` 放后台、打印进程组号, 输出写到客户机
@@ -400,12 +424,12 @@ acdev vm run --detach systemctl suspend    # 后台跑, 不等它; 睡下后再 
 ### Wi-Fi、蓝牙、电池共同的做法 (客户机里, `src/vm/guesthw.ts`)
 
 QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的模拟模块造, 默认都带 (用户 2026-11-19): `acdev vm provision` 把要的包
-(`hw/packages`)、脚本 (`hw/acdev-*`) 和 systemd 单元 (`hw/units/acdev-wifi.service`、`acdev-bt.service`、`acdev-battery.service`) 放进
-暂存目录; provision 脚本装包 (装不上打一行 warning, provision 最后退出 4)、把脚本装到 `/usr/local/bin`、单元装到 `/etc/systemd/system`, `daemon-reload`
-后 `enable` 并立即 `restart` 一次, 再把单元日志里脚本自己的那两行 (`acdev-…: …`) 转到 provision 的输出. 以后每次开机由单元启用.
+(`hw/packages`)、要开的单元 (`hw/on`) 和要关的单元 (`hw/off`) 写进暂存目录; 脚本 (`acdev-wifi`、`acdev-bt`、`acdev-battery`、`acdev-btvirt-build`, 在 `/usr/lib/acdev`)
+和 systemd 单元 (`acdev-wifi.service`、`acdev-bt.service`、`acdev-battery.service`, 在 `/usr/lib/systemd/system`) 三样都随 acdev-guest-tools 装进去. provision 脚本装包
+(装不上打一行 warning, provision 最后退出 4), `daemon-reload` 后对 `hw/on` 里的单元 `enable` 并立即 `restart` 一次, 再把单元日志里脚本自己的那两行 (`acdev-…: …`) 转到 provision 的输出. 以后每次开机由单元启用.
 
-- 关掉: `--no-wifi` / `--no-bluetooth` / `--no-battery`. 关掉的那项不装包、不装单元; 客户机里已有的单元 `disable --now` 后删掉
-  (`hw/off` 列出它们), 脚本留在 `/usr/local/bin` 里, 照样能手动跑. 旧的 `--wifi` / `--bluetooth` / `--battery` 已过时, 仍认, 什么也不改变.
+- 关掉: `--no-wifi` / `--no-bluetooth` / `--no-battery`. 关掉的那项不装包、不开单元; 已开的单元 `disable --now`
+  (`hw/off` 列出它们), 单元和脚本仍在包里, 照样能手动跑. 旧的 `--wifi` / `--bluetooth` / `--battery` 已过时, 仍认, 什么也不改变.
 - 单元: `Type=oneshot` + `RemainAfterExit=yes`, `ExecStart` 调脚本的 `up` (电池是 `100 charging`), `ExecStop` 调 `down` (电池 `off`),
   `Wants=` + `After=` 各自的守护进程 (NetworkManager、bluetooth、upower; 脚本里的 `systemctl start` 因此不会和开机顺序互等),
   `WantedBy=multi-user.target`.
@@ -473,7 +497,7 @@ NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager �
 (网页被拦), 也不想让 provision 依赖 AUR 助手. 所以 provision 按顺序:
 1. 给了 `acdev vm provision --btvirt FILE` (在别处编好的 btvirt) 就装到 `/usr/local/bin/btvirt`;
 2. 客户机里已有 `btvirt` 就用它;
-3. 否则跑 `acdev-btvirt-build` (`/usr/local/bin`, 也能手动跑): 取已装 `bluez` 的版本 (`pacman -Q bluez`, 去掉包修订号),
+3. 否则跑 `acdev-btvirt-build` (`/usr/lib/acdev`, 也能手动跑): 取已装 `bluez` 的版本 (`pacman -Q bluez`, 去掉包修订号),
    装 `base-devel glib2 dbus curl xz`, 下载 `https://www.kernel.org/pub/linux/bluetooth/bluez-<版本>.tar.xz`,
    `./configure --enable-testing` 并关掉用不到、要额外依赖的部分 (`--disable-manpages --disable-obex --disable-cups --disable-client
    --disable-mesh --disable-midi --disable-udev --disable-systemd --disable-hid2hci`), 只 `make emulator/btvirt`, 装到 `/usr/local/bin/btvirt`.
