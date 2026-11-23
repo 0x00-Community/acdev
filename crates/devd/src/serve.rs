@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::frame::{self, Frame};
-use crate::{key, shell, tunnel};
+use crate::{shell, tunnel};
+use acdevd::key;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

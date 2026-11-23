@@ -44,7 +44,7 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
   skill 只写对外的用法, 实现和取舍写在 `docs/`.
 - 系统调用走 rustix, 不直接依赖 libc; rustix 没有的用专门的 crate (signal-hook、jiff). 按平台的代码用 `#[cfg]` / `cfg_select!`, 先用 std.
 - 依赖版本 1.0 及以上只写主版本号 (`wgpu = "30"`), 0.x 写到次版本 (`log = "0.4"`), 用最新的; 例外见 libacde 的 AGENTS.md (blitz fork 和配套的用 `=` 钉住).
-- `Cargo.lock` 进 git (用户定 2026-11-18; 根上一份, `crates/devd`、`relay`、`viewer` 各一份): 依赖只在主动更新时变, CI 一律 `--locked`.
+- `Cargo.lock` 进 git (用户定 2026-11-18; 根上一份, `crates/devd`、`crates/agent`、`relay`、`viewer` 各一份): 依赖只在主动更新时变, CI 一律 `--locked`.
   更新依赖见 `docs/runtime-build.md`「依赖与 Cargo.lock」.
   0.x 写到次版本正是因为这个: 只写 `"0"` 时, workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖, 它们会落到旧锁里已有的老版本上, 只在 Linux
   编的 `voice`、`office` 就编不过 (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
@@ -87,6 +87,7 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
 | 改说明或新增说明文档 | `docs/writing-docs.md` |
 | 改运行时库 (libacde: V8、DOM、渲染、`acde:` 模块、存储、网页接口、清单规则、SDK、`protocol/`、C 接口、WPT) 或要弄清各仓的分工 | libacde 的 `AGENTS.md` 和它的 `docs/` |
 | 改客户机设备守护进程 acdevd (`crates/devd`): vsock、推送、运行、停止的协议 | `docs/devd.md` |
+| 改客户机代理 acdev-agent (`crates/agent`): 管家开发钩子、合成器驱动、时间线进 journald | `docs/agent.md` |
 | 改 acdev 自己的客户机窗口 `acdevtool view` (`crates/tool`): QEMU 的 D-Bus 显示、画面、键鼠 | `docs/viewer.md` |
 | 改 `acdev vm` (`npm/src/vm/`): 在 QEMU 里起 Dopame OS 客户机 (KVM)、把文件送进客户机、串口日志、截图 | `docs/vm.md` |
 | 弄清调试运行时在各仓架构里的位置、`src/` 各文件做什么、`acdev` 怎么找运行时 | `docs/architecture.md` |

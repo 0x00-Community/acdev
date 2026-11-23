@@ -3,8 +3,9 @@ use std::net::{Shutdown, TcpStream};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::thread;
+
+use acdevd::seat::active_uid;
 
 use crate::frame;
 
@@ -62,15 +63,6 @@ impl Sockets {
             _ => Err(io::Error::new(io::ErrorKind::NotFound, "several sessions have a debug socket and logind names no active one")),
         }
     }
-}
-
-fn active_uid() -> Option<String> {
-    let said = |args: &[&str]| {
-        let out = Command::new("loginctl").args(args).output().ok().filter(|out| out.status.success())?;
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|text| !text.is_empty())
-    };
-    let session = said(&["show-seat", "seat0", "--property=ActiveSession", "--value"])?;
-    said(&["show-session", &session, "--property=User", "--value"])
 }
 
 fn matches(pattern: &str, path: &str) -> bool {

@@ -1,5 +1,4 @@
 mod frame;
-mod key;
 mod serve;
 mod shell;
 mod tunnel;
@@ -12,6 +11,8 @@ use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::thread;
+
+use acdevd::key;
 
 const PORT: u32 = 5252;
 const USAGE: &str = "usage: acdevd serve [--port PORT] [--allow-socket PATTERN]...

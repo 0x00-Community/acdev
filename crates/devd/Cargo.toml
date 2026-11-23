@@ -5,6 +5,9 @@ edition = "2024"
 description = "The guest device daemon of the acdev emulator, and the host's vsock relay to it: only std"
 publish = false
 
+[lib]
+path = "src/guest/lib.rs"
+
 [workspace]
 
 [profile.release]

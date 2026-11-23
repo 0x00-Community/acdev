@@ -4,7 +4,7 @@
 
 acdev 第一个里程碑工作项 02 (总仓 `.scratch/acdev/issues/02-device-daemon.md`; 用户 2026-11-17 定: 原型阶段在 acdev 里做一个只用 std、
 和 acdes 无关的独立小程序, 经 vsock 与 acdev 通信, 以后并入 acdes). 作用类似安卓的 adbd. `crates/devd` 是独立的 Cargo
-工作区 (根工作区把它 `exclude` 掉): 不依赖任何库, 编一下不到一秒, 客户机和宿主用同一个二进制.
+工作区 (根工作区把它 `exclude` 掉): 不依赖任何库, 编一下不到一秒, 客户机和宿主用同一个二进制. 库部分 (`src/guest/`: `key` 读与比对密钥, `seat` 问 logind 的活动用户) 也给客户机代理 acdev-agent 用 (见 `docs/agent.md`), 两个程序共用一份.
 
 - `acdevd serve [--port PORT] [--allow-socket PATTERN]...`: 在客户机里以 root 运行, 在 vsock 端口 (默认 5252, 任意 CID) 上听, 每条连接一个线程, 一条连接做一件事.
   有密钥时 (见下面「传输与密钥」) 同时在 TCP `0.0.0.0:PORT` 上听; 两个都听不了才退出.
@@ -47,7 +47,7 @@ cargo build --release --target aarch64-unknown-linux-musl
 - 2026-11-18 本机 (Linux) 用这份配置 `cargo check --release --target aarch64-unknown-linux-musl` 通过; 真正链接一次〔待测〕, 在 Apple 芯片
   Mac 上〔未核实〕.
 
-## 传输与密钥 (`src/main.rs`、`src/key.rs`)
+## 传输与密钥 (`src/main.rs`、`src/guest/key.rs`)
 
 用户 2026-11-18 定 (三平台模拟器规范): 协议不变, 只换传输. Linux 宿主用 vsock; Windows、macOS 上的 QEMU 没有 vsock (Windows 编不出 vhost,
 macOS 的 Homebrew 没开 vhost-user, 见总仓 `.scratch/roadmap/research/05-emulator.md`), 改走 QEMU 用户态网络的端口转发 (`hostfwd`)

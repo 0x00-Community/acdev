@@ -1,0 +1,23 @@
+[package]
+name = "acdev-agent"
+version = "0.1.0"
+edition = "2024"
+description = "acdev's agent in the guest: the dev socket's line protocol over the session manager's dev hooks and a dev-level acompositor connection"
+publish = false
+
+[workspace]
+
+[dependencies]
+acdevd = { path = "../devd" }
+acde-wire = { path = "../../../libacde/wire", features = ["acompositor"] }
+acde-scene = { path = "../../../libacde/scene" }
+log = "0.4"
+serde_json = "1"
+rustix = { version = "1", features = ["event", "fs", "net"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+png = "0.18"
+
+[profile.release]
+opt-level = "s"
+strip = true

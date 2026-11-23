@@ -1,0 +1,10 @@
+# acdev-agent runs in the Linux guest: cross builds for it link with the rust-lld that rustup ships and the musl crt and libc
+# that the musl targets carry (self-contained), so `cargo build --release --target <arch>-unknown-linux-musl` needs no C
+# toolchain, also on macOS and Windows (docs/agent.md)
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "link-self-contained=yes"]
+
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "link-self-contained=yes"]
