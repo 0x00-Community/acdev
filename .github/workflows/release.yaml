@@ -2,7 +2,7 @@ name: release
 
 # Called by tag.yaml only (no dispatch): uploads build run `run`'s release (acdev/<run>/acdev-release on the artifacts host
 # .127) to Cloudflare R2 and nothing else: the versioned files once, then install.*, latest and latest.json; and the acdev
-# pacman package (AC/os's acdev-package.sh and publish.sh). docs/release-distribution.md.
+# pacman package into agentcomputer (AC/os's acdev-package.sh and publish.sh). docs/release-distribution.md.
 on:
   workflow_call:
     inputs:
@@ -116,10 +116,12 @@ jobs:
           pointer latest.json application/json
           printf 'curl -fsSL %s/install.sh | sh\n\nirm %s/install.ps1 | iex\n' "$PKGS/$PREFIX" "$PKGS/$PREFIX" >> "$GITHUB_STEP_SUMMARY"
 
-  # the pacman repository acdev beside the release (https://pkgs.dopame.ai/acdev/acdev.db, x86_64, flat): AC/os's
-  # packages/acdev/PKGBUILD makes the package from this run's release on the artifacts host (its scripts/ci/acdev-package.sh),
-  # its scripts/publish.sh adds it (checked out from AC/os, not copied here). A version the database already names is left
-  # alone: makepkg's output differs from build to build, and a published package file is never overwritten.
+  # the pacman repository agentcomputer, Dopame OS's system software (https://pkgs.dopame.ai/agentcomputer/agentcomputer.db,
+  # x86_64, flat; not beside the release in acdev/): AC/os's packages/acdev/PKGBUILD makes the package from this run's
+  # release on the artifacts host (its scripts/ci/acdev-package.sh), its scripts/publish.sh adds it (checked out from AC/os,
+  # not copied here). A version the database already names is left alone: makepkg's output differs from build to build,
+  # and a published package file is never overwritten. Other repositories' releases publish into agentcomputer too, which
+  # no concurrency group spans: publish.sh writes the database optimistically and retries.
   pacman:
     needs: r2
     runs-on: x86_64-arch
@@ -127,6 +129,7 @@ jobs:
     env:
       RUN: ${{ inputs.run }}
       V: ${{ inputs.version }}
+      REPO: agentcomputer
     steps:
       # the x86_64-arch runners run jobs on the host as a user with sudo (as AC/os build.yaml installs its toolchain)
       - name: tools
@@ -146,12 +149,12 @@ jobs:
       - name: the version in the repository already, or not
         id: db
         run: |
-          db=$RUNNER_TEMP/acdev.db
-          code=$(curl -sS -o "$db" -w '%{http_code}' "$PKGS/$PREFIX/$PREFIX.db") || code=000
+          db=$RUNNER_TEMP/repo.db
+          code=$(curl -sS -o "$db" -w '%{http_code}' "$PKGS/$REPO/$REPO.db") || code=000
           case $code in
             200) bsdtar -xOf "$db" '*/desc' | awk 'f { print; f = 0 } $0 == "%FILENAME%" { f = 1 }' > "$RUNNER_TEMP/named" ;;
             404) : > "$RUNNER_TEMP/named" ;;
-            *) echo "::error::$PKGS/$PREFIX/$PREFIX.db: HTTP $code"; exit 1 ;;
+            *) echo "::error::$PKGS/$REPO/$REPO.db: HTTP $code"; exit 1 ;;
           esac
           if grep -q "^acdev-$(printf '%s' "$V" | sed 's/\./\\./g')-[0-9.]*-x86_64\.pkg\.tar\.zst$" "$RUNNER_TEMP/named"; then
             echo "acdev $V is in the repository already: not built again" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -183,9 +186,9 @@ jobs:
         env: *keys
         run: |
           log=$RUNNER_TEMP/publish.log
-          "$RUNNER_TEMP/os/scripts/publish.sh" acdev "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst > "$log" 2>&1 || { cat "$log"; exit 1; }
+          "$RUNNER_TEMP/os/scripts/publish.sh" "$REPO" "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst > "$log" 2>&1 || { cat "$log"; exit 1; }
           cat "$log"
           grep '^published ' "$log" >> "$GITHUB_STEP_SUMMARY"
       - name: clean up
         if: always()
-        run: rm -rf -- "$RUNNER_TEMP/os" "$RUNNER_TEMP/package" "$RUNNER_TEMP/makepkg-config" "$RUNNER_TEMP/publish.log" "$RUNNER_TEMP/acdev.db" "$RUNNER_TEMP/named"
+        run: rm -rf -- "$RUNNER_TEMP/os" "$RUNNER_TEMP/package" "$RUNNER_TEMP/makepkg-config" "$RUNNER_TEMP/publish.log" "$RUNNER_TEMP/repo.db" "$RUNNER_TEMP/named"

@@ -361,14 +361,15 @@ describe('release.yaml', () => {
     expect(run).toContain('a version is never overwritten')
   })
 
-  test('pacman: os\'s acdev-package.sh makes the package of run `run` with zstd -3, os\'s publish.sh adds it to acdev, once per version', () => {
+  test('pacman: os\'s acdev-package.sh makes the package of run `run` with zstd -3, os\'s publish.sh adds it to agentcomputer, once per version', () => {
     const run = runs(release, 'pacman')
     expect(run).toContain('clone --depth 1 "${GITHUB_SERVER_URL}/AC/os.git" "$RUNNER_TEMP/os"')
     expect(step(release, 'pacman', 'os\'s packaging and publish scripts')!.env).toEqual({ TOKEN: '${{ secrets.ACKERNEL_TOKEN || github.token }}' })
     expect(run).toContain("'COMPRESSZST=(zstd -c -T0 -3 -)' > \"$conf/pacman/makepkg.conf\"")
     expect(run).toContain('XDG_CONFIG_HOME=$conf "$RUNNER_TEMP/os/scripts/ci/acdev-package.sh" "$RUNNER_TEMP/package" "$RUN"')
-    expect(run).toContain('"$RUNNER_TEMP/os/scripts/publish.sh" acdev "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst')
-    expect(indexIn(run, '"$PKGS/$PREFIX/$PREFIX.db"')).toBeLessThan(indexIn(run, 'acdev-package.sh'))
+    expect(release.jobs['pacman']!.env!['REPO']).toBe('agentcomputer')
+    expect(run).toContain('"$RUNNER_TEMP/os/scripts/publish.sh" "$REPO" "$RUNNER_TEMP"/package/acdev-"$V"-*-x86_64.pkg.tar.zst')
+    expect(indexIn(run, '"$PKGS/$REPO/$REPO.db"')).toBeLessThan(indexIn(run, 'acdev-package.sh'))
     for (const item of steps(release, 'pacman').filter((item) => item.name !== 'tools' && item.name !== 'clean up' && !item.id)) {
       expect(item.if, item.name).toBe("steps.db.outputs.have != 'true'")
     }
