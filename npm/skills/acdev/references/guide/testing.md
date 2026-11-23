@@ -274,7 +274,7 @@ test('records once the user allows the microphone', async ({ app, acdev }) => {
 
 Each run of `acdev test` gets its own folder `.acde/test-results/<UTC time>-run/`; the newest 20 runs are kept, older ones are deleted, and a run in which every test passed leaves no folder. A failed test leaves these in `<run>/<file>/<test>/` (with `--retries`, attempt n in `<test>.attempt-n/`):
 
-`error.txt` `output.log` `screen.png` `webs.txt` `snapshot.txt` `windows.json` `console.txt` `network.txt` `manifest.json` `trace.txt`, and with `--vm` also `journal.txt` (the guest journal from the start of the test). These are the files `acdev evidence` takes (see [Evidence](tools.md#evidence)); what could not be taken is named in `<file>.error.txt` and `manifest.json`.
+`error.txt` `output.log` `screen.png` `webs.txt` `snapshot.txt` `windows.json` `console.txt` `network.txt` `timeline.txt` `redacted.json` `manifest.json` `trace.txt`, and with `--vm` also `journal.txt` (the guest journal from the start of the test). These are the files `acdev evidence` takes, private parts covered the same way (see [Evidence](tools.md#evidence)); what could not be taken is named in `<file>.error.txt` and `manifest.json`.
 
 A test that runs out of time fails with `TimeoutError: the test did not finish within <ms> ms (its timeout: --timeout, or the one given to test())` and leaves the same files, taken at that moment.
 

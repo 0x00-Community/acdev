@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { TOKEN_SHAPES } from '../src/redaction/index.ts'
 
 const SOURCE_DIRECTORIES = ['lib/acdev/src', 'lib/acdev/test', 'lib/acde-api/test', 'libexec/app/src']
 const FORBIDDEN_SEGMENTS = new Set([
@@ -9,14 +10,11 @@ const FORBIDDEN_SEGMENTS = new Set([
 const FORBIDDEN_NAME = /\.(map|pdb|dwp|debug|dbg|log)$/i
 const DECLARATION = /\.d\.[cm]?ts$/
 const TYPESCRIPT = /\.[cm]?tsx?$/
-const CONTENT_RULES: [RegExp, string][] = [
+const CONTENT_RULES: (readonly [RegExp, string])[] = [
   [/sourcesContent/, 'sourcesContent'],
   [/sourceMappingURL/, 'source map reference'],
   [/sourceURL=(?!\$\{)/, 'sourceURL naming a file'],
-  [/ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/, 'GitHub token'],
-  [/AKIA[0-9A-Z]{16}/, 'AWS access key id'],
-  [/aws_secret_access_key/i, 'AWS secret key name'],
-  [/-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/, 'private key'],
+  ...TOKEN_SHAPES,
   [/Projects[\\/]AgentComputer|Users[\\/]Akira|AKIRA-LT|\/d\/Projects\/|home\/runner\/work/, 'local build path'],
 ]
 

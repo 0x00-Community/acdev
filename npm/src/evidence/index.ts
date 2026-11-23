@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Format } from '../driver/format.ts'
 import { slug } from '../paths.ts'
-import type { ConsoleEntry, DevPage, RequestEntry, Shot, Snapshot, SnapshotOptions, WebList } from '../driver/types.ts'
+import type { ConsoleEntry, DevPage, QueryOptions, QueryResult, RequestEntry, Shot, Snapshot, SnapshotOptions, WebList } from '../driver/types.ts'
+import * as Redact from './redact.ts'
 
 export const BUDGET_MS = 20_000
 export const DEFAULT_ROOT = '.acde/evidence'
@@ -14,6 +15,7 @@ export interface Scene {
   screen(options: { readonly path?: string }): Promise<Shot>
   webList(): Promise<WebList>
   snapshot(options: SnapshotOptions): Promise<Snapshot>
+  query(options: QueryOptions): Promise<QueryResult>
   console(options: { readonly limit: number }): Promise<DevPage<ConsoleEntry>>
   network(options: { readonly limit: number }): Promise<DevPage<RequestEntry>>
 }
@@ -80,32 +82,41 @@ function said(error: unknown): string {
   return error instanceof Error ? (error.stack ?? `${error.name}: ${error.message}`) : String(error)
 }
 
-function steps(scene: Scene | null, capture: Capture): Step[] {
+function steps(scene: Scene | null, capture: Capture, tally: Redact.Tally): Step[] {
   const all = { limit: ENTRIES }
+  const put = (path: string, body: string) => text(path, Redact.text(body, tally))
+  let seen: Promise<Redact.Private> | null = null
+  const privacy = () => {
+    seen ??= Redact.gather(scene!)
+    return seen
+  }
   const plain: Step[] = [
-    ...(capture.error !== undefined ? [['error.txt', async (p: string) => text(p, said(capture.error))] as const] : []),
-    ...(capture.output ? [['output.log', async (p: string) => text(p, capture.output!)] as const] : []),
+    ...(capture.error !== undefined ? [['error.txt', async (p: string) => put(p, said(capture.error))] as const] : []),
+    ...(capture.output ? [['output.log', async (p: string) => put(p, capture.output!)] as const] : []),
   ]
   const live: Step[] = scene && !scene.closed
     ? [
-      ['screen.png', async (p) => void (await scene.screen({ path: p }))],
+      ['screen.png', async (p) => {
+        const [shot, private_] = await Promise.all([scene.screen({}), privacy()])
+        writeFileSync(p, Redact.cover(shot.png, Redact.regions(private_, tally), private_.snapshot.windows))
+      }],
       ['webs.txt', async (p) => {
         const { webs, locked } = await scene.webList()
-        text(p, Format.webs(webs, locked))
+        put(p, Format.webs(webs, locked))
       }],
       ['snapshot.txt', async (p) => {
-        const snapshot = await scene.snapshot({ all: true, offscreen: true })
-        text(p, snapshot.text)
-        text(p.replace(/snapshot\.txt$/, 'windows.json'), JSON.stringify(snapshot.windows, null, 2))
+        const private_ = await privacy()
+        put(p, Redact.snapshot(private_, tally))
+        put(p.replace(/snapshot\.txt$/, 'windows.json'), JSON.stringify(private_.snapshot.windows, null, 2))
       }],
-      ['console.txt', async (p) => text(p, (await scene.console(all)).entries.map(Format.console).join('\n'))],
-      ['network.txt', async (p) => text(p, (await scene.network(all)).entries.map(Format.request).join('\n'))],
+      ['console.txt', async (p) => put(p, (await scene.console(all)).entries.map(Format.console).join('\n'))],
+      ['network.txt', async (p) => put(p, (await scene.network(all)).entries.map(Format.request).join('\n'))],
     ]
     : []
   const journal = capture.journal
-  const guest: Step[] = journal ? [['journal.txt', async (p) => text(p, await journal(capture.since))]] : []
+  const guest: Step[] = journal ? [['journal.txt', async (p) => put(p, await journal(capture.since))]] : []
   const timeline = capture.timeline
-  const merged: Step[] = timeline ? [['timeline.txt', async (p) => text(p, await timeline(capture.since))]] : []
+  const merged: Step[] = timeline ? [['timeline.txt', async (p) => put(p, await timeline(capture.since))]] : []
   return [...plain, ...live, ...guest, ...merged]
 }
 
@@ -131,17 +142,19 @@ export async function write(scene: Scene | null, capture: Capture, dir: string, 
   mkdirSync(dir, { recursive: true })
   const until = Date.now() + (capture.budgetMs ?? BUDGET_MS)
   const items: Item[] = []
-  for (const [file, take] of steps(scene, capture)) {
+  const tally = new Redact.Tally()
+  for (const [file, take] of steps(scene, capture, tally)) {
     const started = Date.now()
     try {
       await within(until - started, take(join(dir, file)))
       items.push({ file, ok: true, ms: Date.now() - started })
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
-      text(join(dir, `${file}.error.txt`), why)
+      text(join(dir, `${file}.error.txt`), Redact.text(why, tally))
       items.push({ file, ok: false, ms: Date.now() - started, error: why })
     }
   }
+  text(join(dir, 'redacted.json'), JSON.stringify(tally.counts, null, 2))
   const manifest = { label: capture.label, at: at.toISOString(), since: capture.since.toISOString(), items }
   text(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   return { dir, items }
