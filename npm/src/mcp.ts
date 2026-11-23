@@ -39,7 +39,8 @@ const INSTRUCTIONS = [
     + `wait_for waits for a text to appear or go.`,
   `- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource `
     + `requests and the images, stylesheets and fonts they load (status, size, time, error); both answer next, pass it `
-    + `as since to read only newer entries. emulate switches the colour scheme. logs is the raw `
+    + `as since to read only newer entries. emulate switches the colour scheme of the pages; appearance also the glass `
+    + `level and reduced transparency (the system's in a guest). logs is the raw `
     + `output of an acdev dev that start ran.`,
   `- act drag moves an element onto another ref (pointer drags and HTML5 drag and drop, also into another window); act `
     + `select picks options of a <select> by value or text.`,

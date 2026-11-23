@@ -125,6 +125,29 @@ export class PageTools {
     )
 
     server.registerTool(
+      'appearance',
+      {
+        description: 'Show or set dark or light, the glass level and reduced transparency. In the guest session it is the system '
+          + 'setting (the desktop, its apps and the lock page follow); in a host session only this session\'s pages. Leave all out to read.',
+        inputSchema: z.object({
+          scheme: z.enum(['light', 'dark']).optional(),
+          glassLevel: z.number().int().min(0).max(2).optional().describe('0 clear, 1 medium, 2 tinted'),
+          reducedTransparency: z.boolean().optional().describe('true makes glass and materials opaque'),
+        }),
+        annotations: CHANGES,
+      },
+      (args) =>
+        host.safe(async () => {
+          const change = {
+            ...(args.scheme && { scheme: args.scheme }),
+            ...(args.glassLevel !== undefined && { glass: Tools.GLASS[args.glassLevel]! }),
+            ...(args.reducedTransparency !== undefined && { reducedTransparency: args.reducedTransparency }),
+          }
+          return host.text(Tools.appearanceLine(await (await host.acde()).appearance(change)))
+        }),
+    )
+
+    server.registerTool(
       'resize',
       {
         description: 'Resize a window so its page (without the title bar) is width x height CSS pixels; an app that '

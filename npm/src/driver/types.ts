@@ -120,6 +120,21 @@ export interface Emulation {
   readonly colorScheme?: 'light' | 'dark' | null
 }
 
+export type GlassLevel = 'clear' | 'medium' | 'tinted'
+
+export interface AppearanceChange {
+  readonly scheme?: 'light' | 'dark' | null
+  readonly glass?: GlassLevel
+  readonly reducedTransparency?: boolean
+}
+
+export interface Appearance {
+  readonly scheme: 'light' | 'dark' | null
+  readonly glass: GlassLevel
+  readonly reducedTransparency: boolean
+  readonly emulated?: boolean
+}
+
 export interface Snapshot {
   readonly text: string
   readonly windows: readonly InspectWindow[]

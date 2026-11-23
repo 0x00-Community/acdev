@@ -19,7 +19,8 @@ import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
 
 import {
-  ActError, LaunchError, type ActResult, type AttachOptions, type ConsoleEntry, type ConsoleOptions, type DevPage,
+  ActError, LaunchError, type ActResult, type Appearance, type AppearanceChange, type AttachOptions,
+  type ConsoleEntry, type ConsoleOptions, type DevPage,
   type Dialog, type DialogAnswer, type DialogType, type DropOptions, type Dropped, type Emulation, type LaunchOptions,
   type NetworkOptions, type OpenTarget, type PermissionDecision, type PermissionPrompt, type Permissions, type PromptMatch,
   type QueryOptions, type QueryResult, type RequestEntry, type RouteOptions, type RouteResponse, type Shot,
@@ -350,6 +351,11 @@ export class Acde {
   async emulate(options: Emulation): Promise<Emulated> {
     return this.trace.step(`emulate(${JSON.stringify(options)})`,
       async () => (await this.#request('emulate', { ...options })) as Emulated)
+  }
+
+  async appearance(change: AppearanceChange = {}): Promise<Appearance> {
+    return this.trace.step(`appearance(${JSON.stringify(change)})`,
+      async () => (await this.#request('appearance', { ...change })) as Appearance)
   }
 
   async chooseFolder(folder: string | null): Promise<void> {

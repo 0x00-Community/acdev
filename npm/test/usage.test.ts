@@ -108,6 +108,19 @@ describe('option errors', () => {
     expect(existsSync(join(dir, 'index.html'))).toBe(true)
   })
 
+  test('appearance reads dark or light, the glass level and reduced transparency, and says what is wrong', () => {
+    const given = (pairs: Record<string, string>) => new Map(Object.entries(pairs))
+    expect(Tools.appearing(given({}))).toEqual({})
+    expect(Tools.appearing(given({ dark: '', 'glass-level': '2', 'reduced-transparency': 'on' })))
+      .toEqual({ scheme: 'dark', glass: 'tinted', reducedTransparency: true })
+    expect(Tools.appearing(given({ light: '', 'reduced-transparency': 'off' }))).toEqual({ scheme: 'light', reducedTransparency: false })
+    expect(() => Tools.appearing(given({ dark: '', light: '' }))).toThrow('give --dark or --light, not both')
+    expect(() => Tools.appearing(given({ 'glass-level': '3' }))).toThrow('appearance: --glass-level 3: 0 (clear), 1 (medium) or 2 (tinted)')
+    expect(() => Tools.appearing(given({ 'reduced-transparency': 'yes' }))).toThrow('--reduced-transparency yes: on or off')
+    expect(Tools.appearanceLine({ scheme: 'dark', glass: 'medium', reducedTransparency: false, emulated: true }))
+      .toBe('dark, glass level 1 (medium), reduced transparency off (this session only; the system setting is unchanged)')
+  })
+
   test('open tells an app from a path and a link, and keeps guest paths absolute', () => {
     expect(Tools.opening(['files'])).toEqual({ name: 'files' })
     expect(Tools.opening(['/home/u/a/b'])).toEqual({ path: '/home/u/a/b' })

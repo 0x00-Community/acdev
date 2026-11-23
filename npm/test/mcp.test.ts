@@ -35,7 +35,7 @@ describe('acdev mcp', () => {
     try {
       const tools = (await client.listTools()).tools
       expect(tools.map((t) => t.name).sort()).toEqual([
-        'act', 'answer', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
+        'act', 'answer', 'appearance', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
         'doctor', 'doctor_fix', 'emulate', 'eval', 'input', 'logs', 'network', 'open', 'permissions', 'pointer', 'query',
         'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for',
         'webs',

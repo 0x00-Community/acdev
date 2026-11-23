@@ -286,6 +286,19 @@ export class Help {
           + 'In a guest session (--session vm) paths are the guest\'s and absolute; on the host a relative path is from the current directory. '
           + 'A single-app session has only its own app: it gets the file or link as an open-file or open-link request.',
       ], [], ['acdev open files', 'acdev open /home/tester/Documents/a/b', 'acdev open files /home/tester/Documents/a', 'acdev open https://example.com']),
+      inspecting('appearance', '', 'Show or set dark or light, the glass level and reduced transparency', [
+        'Without options prints the appearance; with them sets it and prints the result. In a guest session (--session vm) it changes the system '
+          + 'setting itself (the same as the Settings app): the desktop, its apps and the lock page follow; the login page follows the time of day. '
+          + 'In a host session it changes only this session: prefers-color-scheme, the glass level and reduced transparency '
+          + 'for every page (CSS and prefers-reduced-transparency follow); a later change of the host\'s own glass setting takes the glass back.',
+      ], [
+        { flag: '--dark, --light', about: 'Dark or light' },
+        { flag: '--glass-level N', about: '0 clear, 1 medium, 2 tinted' },
+        { flag: '--reduced-transparency on|off', about: 'Opaque glass and materials (on), or back (off)' },
+      ], [
+        'acdev appearance', 'acdev appearance --dark', 'acdev appearance --session vm --light --glass-level 2',
+        'acdev appearance --reduced-transparency on',
+      ]),
       inspecting('choose', '<folder|open|save> [path...]', 'Answer the next file picker', [
         'Answers the next picker of that kind the page opens: folder (one folder), open (one or more files) or save '
           + '(the file to write). A headless session shows no picker, so answer it before the action that opens it; in '

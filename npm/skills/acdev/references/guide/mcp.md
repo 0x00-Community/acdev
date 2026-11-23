@@ -33,6 +33,7 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `eval` | Runs JS in a page |
 | `console` / `network` | The pages' logs and requests |
 | `emulate` | Switches light/dark mode |
+| `appearance` | Shows or sets dark or light (`scheme`), the glass level (`glassLevel` 0 clear, 1 medium, 2 tinted) and reduced transparency; in the guest session it is the system setting, in a host session only this session |
 | `choose_folder` / `choose_files` / `choose_save_file` | Answers the page's next file picker in advance |
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
 | `pointer` | Moves the pointer to a screen point, as a real move (hover, screen edges) |

@@ -4,7 +4,7 @@ import type { InspectAction, InspectNode, InspectWindow } from '@acde/api'
 import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
-import type { OpenTarget } from './driver/types.ts'
+import type { Appearance, AppearanceChange, GlassLevel, OpenTarget } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
 import { Screenshots, type Box } from './driver/screenshot.ts'
 import type { InputEvent } from './driver/input.ts'
@@ -19,7 +19,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -176,6 +176,31 @@ export class Tools {
     return { ...given, path: resolve(base, given.path) }
   }
 
+  static readonly GLASS: readonly GlassLevel[] = ['clear', 'medium', 'tinted']
+
+  static appearing(flags: ReadonlyMap<string, string>): AppearanceChange {
+    if (flags.has('dark') && flags.has('light')) throw new Error('appearance: give --dark or --light, not both (acdev appearance --help)')
+    const scheme = flags.has('dark') ? 'dark' : flags.has('light') ? 'light' : undefined
+    const transparency = flags.get('reduced-transparency')
+    if (transparency !== undefined && transparency !== 'on' && transparency !== 'off')
+      throw Output.option('appearance', 'reduced-transparency', transparency, 'on or off')
+    const level = flags.get('glass-level')
+    const glass = level === undefined ? undefined : Tools.GLASS[/^[0-2]$/.test(level) ? Number(level) : -1]
+    if (level !== undefined && !glass) throw Output.option('appearance', 'glass-level', level, '0 (clear), 1 (medium) or 2 (tinted)')
+    return {
+      ...(scheme && { scheme }),
+      ...(glass && { glass }),
+      ...(transparency !== undefined && { reducedTransparency: transparency === 'on' }),
+    }
+  }
+
+  static appearanceLine(now: Appearance): string {
+    const level = Tools.GLASS.indexOf(now.glass)
+    const emulated = now.emulated ? ' (this session only; the system setting is unchanged)' : ''
+    const scheme = now.scheme ?? 'no preference'
+    return `${scheme}, glass level ${level} (${now.glass}), reduced transparency ${now.reducedTransparency ? 'on' : 'off'}${emulated}`
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acdev inspect --find TEXT gives the current refs` : null
@@ -202,6 +227,7 @@ export class Tools {
     const at = command === 'drop' ? Tools.at(flags.get('at')) : undefined
     const region = command === 'shot' || command === 'screen' ? Tools.region(command, flags) : null
     const opening = command === 'open' ? Tools.opening(args) : null
+    const appearance = command === 'appearance' ? Tools.appearing(flags) : null
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -303,6 +329,9 @@ export class Tools {
           const from = Tools.#since(start, acde.session.reloaded?.network)
           return await Tools.#follow(flags.has('follow'), from, read, Format.request, 'requests')
         }
+        case 'appearance':
+          console.log(Tools.appearanceLine(await acde.appearance(appearance!)))
+          return 0
         case 'open': {
           const result = await acde.openWith(Tools.located(opening!, acde.guest))
           console.log(result.text)
