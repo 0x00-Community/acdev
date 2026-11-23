@@ -11,6 +11,8 @@ import { guestJournal } from './evidence/guest.ts'
 import * as Wait from './driver/wait/index.ts'
 import * as Probe from './driver/probe/index.ts'
 import * as Explain from './explain/index.ts'
+import * as Timeline from './timeline/index.ts'
+import * as HostLog from './timeline/hostlog.ts'
 import { PageLogs } from './driver/logs.ts'
 import type { Appearance, AppearanceChange, GlassLevel, OpenTarget, PageCursor } from './driver/types.ts'
 import { Png, type Image } from './driver/png.ts'
@@ -29,7 +31,7 @@ export type Region = { readonly ref: string } | { readonly rect: Box }
 export class Tools {
   static readonly COMMANDS = new Set([
     'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
-    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence', 'wait', 'render', 'hit', 'explain',
+    'allow', 'deny', 'revoke', 'stop', 'open', 'appearance', 'call', 'approvals', 'evidence', 'wait', 'render', 'hit', 'explain', 'timeline',
   ])
   static readonly ANSWER = 'acdev allow (or acdev deny)'
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
@@ -257,8 +259,15 @@ export class Tools {
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
+    HostLog.follow(acde, Timeline.hostLog(acde))
     try {
       switch (command) {
+        case 'timeline': {
+          const { window, filter } = Timeline.fromFlags(flags, Evidence.since)
+          const timeline = await Timeline.collect(acde, window, filter)
+          console.log(flags.has('json') ? Timeline.json(timeline) : Timeline.text(timeline))
+          return 0
+        }
         case 'webs': {
           const { webs, locked } = await acde.webList()
           console.log(Format.webs(webs, locked))
@@ -427,14 +436,21 @@ export class Tools {
 
   static async #wait(acde: Acde, { condition, timeout }: Wait.WaitArgs, guest: boolean): Promise<number> {
     const since = new Date()
+    const noted = (ok: boolean, text: string) =>
+      HostLog.append(Timeline.hostLog(acde), { at: since.getTime(), ms: Date.now() - since.getTime(), ok, title: `wait ${Wait.describe(condition)}`, text })
     try {
       const { ms, seen, value } = await acde.waitFor(condition, timeout)
+      noted(true, seen)
       console.error(`acdev: waited ${ms} ms for ${Wait.describe(condition)}: ${seen}`)
       console.log(JSON.stringify(value ?? null))
       return 0
     } catch (error) {
       if (!(error instanceof Wait.WaitTimeout)) throw error
-      const capture = { root: resolve(Evidence.DEFAULT_ROOT), label: `wait-${condition.kind}`, since, error, journal: guest ? guestJournal : null }
+      noted(false, error.seen)
+      const capture = {
+        root: resolve(Evidence.DEFAULT_ROOT), label: `wait-${condition.kind}`, since, error,
+        journal: guest ? guestJournal : null, timeline: Timeline.since(acde),
+      }
       console.error(`acdev: ${error.message}`)
       console.log(JSON.stringify(error.value ?? null))
       console.error(`acdev: ${Evidence.summary(await Evidence.keep(acde, capture))}`)
@@ -459,7 +475,8 @@ export class Tools {
     const root = resolve(flags.get('output') ?? Evidence.DEFAULT_ROOT)
     const journal = session === Sessions.VM ? guestJournal : null
     try {
-      const capture = { root, label: label ?? 'evidence', since: from, journal, ...(failed !== undefined && { error: failed }) }
+      const timeline = acde ? Timeline.since(acde) : null
+      const capture = { root, label: label ?? 'evidence', since: from, journal, timeline, ...(failed !== undefined && { error: failed }) }
       const kept = await Evidence.keep(acde, capture)
       console.log(Evidence.summary(kept))
       return kept.items.some((item) => item.ok) ? 0 : 1

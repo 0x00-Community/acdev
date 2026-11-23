@@ -13,6 +13,8 @@ import { registerAnswers } from './mcp/answers.ts'
 import { registerInspecting } from './mcp/inspect.ts'
 import { clipboardRefusal, registerMachine } from './mcp/system.ts'
 import { registerChecks } from './mcp/checks.ts'
+import * as Timeline from './timeline/index.ts'
+import * as HostLog from './timeline/hostlog.ts'
 import { Versions } from './versions.ts'
 
 
@@ -234,7 +236,7 @@ export class Mcp {
       safe: (work) => this.#safe(work),
       text: (text) => Mcp.#text(text),
       acted: (result) => Mcp.#acted(result),
-      acde: () => this.#acde(),
+      acde: async () => Mcp.#followed(await this.#acde()),
       web: (acde, target) => this.#web(acde, target),
       cwd: this.#cwd,
     }
@@ -288,6 +290,11 @@ export class Mcp {
       throw new Error(`acdev dev ${stopped} stopped; ${error instanceof Error ? error.message : String(error)}`)
     }
     return this.#attached
+  }
+
+  static #followed(acde: Acde): Acde {
+    if (!acde.trace.onStep) HostLog.follow(acde, Timeline.hostLog(acde))
+    return acde
   }
 
   static async #delisted(pid: number): Promise<void> {

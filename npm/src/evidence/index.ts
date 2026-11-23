@@ -24,6 +24,7 @@ export interface Capture {
   readonly error?: unknown
   readonly output?: string | null
   readonly journal?: ((since: Date) => Promise<string>) | null
+  readonly timeline?: ((since: Date) => Promise<string>) | null
   readonly budgetMs?: number
   readonly now?: () => Date
 }
@@ -103,7 +104,9 @@ function steps(scene: Scene | null, capture: Capture): Step[] {
     : []
   const journal = capture.journal
   const guest: Step[] = journal ? [['journal.txt', async (p) => text(p, await journal(capture.since))]] : []
-  return [...plain, ...live, ...guest]
+  const timeline = capture.timeline
+  const merged: Step[] = timeline ? [['timeline.txt', async (p) => text(p, await timeline(capture.since))]] : []
+  return [...plain, ...live, ...guest, ...merged]
 }
 
 async function within(ms: number, work: Promise<void>): Promise<void> {

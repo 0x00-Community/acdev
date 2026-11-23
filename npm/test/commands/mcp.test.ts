@@ -39,8 +39,8 @@ describe('acdev mcp', () => {
       expect(tools.map((t) => t.name).sort()).toEqual([
         'act', 'answer', 'appearance', 'approvals', 'call', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
         'doctor', 'doctor_fix', 'emulate', 'eval', 'evidence', 'explain', 'hit', 'input', 'logs', 'network', 'open', 'permissions',
-        'pointer', 'query', 'render', 'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute',
-        'wait', 'wait_for', 'webs',
+        'pointer', 'query', 'render', 'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'timeline',
+        'unroute', 'wait', 'wait_for', 'webs',
       ])
       expect(tools.find((t) => t.name === 'answer')!.annotations)
         .toMatchObject({ readOnlyHint: false, destructiveHint: true })

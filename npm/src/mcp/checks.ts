@@ -6,6 +6,7 @@ import * as Wait from '../driver/wait/index.ts'
 import * as Evidence from '../evidence/index.ts'
 import { guestJournal } from '../evidence/guest.ts'
 import * as Explain from '../explain/index.ts'
+import * as Timeline from '../timeline/index.ts'
 import type { PageToolsHost } from '../mcppage.ts'
 
 const LOOK = { readOnlyHint: true, openWorldHint: false }
@@ -150,7 +151,8 @@ export function registerChecks(server: McpServer, host: PageToolsHost): void {
         const acde = await host.acde()
         const root = resolve(host.cwd, args.output ?? Evidence.DEFAULT_ROOT)
         const since = Evidence.since(args.since, new Date())
-        const kept = await Evidence.keep(acde, { root, label: args.label ?? 'evidence', since, journal: acde.guest ? guestJournal : null })
+        const capture = { root, label: args.label ?? 'evidence', since, journal: acde.guest ? guestJournal : null, timeline: Timeline.since(acde) }
+        const kept = await Evidence.keep(acde, capture)
         return host.text(Evidence.summary(kept))
       }),
   )
@@ -169,6 +171,34 @@ export function registerChecks(server: McpServer, host: PageToolsHost): void {
       host.safe(async () => {
         const explained = await Explain.explain(await host.acde(), args.id)
         return host.text(args.json ? JSON.stringify(explained, null, 2) : Explain.text(args.id, explained))
+      }),
+  )
+
+  server.registerTool(
+    'timeline',
+    {
+      description: 'One time-ordered list of what happened, each line with its time, source and kind: in a session in '
+        + 'the guest the guest journal (the session manager, the compositor, the desktop backend, page processes, with '
+        + 'event= lines such as the launcher\'s call tracing), the pages\' console and network requests, and acdev\'s own '
+        + 'steps (act, input, wait …). The guest clock is put on the host\'s by one round trip through acdevd; the '
+        + 'offset and the round trip are in the header. Default: the last two minutes.',
+      inputSchema: z.object({
+        since: z.string().optional().describe('from: @<unix seconds>, an ISO time, or 5m / 30s ago (default 2m)'),
+        until: z.string().optional().describe('to, in the same forms (default now)'),
+        source: z.array(z.enum(Timeline.SOURCES)).optional().describe('only these sources'),
+        kind: z.array(z.string()).optional().describe('only these kinds (call, invoke, log, error, fetch, act …)'),
+        window: z.string().optional().describe('only events of this window (wN) or page (a web name or app id)'),
+        json: JSON_ANSWER,
+      }),
+      annotations: LOOK,
+    },
+    (args) =>
+      host.safe(async () => {
+        const named = { since: args.since, until: args.until, source: args.source?.join(','), kind: args.kind?.join(','), window: args.window }
+        const flags = new Map(Object.entries(named).filter((e): e is [string, string] => e[1] !== undefined))
+        const { window, filter } = Timeline.fromFlags(flags, Evidence.since)
+        const timeline = await Timeline.collect(await host.acde(), window, filter)
+        return host.text(args.json ? Timeline.json(timeline) : Timeline.text(timeline))
       }),
   )
 }

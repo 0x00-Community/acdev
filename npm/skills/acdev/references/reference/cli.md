@@ -152,6 +152,7 @@ These work with a running `acdev dev` session, and all of them accept `--session
 | `acdev hit <x> <y> [--json]` | What lies under a screen point: the window, its part, and on a page the element a click reaches; see [Hit and render](../guide/tools.md#hit-and-render) |
 | `acdev render [--web W] [--window W] [--json]` | The path each page draws on, and how each glass or frost layer is drawn; see [Hit and render](../guide/tools.md#hit-and-render) |
 | `acdev explain <audit id> [--json]` | Why the system agent decided that audit record as it did (only in a guest started by acdev); see [Explain](../guide/tools.md#explain) |
+| `acdev timeline [--since T] [--until T] [--source S] [--kind K] [--window W] [--json]` | The guest journal, the pages' console and network, and acdev's own steps in one time order; see [Timeline](../guide/tools.md#timeline) |
 | `acdev wait <condition> [args] [--timeout MS] [--quiet MS] [--web W] [--app ID] [--window W] [--ref R] [--selector S] [--focused] [--gone]` | Waits until a condition holds and prints the value it ended on as JSON; see [Waiting](../guide/tools.md#waiting) |
 | `acdev evidence [label] [--since T] [--output DIR]` | Keeps what the session shows now (screen, webs, element tree, console, network, the guest journal) in a new folder; see [Evidence](../guide/tools.md#evidence) |
 | `acdev stop` | Ends the session and its acdev runtime; see [Stopping](../guide/dev.md#stopping) |

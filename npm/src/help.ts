@@ -362,6 +362,19 @@ export class Help {
         'acdev call manager approvals.pending --session vm',
         'acdev call desktop look.lock \'{"accent":"#d0249f"}\' --session vm',
       ]),
+      inspecting('timeline', '', 'One time-ordered list of what happened, from every source', [
+        'Merges, by time: in a session in the guest the guest journal (session manager, compositor, desktop backend, page '
+          + 'processes; event= lines such as the launcher\'s call tracing give the kind), the pages\' console and network '
+          + 'requests, and acdev\'s own steps (act, input, wait, from this and earlier acdev commands on the same session).',
+        'The guest clock is put on the host\'s by one round trip through acdevd (the offset and the round trip are in the '
+          + 'header); a guest clock that moved is marked. Each line: time, source:from, kind, text. Default: the last two minutes.',
+      ], [
+        { flag: '--since T / --until T', about: 'From / to: @<unix seconds>, an ISO time, or 5m / 30s ago' },
+        { flag: '--source S', about: 'Only these sources, comma-separated: host, console, network, journal' },
+        { flag: '--kind K', about: 'Only these kinds, comma-separated (call, invoke, log, error, fetch, act …)' },
+        { flag: '--window W', about: 'Only events of this window (wN) or page (a web name or app id)' },
+        { flag: '--json', about: 'The timeline as JSON' },
+      ], ['acdev timeline --session vm', 'acdev timeline --since 30s --source journal,host --kind call,act --session vm']),
       inspecting('explain', '<audit id>', 'Explain why the system agent decided an operation as it did', [
         'Only in a session in the guest started by acdev (--session vm): the system agent works the explanation out when asked, '
           + 'for the audit record with that id, and answers only where the acdev host key is present; a production system has none and refuses.',
