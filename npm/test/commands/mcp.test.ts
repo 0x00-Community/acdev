@@ -227,6 +227,34 @@ describe('acdev mcp', () => {
     }
   }, 30_000)
 
+  test('start does not pin a session that takes the connection and drops it at once', async () => {
+    const s = standIn()
+    const endpoint = WINDOWS ? `\\\\.\\pipe\\acde-test-${randomUUID()}` : join(s.root, 'drops.sock')
+    let taken = 0
+    const drops = net.createServer((socket) => {
+      socket.destroy()
+      taken += 1
+      if (taken === 2) drops.close()
+    })
+    await new Promise<void>((done) => drops.listen(endpoint, () => done()))
+    Sessions.write({
+      pid: process.pid, endpoint, dirs: [s.project], apps: ['alpha'], desktop: null, headless: false, started: 1,
+      options: { desktop: null, app: null },
+    }, join(s.root, 'acde-dev'))
+    const { client, call } = await connect(s.project, s.env)
+    try {
+      const started = await call('start')
+      expect(started.error).toBe(true)
+      expect(started.text).toContain(`acdev dev ${process.pid} is gone (it closed the connection on ${endpoint}`)
+      const webs = await call('webs')
+      expect(webs.error).toBe(true)
+      expect(webs.text).toContain('no acdev dev is running')
+    } finally {
+      await client.close()
+      drops.close()
+    }
+  }, 30_000)
+
   test('act close on the only window of a single-app session succeeds and says the session ended; ' +
     'the next call says it stopped; another action that loses the connection is an error', async () => {
     const s = standIn()

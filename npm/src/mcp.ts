@@ -671,10 +671,10 @@ export class Mcp {
       const same = running.find((session) => Sessions.runs(session, wanted))
       if (same) {
         const acde = await Acde.attach({ cwd: this.#cwd, session: same.pid })
+        const webs = await Mcp.#reached(acde, same)
         await this.#attached?.close()
         this.#attached = acde
         this.#pinned = same.pid
-        const webs = await Mcp.#webs(acde)
         return Mcp.#text(`attached to acdev dev ${same.pid}, which already runs ${same.dirs.join(', ')}; it was `
           + `started elsewhere, so logs and stop do not reach it (start {force: true} starts another)\n\n${webs}`)
       }
@@ -765,6 +765,18 @@ export class Mcp {
     return `clipboard: acdev dev ${session.pid} has a window on screen, so its clipboard is the user's system clipboard; `
       + 'ask the user, then call again with system: true (or use a session started with headless: true; the session in '
       + 'the guest, --session vm, uses the guest\'s own clipboard)'
+  }
+
+  static async #reached(acde: Acde, session: Session): Promise<string> {
+    try {
+      return await Mcp.#webs(acde)
+    } catch (error) {
+      if (!acde.closed) throw error
+      await acde.close()
+      await Sessions.live([session])
+      const why = error instanceof Error ? error.message : String(error)
+      throw new Error(`acdev dev ${session.pid} is gone (it closed the connection on ${session.endpoint}: ${why})`)
+    }
   }
 
   static async #webs(acde: Acde): Promise<string> {
