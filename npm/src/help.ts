@@ -362,6 +362,14 @@ export class Help {
         'acdev call manager approvals.pending --session vm',
         'acdev call desktop look.lock \'{"accent":"#d0249f"}\' --session vm',
       ]),
+      inspecting('explain', '<audit id>', 'Explain why the system agent decided an operation as it did', [
+        'Only in a session in the guest started by acdev (--session vm): the system agent works the explanation out when asked, '
+          + 'for the audit record with that id, and answers only where the acdev host key is present; a production system has none and refuses.',
+        'Prints the facts it worked from, every rule of the policy in order (its text, whether it hit and why or why not), the '
+          + 'action taken (and the rule that chose it, or the default), and the model\'s review when a model decided.',
+      ], [
+        { flag: '--json', about: 'The explanation as the system agent gave it' },
+      ], ['acdev explain a-1042 --session vm', 'acdev explain a-1042 --session vm --json']),
       inspecting('approvals', '[show <id>]', 'List system confirms, or put one on the screen', [
         'Only in a session in the guest (--session vm). Lists the system confirms that wait for the person (id, '
           + 'operation, and whether an agent or the person asked); show <id> puts that one on the screen as the '

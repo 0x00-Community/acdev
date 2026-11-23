@@ -43,6 +43,7 @@ These commands find an `acdev dev` session in this order: `--session <pid>`; oth
 | `acdev wait <condition> [args] [--timeout MS]` | Waits until a condition holds, without a fixed delay: `page`, `window`, `element`, `stable`, `network-idle`, `eval`, `service`; see [Waiting](#waiting) |
 | `acdev hit <x> <y> [--json]` | Says what lies under a screen point: the topmost window, its part (page, title bar, desktop panel, native window) and on a page the element a click reaches, with its parents and the `pointer-events: none` elements it passed through; see [Hit and render](#hit-and-render) |
 | `acdev render [--web W] [--window W] [--json]` | Says the path each page draws on: GPU (which adapter) or CPU, who composes its glass, and every layer with a `backdrop-filter`, how it is drawn and why it is degraded; see [Hit and render](#hit-and-render) |
+| `acdev explain <audit id> [--json]` | In a session in the guest started by acdev, says why the system agent decided an operation as it did: the facts, every rule (text, hit or not and why), the action and the review; see [Explain](#explain) |
 | `acdev stop` | Ends the session; see [Stopping](dev.md#stopping) |
 | `acdev devtools [web]` | Opens the DevTools of Chrome or Edge on a page; see [DevTools](#devtools) |
 
@@ -308,6 +309,10 @@ While it shows, it covers the screen: clicks meant for the windows under it land
 | `network-idle [--web W] [--quiet MS]` | No request is open, and none started or finished for the quiet time |
 | `eval <web> <expression\|->`, `eval --app ID <expression\|->`, `eval --window W <expression\|->` | The expression turns true in that page, or in the page of that app or window (a desk panel in its own window is found this way); an app says it is ready this way, for example `acdev wait eval desktop "import('acde:assistant').then((m) => m.assistant.status()).then((s) => s.enabled)"` |
 | `service <name> [--web W]` | `acde:services` lists the service (asked in the desktop page unless `--web`) |
+
+### Explain
+
+`acdev explain <audit id> --session vm` asks the system agent, through the session manager's dev connection, why it decided the operation of that audit record as it did. It prints the facts it worked from (`by_person`, the repository, who is logged in …), then every rule of the policy in order with its JSON text, whether it hit and why not (another operation, `fact <name> is <value>, the rule wants <condition>`, or the fact was missing) or which rule came first, then the action (`do`, the fallback, and the rule that chose it or the default), the model's review when a model decided (`verdict`, `reason`, what it cited), and a note for old records. `--json` prints the answer as the system agent gave it (`facts`, `checks`, `action`, `review`, `note`). The explanation is worked out when asked and exists only in a guest started by acdev: the system agent answers only where the acdev host key is present, so a production system refuses, and a session on this machine has no system agent. It explains only the user's own records (an administrator's, any). The same call is `acdev call manager audit.show '{"id":"<audit id>"}' --session vm`.
 
 ### Evidence
 

@@ -52,6 +52,7 @@ class Cli {
     pointer: { args: [2, 2], flags: ['session'] },
     render: { args: [0, 0], flags: ['session', 'web', 'window'], switches: ['json'] },
     hit: { args: [2, 2], flags: ['session'], switches: ['json'] },
+    explain: { args: [1, 1], flags: ['session'], switches: ['json'] },
     choose: { args: [1, Infinity], flags: ['session'], switches: ['cancel'] },
     drop: { args: [2, Infinity], flags: ['session', 'at'] },
     permissions: { args: [0, 0], flags: ['session'] },

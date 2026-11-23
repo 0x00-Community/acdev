@@ -10,6 +10,7 @@ import { Acde } from '../../src/driver/index.ts'
 import { Sessions } from '../../src/sessions.ts'
 import { Mcp } from '../../src/mcp.ts'
 import { waitArgs } from '../../src/mcp/checks.ts'
+import * as Explain from '../../src/explain/index.ts'
 import { cleanup, standIn, WINDOWS } from '../helpers.ts'
 
 const CLI = join(import.meta.dir, '../../src/cli.ts')
@@ -37,7 +38,7 @@ describe('acdev mcp', () => {
       const tools = (await client.listTools()).tools
       expect(tools.map((t) => t.name).sort()).toEqual([
         'act', 'answer', 'appearance', 'approvals', 'call', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
-        'doctor', 'doctor_fix', 'emulate', 'eval', 'evidence', 'hit', 'input', 'logs', 'network', 'open', 'permissions',
+        'doctor', 'doctor_fix', 'emulate', 'eval', 'evidence', 'explain', 'hit', 'input', 'logs', 'network', 'open', 'permissions',
         'pointer', 'query', 'render', 'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute',
         'wait', 'wait_for', 'webs',
       ])
@@ -99,6 +100,7 @@ describe('acdev mcp', () => {
       expect(element.text).toStartWith('{"count":')
       const late = await call('wait', { condition: 'element', text: 'Nothing like this', timeout_ms: 200 })
       expect([late.error, late.text.includes('last value: {"count":0')]).toEqual([true, true])
+      expect((await call('explain', { id: 'a-1' })).text).toContain('only in a session in the guest')
 
       const opened = await call('open', { app: 'beta' })
       expect(opened.text).toStartWith('opened beta: w2 "Beta"')
@@ -413,5 +415,34 @@ describe('the wait tool', () => {
     expect(waitArgs({ condition: 'window', gone: true, timeout_ms: 900 })).toEqual({ condition: { kind: 'window', gone: true }, timeout: 900 })
     expect(waitArgs({ condition: 'stable', selector: '.count', quiet: 200 }).condition).toEqual({ kind: 'stable', selector: '.count', quiet: 200 })
     expect(() => waitArgs({ condition: 'page' })).toThrow('wait page: needs a web')
+  })
+})
+
+describe('acdev explain', () => {
+  test('reads facts, every rule, the action and the review as text, and asks the manager for audit.show', async () => {
+    const explained: Explain.Explained = {
+      facts: { by_person: false, repo: 'notes' },
+      checks: [
+        { rule: 1, text: '{"op":"fs.delete"}', hit: false, why: 'the rule is about fs.delete' },
+        { rule: 2, text: '{"op":"git.push"}', hit: true, why: 'this rule decides' },
+      ],
+      action: { do: 'ask', fallback: 'deny', rule: 2 },
+      review: { verdict: 'allow', reason: 'the user asked for it', cites: ['turn 4'] },
+    }
+    const asked: unknown[] = []
+    const acde = {
+      call: async (...args: unknown[]) => {
+        asked.push(args)
+        return explained
+      },
+    }
+    expect(await Explain.explain(acde, 'a-7')).toBe(explained)
+    expect(asked).toEqual([['manager', 'audit.show', { id: 'a-7' }]])
+    expect(Explain.text('a-7', explained).split('\n')).toEqual([
+      'audit a-7', 'facts:', '  by_person: false', '  repo: notes', 'rules:',
+      '  rule 1: no: the rule is about fs.delete', '    {"op":"fs.delete"}', '  rule 2: hit: this rule decides', '    {"op":"git.push"}',
+      'action: ask, fallback deny (rule 2)', 'review: allow: the user asked for it (cites turn 4)',
+    ])
+    await expect(Explain.explain(acde, ' ')).rejects.toThrow('explain: needs an audit id')
   })
 })

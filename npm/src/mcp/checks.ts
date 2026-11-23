@@ -5,6 +5,7 @@ import * as Probe from '../driver/probe/index.ts'
 import * as Wait from '../driver/wait/index.ts'
 import * as Evidence from '../evidence/index.ts'
 import { guestJournal } from '../evidence/guest.ts'
+import * as Explain from '../explain/index.ts'
 import type { PageToolsHost } from '../mcppage.ts'
 
 const LOOK = { readOnlyHint: true, openWorldHint: false }
@@ -154,4 +155,20 @@ export function registerChecks(server: McpServer, host: PageToolsHost): void {
       }),
   )
 
+  server.registerTool(
+    'explain',
+    {
+      description: 'Why the system agent decided an operation as it did, for the audit record with that id: the facts it '
+        + 'worked from, every rule of the policy in order (its text, whether it hit and why), the action and the rule that '
+        + 'chose it, and the model\'s review when a model decided. Only in a session in the guest started by acdev '
+        + '(--session vm); a production system has no such explanation and refuses.',
+      inputSchema: z.object({ id: z.string().min(1).describe('the audit record\'s id'), json: JSON_ANSWER }),
+      annotations: LOOK,
+    },
+    (args) =>
+      host.safe(async () => {
+        const explained = await Explain.explain(await host.acde(), args.id)
+        return host.text(args.json ? JSON.stringify(explained, null, 2) : Explain.text(args.id, explained))
+      }),
+  )
 }

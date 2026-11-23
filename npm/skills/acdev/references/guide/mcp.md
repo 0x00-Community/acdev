@@ -48,6 +48,7 @@ Other clients: the command is `acdev mcp`, with no arguments (add `--session <pi
 | `hit` | What lies under a screen point (`x`, `y`), as [acdev hit](tools.md#hit-and-render); `json` for the whole answer |
 | `render` | The path each page draws on (`web` or `window` for one page), as [acdev render](tools.md#hit-and-render); `json` for the whole answer |
 | `evidence` | Keeps the screen, webs, element tree, console, network and, in a guest session, the journal in a new folder, as [acdev evidence](tools.md#evidence) (`label`, `since`, `output`) |
+| `explain` | In a guest session started by acdev, why the system agent decided the audit record `id` as it did, as [acdev explain](tools.md#explain) |
 
 Which session is used: the pinned one; otherwise the one `start` launched; otherwise one picked by the working directory.
 
