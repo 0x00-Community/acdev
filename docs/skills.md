@@ -41,7 +41,7 @@
 
 ```
 skills/acdev/SKILL.md                    入口: frontmatter (name、description) 加正文
-skills/acdev/references/<组>/<页>.md     组是 start / guide / reference; 路径就是文档的地址
+skills/acdev/references/<组>/<页>.md     组是 start / guide / reference / partners (给接入 Dopame 的协作方, 如 agentrt 的维护者); 路径就是文档的地址
 ```
 
 - `SKILL.md` 的 `description` 决定 agent 什么时候载入它: 写「做什么」和「什么时候用」, 带上会出现的词 (acdev、libacde、Dopame OS、
