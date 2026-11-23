@@ -8,6 +8,7 @@ import { Runtime } from '../runtime.ts'
 import { cpus } from 'node:os'
 import { E2e, type VideoMode } from './settings.ts'
 import { dropEmpty, newRun } from './archive.ts'
+import * as LastRun from './lastrun.ts'
 import { TestTsconfig } from './tsconfig.ts'
 
 export interface RunnerOptions {
@@ -24,11 +25,13 @@ export interface RunnerOptions {
   readonly retries?: number
   readonly video?: VideoMode
   readonly vm?: boolean
+  readonly lastFailed?: boolean
 }
 
 interface Suite {
   readonly file: string
   readonly project: string
+  readonly pattern?: string
 }
 
 export interface Tally {
@@ -127,14 +130,32 @@ export class TestRunner {
       console.log(`acdev test: write one as e2e/app.e2e.ts (the acdev skill's testing guide: A first test)`)
       return 0
     }
+    const picked = options.lastFailed ? TestRunner.lastFailed(suites, options) : suites
+    if (!picked.length) {
+      console.log(`acdev test: --last-failed: the last run in ${where} left no failed test; nothing to run`)
+      return 0
+    }
     const bun = process.execPath
     const guestHome = options.vm ? await TestRunner.#guest(options) : null
     const scratch = mkdtempSync(join(tmpdir(), 'acde-test-run-'))
     try {
-      return await TestRunner.#suites(suites, options, cwd, bun, scratch, guestHome)
+      return await TestRunner.#suites(picked, options, cwd, bun, scratch, guestHome)
     } finally {
       rmSync(scratch, { recursive: true, force: true })
     }
+  }
+
+  static resultsOf(project: string): string {
+    return join(project, '.acde', 'test-results')
+  }
+
+  static lastFailed(suites: readonly Suite[], options: RunnerOptions): Suite[] {
+    if (options.pattern !== undefined) throw new Error('acdev test: --last-failed picks the tests itself; leave out -t')
+    return suites.flatMap((suite) => {
+      const name = relative(suite.project, suite.file).split(sep).join('/')
+      const tests = (LastRun.read(TestRunner.resultsOf(suite.project))?.failed ?? []).filter((f) => f.file === name).map((f) => f.test)
+      return tests.length ? [{ ...suite, pattern: LastRun.pattern(tests) }] : []
+    })
   }
 
   static async #guest(options: RunnerOptions): Promise<string> {
@@ -166,8 +187,12 @@ export class TestRunner {
       return file
     }
     const runs = new Map<string, string>()
+    const lost = new Map<string, LastRun.Failed[]>()
     const results = (suite: Suite) => runs.get(suite.project)!
-    for (const project of new Set(suites.map((suite) => suite.project))) runs.set(project, newRun(join(project, '.acde', 'test-results')))
+    for (const project of new Set(suites.map((suite) => suite.project))) {
+      runs.set(project, newRun(TestRunner.resultsOf(project)))
+      lost.set(project, [])
+    }
     const wanted = guestHome !== null ? 1 : (options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers()))
     const workers = Math.max(1, Math.min(suites.length, wanted))
     const parallel = workers > 1
@@ -182,6 +207,7 @@ export class TestRunner {
     let stop = false
     const one = async (suite: Suite, slot: number, index: number): Promise<void> => {
       const name = relative(suite.project, suite.file).split(sep).join('/')
+      const pattern = suite.pattern ?? options.pattern
       const settings = {
         dirs: [suite.project],
         desktop: options.desktop === undefined ? null : TestRunner.#desktop(options.desktop, cwd),
@@ -200,7 +226,7 @@ export class TestRunner {
       const argv = [
         bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout),
         '--reporter=junit', '--reporter-outfile', report,
-        ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : []),
+        ...(pattern !== undefined ? ['--test-name-pattern', pattern] : []),
         ...(options.bail ? ['--bail'] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
@@ -212,7 +238,7 @@ export class TestRunner {
         ...process.env,
         ...E2e.env(settings),
         [E2e.MARKS]: marks,
-        ...(options.pattern !== undefined && { [E2e.PATTERN]: options.pattern }),
+        ...(pattern !== undefined && { [E2e.PATTERN]: pattern }),
       })
       const child = Runtime.spawn(argv, { cwd: suite.project, env, stdio: parallel ? 'pipe' : 'inherit' })
       const { stdout, stderr } = child.process
@@ -222,9 +248,9 @@ export class TestRunner {
         const text = (await output).join('')
         process.stdout.write(`${header}\n${text}${text.endsWith('\n') || !text ? '' : '\n'}`)
       }
-      if (options.pattern !== undefined && E2e.unselected(marks)) {
+      if (pattern !== undefined && E2e.unselected(marks)) {
         filtered.push(shown)
-        console.log(`acdev test: ${shown}: no test matches -t ${JSON.stringify(options.pattern)}, skipped`)
+        console.log(`acdev test: ${shown}: no test matches -t ${JSON.stringify(pattern)}, skipped`)
         return
       }
       ran++
@@ -233,6 +259,7 @@ export class TestRunner {
       else uncounted.push(shown)
       if (code !== 0) {
         failed.push(shown)
+        lost.get(suite.project)!.push(...LastRun.failedInReport(report).map((test) => ({ file: name, test })))
         if (existsSync(settings.results)) kept.add(settings.results)
         if (options.bail) stop = true
       }
@@ -245,6 +272,7 @@ export class TestRunner {
     }
     await Promise.all(Array.from({ length: workers }, (_, slot) => worker(slot)))
     for (const run of runs.values()) dropEmpty(run)
+    for (const [project, tests] of lost) LastRun.write(TestRunner.resultsOf(project), tests)
     if (!ran && filtered.length) {
       const files = `${filtered.length} file${filtered.length === 1 ? '' : 's'}`
       console.log(`acdev test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)

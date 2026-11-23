@@ -24,7 +24,7 @@ afterAll(cleanup)
 
 const runs = (project: string): string[] => {
   const root = join(project, '.acde/test-results')
-  return existsSync(root) ? readdirSync(root).sort().map((name) => join(root, name)) : []
+  return existsSync(root) ? readdirSync(root).filter((name) => name.endsWith('-run')).sort().map((name) => join(root, name)) : []
 }
 const lastRun = (project: string): string => runs(project).at(-1)!
 
@@ -127,6 +127,14 @@ describe('acdev test', () => {
     expect(readFileSync(join(left, 'screen.png')).subarray(1, 4).toString()).toBe('PNG')
     expect(existsSync(join(lastRun(s.project), 'e2e-tasks'))).toBe(false)
     expect(existsSync(join(s.project, '.acde/test/web'))).toBe(true)
+    const recorded = JSON.parse(readFileSync(join(s.project, '.acde/test-results/last-run.json'), 'utf8'))
+    expect(recorded).toEqual({ status: 'failed', failed: [{ file: 'e2e/broken.e2e.ts', test: 'looks for what is not there' }] })
+    const again = await acdeTest(s, ['--last-failed'])
+    expect(again.code).toBe(1)
+    expect(again.out).not.toContain(`acdev test: ${TASKS}\n`)
+    expect(again.out).toContain('acdev test: 1 test in 1 file: 0 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t)')
+    expect(again.started.length).toBe(run.started.length + 1)
+    expect((await acdeTest(s, ['--last-failed', '-t', 'fine'])).out).toContain('--last-failed picks the tests itself; leave out -t')
   }, 120_000)
 
   test('--headed, -t, a file, --bail; mistakes are explained', async () => {

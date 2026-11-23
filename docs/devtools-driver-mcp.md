@@ -199,6 +199,7 @@
   `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdev runtime 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),
   文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdev runtime 要截图、快照、console、network
   这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdev runtime 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
+  **只重跑失败项** (`--last-failed`, AC/acdev#115, 设计见总仓 `.scratch/acdev-debug-insight/issues/11-hot-swap.md`; `lastrun.ts`): 照 Playwright 的 `.last-run.json`. 每次运行结束, 每个工程在 `.acde/test-results/last-run.json` 写 `{status, failed: [{file, test}]}`: 失败的文件从它的 JUnit 报告里取有 `<failure>` 的 `<testcase>` 的 `name` (反转义 XML 实体), 全部通过时 `failed` 为空. 存档清理 (`archive.ts` `prune`) 不删这个文件. `--last-failed` 读它, 只留下有失败项的文件, 每个文件的 `--test-name-pattern` 是它那些测试名 (正则转义、去重、`(?:a|b)$` 锚在全名末尾, 所以 describe 前缀不影响); 没有可跑的就打 `acdev test: --last-failed: the last run in <目标> left no failed test; nothing to run` 并退出 0; 和 `-t` 一起给报错.
   `--workers N` 同时跑几个文件 (默认核数的一半, 最多 4; `--headed` / `--bail` 时 1): 每个 worker 构建进自己的目录 (`.acde/test`、`.acde/test-2` …,
   `ACDEV_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acdev dev 再跑
   (后来过了就打 flaky; 每次尝试各留一份: 第一次在 `<测试>/`, 第 n 次在 `<测试>.attempt-n/`), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,

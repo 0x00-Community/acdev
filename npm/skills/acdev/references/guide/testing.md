@@ -309,6 +309,8 @@ Several files run at once: half the machine's cores, at most 4, and one at a tim
 
 With `-t`, a file in which no test matches is skipped and does not count as failed (`acdev test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acdev test` prints `acdev test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
 
+Each run writes `.acde/test-results/last-run.json` (`{status, failed: [{file, test}]}`, as Playwright does). `acdev test --last-failed` runs only the tests listed there, each file with a pattern of its failed tests; when the last run left none, it says so and exits 0. It cannot be combined with `-t`.
+
 Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with one summary line:
 
 ```text
