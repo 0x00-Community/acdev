@@ -20,7 +20,7 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
     const { scripts, units, packages, off } = hardwareFiles(GUEST_HARDWARE)
     expect(Object.keys(scripts)).toEqual(['acdev-wifi', 'acdev-bt', 'acdev-btvirt-build', 'acdev-battery'])
     expect(Object.keys(units)).toEqual(['acdev-wifi.service', 'acdev-bt.service', 'acdev-battery.service'])
-    expect(packages).toEqual(['hostapd', 'iw', 'bluez', 'bluez-utils', 'upower'])
+    expect(packages).toEqual(['hostapd', 'iw', 'dnsmasq', 'bluez', 'bluez-utils', 'upower'])
     expect(off).toEqual([])
     expect(hardwareFiles([], ['bluetooth'])).toEqual({ scripts: {}, units: {}, packages: [], off: ['acdev-bt.service'] })
   })
@@ -40,7 +40,7 @@ describe('acdev vm provision: the simulated Wi-Fi, Bluetooth and battery', () =>
     const plain = stageProvision(NONE)
     const some = stageProvision(NONE, { on: ['wifi'], off: ['bluetooth', 'battery'] })
     try {
-      expect(readFileSync(join(plain, 'hw', 'packages'), 'utf8')).toBe('hostapd\niw\nbluez\nbluez-utils\nupower\n')
+      expect(readFileSync(join(plain, 'hw', 'packages'), 'utf8')).toBe('hostapd\niw\ndnsmasq\nbluez\nbluez-utils\nupower\n')
       expect(readFileSync(join(plain, 'hw', 'on'), 'utf8')).toBe('acdev-wifi.service\nacdev-bt.service\nacdev-battery.service\n')
       expect(readFileSync(join(plain, 'hw', 'off'), 'utf8')).toBe('')
       expect(readFileSync(join(some, 'hw', 'on'), 'utf8')).toBe('acdev-wifi.service\n')

@@ -469,18 +469,20 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
 一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1).
 起 hostapd 之前先写 `/run/NetworkManager/conf.d/90-acdev-wifi.conf` (`[keyfile] unmanaged-devices` 列出 `<口>` 和 `<口>_1`) 并让 NetworkManager 重读配置:
 只对第一个口 `managed no` 不够, hostapd 新建的 `<口>_1` 会被 NetworkManager 接管成普通网卡 (随机 MAC、类型 managed), `acdev-wpa2` 就没了,
-它在同一块无线电上扫描还会搅乱 `acdev-open` (batch21、batch22). `up` 最后核对 `<口>_1` 确实是 AP, 不是就报出 hostapd 日志:
+它在同一块无线电上扫描还会搅乱 `acdev-open` (batch21、batch22). NetworkManager 放手是异步的, 放手时会把口改回 station: 脚本等它报 unmanaged 再起 hostapd,
+起完核对两个口都是 AP, 有一个退回 station 就重起一次 hostapd, 还不行就报出 hostapd 日志 (batch22 重跑时 `<口>` 就这样掉回了 managed).
+两个口各配一个地址, dnsmasq 在上面发 DHCP (不给网关, 不抢有线的默认路由), 连上就能拿到地址:
 
-| SSID | 安全 | 密码 |
-| --- | --- | --- |
-| `acdev-open` | 开放 | 无 |
-| `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` |
+| SSID | 安全 | 密码 | 地址段 |
+| --- | --- | --- | --- |
+| `acdev-open` | 开放 | 无 | 192.168.240.0/24 |
+| `acdev-wpa2` | WPA2-PSK (CCMP) | `acdev-wifi-pass` | 192.168.241.0/24 |
 
 第二个口交给 NetworkManager (`managed yes`, 再 `rescan`), 设置和控制中心能扫到这两个网络, 连 `acdev-wpa2` 时页面要密码.
 NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager 只自动连已有的连接配置 (connection profile), 不为扫到的陌生网络
 新建配置, 而脚本只扫描、不建配置. 测试里在设置中连过一次后, NetworkManager 会存下配置 (默认 `autoconnect=yes`), 之后开机会自己连;
 要回到没连过的状态, `acdev vm run -- nmcli connection delete acdev-open` (或 `acdev-wpa2`).
-配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、删掉那份 NetworkManager 配置、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
+配置和日志在 `/run/acdev-wifi/`. `down` 停 dnsmasq 和 hostapd、删掉那份 NetworkManager 配置、卸掉模块. 包: `hostapd`、`iw`、`dnsmasq` (NetworkManager 镜像里已有).
 
 ### 蓝牙
 
