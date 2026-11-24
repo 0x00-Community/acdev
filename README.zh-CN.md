@@ -3,16 +3,19 @@
 
 # acdev
 
-### 用 web 写桌面应用, 跑在一个没有浏览器的桌面上.
-**acde 应用的开发工具: 一个命令行包办新建、运行、调试、测试和安装, 外加一个跨平台调试运行时, 用自己的 V8 和自己的渲染器.**
+### ⚡ 用 web 写桌面应用. 🚫🌐 跑在一个零浏览器的桌面上. 🤯
+**🛠️ acde 应用的全家桶式、agent 原生开发工具: ✨ 新建 · 🔁 运行 · 🔬 调试 · ✅ 测试 · 💾 安装, 一个命令行全包, 背后是 🖥️ 跨平台调试运行时, 🧬 自己的 V8 + 🎨 自己的 GPU 渲染器.**
 
 [![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue?style=for-the-badge)](LICENSE)
 [![Rust](https://img.shields.io/badge/Runtime-Rust-orange?style=for-the-badge&logo=rust)](#-怎么搭起来的)
-[![TypeScript](https://img.shields.io/badge/CLI-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#-命令)
+[![TypeScript](https://img.shields.io/badge/CLI-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#-命令-全套武器库)
 
 [![Platforms](https://img.shields.io/badge/Linux%20%C2%B7%20macOS%20%C2%B7%20Windows-runtime-262D3A?style=flat-square)](#-怎么搭起来的)
 [![MCP](https://img.shields.io/badge/MCP-built%20in-8A2BE2?style=flat-square)](#-为编码-agent-而做)
-[![Frameworks](https://img.shields.io/badge/React%20%C2%B7%20Vue%20%C2%B7%20Svelte%20%C2%B7%20Next%20%C2%B7%20Astro-templates-F7DF1E?style=flat-square)](#-快速上手)
+[![Zero Chromium](https://img.shields.io/badge/Chromium-zero-FF4136?style=flat-square&logo=googlechrome&logoColor=white)](#-凭什么降维打击)
+[![Agent native](https://img.shields.io/badge/Agent-native-00C2A8?style=flat-square&logo=anthropic&logoColor=white)](#-为编码-agent-而做)
+[![Hot reload](https://img.shields.io/badge/Hot%20reload-every%20save-FF851B?style=flat-square)](#-30-秒从零到桌面)
+[![Frameworks](https://img.shields.io/badge/React%20%C2%B7%20Vue%20%C2%B7%20Svelte%20%C2%B7%20Next%20%C2%B7%20Astro-templates-F7DF1E?style=flat-square)](#-30-秒从零到桌面)
 
 [🇺🇸 English](README.md) · **🇨🇳 简体中文**
 
@@ -20,7 +23,7 @@
 
 ---
 
-## ⚡ acdev 是什么
+## ⚡🧠 acdev 是什么
 
 acdev 之于 acde 应用, 就像 wrangler 之于 Cloudflare Workers. **acde 应用**就是带一份清单的 web 应用 (HTML、CSS、JavaScript,
 框架随你挑), 在 Dopame OS 上作为真正的桌面应用运行. acdev 提供:
@@ -32,7 +35,7 @@ acdev 之于 acde 应用, 就像 wrangler 之于 Cloudflare Workers. **acde 应�
 | 🧪 **`acdev vm`** | 用 QEMU/KVM 起一台 Dopame OS 客户机, 在真系统上试你的应用 |
 | 🤖 **`acdev mcp`** | 经 MCP 把运行中的应用交给你的编码 agent |
 
-### 🌊 一条龙
+### 🌊🏄 一条龙: 从零到上线
 
 | 步骤 | 🎯 你运行 | ✨ 你得到 |
 | :---: | --- | --- |
@@ -42,17 +45,17 @@ acdev 之于 acde 应用, 就像 wrangler 之于 Cloudflare Workers. **acde 应�
 | 4️⃣ | `acdev test` | 端到端测试, 每个测试自己一个隔离的运行时 |
 | 5️⃣ | `acdev install` | 应用装进本机桌面, 和用户看到的一模一样 |
 
-## 🔥 有什么不一样
+## 💥🔥 凭什么降维打击
 
 | | |
 | --- | --- |
-| 🌐 **web 原样不动** | DOM、`window`、`fetch`、`localStorage`、事件、Web Audio、WebGPU 都照标准: 行为、签名、事件、错误. 还没做到的就是缺口, 绝不拿长得像的私有版本顶替. 不给标准对象加私有方法, 不加额外的全局: 只有 `window` 和 `globalThis`. |
-| 🔌 **系统能力只有一个入口** | 系统能力来自 `acde:` 内置模块, 照 `node:fs` 的写法导入 (`import { fs } from 'acde:fs'`). 清单里的 capabilities 决定应用能导入哪些. |
-| 🚀 **进程内注入, 不是 RPC** | `acde:` 模块直接注入页面所在的 V8 isolate, 像 workerd 注入 binding, 调用直接进 Rust 原生实现. `fs`、`terminal`、`network`、`office`、`picker` 已经是这样, 其余的正在迁过来. |
-| 🧱 **没有 Chromium** | 页面由自研渲染器 (Blitz 的 fork) 排版和绘制, 页面 JavaScript 跑在运行时自己的 V8 里. 底下没有浏览器外壳. |
-| 🎮 **GPU 优先** | 调试运行时每个平台只用一个 GPU 后端: Windows 用 DX12, macOS 用 Metal, Linux 用 Vulkan. |
+| 🌐🛡️ **100% 纯正 web, 零魔改** | DOM、`window`、`fetch`、`localStorage`、事件、Web Audio、WebGPU 都照标准: 行为、签名、事件、错误. 还没做到的就是缺口, 绝不拿长得像的私有版本顶替. 不给标准对象加私有方法, 不加额外的全局: 只有 `window` 和 `globalThis`. |
+| 🔌🚪 **系统能力只有一个入口, 零后门** | 系统能力来自 `acde:` 内置模块, 照 `node:fs` 的写法导入 (`import { fs } from 'acde:fs'`). 清单里的 capabilities 决定应用能导入哪些. |
+| 🚀⚡ **零跳转原生调用** | `acde:` 模块直接注入页面所在的 V8 isolate, 像 workerd 注入 binding, 调用直接进 Rust 原生实现. `fs`、`terminal`、`network`、`office`、`picker` 已经是这样, 其余的正在迁过来. |
+| 🧱🚫 **零 Chromium. 零 Electron.** | 页面由自研渲染器 (Blitz 的 fork) 排版和绘制, 页面 JavaScript 跑在运行时自己的 V8 里. 底下没有浏览器外壳. |
+| 🎮🔥 **GPU 原生渲染** | 调试运行时每个平台只用一个 GPU 后端: Windows 用 DX12, macOS 用 Metal, Linux 用 Vulkan. |
 
-## 🚀 快速上手
+## 🚀⏱️ 30 秒从零到桌面
 
 ```sh
 # 📦 安装 acdev (Linux / macOS)
@@ -80,7 +83,7 @@ acdev install
 
 🏃 命令行跑在你已有的 bun (≥ 1.4) 或 Node.js (≥ 22.3) 上.
 
-### 📋 环境要求
+### 📋✅ 环境要求
 
 | | 用在 | 版本 |
 | --- | --- | --- |
@@ -89,7 +92,7 @@ acdev install
 | 🎮 GPU | `acdev runtime` | DX12 · Metal · Vulkan |
 | 🐧 Linux + KVM + QEMU | `acdev vm` | x86_64 宿主 |
 
-## 🧭 命令
+## 🧭🎛️ 命令: 全套武器库
 
 | 命令 | 做什么 |
 | --- | --- |
@@ -108,7 +111,7 @@ acdev install
 
 💡 `acdev --help` 列出全部命令; `acdev help <命令>` 显示选项、默认值和例子.
 
-## 🤖 为编码 agent 而做
+## 🤖🦾 为编码 agent 而做
 
 🦾 acdev 让 agent 能从头到尾开发一个应用, 而不只是改文件:
 
@@ -116,7 +119,7 @@ acdev install
 - 💻 同样的工具也都是普通命令 (`acdev eval`、`acdev shot`、`acdev query`、`acdev act`、`acdev console` …), 有个 shell 就够
 - 🧠 `acdev skills install` 把 acdev 的 skill 放到 agent 会去找的地方, agent 就懂这套流程和 `acde:` 模块
 
-## 🧱 怎么搭起来的
+## 🧱🏗️ 怎么搭起来的
 
 | 部分 | 路径 | 是什么 |
 | --- | --- | --- |
@@ -129,7 +132,7 @@ acdev install
 
 📚 运行时本体 (`acde:` 模块、渲染器、V8 嵌入) 是库 [libacde](https://github.com/0x00-Community/libacde), acdev 以 path 依赖链它.
 
-### 🔧 从源码构建
+### 🔧🦀 从源码构建
 
 - 📂 把 libacde 检出在本仓库旁边 (`../libacde`).
 - 🦀 `cargo build` 构建 `acdev runtime`; `cd npm && bun install && bun run acdev -- --help` 从源码跑命令行.
@@ -138,13 +141,13 @@ acdev install
 🗺️ 接下来的计划 (Windows WHPX 和 macOS Hypervisor.framework 客户机、virtio-fs、vsock 上的设备守护进程) 见
 [docs/roadmap.md](docs/roadmap.md) 和 [docs/vm.md](docs/vm.md).
 
-## 📄 许可证
+## 📄⚖️ 许可证
 
 ⚖️ [AGPL-3.0-only](LICENSE).
 
 <div align="center">
 
-**🖥️ 你熟悉的 web, 做成桌面应用.**
+**🖥️🔥 你熟悉的 web. 🚀 做成桌面应用. 💎 不要浏览器.**
 
 [⬆️ 回到顶部](#top) · [🇺🇸 English](README.md)
 

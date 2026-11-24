@@ -3,16 +3,19 @@
 
 # acdev
 
-### Build desktop apps with the web. Run them on a desktop with no browser inside.
-**The developer toolkit for acde apps: one CLI to create, run, debug, test and install, plus a cross-platform debug runtime built on its own V8 and its own renderer.**
+### ⚡ Build desktop apps with the web. 🚫🌐 Ship them to a desktop with ZERO browser inside. 🤯
+**🛠️ The all-in-one, agent-native developer toolkit for acde apps: ✨ create · 🔁 run · 🔬 debug · ✅ test · 💾 install from ONE CLI, powered by a 🖥️ cross-platform debug runtime with 🧬 its own V8 and 🎨 its own GPU renderer.**
 
 [![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue?style=for-the-badge)](LICENSE)
 [![Rust](https://img.shields.io/badge/Runtime-Rust-orange?style=for-the-badge&logo=rust)](#-how-its-built)
-[![TypeScript](https://img.shields.io/badge/CLI-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#-commands)
+[![TypeScript](https://img.shields.io/badge/CLI-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#-commands-the-full-arsenal)
 
 [![Platforms](https://img.shields.io/badge/Linux%20%C2%B7%20macOS%20%C2%B7%20Windows-runtime-262D3A?style=flat-square)](#-how-its-built)
 [![MCP](https://img.shields.io/badge/MCP-built%20in-8A2BE2?style=flat-square)](#-made-for-coding-agents)
-[![Frameworks](https://img.shields.io/badge/React%20%C2%B7%20Vue%20%C2%B7%20Svelte%20%C2%B7%20Next%20%C2%B7%20Astro-templates-F7DF1E?style=flat-square)](#-quick-start)
+[![Zero Chromium](https://img.shields.io/badge/Chromium-zero-FF4136?style=flat-square&logo=googlechrome&logoColor=white)](#-why-its-next-level)
+[![Agent native](https://img.shields.io/badge/Agent-native-00C2A8?style=flat-square&logo=anthropic&logoColor=white)](#-made-for-coding-agents)
+[![Hot reload](https://img.shields.io/badge/Hot%20reload-every%20save-FF851B?style=flat-square)](#-zero-to-desktop-in-30-seconds)
+[![Frameworks](https://img.shields.io/badge/React%20%C2%B7%20Vue%20%C2%B7%20Svelte%20%C2%B7%20Next%20%C2%B7%20Astro-templates-F7DF1E?style=flat-square)](#-zero-to-desktop-in-30-seconds)
 
 **🇺🇸 English** · [🇨🇳 简体中文](README.zh-CN.md)
 
@@ -20,7 +23,7 @@
 
 ---
 
-## ⚡ What is acdev
+## ⚡🧠 What is acdev
 
 acdev is to acde apps what wrangler is to Cloudflare Workers. An **acde app** is a web app (HTML, CSS, JavaScript, any
 framework you like) packaged with a manifest, and it runs as a real desktop app on Dopame OS. acdev gives you:
@@ -32,7 +35,7 @@ framework you like) packaged with a manifest, and it runs as a real desktop app 
 | 🧪 **`acdev vm`** | Boots a Dopame OS guest under QEMU/KVM, so you try your app on the real system |
 | 🤖 **`acdev mcp`** | Hands the running app to your coding agent over MCP |
 
-### 🌊 The flow
+### 🌊🏄 The flow: zero to shipped
 
 | Step | 🎯 You run | ✨ You get |
 | :---: | --- | --- |
@@ -42,17 +45,17 @@ framework you like) packaged with a manifest, and it runs as a real desktop app 
 | 4️⃣ | `acdev test` | End-to-end tests, each one in its own isolated runtime |
 | 5️⃣ | `acdev install` | The app on this machine's desktop, exactly as users will see it |
 
-## 🔥 Why it's different
+## 💥🔥 Why it's next-level
 
 | | |
 | --- | --- |
-| 🌐 **The web, unmodified** | DOM, `window`, `fetch`, `localStorage`, events, Web Audio and WebGPU follow the standards: behavior, signatures, events, errors. Whatever isn't there yet is a gap, never a look-alike. No private methods on standard objects, no extra globals: only `window` and `globalThis`. |
-| 🔌 **One door to the system** | System capabilities come from `acde:` built-in modules, imported like `node:fs` (`import { fs } from 'acde:fs'`). The manifest's capabilities decide which ones an app may import. |
-| 🚀 **In-process, not RPC** | `acde:` modules are injected into the page's own V8 isolate, the way workerd injects bindings, so a call goes straight into native Rust. `fs`, `terminal`, `network`, `office` and `picker` already work this way; the rest are moving over. |
-| 🧱 **No Chromium** | Pages are laid out and painted by a renderer of its own (a fork of Blitz), and page JavaScript runs in the runtime's own V8. There is no browser shell underneath. |
-| 🎮 **GPU first** | The debug runtime draws with one GPU backend per platform: DX12 on Windows, Metal on macOS, Vulkan on Linux. |
+| 🌐🛡️ **100% pure web. Zero hacks.** | DOM, `window`, `fetch`, `localStorage`, events, Web Audio and WebGPU follow the standards: behavior, signatures, events, errors. Whatever isn't there yet is a gap, never a look-alike. No private methods on standard objects, no extra globals: only `window` and `globalThis`. |
+| 🔌🚪 **One door to the system. Zero backdoors.** | System capabilities come from `acde:` built-in modules, imported like `node:fs` (`import { fs } from 'acde:fs'`). The manifest's capabilities decide which ones an app may import. |
+| 🚀⚡ **Zero-hop native calls** | `acde:` modules are injected into the page's own V8 isolate, the way workerd injects bindings, so a call goes straight into native Rust. `fs`, `terminal`, `network`, `office` and `picker` already work this way; the rest are moving over. |
+| 🧱🚫 **Zero Chromium. Zero Electron.** | Pages are laid out and painted by a renderer of its own (a fork of Blitz), and page JavaScript runs in the runtime's own V8. There is no browser shell underneath. |
+| 🎮🔥 **GPU-native rendering** | The debug runtime draws with one GPU backend per platform: DX12 on Windows, Metal on macOS, Vulkan on Linux. |
 
-## 🚀 Quick start
+## 🚀⏱️ Zero to desktop in 30 seconds
 
 ```sh
 # 📦 install acdev (Linux / macOS)
@@ -80,7 +83,7 @@ item; `acdev doctor --fix` fixes what it can.
 
 🏃 The CLI runs on the bun (≥ 1.4) or Node.js (≥ 22.3) you already have.
 
-### 📋 Requirements
+### 📋✅ Requirements
 
 | | Needed for | Version |
 | --- | --- | --- |
@@ -89,7 +92,7 @@ item; `acdev doctor --fix` fixes what it can.
 | 🎮 GPU | `acdev runtime` | DX12 · Metal · Vulkan |
 | 🐧 Linux + KVM + QEMU | `acdev vm` | x86_64 host |
 
-## 🧭 Commands
+## 🧭🎛️ Commands: the full arsenal
 
 | Command | What it does |
 | --- | --- |
@@ -108,7 +111,7 @@ item; `acdev doctor --fix` fixes what it can.
 
 💡 `acdev --help` lists them all; `acdev help <command>` shows the options, their defaults and examples.
 
-## 🤖 Made for coding agents
+## 🤖🦾 Made for coding agents
 
 🦾 acdev is built so an agent can develop an app end to end, not just edit files:
 
@@ -116,7 +119,7 @@ item; `acdev doctor --fix` fixes what it can.
 - 💻 the same tools are plain commands too (`acdev eval`, `acdev shot`, `acdev query`, `acdev act`, `acdev console` …), so a shell is enough
 - 🧠 `acdev skills install` puts the acdev skill where your agents look for it, so they know the workflow and the `acde:` modules
 
-## 🧱 How it's built
+## 🧱🏗️ How it's built
 
 | Part | Path | What it is |
 | --- | --- | --- |
@@ -130,7 +133,7 @@ item; `acdev doctor --fix` fixes what it can.
 📚 The runtime itself (the `acde:` modules, the renderer and the V8 embedding) is the library
 [libacde](https://github.com/0x00-Community/libacde), which acdev links as a path dependency.
 
-### 🔧 Building from source
+### 🔧🦀 Building from source
 
 - 📂 Check out libacde beside this repository (`../libacde`).
 - 🦀 `cargo build` builds `acdev runtime`; `cd npm && bun install && bun run acdev -- --help` runs the CLI from source.
@@ -140,13 +143,13 @@ item; `acdev doctor --fix` fixes what it can.
 🗺️ The plan from here (Windows WHPX and macOS Hypervisor.framework guests, virtio-fs, a device daemon over vsock) is in
 [docs/roadmap.md](docs/roadmap.md) and [docs/vm.md](docs/vm.md).
 
-## 📄 License
+## 📄⚖️ License
 
 ⚖️ [AGPL-3.0-only](LICENSE).
 
 <div align="center">
 
-**🖥️ The web you know, as a desktop app.**
+**🖥️🔥 The web you know. 🚀 As a desktop app. 💎 No browser required.**
 
 [⬆️ Back to top](#top) · [🇨🇳 简体中文](README.zh-CN.md)
 
