@@ -465,8 +465,11 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
 
 ### Wi-Fi
 
-`acdev-wifi up|down`. `up`: `modprobe mac80211_hwsim radios=2`, 第一个口交给 hostapd (先 `nmcli device set <口> managed no`),
-一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1):
+`acdev-wifi up|down`. `up`: `modprobe mac80211_hwsim radios=2`, 第一个口交给 hostapd,
+一个 hostapd 在 6 信道起两个接入点 (第二个用 `bss=<口>_1`, BSSID 是第一个口的 MAC 末字节加 1).
+起 hostapd 之前先写 `/run/NetworkManager/conf.d/90-acdev-wifi.conf` (`[keyfile] unmanaged-devices` 列出 `<口>` 和 `<口>_1`) 并让 NetworkManager 重读配置:
+只对第一个口 `managed no` 不够, hostapd 新建的 `<口>_1` 会被 NetworkManager 接管成普通网卡 (随机 MAC、类型 managed), `acdev-wpa2` 就没了,
+它在同一块无线电上扫描还会搅乱 `acdev-open` (batch21、batch22). `up` 最后核对 `<口>_1` 确实是 AP, 不是就报出 hostapd 日志:
 
 | SSID | 安全 | 密码 |
 | --- | --- | --- |
@@ -477,7 +480,7 @@ QEMU 没有无线网卡、蓝牙和电池, 这三样在客户机里用内核的�
 NetworkManager 不会自己连上它们, 包括开放的那个: NetworkManager 只自动连已有的连接配置 (connection profile), 不为扫到的陌生网络
 新建配置, 而脚本只扫描、不建配置. 测试里在设置中连过一次后, NetworkManager 会存下配置 (默认 `autoconnect=yes`), 之后开机会自己连;
 要回到没连过的状态, `acdev vm run -- nmcli connection delete acdev-open` (或 `acdev-wpa2`).
-配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
+配置和日志在 `/run/acdev-wifi/`. `down` 停 hostapd、删掉那份 NetworkManager 配置、卸掉模块. 包: `hostapd`、`iw` (NetworkManager 镜像里已有).
 
 ### 蓝牙
 
