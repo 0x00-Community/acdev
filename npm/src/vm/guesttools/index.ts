@@ -128,7 +128,7 @@ export function pkginfo({ version, arch, builddate }: ToolsBuild, size: number):
     'packager = acdev',
     `size = ${size}`,
     `arch = ${arch}`,
-    'license = LicenseRef-acdev',
+    'license = AGPL-3.0-only',
     '',
   ].join('\n')
 }

@@ -106,7 +106,7 @@ jobs:
             mkdir -p "$dir.stage" "$dir/libexec"
             tar -xzf "$rel/acdev-$V.tar.gz" -C "$dir.stage" && cp -a "$dir.stage/acdev-$V/." "$dir/" && rm -rf "$dir.stage"
             for f in "$rel/acdevrt-$t".tar.* "$rel/acdevtools-$t".tar.* "$rel/acdev-guest-$V.tar.gz"; do tar -xf "$f" -C "$dir/libexec"; done
-            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime, the acdev CLI, the guest daemons and acdevtool`, license: "UNLICENSED", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
+            node -e 'const [name,v,os,cpu]=process.argv.slice(1); process.stdout.write(JSON.stringify({name, version: v, description: `acdev for ${os}-${cpu}: the acdev runtime, the acdev CLI, the guest daemons and acdevtool`, license: "AGPL-3.0-only", os: [os], cpu: [cpu], preferUnplugged: true}, null, 2) + "\n")' \
               "$name" "$V" "$os" "$cpu" > "$dir/package.json"
             deps="$deps\"$name\": \"$V\","
           done
@@ -114,7 +114,7 @@ jobs:
           printf '%s\n' '#!/usr/bin/env node' \
             'import(`@dopame/acdev-${process.platform}-${process.arch}/lib/acdev/launcher.mjs`).then(async (m) => process.exit(await m.run(process.argv.slice(2))), (e) => { process.stderr.write(`acdev: no acdev for ${process.platform}-${process.arch} (${e.message})\n`); process.exit(1) })' \
             > npm/acdev/acdev.mjs
-          node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "UNLICENSED", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
+          node -e 'const [v,deps]=process.argv.slice(1); process.stdout.write(JSON.stringify({name: "@dopame/acdev", version: v, description: "acdev: build, run and debug acde apps", license: "AGPL-3.0-only", type: "module", bin: {acde: "acdev.mjs"}, engines: {node: ">=22.3"}, optionalDependencies: JSON.parse(`{${deps.replace(/,$/, "")}}`)}, null, 2) + "\n")' \
             "$V" "$deps" > npm/acdev/package.json
           du -sh npm/*
           printf '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n' > "$RUNNER_TEMP/npmrc"

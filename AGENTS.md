@@ -9,7 +9,7 @@ acdev (原 acdev runtime, 2026-11-17 并入 acdert 后改名) 是 acdev (Dopame 
 - 仓库根 `src/` 和 `crates/hostwin`: 跨平台调试运行时 `acdev runtime` (宿主窗口); 朝模拟器演进.
 - `npm/`: 开发者命令行 `acdev` (TypeScript, 原 AC/acde-cli, 连历史并入), 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 上.
 
-闭源. 说明都在本文件和 `docs/` 里: 没有 README, 子目录不放 AGENTS.md. 按下面的文件路由选读.
+开源, 许可证 AGPL-3.0-only (`LICENSE`). 给外部开发者的介绍是 `README.md` / `README.zh-CN.md`; 开发说明都在本文件和 `docs/` 里, 子目录不放 AGENTS.md. 按下面的文件路由选读.
 
 > **第一原则: 不许在任何层次上魔改 web 接口.**
 >
@@ -35,8 +35,8 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
 
 ## 代码约定
 
-- 闭源 (用户定 2026-11-08): 自己的代码是专有的 (`npm/LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`.
-  Rust 包 `publish = false`; 仓库和 release 不公开. npm 上发的包见 `docs/release-distribution.md` (用户定 2026-11-14: 二进制闭源, JS 可以公开一些).
+- 许可证 AGPL-3.0-only (用户定 2026-11-24, 1.0.0 起公开): 仓库根 `LICENSE` 和 `npm/LICENSE` 是同一份 AGPL-3.0 全文, Cargo.toml 和 package.json 都写
+  `license = "AGPL-3.0-only"` / `"license": "AGPL-3.0-only"`. Rust 包 `publish = false`. npm 上发的包见 `docs/release-distribution.md`.
 - Rust 和 TypeScript 代码不写注释 (`//`、`/* */`、`///`、JSDoc 都不写), 要说明的写进 `docs/` 里对应的文件. 例外: 版权和许可证行、
   工具指令 (`/// <reference>`, `@ts-expect-error`). derive 要读的文字写成属性.
 - 命令行的日志和输出只用英文; 同一份命令行代码在 bun 和 Node 上都跑, `Bun.*`、`bun:*`、宏只能出现在 bun 专属的路径上 (见 `docs/cli-overview.md` 的「bun 和 Node」).
@@ -63,8 +63,8 @@ SDK `@acde/api` (只有类型声明) 和契约级别 `api-level` 在 libacde 的
   不发布预演和正式发版, 失败就回本地修, 不连续重跑. 工作流是 `.github/workflows/` 的四个: `build.yaml` (推 main 就自动跑, 预演, 接着
   `test.yaml`)、`test.yaml`、`tag.yaml` (发版的唯一手动入口)、`release.yaml` (只被 `tag.yaml` 调, 传 R2), 见 `docs/release-distribution.md`.
   手动触发 CI (手动运行 `build.yaml` / `test.yaml`、跑 `tag.yaml` 发版) 只由测试 Agent 或主会话做, 开发 Agent 只改代码.
-- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdev.git`, 网页 `http://gitea.dopamine/AC/acdev`), 只推这里 (用户定 2026-11-14:
-  GitHub 不再更新).
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdev.git`, 网页 `http://gitea.dopamine/AC/acdev`), 它是主仓库; main 和发版 tag
+  同步到 GitHub [0x00-Community/acdev](https://github.com/0x00-Community/acdev) (用户定 2026-11-24).
 - 远端只有 `main` (加发版和存档的 tag), 不推别的分支. 本地需要时在总仓 `.worktrees/acdev-<后缀>` 开工作树和本地分支 `Akira/<后缀>` (基于
   `origin/main`), 做完普通合并回 `main` 再推 `origin main` (用户定 2026-11-17). 不开工作树时几个会话共用工作区和 git index: 只改自己负责的路径,
   别人没提交的文件先等.
