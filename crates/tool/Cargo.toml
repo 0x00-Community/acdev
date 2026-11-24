@@ -2,6 +2,7 @@
 name = "acdevtool"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-only"
 description = "acdev's host helper: relay (stdin and stdout to a Unix socket, for Windows where Node cannot reach one) and view (the window on a QEMU guest's D-Bus display)"
 publish = false
 

@@ -2,7 +2,7 @@
   "name": "create-acde",
   "version": "0.1.0",
   "description": "bun create acde / npm create acde: make a Dopame OS app or desktop with acdev new",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "homepage": "https://docs.dopame.ai/start/first-app/",
   "engines": {

@@ -2,6 +2,7 @@
 name = "acdevd"
 version = "0.5.0"
 edition = "2024"
+license = "AGPL-3.0-only"
 description = "The guest device daemon of the acdev emulator, and the host's vsock relay to it: only std"
 publish = false
 

@@ -2,6 +2,7 @@
 name = "acdev-agent"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-only"
 description = "acdev's agent in the guest: the dev socket's line protocol over the session manager's dev hooks and a dev-level acompositor connection"
 publish = false
 

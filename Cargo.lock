@@ -24,7 +24,7 @@ version = "0.1.0"
 
 [[package]]
 name = "acde-hostwin"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "arboard",
  "block2 0.6.2",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "acdev"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "acde-hostwin",
  "acde-scene",
