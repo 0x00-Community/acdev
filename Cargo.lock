@@ -19,6 +19,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
+name = "acde-dirs"
+version = "0.1.0"
+
+[[package]]
 name = "acde-hostwin"
 version = "0.1.0"
 dependencies = [
@@ -64,9 +68,9 @@ dependencies = [
 
 [[package]]
 name = "acss"
-version = "0.0.15"
+version = "0.0.16"
 source = "sparse+http://gitea.dopamine/api/packages/AC/cargo/"
-checksum = "575299702d281ba043e1d36d1ccd4f2a2020d432923232f74b766a4da228ce19"
+checksum = "242444f35e30a3f67e8b7b73036ff1b2f6e2a547850ff2d03a2c171c04ac17bb"
 dependencies = [
  "cssparser",
  "log",
@@ -2961,6 +2965,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 name = "libacde"
 version = "0.1.0"
 dependencies = [
+ "acde-dirs",
  "acde-scene",
  "aes",
  "ash",
