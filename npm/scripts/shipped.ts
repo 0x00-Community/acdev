@@ -10,6 +10,7 @@ const FORBIDDEN_SEGMENTS = new Set([
 const FORBIDDEN_NAME = /\.(map|pdb|dwp|debug|dbg|log)$/i
 const DECLARATION = /\.d\.[cm]?ts$/
 const TYPESCRIPT = /\.[cm]?tsx?$/
+const SHIPPED_TYPESCRIPT = ['lib/acdev/templates/', 'lib/acde-api/vendor/']
 const CONTENT_RULES: (readonly [RegExp, string])[] = [
   [/sourcesContent/, 'sourcesContent'],
   [/sourceMappingURL/, 'source map reference'],
@@ -58,7 +59,7 @@ export function shipLeaks(root: string): string[] {
       found.push(`${path}: test, fixture or log directory`)
     }
     if (FORBIDDEN_NAME.test(path)) found.push(`${path}: source map, symbol or log file`)
-    if (TYPESCRIPT.test(path) && !DECLARATION.test(path) && !path.startsWith('lib/acdev/templates/')) {
+    if (TYPESCRIPT.test(path) && !DECLARATION.test(path) && !SHIPPED_TYPESCRIPT.some((dir) => path.startsWith(dir))) {
       found.push(`${path}: TypeScript source`)
     }
     const text = readFileSync(entry.file).toString('latin1')

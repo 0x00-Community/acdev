@@ -168,6 +168,12 @@ describe('release guard', () => {
     expect(made.code, made.out).toBe(0)
   }, 180_000)
 
+  test("passes the TypeScript sources the SDK's declarations import from its vendor folder", () => {
+    const path = 'lib/acde-api/vendor/plugin-api/src/tools.ts'
+    const made = guard(release([{ where: 'archive', triple: TRIPLES[0], path, text: 'export type Caller = string' }]))
+    expect(made.code, made.out).toBe(0)
+  }, 180_000)
+
   test('a stray file beside the allowed ones is refused', () => {
     const made = guard(release([{ where: 'release', path: 'latest.bak', text: '0.0.4' }]))
     expect(made.code).toBe(1)
